@@ -1,0 +1,23 @@
+# Normalización de fin de línea.
+# Sin esto, un clon en Windows convierte a CRLF y los scripts .sh y los
+# Dockerfile dejan de funcionar dentro de los contenedores Linux.
+* text=auto eol=lf
+
+# Archivos que SIEMPRE deben quedar en LF, aunque alguien fuerce autocrlf.
+*.sh        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+Dockerfile  text eol=lf
+*.conf      text eol=lf
+
+# Binarios: Git no debe tocarlos.
+*.png   binary
+*.jpg   binary
+*.webp  binary
+*.woff  binary
+*.woff2 binary
+*.pdf   binary
+*.ico   binary
+
+# El lockfile se versiona pero no ensucia las diferencias del pull request.
+pnpm-lock.yaml linguist-generated=true -diff

@@ -1,0 +1,85 @@
+# =============================================================================
+# Pull request validation pipeline.
+#
+# This is the enforcement point for the Definition of Done (CLAUDE.md section
+# "Definition of Done"). A pull request that does not pass this pipeline is not
+# mergeable; branch policies must mark it as required.
+#
+# Scope: verification only. It never publishes artifacts and never deploys.
+# =============================================================================
+
+name: 'pr-$(Build.SourceBranchName)-$(Build.BuildId)'
+
+trigger: none
+
+pr:
+  branches:
+    include:
+      - main
+      - develop
+      - release/*
+
+variables:
+  - name: NODE_VERSION
+    value: '22.x'
+  - name: PNPM_VERSION
+    value: '9.12.0'
+  - name: CI
+    value: 'true'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  - stage: verify
+    displayName: 'Verify'
+    jobs:
+      - job: quality_gate
+        displayName: 'Quality gate (lint, types, tests, build)'
+        timeoutInMinutes: 30
+        steps:
+          - checkout: self
+            fetchDepth: 0
+
+          - template: templates/setup-node.yml
+            parameters:
+              nodeVersion: $(NODE_VERSION)
+              pnpmVersion: $(PNPM_VERSION)
+
+          - template: templates/verify.yml
+            parameters:
+              runTests: true
+
+      - job: security
+        displayName: 'Security checks'
+        timeoutInMinutes: 20
+        steps:
+          - checkout: self
+
+          - template: templates/setup-node.yml
+            parameters:
+              nodeVersion: $(NODE_VERSION)
+              pnpmVersion: $(PNPM_VERSION)
+
+          - template: templates/security-scan.yml
+            parameters:
+              failOnAudit: true
+
+      - job: container_build
+        displayName: 'Container build (no push)'
+        dependsOn: quality_gate
+        timeoutInMinutes: 30
+        steps:
+          - checkout: self
+
+          - template: templates/docker-build.yml
+            parameters:
+              imageName: 'app-backend'
+              dockerfilePath: 'backend/Dockerfile'
+              pushImage: false
+
+          - template: templates/docker-build.yml
+            parameters:
+              imageName: 'app-frontend'
+              dockerfilePath: 'frontend/Dockerfile'
+              pushImage: false

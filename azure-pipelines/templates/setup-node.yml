@@ -1,0 +1,49 @@
+# =============================================================================
+# Template: Node.js + pnpm toolchain setup.
+#
+# Centralises the toolchain so that every pipeline installs the same versions.
+# Node and pnpm versions must match .nvmrc and package.json#packageManager.
+# =============================================================================
+
+parameters:
+  - name: nodeVersion
+    type: string
+    default: '22.x'
+  - name: pnpmVersion
+    type: string
+    default: '9.12.0'
+  - name: workingDirectory
+    type: string
+    default: '$(Build.SourcesDirectory)'
+
+steps:
+  - task: NodeTool@0
+    displayName: 'Use Node.js ${{ parameters.nodeVersion }}'
+    inputs:
+      versionSpec: ${{ parameters.nodeVersion }}
+
+  - script: |
+      set -euo pipefail
+      corepack enable
+      corepack prepare pnpm@${{ parameters.pnpmVersion }} --activate
+      pnpm --version
+    displayName: 'Enable pnpm ${{ parameters.pnpmVersion }}'
+    workingDirectory: ${{ parameters.workingDirectory }}
+
+  - script: echo "##vso[task.setvariable variable=PNPM_STORE_PATH]$(pnpm store path --silent)"
+    displayName: 'Resolve pnpm store path'
+    workingDirectory: ${{ parameters.workingDirectory }}
+
+  - task: Cache@2
+    displayName: 'Cache pnpm store'
+    inputs:
+      key: 'pnpm | "$(Agent.OS)" | pnpm-lock.yaml'
+      restoreKeys: |
+        pnpm | "$(Agent.OS)"
+      path: $(PNPM_STORE_PATH)
+
+  - script: |
+      set -euo pipefail
+      pnpm install --frozen-lockfile
+    displayName: 'Install dependencies'
+    workingDirectory: ${{ parameters.workingDirectory }}

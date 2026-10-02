@@ -1,0 +1,729 @@
+// =============================================================================
+// Esquema de Prisma — núcleo de gestión de la plantilla.
+//
+// Convenciones obligatorias (CODING-STANDARDS.md §10):
+//   - tablas: snake_case plural            -> @@map("users")
+//   - columnas: snake_case                 -> @map("created_at")
+//   - fechas: timestamptz                  -> @db.Timestamptz(6)
+//   - dinero: NUMERIC(19,4)                -> Decimal @db.Decimal(19, 4)
+//   - identificadores públicos: UUID       -> String @db.Uuid
+//
+// ALCANCE: este esquema contiene la GESTIÓN transversal que cualquier proyecto
+// necesita el primer día — identidad, autorización, opciones de menú y sus
+// asignaciones, organización, auditoría, parámetros, notificaciones, archivos,
+// folios y aprobaciones. No contiene ninguna entidad de negocio: eso lo aporta
+// cada proyecto (regla "sin funcionalidad de negocio" de CLAUDE.md).
+//
+// El dominio NO depende de estos modelos directamente: se accede a ellos por
+// los puertos de `src/infrastructure/database/ports/` (ADR-004).
+// Modelo explicado en `docs/database/data-model.md`.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+/// Estado del ciclo de vida de una cuenta.
+/// INVITED: creada pero sin primer acceso. LOCKED: bloqueada por intentos fallidos.
+enum UserStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  LOCKED
+
+  @@map("user_status")
+}
+
+/// Proveedor de identidad que respalda una credencial de acceso.
+enum IdentityProvider {
+  LOCAL
+  ENTRA_ID
+
+  @@map("identity_provider")
+}
+
+/// Alcance de datos de un rol: hasta dónde ve el usuario.
+/// La aplicación traduce esto a filtros de consulta; no es un permiso.
+enum DataScope {
+  OWN
+  TEAM
+  TERRITORY
+  ORGANIZATION
+
+  @@map("data_scope")
+}
+
+/// Efecto de una asignación directa a un usuario.
+/// DENY siempre gana sobre cualquier GRANT heredado de un rol.
+enum AssignmentEffect {
+  GRANT
+  DENY
+
+  @@map("assignment_effect")
+}
+
+/// Tipo de nodo del menú: una opción navegable o un grupo que sólo agrupa.
+enum MenuOptionKind {
+  LINK
+  GROUP
+
+  @@map("menu_option_kind")
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+
+  @@map("approval_status")
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+
+  @@map("notification_channel")
+}
+
+/// Tipo de dato de un parámetro del sistema, para validarlo al leerlo.
+enum ParameterType {
+  STRING
+  NUMBER
+  BOOLEAN
+  JSON
+  DATE
+
+  @@map("parameter_type")
+}
+
+// =============================================================================
+// ORGANIZACIÓN
+// =============================================================================
+
+/// Unidad organizativa (equipo, área, sucursal). Jerárquica: un equipo puede
+/// colgar de otro, y el alcance TEAM incluye a los descendientes.
+model Team {
+  id          String    @id @default(uuid()) @db.Uuid
+  code        String    @unique @db.VarChar(40)
+  name        String    @db.VarChar(120)
+  description String?   @db.VarChar(500)
+  parentId    String?   @map("parent_id") @db.Uuid
+  managerId   String?   @map("manager_id") @db.Uuid
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  parent   Team?        @relation("TeamHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children Team[]       @relation("TeamHierarchy")
+  manager  User?        @relation("TeamManager", fields: [managerId], references: [id], onDelete: SetNull)
+  members  TeamMember[]
+
+  @@index([parentId], map: "idx_teams_parent_id")
+  @@index([isActive], map: "idx_teams_is_active")
+  @@map("teams")
+}
+
+/// Pertenencia de un usuario a un equipo. Un usuario puede estar en varios;
+/// `isPrimary` marca el equipo que se usa por defecto al crear registros.
+model TeamMember {
+  id        String   @id @default(uuid()) @db.Uuid
+  teamId    String   @map("team_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  isPrimary Boolean  @default(false) @map("is_primary")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId], map: "uq_team_members_team_user")
+  @@index([userId], map: "idx_team_members_user_id")
+  @@map("team_members")
+}
+
+// =============================================================================
+// IDENTIDAD
+// =============================================================================
+
+/// Cuenta de acceso. No guarda contraseñas: las credenciales viven en
+/// `UserCredential`, separadas para poder rotarlas y auditarlas aparte.
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique @db.VarChar(320)
+  /// Copia en minúsculas para búsquedas y unicidad insensible a mayúsculas.
+  emailNormalized String  @unique @map("email_normalized") @db.VarChar(320)
+  firstName    String     @map("first_name") @db.VarChar(80)
+  lastName     String     @map("last_name") @db.VarChar(80)
+  displayName  String     @map("display_name") @db.VarChar(160)
+  jobTitle     String?    @map("job_title") @db.VarChar(120)
+  phone        String?    @db.VarChar(40)
+  avatarUrl    String?    @map("avatar_url") @db.VarChar(500)
+  locale       String     @default("es-MX") @db.VarChar(10)
+  timeZone     String     @default("America/Mexico_City") @map("time_zone") @db.VarChar(60)
+  status       UserStatus @default(INVITED)
+  mfaEnabled   Boolean    @default(false) @map("mfa_enabled")
+  lastLoginAt  DateTime?  @map("last_login_at") @db.Timestamptz(6)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt    DateTime?  @map("deleted_at") @db.Timestamptz(6)
+  createdById  String?    @map("created_by_id") @db.Uuid
+  updatedById  String?    @map("updated_by_id") @db.Uuid
+
+  identities      UserIdentity[]
+  credential      UserCredential?
+  sessions        UserSession[]
+  roles           UserRole[]
+  permissions     UserPermission[]
+  menuOptions     UserMenuOption[]
+  teams           TeamMember[]
+  managedTeams    Team[]               @relation("TeamManager")
+  preferences     UserPreference[]
+  notifications   Notification[]
+  loginAttempts   LoginAttempt[]
+  passwordResets  PasswordResetToken[]
+  approvalsRaised ApprovalRequest[]    @relation("ApprovalRequester")
+  approvalSteps   ApprovalStep[]       @relation("ApprovalApprover")
+  uploadedFiles   StoredFile[]         @relation("FileUploader")
+
+  @@index([status], map: "idx_users_status")
+  @@index([deletedAt], map: "idx_users_deleted_at")
+  @@map("users")
+}
+
+/// Vínculo entre una cuenta y un proveedor de identidad externo.
+/// Permite que el mismo usuario entre por local hoy y por Entra ID mañana sin
+/// duplicar la cuenta (`subject` = `oid` en Entra ID).
+model UserIdentity {
+  id           String           @id @default(uuid()) @db.Uuid
+  userId       String           @map("user_id") @db.Uuid
+  provider     IdentityProvider
+  subject      String           @db.VarChar(200)
+  /// Identificador del tenant para proveedores multi-inquilino.
+  tenantId     String?          @map("tenant_id") @db.VarChar(100)
+  lastLoginAt  DateTime?        @map("last_login_at") @db.Timestamptz(6)
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, subject], map: "uq_user_identities_provider_subject")
+  @@index([userId], map: "idx_user_identities_user_id")
+  @@map("user_identities")
+}
+
+/// Credencial local. El hash se calcula con Argon2id (SECURITY.md).
+/// Nunca se registra, se exporta ni se devuelve por la API.
+model UserCredential {
+  id                 String    @id @default(uuid()) @db.Uuid
+  userId             String    @unique @map("user_id") @db.Uuid
+  passwordHash       String    @map("password_hash") @db.VarChar(255)
+  /// Algoritmo y parámetros con los que se generó, para poder migrar el hash.
+  algorithm          String    @default("argon2id") @db.VarChar(40)
+  mustChangePassword Boolean   @default(true) @map("must_change_password")
+  passwordChangedAt  DateTime? @map("password_changed_at") @db.Timestamptz(6)
+  /// Momento a partir del cual la contraseña caduca; null = sin caducidad.
+  expiresAt          DateTime? @map("expires_at") @db.Timestamptz(6)
+  failedAttempts     Int       @default(0) @map("failed_attempts")
+  lockedUntil        DateTime? @map("locked_until") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_credentials")
+}
+
+/// Sesión con refresh token rotativo.
+/// Se guarda el HASH del token, nunca el token: una fuga de base de datos no
+/// puede convertirse en suplantación de sesión.
+model UserSession {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  refreshTokenHash String    @unique @map("refresh_token_hash") @db.VarChar(128)
+  /// Cadena de rotación: apunta a la sesión que sustituyó a esta.
+  replacedById     String?   @unique @map("replaced_by_id") @db.Uuid
+  userAgent        String?   @map("user_agent") @db.VarChar(400)
+  ipAddress        String?   @map("ip_address") @db.VarChar(45)
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revokedReason    String?   @map("revoked_reason") @db.VarChar(120)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastUsedAt       DateTime? @map("last_used_at") @db.Timestamptz(6)
+
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replacedBy UserSession? @relation("SessionRotation", fields: [replacedById], references: [id], onDelete: SetNull)
+  replaces   UserSession? @relation("SessionRotation")
+
+  @@index([userId, expiresAt], map: "idx_user_sessions_user_id_expires_at")
+  @@map("user_sessions")
+}
+
+/// Intento de acceso, correcto o fallido. Alimenta el bloqueo por fuerza bruta
+/// y la investigación de incidentes. `userId` es nulo si el correo no existe:
+/// la API no debe revelar si una cuenta existe o no.
+model LoginAttempt {
+  id            String           @id @default(uuid()) @db.Uuid
+  userId        String?          @map("user_id") @db.Uuid
+  emailAttempted String          @map("email_attempted") @db.VarChar(320)
+  provider      IdentityProvider
+  succeeded     Boolean
+  failureReason String?          @map("failure_reason") @db.VarChar(80)
+  ipAddress     String?          @map("ip_address") @db.VarChar(45)
+  userAgent     String?          @map("user_agent") @db.VarChar(400)
+  correlationId String?          @map("correlation_id") @db.VarChar(64)
+  occurredAt    DateTime         @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([emailAttempted, occurredAt], map: "idx_login_attempts_email_occurred_at")
+  @@index([ipAddress, occurredAt], map: "idx_login_attempts_ip_occurred_at")
+  @@map("login_attempts")
+}
+
+/// Token de restablecimiento de contraseña, de un solo uso.
+/// Igual que las sesiones: se guarda el hash, no el token.
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash") @db.VarChar(128)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "idx_password_reset_tokens_user_id")
+  @@map("password_reset_tokens")
+}
+
+// =============================================================================
+// AUTORIZACIÓN: ROLES Y PERMISOS
+// =============================================================================
+
+/// Permiso atómico en formato `recurso.accion` (ADR-008).
+/// El catálogo es de datos, no de código: añadir un permiso es una migración de
+/// datos, no un despliegue.
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  /// Clave canónica, p. ej. `usuarios.crear`.
+  code        String   @unique @db.VarChar(120)
+  resource    String   @db.VarChar(60)
+  action      String   @db.VarChar(40)
+  name        String   @db.VarChar(120)
+  description String?  @db.VarChar(400)
+  /// Módulo al que pertenece, sólo para agrupar en la pantalla de roles.
+  moduleId    String?  @map("module_id") @db.Uuid
+  /// Permiso del sistema: no se puede borrar desde la interfaz.
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  module          AppModule?       @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  roles           RolePermission[]
+  users           UserPermission[]
+  menuOptions     MenuOption[]
+
+  @@unique([resource, action], map: "uq_permissions_resource_action")
+  @@index([moduleId], map: "idx_permissions_module_id")
+  @@map("permissions")
+}
+
+/// Rol: agrupación de permisos con un alcance de datos.
+model Role {
+  id          String    @id @default(uuid()) @db.Uuid
+  code        String    @unique @db.VarChar(60)
+  name        String    @db.VarChar(120)
+  description String?   @db.VarChar(400)
+  dataScope   DataScope @default(OWN) @map("data_scope")
+  /// Rol del sistema: no se puede borrar ni renombrar desde la interfaz.
+  isSystem    Boolean   @default(false) @map("is_system")
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  permissions RolePermission[]
+  users       UserRole[]
+  menuOptions RoleMenuOption[]
+
+  @@index([isActive], map: "idx_roles_is_active")
+  @@map("roles")
+}
+
+/// Permisos concedidos a un rol.
+model RolePermission {
+  roleId       String   @map("role_id") @db.Uuid
+  permissionId String   @map("permission_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdById  String?  @map("created_by_id") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId], map: "idx_role_permissions_permission_id")
+  @@map("role_permissions")
+}
+
+/// Roles asignados a un usuario. `expiresAt` permite accesos temporales
+/// (cobertura de vacaciones, auditoría externa) que caducan solos.
+model UserRole {
+  userId      String    @map("user_id") @db.Uuid
+  roleId      String    @map("role_id") @db.Uuid
+  expiresAt   DateTime? @map("expires_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdById String?   @map("created_by_id") @db.Uuid
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId], map: "idx_user_roles_role_id")
+  @@map("user_roles")
+}
+
+/// Excepción directa de permiso sobre un usuario.
+/// Se resuelve DESPUÉS de los roles: un DENY aquí gana siempre, y un GRANT
+/// concede algo que su rol no incluye. `reason` es obligatorio porque una
+/// excepción sin justificación es deuda de seguridad.
+model UserPermission {
+  userId       String           @map("user_id") @db.Uuid
+  permissionId String           @map("permission_id") @db.Uuid
+  effect       AssignmentEffect @default(GRANT)
+  reason       String           @db.VarChar(300)
+  expiresAt    DateTime?        @map("expires_at") @db.Timestamptz(6)
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdById  String?          @map("created_by_id") @db.Uuid
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([userId, permissionId])
+  @@index([permissionId], map: "idx_user_permissions_permission_id")
+  @@map("user_permissions")
+}
+
+// =============================================================================
+// MÓDULOS Y OPCIONES DE MENÚ
+// =============================================================================
+
+/// Módulo funcional de la aplicación: el primer nivel del menú.
+model AppModule {
+  id          String    @id @default(uuid()) @db.Uuid
+  key         String    @unique @db.VarChar(60)
+  name        String    @db.VarChar(120)
+  description String?   @db.VarChar(400)
+  /// Nombre del glifo de Material Symbols.
+  icon        String?   @db.VarChar(60)
+  sortOrder   Int       @default(0) @map("sort_order")
+  /// Módulo de sistema (Administración): sólo visible con permisos de gestión.
+  isSystem    Boolean   @default(false) @map("is_system")
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  options     MenuOption[]
+  permissions Permission[]
+
+  @@index([sortOrder], map: "idx_app_modules_sort_order")
+  @@map("app_modules")
+}
+
+/// Opción de menú: una entrada navegable o un grupo.
+///
+/// Es el nudo del modelo de gestión. Una opción nueva del sistema se da de alta
+/// aquí y se asigna a roles o a usuarios; el frontend no declara su propio menú
+/// (`GET /me/menu`), de modo que menú y autorización no pueden divergir.
+model MenuOption {
+  id                 String         @id @default(uuid()) @db.Uuid
+  moduleId           String         @map("module_id") @db.Uuid
+  parentId           String?        @map("parent_id") @db.Uuid
+  key                String         @unique @db.VarChar(80)
+  label              String         @db.VarChar(120)
+  description        String?        @db.VarChar(400)
+  icon               String?        @db.VarChar(60)
+  kind               MenuOptionKind @default(LINK)
+  /// Ruta del frontend. Nula en un nodo GROUP.
+  path               String?        @db.VarChar(200)
+  sortOrder          Int            @default(0) @map("sort_order")
+  /// Permiso que el usuario necesita para ver la opción y entrar en ella.
+  requiredPermissionId String?      @map("required_permission_id") @db.Uuid
+  /// Opción visible sin asignación explícita (inicio, perfil).
+  isPublic           Boolean        @default(false) @map("is_public")
+  isSystem           Boolean        @default(false) @map("is_system")
+  isActive           Boolean        @default(true) @map("is_active")
+  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt          DateTime?      @map("deleted_at") @db.Timestamptz(6)
+
+  module             AppModule        @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  parent             MenuOption?      @relation("MenuHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children           MenuOption[]     @relation("MenuHierarchy")
+  requiredPermission Permission?      @relation(fields: [requiredPermissionId], references: [id], onDelete: SetNull)
+  roles              RoleMenuOption[]
+  users              UserMenuOption[]
+
+  @@index([moduleId, sortOrder], map: "idx_menu_options_module_id_sort_order")
+  @@index([parentId], map: "idx_menu_options_parent_id")
+  @@map("menu_options")
+}
+
+/// Opciones de menú asignadas a un rol.
+model RoleMenuOption {
+  roleId       String   @map("role_id") @db.Uuid
+  menuOptionId String   @map("menu_option_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdById  String?  @map("created_by_id") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  menuOption MenuOption @relation(fields: [menuOptionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, menuOptionId])
+  @@index([menuOptionId], map: "idx_role_menu_options_menu_option_id")
+  @@map("role_menu_options")
+}
+
+/// Asignación directa de una opción de menú a un usuario.
+/// Misma regla que `UserPermission`: DENY gana sobre lo heredado del rol y la
+/// razón es obligatoria.
+model UserMenuOption {
+  userId       String           @map("user_id") @db.Uuid
+  menuOptionId String           @map("menu_option_id") @db.Uuid
+  effect       AssignmentEffect @default(GRANT)
+  reason       String           @db.VarChar(300)
+  expiresAt    DateTime?        @map("expires_at") @db.Timestamptz(6)
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdById  String?          @map("created_by_id") @db.Uuid
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  menuOption MenuOption @relation(fields: [menuOptionId], references: [id], onDelete: Cascade)
+
+  @@id([userId, menuOptionId])
+  @@index([menuOptionId], map: "idx_user_menu_options_menu_option_id")
+  @@map("user_menu_options")
+}
+
+// =============================================================================
+// CONFIGURACIÓN Y SOPORTE TRANSVERSAL
+// =============================================================================
+
+/// Parámetro de configuración editable en caliente.
+/// Lo que NO va aquí: secretos (van al almacén de secretos) y nada que deba
+/// cambiar con un despliegue revisable.
+model SystemParameter {
+  id           String        @id @default(uuid()) @db.Uuid
+  key          String        @unique @db.VarChar(120)
+  value        String        @db.Text
+  type         ParameterType @default(STRING)
+  group        String        @default("general") @db.VarChar(60)
+  name         String        @db.VarChar(160)
+  description  String?       @db.VarChar(500)
+  /// Visible para clientes no administradores (p. ej. nombre de la aplicación).
+  isPublic     Boolean       @default(false) @map("is_public")
+  isSystem     Boolean       @default(false) @map("is_system")
+  updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedById  String?       @map("updated_by_id") @db.Uuid
+
+  @@index([group], map: "idx_system_parameters_group")
+  @@map("system_parameters")
+}
+
+/// Preferencia de interfaz por usuario (tema, densidad, vistas guardadas).
+/// El shell guarda el tema en `localStorage`; esto es para cuando la
+/// preferencia deba seguir al usuario entre dispositivos.
+model UserPreference {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  key       String   @db.VarChar(80)
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key], map: "uq_user_preferences_user_key")
+  @@map("user_preferences")
+}
+
+/// Catálogo genérico: listas cortas y estables (motivos, tipos, estatus) que no
+/// merecen una tabla propia. Si una lista necesita columnas propias o
+/// relaciones, deja de ser catálogo y pasa a ser una entidad del proyecto.
+model Catalog {
+  id          String    @id @default(uuid()) @db.Uuid
+  key         String    @unique @db.VarChar(80)
+  name        String    @db.VarChar(120)
+  description String?   @db.VarChar(400)
+  isSystem    Boolean   @default(false) @map("is_system")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  items CatalogItem[]
+
+  @@map("catalogs")
+}
+
+model CatalogItem {
+  id         String    @id @default(uuid()) @db.Uuid
+  catalogId  String    @map("catalog_id") @db.Uuid
+  code       String    @db.VarChar(60)
+  label      String    @db.VarChar(160)
+  /// Datos extra específicos del elemento (color del badge, orden de flujo…).
+  metadata   Json?
+  sortOrder  Int       @default(0) @map("sort_order")
+  isActive   Boolean   @default(true) @map("is_active")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  catalog Catalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+
+  @@unique([catalogId, code], map: "uq_catalog_items_catalog_code")
+  @@index([catalogId, sortOrder], map: "idx_catalog_items_catalog_id_sort_order")
+  @@map("catalog_items")
+}
+
+/// Secuencia de folios (`COT-2026-00042`).
+/// La asignación de folio se hace en una transacción con bloqueo de fila; no se
+/// calcula con `MAX(numero) + 1`, que produce duplicados bajo concurrencia.
+model Sequence {
+  id            String   @id @default(uuid()) @db.Uuid
+  key           String   @unique @db.VarChar(80)
+  prefix        String   @default("") @db.VarChar(20)
+  /// Patrón del folio: {prefix}, {year}, {month}, {seq}.
+  pattern       String   @default("{prefix}-{year}-{seq}") @db.VarChar(80)
+  padding       Int      @default(5)
+  currentValue  Int      @default(0) @map("current_value")
+  /// Periodo de reinicio: NONE, YEAR o MONTH.
+  resetPolicy   String   @default("NONE") @map("reset_policy") @db.VarChar(10)
+  periodKey     String?  @map("period_key") @db.VarChar(10)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("sequences")
+}
+
+/// Archivo adjunto. El binario vive en el almacenamiento de objetos; aquí sólo
+/// los metadatos y la referencia. `checksum` permite detectar duplicados y
+/// verificar integridad.
+model StoredFile {
+  id            String    @id @default(uuid()) @db.Uuid
+  storageKey    String    @unique @map("storage_key") @db.VarChar(500)
+  fileName      String    @map("file_name") @db.VarChar(255)
+  mimeType      String    @map("mime_type") @db.VarChar(120)
+  sizeBytes     Int       @map("size_bytes")
+  checksum      String?   @db.VarChar(128)
+  /// Entidad y registro a los que pertenece; polimórfico a propósito.
+  ownerType     String?   @map("owner_type") @db.VarChar(80)
+  ownerId       String?   @map("owner_id") @db.VarChar(64)
+  uploadedById  String?   @map("uploaded_by_id") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  uploadedBy User? @relation("FileUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([ownerType, ownerId], map: "idx_stored_files_owner")
+  @@map("stored_files")
+}
+
+/// Notificación dirigida a un usuario.
+model Notification {
+  id        String              @id @default(uuid()) @db.Uuid
+  userId    String              @map("user_id") @db.Uuid
+  channel   NotificationChannel @default(IN_APP)
+  title     String              @db.VarChar(200)
+  body      String              @db.VarChar(1000)
+  /// Ruta del frontend a la que lleva la notificación.
+  link      String?             @db.VarChar(300)
+  severity  String              @default("info") @db.VarChar(20)
+  readAt    DateTime?           @map("read_at") @db.Timestamptz(6)
+  sentAt    DateTime?           @map("sent_at") @db.Timestamptz(6)
+  createdAt DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt], map: "idx_notifications_user_id_read_at")
+  @@map("notifications")
+}
+
+/// Solicitud de aprobación sobre cualquier registro.
+/// Genérica a propósito: descuentos, altas de usuario, bajas de catálogo.
+model ApprovalRequest {
+  id           String         @id @default(uuid()) @db.Uuid
+  code         String         @unique @db.VarChar(40)
+  resourceType String         @map("resource_type") @db.VarChar(80)
+  resourceId   String         @map("resource_id") @db.VarChar(64)
+  title        String         @db.VarChar(200)
+  reason       String?        @db.VarChar(1000)
+  status       ApprovalStatus @default(PENDING)
+  requestedById String        @map("requested_by_id") @db.Uuid
+  /// Instantánea de lo que se aprueba, para que el historial no dependa del
+  /// estado actual del registro.
+  payload      Json?
+  resolvedAt   DateTime?      @map("resolved_at") @db.Timestamptz(6)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  requestedBy User           @relation("ApprovalRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  steps       ApprovalStep[]
+
+  @@index([status, createdAt], map: "idx_approval_requests_status_created_at")
+  @@index([resourceType, resourceId], map: "idx_approval_requests_resource")
+  @@map("approval_requests")
+}
+
+/// Paso de una solicitud de aprobación. Varios pasos = aprobación en cadena.
+model ApprovalStep {
+  id         String         @id @default(uuid()) @db.Uuid
+  requestId  String         @map("request_id") @db.Uuid
+  sequence   Int
+  approverId String?        @map("approver_id") @db.Uuid
+  /// Rol que puede resolver el paso cuando no se designa una persona.
+  approverRoleId String?    @map("approver_role_id") @db.Uuid
+  status     ApprovalStatus @default(PENDING)
+  comment    String?        @db.VarChar(1000)
+  resolvedAt DateTime?      @map("resolved_at") @db.Timestamptz(6)
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  request  ApprovalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  approver User?           @relation("ApprovalApprover", fields: [approverId], references: [id], onDelete: SetNull)
+
+  @@unique([requestId, sequence], map: "uq_approval_steps_request_sequence")
+  @@index([approverId, status], map: "idx_approval_steps_approver_status")
+  @@map("approval_steps")
+}
+
+// =============================================================================
+// AUDITORÍA
+// =============================================================================
+
+/// Registro de eventos relevantes para auditoría y seguridad.
+/// No almacena payloads completos ni datos sensibles (SECURITY.md). Los cambios
+/// de valores van en `changes` como diferencia, no como copia del registro.
+model AuditLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  correlationId String   @map("correlation_id") @db.VarChar(64)
+  event         String   @db.VarChar(100)
+  /// Identificador del actor. Texto, no FK: el registro debe sobrevivir al
+  /// borrado del usuario.
+  subjectId     String?  @map("subject_id") @db.VarChar(128)
+  subjectEmail  String?  @map("subject_email") @db.VarChar(320)
+  resourceType  String?  @map("resource_type") @db.VarChar(100)
+  resourceId    String?  @map("resource_id") @db.VarChar(128)
+  ipAddress     String?  @map("ip_address") @db.VarChar(45)
+  /// Diferencia { campo: { antes, despues } }, sin datos sensibles.
+  changes       Json?
+  metadata      Json?
+  occurredAt    DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  @@index([correlationId], map: "idx_audit_logs_correlation_id")
+  @@index([subjectId, occurredAt], map: "idx_audit_logs_subject_id_occurred_at")
+  @@index([resourceType, resourceId], map: "idx_audit_logs_resource")
+  @@index([event, occurredAt], map: "idx_audit_logs_event_occurred_at")
+  @@map("audit_logs")
+}

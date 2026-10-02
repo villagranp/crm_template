@@ -1,0 +1,42 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+coverage/
+.turbo/
+*.tsbuildinfo
+
+# Environment files — never commit real values
+.env
+.env.*
+!.env.example
+
+# Editors and OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Test output
+junit*.xml
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+
+# Local database artefacts
+backend/prisma/*.db
+backend/prisma/*.db-journal
+
+# Keys and secrets
+*.pem
+*.key
+*.pfx
+*.p12
+secrets/

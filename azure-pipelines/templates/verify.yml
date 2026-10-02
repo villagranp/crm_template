@@ -1,0 +1,52 @@
+# =============================================================================
+# Template: quality gate.
+#
+# Runs the same checks as the local `pnpm verify`. If a check is added here it
+# must also be added to the root package.json script, so that a developer can
+# reproduce a pipeline failure locally without guessing.
+#
+# Order is intentional: the cheapest and most deterministic checks fail first.
+# =============================================================================
+
+parameters:
+  - name: workspaceFilter
+    type: string
+    default: ''
+  - name: runTests
+    type: boolean
+    default: true
+  - name: workingDirectory
+    type: string
+    default: '$(Build.SourcesDirectory)'
+
+steps:
+  - script: pnpm run format:check
+    displayName: 'Format check'
+    workingDirectory: ${{ parameters.workingDirectory }}
+
+  - script: pnpm ${{ parameters.workspaceFilter }} run lint
+    displayName: 'Lint'
+    workingDirectory: ${{ parameters.workingDirectory }}
+
+  - script: pnpm ${{ parameters.workspaceFilter }} run typecheck
+    displayName: 'Type check'
+    workingDirectory: ${{ parameters.workingDirectory }}
+
+  - ${{ if eq(parameters.runTests, true) }}:
+      - script: pnpm ${{ parameters.workspaceFilter }} run test
+        displayName: 'Unit and integration tests'
+        workingDirectory: ${{ parameters.workingDirectory }}
+
+  - script: pnpm ${{ parameters.workspaceFilter }} run build
+    displayName: 'Build'
+    workingDirectory: ${{ parameters.workingDirectory }}
+
+  - task: PublishTestResults@2
+    displayName: 'Publish test results'
+    condition: succeededOrFailed()
+    inputs:
+      testResultsFormat: 'JUnit'
+      testResultsFiles: '**/junit*.xml'
+      mergeTestResults: true
+      failTaskOnFailedTests: true
+      searchFolder: ${{ parameters.workingDirectory }}

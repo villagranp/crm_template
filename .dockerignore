@@ -1,0 +1,15 @@
+**/node_modules
+**/dist
+**/coverage
+**/playwright-report
+**/test-results
+**/.turbo
+**/*.log
+.git
+.github
+.vscode
+docs
+azure-pipelines
+**/.env
+**/.env.*
+!**/.env.example

@@ -1,0 +1,34 @@
+# =============================================================================
+# Template: dependency and secret hygiene.
+#
+# This is a baseline, not a complete security program. Organisation-wide SAST,
+# container scanning and license policy are expected to be added by the
+# platform team; see SECURITY.md.
+# =============================================================================
+
+parameters:
+  - name: workingDirectory
+    type: string
+    default: '$(Build.SourcesDirectory)'
+  - name: failOnAudit
+    type: boolean
+    default: true
+
+steps:
+  - script: |
+      set -euo pipefail
+      pnpm audit --audit-level=high
+    displayName: 'Dependency audit (high and critical)'
+    workingDirectory: ${{ parameters.workingDirectory }}
+    continueOnError: ${{ not(parameters.failOnAudit) }}
+
+  - script: |
+      set -euo pipefail
+      # Fails the build if a committed .env file reaches the repository.
+      if git ls-files --error-unmatch '**/.env' >/dev/null 2>&1; then
+        echo "A .env file is tracked by Git. Secrets must never be committed."
+        exit 1
+      fi
+      echo "No tracked .env files."
+    displayName: 'Check for committed environment files'
+    workingDirectory: ${{ parameters.workingDirectory }}

@@ -1,0 +1,111 @@
+# =============================================================================
+# Frontend CI pipeline.
+#
+# Triggered by changes that affect the frontend. Produces a verified static
+# bundle and container image. No deployment stage (see ADR-012).
+# =============================================================================
+
+name: 'frontend-$(Date:yyyyMMdd)-$(Rev:r)'
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    include:
+      - frontend/*
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - tsconfig.base.json
+      - azure-pipelines/*
+
+pr: none
+
+variables:
+  - name: NODE_VERSION
+    value: '22.x'
+  - name: PNPM_VERSION
+    value: '9.12.0'
+  - name: CI
+    value: 'true'
+  # VITE_* values are public and baked into the bundle. Never put a secret here.
+  - name: VITE_API_BASE_URL
+    value: '/api/v1'
+  - name: VITE_AUTH_PROVIDER
+    value: 'local'
+  - name: CONTAINER_REGISTRY_CONNECTION
+    value: ''
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  - stage: verify
+    displayName: 'Verify frontend'
+    jobs:
+      - job: verify_frontend
+        timeoutInMinutes: 30
+        steps:
+          - checkout: self
+
+          - template: templates/setup-node.yml
+            parameters:
+              nodeVersion: $(NODE_VERSION)
+              pnpmVersion: $(PNPM_VERSION)
+
+          - template: templates/verify.yml
+            parameters:
+              workspaceFilter: '--filter @app/frontend'
+              runTests: true
+
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish static bundle'
+            inputs:
+              targetPath: 'frontend/dist'
+              artifact: 'frontend-dist'
+
+      - job: e2e
+        displayName: 'End-to-end tests'
+        dependsOn: verify_frontend
+        timeoutInMinutes: 30
+        steps:
+          - checkout: self
+
+          - template: templates/setup-node.yml
+            parameters:
+              nodeVersion: $(NODE_VERSION)
+              pnpmVersion: $(PNPM_VERSION)
+
+          - script: pnpm --filter @app/frontend exec playwright install --with-deps chromium
+            displayName: 'Install Playwright browsers'
+
+          - script: pnpm --filter @app/frontend run test:e2e
+            displayName: 'Playwright smoke suite'
+
+          - task: PublishTestResults@2
+            displayName: 'Publish Playwright results'
+            condition: succeededOrFailed()
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: 'frontend/playwright-report/results.xml'
+              failTaskOnFailedTests: true
+
+  - stage: package
+    displayName: 'Package frontend image'
+    dependsOn: verify
+    condition: succeeded()
+    jobs:
+      - job: build_image
+        timeoutInMinutes: 30
+        steps:
+          - checkout: self
+
+          - template: templates/docker-build.yml
+            parameters:
+              imageName: 'app-frontend'
+              dockerfilePath: 'frontend/Dockerfile'
+              containerRegistryServiceConnection: $(CONTAINER_REGISTRY_CONNECTION)
+              pushImage: false
+              buildArguments: '--build-arg VITE_API_BASE_URL=$(VITE_API_BASE_URL) --build-arg VITE_AUTH_PROVIDER=$(VITE_AUTH_PROVIDER)'

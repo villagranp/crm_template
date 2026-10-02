@@ -1,0 +1,50 @@
+# =============================================================================
+# Template: container image build.
+#
+# Build context is the repository root because this is a pnpm workspace
+# (see backend/Dockerfile and frontend/Dockerfile).
+#
+# NOTE: this template BUILDS and optionally pushes an image. It does not deploy.
+# Deployment stages are intentionally absent from the Foundation: the target
+# runtime (App Service, AKS, Container Apps) is a per-project decision that
+# requires its own ADR.
+# =============================================================================
+
+parameters:
+  - name: imageName
+    type: string
+  - name: dockerfilePath
+    type: string
+  - name: containerRegistryServiceConnection
+    type: string
+    default: ''
+  - name: pushImage
+    type: boolean
+    default: false
+  - name: buildArguments
+    type: string
+    default: ''
+
+steps:
+  - task: Docker@2
+    displayName: 'Build image ${{ parameters.imageName }}'
+    inputs:
+      command: build
+      repository: ${{ parameters.imageName }}
+      dockerfile: ${{ parameters.dockerfilePath }}
+      buildContext: '$(Build.SourcesDirectory)'
+      arguments: ${{ parameters.buildArguments }}
+      tags: |
+        $(Build.BuildId)
+        $(Build.SourceVersion)
+
+  - ${{ if eq(parameters.pushImage, true) }}:
+      - task: Docker@2
+        displayName: 'Push image ${{ parameters.imageName }}'
+        inputs:
+          command: push
+          repository: ${{ parameters.imageName }}
+          containerRegistry: ${{ parameters.containerRegistryServiceConnection }}
+          tags: |
+            $(Build.BuildId)
+            $(Build.SourceVersion)

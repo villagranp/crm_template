@@ -1,0 +1,101 @@
+# =============================================================================
+# Backend CI pipeline.
+#
+# Triggered by changes that affect the backend. Produces a verified container
+# image. Deployment is deliberately out of scope for the Foundation: the target
+# runtime is a per-project decision that requires an ADR (see ADR-012).
+# =============================================================================
+
+name: 'backend-$(Date:yyyyMMdd)-$(Rev:r)'
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    include:
+      - backend/*
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - tsconfig.base.json
+      - azure-pipelines/*
+
+pr: none
+
+variables:
+  - name: NODE_VERSION
+    value: '22.x'
+  - name: PNPM_VERSION
+    value: '9.12.0'
+  - name: CI
+    value: 'true'
+  # Set this variable (or a variable group) to enable image push.
+  - name: CONTAINER_REGISTRY_CONNECTION
+    value: ''
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  - stage: verify
+    displayName: 'Verify backend'
+    jobs:
+      - job: verify_backend
+        timeoutInMinutes: 30
+        services:
+          # Integration tests run against a real PostgreSQL, never a mock
+          # database: schema and constraint behaviour is part of what is tested.
+          postgres: postgres_service
+        steps:
+          - checkout: self
+
+          - template: templates/setup-node.yml
+            parameters:
+              nodeVersion: $(NODE_VERSION)
+              pnpmVersion: $(PNPM_VERSION)
+
+          - script: pnpm --filter @app/backend exec prisma generate
+            displayName: 'Generate Prisma client'
+
+          - template: templates/verify.yml
+            parameters:
+              workspaceFilter: '--filter @app/backend'
+              runTests: true
+
+          - script: pnpm --filter @app/backend run test:e2e
+            displayName: 'API integration tests'
+            env:
+              DATABASE_URL: 'postgresql://app:app@localhost:5432/app_test?schema=public'
+              AUTH_PROVIDER: 'local'
+              JWT_ACCESS_TOKEN_SECRET: '$(TEST_JWT_SECRET)'
+              NODE_ENV: 'test'
+
+  - stage: package
+    displayName: 'Package backend image'
+    dependsOn: verify
+    condition: succeeded()
+    jobs:
+      - job: build_image
+        timeoutInMinutes: 30
+        steps:
+          - checkout: self
+
+          - template: templates/docker-build.yml
+            parameters:
+              imageName: 'app-backend'
+              dockerfilePath: 'backend/Dockerfile'
+              containerRegistryServiceConnection: $(CONTAINER_REGISTRY_CONNECTION)
+              pushImage: false
+
+resources:
+  containers:
+    - container: postgres_service
+      image: postgres:16-alpine
+      ports:
+        - 5432:5432
+      env:
+        POSTGRES_USER: app
+        POSTGRES_PASSWORD: app
+        POSTGRES_DB: app_test
