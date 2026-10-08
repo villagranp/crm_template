@@ -504,8 +504,10 @@ entrega:
 8. **Sin etapas de despliegue** en los pipelines (ver sección 16).
 9. **Snowflake tiene puerto pero no adaptador**: falta la dependencia y las
    credenciales, que son específicas del proyecto.
-10. **Las versiones de dependencias no fueron resueltas contra el registro.**
-    Están elegidas por compatibilidad conocida, no verificadas en ejecución.
+10. **Las versiones de dependencias se resolvieron en la primera instalación
+    real (2026-09-24) y apareció un desajuste:** `@nestjs/swagger@8` exigía
+    NestJS 9 o 10 y el resto del backend está en 11. Corregido a
+    `@nestjs/swagger@^11.0.3`. El resto de peer dependencies resolvió limpio.
 11. **La capa visual no se ha visto renderizada.** No hay navegador en el
     entorno de construcción: el tema, el shell y las pantallas están escritos
     contra el spec, pero nadie los ha mirado. Conviene revisarlos en los

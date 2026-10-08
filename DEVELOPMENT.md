@@ -43,7 +43,9 @@ diagnosticar.
 corepack enable
 pnpm install
 cp .env.example .env                              # completar valores locales
-docker compose up -d postgres                     # base de datos local
+# Base de datos: instancia compartida (una vez por maquina)
+docker compose -f infrastructure/dev-infra/docker-compose.yml up -d
+cp backend/.env.example backend/.env              # la CLI de Prisma solo lee este
 pnpm --filter @app/backend run prisma:generate
 pnpm --filter @app/backend run prisma:migrate
 pnpm --filter @app/backend run prisma:seed        # roles, permisos, opciones y admin
@@ -107,3 +109,34 @@ Ninguna tabla se crea a mano. Toda migración es reversible o documenta su irrev
 | CORS bloqueado | Origen no incluido en `CORS_ALLOWED_ORIGINS` |
 | Prisma no encuentra el cliente | Falta `prisma:generate` tras cambiar el schema |
 | Puerto ocupado | Otro stack corriendo: `docker compose down` |
+
+---
+
+## Problemas frecuentes al arrancar
+
+### `P1000: Authentication failed` contra la base de datos
+
+Suele significar que **no estás hablando con el contenedor**: hay otro
+PostgreSQL escuchando en el puerto al que apunta tu `DATABASE_URL`.
+
+La instancia compartida se publica en el **5433** del host justamente para
+evitar chocar con un PostgreSQL instalado en la máquina, que suele estar en el
+5432. Ver [`docs/deployment/environments.md`](docs/deployment/environments.md).
+
+```bash
+# ¿El contenedor acepta las credenciales por dentro?
+docker compose exec postgres psql -U app -d app -c "select current_user;"
+```
+
+Si eso funciona, mueve el contenedor a otro puerto sin tocar archivos
+versionados: pon `POSTGRES_PORT` en tu `.env` y ajusta el puerto de
+`DATABASE_URL` en `.env` **y** en `backend/.env`.
+
+### `Environment variable not found: DATABASE_URL`
+
+La CLI de Prisma se ejecuta con el directorio de trabajo en `backend/` y solo
+lee `backend/.env`; no sube un nivel como sí hace NestJS. Copia también ese
+archivo: `cp backend/.env.example backend/.env`.
+
+Verifica siempre contra qué base vas a migrar: `prisma migrate dev` imprime
+`Datasource "db": ... at "localhost:XXXX"` antes de hacer nada.

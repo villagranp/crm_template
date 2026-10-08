@@ -67,6 +67,9 @@ stages:
           - script: pnpm --filter @app/backend run test:e2e
             displayName: 'API integration tests'
             env:
+              # En CI sí se usa el 5432: el agente es una máquina limpia y no hay
+              # ningún PostgreSQL con el que competir. En local la plantilla
+              # publica el 5433 (ver docker-compose.yml).
               DATABASE_URL: 'postgresql://app:app@localhost:5432/app_test?schema=public'
               AUTH_PROVIDER: 'local'
               JWT_ACCESS_TOKEN_SECRET: '$(TEST_JWT_SECRET)'

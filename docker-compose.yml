@@ -1,14 +1,37 @@
+# =============================================================================
+# Orquestacion local.
+#
+# MODELO DE BASE DE DATOS (ver docs/deployment/environments.md):
+# una sola instancia de PostgreSQL por entorno, compartida por todas las
+# aplicaciones, con UNA BASE Y UN USUARIO POR APLICACION. En local esa
+# instancia la levanta infrastructure/dev-infra/, no este archivo.
+#
+# Por eso el servicio `postgres` de abajo esta detras del perfil `local-db` y
+# NO arranca por defecto. Solo se usa si prefieres una base dedicada a este
+# proyecto en vez de la compartida.
+#
+# Los contenedores NO llevan container_name: Compose los nombra a partir del
+# directorio del proyecto, para que varios proyectos derivados de la plantilla
+# convivan en la misma maquina.
+# =============================================================================
+
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: app-postgres
+    profiles: ['local-db']
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
       POSTGRES_DB: ${POSTGRES_DB:-app}
     ports:
-      - '5433:5432'
+      # Puerto del HOST: 5433 a propósito, no el 5432 por defecto de PostgreSQL.
+      # Así la base de datos de la aplicación no compite con un PostgreSQL ya
+      # instalado en la máquina, que es lo habitual. Dentro de la red de Compose
+      # el puerto sigue siendo el estándar 5432.
+      # Para usar otro, pon POSTGRES_PORT en tu .env en lugar de editar este
+      # archivo, que es compartido.
+      - '${POSTGRES_PORT:-5433}:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -23,12 +46,14 @@ services:
       context: .
       dockerfile: backend/Dockerfile
       target: production
-    container_name: app-backend
     restart: unless-stopped
     environment:
       NODE_ENV: production
       API_PORT: 3000
-      DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/${POSTGRES_DB:-app}?schema=public
+      # Por defecto, la instancia compartida del entorno (host.docker.internal
+      # en local, el servidor gestionado en QA y produccion). Con el perfil
+      # `local-db`, apunta a `postgres:5432` poniendo DATABASE_URL en tu .env.
+      DATABASE_URL: ${DATABASE_URL_CONTAINER:-postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@host.docker.internal:${POSTGRES_PORT:-5433}/${POSTGRES_DB:-app}?schema=public}
       AUTH_PROVIDER: ${AUTH_PROVIDER:-local}
       JWT_ISSUER: ${JWT_ISSUER:-enterprise-app}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-enterprise-api}
@@ -38,9 +63,9 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_PRETTY: 'false'
       SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
-    depends_on:
-      postgres:
-        condition: service_healthy
+    extra_hosts:
+      # Permite alcanzar la instancia compartida que corre en el host.
+      - 'host.docker.internal:host-gateway'
     healthcheck:
       test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
@@ -57,13 +82,11 @@ services:
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
         VITE_AUTH_PROVIDER: ${VITE_AUTH_PROVIDER:-local}
-    container_name: app-frontend
     restart: unless-stopped
     networks: [app-network]
 
   nginx:
     image: nginx:1.27-alpine
-    container_name: app-nginx
     restart: unless-stopped
     ports:
       - '80:80'

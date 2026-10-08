@@ -29,6 +29,9 @@ export const components: Components<Omit<Theme, 'components'>> = {
         outlineOffset: '2px',
       },
       // Contenedores que sí pueden scrollar en X.
+      // La barra nativa de Windows es gruesa y con flechas: ocupa casi tanto
+      // como el contenido en una tira de tarjetas. Se adelgaza sin ocultarla,
+      // porque una zona que scrollea sin ninguna pista visible no se descubre.
       '.scroll-x': {
         overflowX: 'auto',
         WebkitOverflowScrolling: 'touch',
@@ -163,7 +166,7 @@ export const components: Components<Omit<Theme, 'components'>> = {
     },
   },
 
-    MuiChip: {
+  MuiChip: {
     styleOverrides: {
       // Los badges de estado usan tinte translúcido + texto del color, no el
       // relleno sólido de MUI, que compite con las acciones primarias.

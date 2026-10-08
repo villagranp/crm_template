@@ -21,12 +21,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   static getDerivedStateFromError(error: unknown): ErrorBoundaryState {
     return {
       hasError: true,
-      message: error instanceof Error ? error.message : 'Unexpected rendering error',
+      message: error instanceof Error ? error.message : 'Error inesperado al renderizar',
     };
   }
 
   override componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error('Unhandled rendering error', error.message, info.componentStack);
+    console.error('Error de renderizado no controlado', error.message, info.componentStack);
   }
 
   private handleReload = (): void => {
@@ -44,11 +44,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           severity="error"
           action={
             <Button color="inherit" size="small" onClick={this.handleReload}>
-              Reload
+              Recargar
             </Button>
           }
         >
-          <AlertTitle>Something went wrong</AlertTitle>
+          <AlertTitle>Algo salió mal</AlertTitle>
           {this.state.message}
         </Alert>
       </Box>

@@ -9,6 +9,9 @@ decisiones de fondo están en [ADR-018](../adr/ADR-018-identity-access-model.md)
 Fuente de verdad: `backend/prisma/schema.prisma`. Este documento explica el
 porqué; el esquema manda sobre los detalles.
 
+Dónde vive esta base en cada entorno, con qué usuario y con qué permisos:
+[`docs/deployment/environments.md`](../deployment/environments.md).
+
 ---
 
 ## 1. Mapa general
@@ -104,6 +107,11 @@ repositorio y se prueba.
 |---|---|
 | `app_modules` | Primer nivel del menú (Inicio, Administración, y los del proyecto) |
 | `menu_options` | La opción: clave, etiqueta, icono, ruta, orden, padre, permiso requerido |
+
+> `menu_options.icon` guarda el nombre en snake_case de Material Symbols
+> (`manage_accounts`). El frontend lo resuelve con el registro de
+> `components/layout/MaterialSymbol.tsx`: un icono nuevo hay que darlo de alta
+> ahí además de en la base de datos.
 | `role_menu_options` | Opciones que concede un rol |
 | `user_menu_options` | Asignación directa a una persona (`GRANT`/`DENY`) |
 

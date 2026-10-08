@@ -169,7 +169,7 @@ flowchart TB
     NG["nginx:alpine — 80"]
     FE["frontend — build estático servido por NGINX"]
     BE["backend — node:22-alpine — 3000"]
-    DB[("postgres:16 — 5432")]
+    DB[("postgres:16 — 5432 interno / 5433 en el host")]
   end
   NG --> FE
   NG --> BE

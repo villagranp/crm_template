@@ -26,21 +26,21 @@ export class MeController {
   @ApiOperation({ summary: 'Perfil y permisos efectivos del usuario autenticado' })
   @ApiOkResponse({ type: ProfileResponseDto })
   async getProfile(@CurrentUser() principal: AuthenticatedPrincipal | undefined): Promise<ProfileResponseDto> {
-  const userId = await this.requireUserId(principal);
-  const access = await this.accessService.getEffectiveAccess(userId);
+    const userId = await this.requireUserId(principal);
+    const access = await this.accessService.getEffectiveAccess(userId);
 
-  // Mapeo explícito de tipo de dominio a DTO: el contrato de la API no debe
-  // cambiar sólo porque cambie un nombre de campo en el servicio.
-  return {
-    id: access.userId,
-    displayName: access.displayName,
-    email: access.email,
-    roles: access.roles,
-    permissions: access.permissions,
-    teams: access.teams,
-    dataScope: access.dataScope,
-  };
-}
+    // Mapeo explícito de tipo de dominio a DTO: el contrato de la API no debe
+    // cambiar sólo porque cambie un nombre de campo en el servicio.
+    return {
+      id: access.userId,
+      displayName: access.displayName,
+      email: access.email,
+      roles: access.roles,
+      permissions: access.permissions,
+      teams: access.teams,
+      dataScope: access.dataScope,
+    };
+  }
 
   @Get('me/menu')
   @AuthenticatedOnly('El recurso es el propio usuario de la sesión')

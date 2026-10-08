@@ -1,0 +1,46 @@
+# =============================================================================
+# Infraestructura de desarrollo compartida.
+#
+# UNA instancia de PostgreSQL para TODAS las aplicaciones de la maquina, con
+# una base y un usuario por aplicacion. Es el mismo modelo que en QA y en
+# produccion (ver docs/deployment/environments.md), de modo que lo que funciona
+# en local funciona igual arriba.
+#
+# Vive aparte de cualquier proyecto a proposito: no se levanta ni se tira con
+# el ciclo de vida de una aplicacion.
+#
+# Arrancar:  docker compose -f infrastructure/dev-infra/docker-compose.yml up -d
+# (copia esta carpeta a un sitio neutro, p. ej. C:\Dev\AG\dev-infra, para no
+#  depender de tener clonado ningun proyecto)
+# =============================================================================
+
+name: ag-dev-infra
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      # Superusuario SOLO para administrar: crear bases y usuarios. Las
+      # aplicaciones nunca se conectan con el.
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DEV_POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
+    ports:
+      # 5433, no el 5432 por defecto, para no competir con un PostgreSQL
+      # instalado en la maquina.
+      - '${DEV_POSTGRES_PORT:-5433}:5432'
+    volumes:
+      - dev-postgres-data:/var/lib/postgresql/data
+      # Todo .sql de esta carpeta se ejecuta la PRIMERA vez que se crea el
+      # volumen. Si ya existe, se ignora: para una base nueva usa el comando
+      # manual del README.
+      - ./init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  dev-postgres-data:

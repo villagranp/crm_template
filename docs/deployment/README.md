@@ -6,7 +6,7 @@ per-project decision that requires its own ADR.
 
 | File | Contents |
 |---|---|
-| `environments.md` | Environments, URLs, owners and promotion path |
+| [`environments.md`](environments.md) | Modelo de base de datos por entorno, convención de nombres y credenciales |
 | `configuration.md` | Every environment variable, its owner and its source |
 | `runbook-release.md` | Release steps, verification and rollback |
 | `runbook-incident.md` | Triage, correlation ID lookup, escalation path |

@@ -38,6 +38,7 @@ ajenos a la marca son los semánticos de estado.
 | `localStorage: mcag-theme` | `localStorage: app-theme` en `ui.store.ts` |
 | Google Fonts + CDNs de iconos | `@fontsource/poppins`, `@fontsource/inter`, `material-symbols` auto-alojados |
 | Bootstrap, jQuery, SweetAlert2, Toastr, Sortable | No se adoptan. Se usa el equivalente de Material UI |
+| Font Awesome / Simple Line Icons | `@mui/icons-material`, con registro explícito (ver §9b) |
 
 ---
 
@@ -177,6 +178,21 @@ da de alta una `MenuOption` y se asigna a un rol o a una persona; el frontend
 sólo tiene que tener una ruta que coincida con la de la opción.
 
 ---
+
+## 9b. Iconos
+
+Los iconos vienen de `@mui/icons-material`, que se empaqueta por árbol: sólo
+entra en el bundle el icono que se importa, en torno a 1 kB cada uno.
+
+Las opciones de menú guardan el nombre del icono como texto en la base de datos
+(`MenuOption.icon`, en snake_case de Material Symbols: `manage_accounts`), así
+que `components/layout/MaterialSymbol.tsx` lo resuelve con un **registro
+explícito**.
+
+**Para usar un icono nuevo hay que añadirlo a ese registro.** Es deliberado: la
+alternativa era cargar la fuente completa de Material Symbols, que pesa ~3 MB y
+se descargaría entera para pintar diez iconos. Un nombre que no esté en el
+registro no rompe nada: cae en el icono por defecto.
 
 ## 9. Activos de marca
 

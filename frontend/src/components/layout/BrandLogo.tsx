@@ -1,5 +1,6 @@
 import { Box } from '@mui/material';
 
+import { useUiStore } from '@/stores/ui.store';
 import { brandAssets, layout } from '@/theme/tokens';
 
 interface BrandLogoProps {
@@ -13,11 +14,15 @@ interface BrandLogoProps {
 /**
  * Logo de marca.
  *
- * El original resolvía el logo por CSS (`background-image`) para que el
- * navegador descargara sólo el que usa. Aquí se hace con `<img>` y la variante
- * la decide el tema, que es equivalente y además permite `alt`.
+ * La variante se elige en JavaScript a partir del modo de color activo. El
+ * intento anterior lo hacía con `content: url(...)` desde `sx`: el truco
+ * funciona en CSS plano, pero aquí el selector de tema no aplica y el logo azul
+ * se quedaba sobre el fondo oscuro, casi ilegible.
  */
 export function BrandLogo({ variant = 'wordmark', onDark = false, height = 28 }: BrandLogoProps) {
+  const themeMode = useUiStore((state) => state.themeMode);
+  const useLightAsset = onDark || themeMode === 'dark';
+
   if (variant === 'mark') {
     return (
       <Box
@@ -33,15 +38,9 @@ export function BrandLogo({ variant = 'wordmark', onDark = false, height = 28 }:
   return (
     <Box
       component="img"
-      src={onDark ? brandAssets.logoDark : brandAssets.logoLight}
+      src={useLightAsset ? brandAssets.logoDark : brandAssets.logoLight}
       alt="Ir al inicio"
-      sx={{
-        height,
-        width: 'auto',
-        maxWidth: 160,
-        objectFit: 'contain',
-        ...(onDark ? {} : { '[data-theme="dark"] &': { content: `url(${brandAssets.logoDark})` } }),
-      }}
+      sx={{ height, width: 'auto', maxWidth: 160, objectFit: 'contain', display: 'block' }}
     />
   );
 }

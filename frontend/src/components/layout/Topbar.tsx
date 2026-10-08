@@ -128,6 +128,8 @@ export function Topbar({ notificationCount = 0 }: TopbarProps) {
               notificationCount > 0 ? `Notificaciones, ${notificationCount} sin leer` : 'Notificaciones, ninguna sin leer'
             }
           >
+            {/* Sin notificaciones no se pinta el globo: un "0" en rojo llama la
+                atención para decir que no pasa nada. */}
             {notificationCount > 0 ? (
               <Badge badgeContent={notificationCount} color="error" max={99}>
                 <NotificationsIcon />

@@ -30,6 +30,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 - Skills `design-system` y `access-management`.
 
 ### Changed
+- Modelo de base de datos: una instancia por entorno compartida por todas las
+  aplicaciones, con una base y un usuario por aplicación
+  (`docs/deployment/environments.md`, `infrastructure/dev-infra/`).
+- El servicio `postgres` del proyecto pasa al perfil `local-db` y no arranca por
+  defecto; los contenedores pierden `container_name` para que varios proyectos
+  derivados convivan en la misma máquina.
 - El menú deja de declararse en el frontend: se sirve desde `GET /me/menu`.
 - `StaticPermissionResolver` (mapa vacío) se sustituye por `DatabasePermissionResolver`.
 - Contexto de build de Docker movido a la raíz del monorepo.

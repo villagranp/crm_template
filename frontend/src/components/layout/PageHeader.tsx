@@ -71,6 +71,7 @@ export function PageHeader({ title, subtitle, breadcrumbs, actions, metrics }: P
           className="scroll-x"
           sx={{
             mt: 2,
+            pb: 1,
             display: 'flex',
             gap: 2,
             scrollSnapType: { xs: 'x mandatory', md: 'none' },
