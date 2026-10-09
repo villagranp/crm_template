@@ -4,6 +4,8 @@ import VisibilityOffOutlinedIcon from '@mui/icons-material/VisibilityOffOutlined
 import { IconButton, InputAdornment, TextField, type TextFieldProps } from '@mui/material';
 import { forwardRef, useState } from 'react';
 
+import { duration, easing, pressScale } from '@/theme/tokens';
+
 type PasswordFieldProps = Omit<TextFieldProps, 'type'> & {
   /** Muestra el candado al inicio del campo (`.input-icon-wrap` del prototipo). Por defecto, sí. */
   showLeadingIcon?: boolean;
@@ -39,7 +41,13 @@ export const PasswordField = forwardRef<HTMLInputElement, PasswordFieldProps>(
                   aria-pressed={isVisible}
                   onClick={() => setIsVisible((current) => !current)}
                   edge="end"
-                  sx={{ color: 'text.secondary' }}
+                  sx={{
+                    color: 'text.secondary',
+                    // `.input-trailing-btn:active` del prototipo: se encoge al pulsarlo.
+                    transition: `transform ${duration.press}ms ${easing.out}`,
+                    '&:active': { transform: `scale(${pressScale})` },
+                    '@media (prefers-reduced-motion: reduce)': { '&:active': { transform: 'none' } },
+                  }}
                 >
                   {isVisible ? (
                     <VisibilityOffOutlinedIcon fontSize="small" />

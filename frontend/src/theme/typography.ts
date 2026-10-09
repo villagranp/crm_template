@@ -52,9 +52,10 @@ export const typography: TypographyVariantsOptions = {
     letterSpacing: '0.09em',
     lineHeight: 1.4,
   },
+  // `.btn-x` del prototipo: los botones son texto de interfaz (Inter), no títulos.
   button: {
-    fontFamily: fonts.heading,
-    fontSize: '0.875rem',
+    fontFamily: fonts.body,
+    fontSize: '0.9rem',
     fontWeight: 600,
     textTransform: 'none',
   },

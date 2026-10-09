@@ -1,5 +1,5 @@
 import { Box } from '@mui/material';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 
 import { authLayout } from '@/theme/tokens';
 
@@ -7,6 +7,7 @@ const { snow } = authLayout;
 const MAX_DEVICE_PIXEL_RATIO = 2;
 const RESIZE_DEBOUNCE_MS = 150;
 const DRIFT_FREQUENCY = 0.0004;
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
 interface Particle {
   x: number;
@@ -16,17 +17,6 @@ interface Particle {
   drift: number;
   phase: number;
   alpha: number;
-}
-
-/**
- * Sólo se anima si el sistema declara explícitamente que no hay preferencia de
- * movimiento reducido. Sin `matchMedia` (navegadores antiguos, jsdom) no se anima.
- */
-function motionAllowed(): boolean {
-  return (
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia('(prefers-reduced-motion: no-preference)').matches
-  );
 }
 
 function spawn(width: number, height: number, initial: boolean): Particle {
@@ -42,28 +32,47 @@ function spawn(width: number, height: number, initial: boolean): Particle {
 }
 
 /**
- * Nieve decorativa del fondo de acceso (`snow-canvas.js` del prototipo).
+ * Nieve decorativa del fondo de acceso: réplica de `snow-canvas.js` del
+ * prototipo (`docs/design/prototype/assets/js/snow-canvas.js`).
  *
- * Coste cero cuando no se ve: con `prefers-reduced-motion` no se monta el
- * canvas, la animación se detiene con la pestaña oculta y sólo existe en las
- * pantallas de acceso. Es puramente decorativa (`aria-hidden`).
+ * Igual que allí, siempre se pinta: con `prefers-reduced-motion: reduce` las
+ * partículas quedan quietas (un solo fotograma) en lugar de desaparecer, y si
+ * la preferencia cambia con la página abierta se aplica al momento. La
+ * animación se detiene con la pestaña oculta. Es puramente decorativa
+ * (`aria-hidden`).
+ *
+ * Sin `matchMedia` (jsdom, navegadores muy antiguos) no se monta: no hay un
+ * canvas real que pintar.
  */
 export function SnowCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [enabled] = useState(motionAllowed);
+  const supported = typeof window !== 'undefined' && typeof window.matchMedia === 'function';
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const context = canvas?.getContext('2d');
-    if (!enabled || !canvas || !context) {
+    if (!supported || !canvas || !context) {
       return undefined;
     }
 
+    const reducedMotion = window.matchMedia(REDUCED_MOTION_QUERY);
     let width = 0;
     let height = 0;
     let particles: Particle[] = [];
     let frame: number | null = null;
     let resizeTimer: number | undefined;
+
+    const draw = (): void => {
+      context.clearRect(0, 0, width, height);
+      context.fillStyle = snow.color;
+      for (const particle of particles) {
+        context.globalAlpha = particle.alpha;
+        context.beginPath();
+        context.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
+        context.fill();
+      }
+      context.globalAlpha = 1;
+    };
 
     const resize = (): void => {
       const ratio = Math.min(window.devicePixelRatio || 1, MAX_DEVICE_PIXEL_RATIO);
@@ -72,18 +81,17 @@ export function SnowCanvas() {
       canvas.width = Math.floor(width * ratio);
       canvas.height = Math.floor(height * ratio);
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      // Densidad proporcional al área: menos partículas en móvil.
       const count = Math.round(
-        Math.min(
-          snow.maxParticles,
-          Math.max(snow.minParticles, (width * height) / snow.areaPerParticle),
-        ),
+        Math.min(snow.maxParticles, Math.max(snow.minParticles, (width * height) / snow.areaPerParticle)),
       );
       particles = Array.from({ length: count }, () => spawn(width, height, true));
+      if (reducedMotion.matches) {
+        draw();
+      }
     };
 
     const step = (time: number): void => {
-      context.clearRect(0, 0, width, height);
-      context.fillStyle = snow.color;
       for (const particle of particles) {
         particle.y += particle.speedY;
         particle.x += Math.sin(time * DRIFT_FREQUENCY + particle.phase) * particle.drift;
@@ -92,17 +100,14 @@ export function SnowCanvas() {
         }
         if (particle.x < -10) particle.x = width + 10;
         if (particle.x > width + 10) particle.x = -10;
-        context.globalAlpha = particle.alpha;
-        context.beginPath();
-        context.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
-        context.fill();
       }
-      context.globalAlpha = 1;
+      draw();
       frame = requestAnimationFrame(step);
     };
 
     const start = (): void => {
-      if (frame === null) frame = requestAnimationFrame(step);
+      if (reducedMotion.matches || document.hidden || frame !== null) return;
+      frame = requestAnimationFrame(step);
     };
     const stop = (): void => {
       if (frame !== null) cancelAnimationFrame(frame);
@@ -113,21 +118,31 @@ export function SnowCanvas() {
       window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(resize, RESIZE_DEBOUNCE_MS);
     };
+    const handleMotionPreference = (): void => {
+      if (reducedMotion.matches) {
+        stop();
+        draw();
+      } else {
+        start();
+      }
+    };
 
     resize();
     start();
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('resize', handleResize);
+    reducedMotion.addEventListener('change', handleMotionPreference);
 
     return () => {
       stop();
       window.clearTimeout(resizeTimer);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('resize', handleResize);
+      reducedMotion.removeEventListener('change', handleMotionPreference);
     };
-  }, [enabled]);
+  }, [supported]);
 
-  if (!enabled) {
+  if (!supported) {
     return null;
   }
 

@@ -146,8 +146,8 @@ export function ChangePasswordPage() {
             helperText={errors.confirmation?.message}
           />
 
-          <AuthSubmitButton type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Guardando…' : 'Guardar contraseña'}
+          <AuthSubmitButton type="submit" loading={isSubmitting}>
+            Guardar contraseña
           </AuthSubmitButton>
 
           {passwordChangeRequired ? (

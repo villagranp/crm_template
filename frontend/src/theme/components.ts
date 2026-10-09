@@ -1,6 +1,7 @@
 import { alpha, type Components, type Theme } from '@mui/material';
 
 import {
+  breakpoints,
   darkSurfaces,
   duration,
   easing,
@@ -97,7 +98,7 @@ export const components: Components<Omit<Theme, 'components'>> = {
         transition: `transform ${duration.press}ms ${easing.out}, box-shadow ${duration.hover}ms ${easing.out}`,
         // Regla transversal: todo elemento presionable se hunde un 3%.
         '&:active': { transform: 'scale(0.97)' },
-        '@media (min-width: 992px)': { minHeight: 40 },
+        [`@media (min-width: ${breakpoints.lg}px)`]: { minHeight: 40 },
       },
       sizeSmall: { minHeight: 36, paddingInline: 12 },
     },
@@ -111,7 +112,7 @@ export const components: Components<Omit<Theme, 'components'>> = {
         borderRadius: layout.radiusSm,
         transition: `transform ${duration.press}ms ${easing.out}, background-color ${duration.hover}ms ${easing.out}`,
         '&:active': { transform: 'scale(0.97)' },
-        '@media (min-width: 992px)': { width: 40, height: 40 },
+        [`@media (min-width: ${breakpoints.lg}px)`]: { width: 40, height: 40 },
       },
     },
   },

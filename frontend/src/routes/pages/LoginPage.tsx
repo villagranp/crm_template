@@ -120,8 +120,8 @@ function LocalSignInForm() {
         />
 
         <Box sx={{ pt: 0.75 }}>
-          <AuthSubmitButton type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Entrando…' : 'Iniciar sesión'}
+          <AuthSubmitButton type="submit" loading={isSubmitting}>
+            Iniciar sesión
           </AuthSubmitButton>
         </Box>
 

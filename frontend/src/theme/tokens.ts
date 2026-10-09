@@ -94,6 +94,8 @@ export const gradients = {
   brandSoft: `linear-gradient(135deg, ${brand[600]}, ${brand[300]})`,
   /** Botón principal de las pantallas de acceso (`.btn-auth`). */
   cta: `linear-gradient(120deg, ${brand[700]}, ${brand[500]})`,
+  /** Brillo diagonal que barre un botón sólido al pasar el ratón (`.btn-x::before`). */
+  sheen: 'linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.26) 50%, transparent 70%)',
   /** Cabecera de tarjeta: del gris sutil a transparente (`.card-x-header`). */
   cardHeaderLight: 'linear-gradient(180deg, #F6F8FA, transparent)',
   cardHeaderDark: 'linear-gradient(180deg, #172440, transparent)',
@@ -163,7 +165,16 @@ export const duration = {
   toastIn: 280,
   toastOut: 180,
   progress: 400,
+  /** Brillo que barre el botón principal al pasar el ratón (`.btn-x::before`). */
+  sheen: 520,
+  /** Vuelta del anillo de carga de un botón (`.spinner-ring`). */
+  spin: 600,
+  /** Fundido del texto del botón al entrar en carga (`.btn-label`). */
+  labelFade: 200,
 } as const;
+
+/** Escala de un botón de icono al pulsarlo (`.input-trailing-btn:active`). */
+export const pressScale = 0.92;
 
 /** Escalonado de listas, kanban y rejillas de tarjetas (ms entre elementos). */
 export const stagger = { min: 30, max: 80 } as const;
@@ -232,6 +243,15 @@ export const authLayout = {
   submitMinHeight: 50,
   submitShadow: '0 8px 20px rgba(41, 71, 141, 0.3)',
   submitShadowHover: '0 10px 26px rgba(41, 71, 141, 0.4)',
+  /** Elevación del botón al pasar el ratón (px). */
+  submitHoverLift: 1,
+  /** Estado de carga: el texto se difumina y queda tenue bajo el anillo (`.is-loading`). */
+  submitLoadingBlur: 2,
+  submitLoadingOpacity: 0.55,
+  /** Anillo de carga (`.spinner-ring`): diámetro, grosor y color de la pista. */
+  spinnerSize: 18,
+  spinnerThickness: 2,
+  spinnerTrack: 'rgba(255, 255, 255, 0.35)',
   footerText: 'rgba(255, 255, 255, 0.72)',
   /** Partículas de nieve decorativas: densidad por área y tope. */
   snow: { minParticles: 28, maxParticles: 110, areaPerParticle: 16000, color: ag.white },
