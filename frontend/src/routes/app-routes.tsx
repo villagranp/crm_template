@@ -48,9 +48,11 @@ export function getShellNavigablePaths(): string[] {
 /**
  * Tabla de rutas.
  *
- * El shell va detrás de `PasswordChangeGate`: con un cambio de contraseña
- * pendiente (D13) toda ruta lleva a `/cambiar-contrasena`, que vive fuera del
- * shell porque el menú aún no está disponible para esa sesión.
+ * Todo el shell exige sesión (`RequireAuth`): sin ella, cualquier ruta lleva a
+ * `/acceso` y, al entrar, se vuelve a la que se pidió. Después va
+ * `PasswordChangeGate`: con un cambio de contraseña pendiente (D13) toda ruta
+ * lleva a `/cambiar-contrasena`, que vive fuera del shell porque el menú aún no
+ * está disponible para esa sesión.
  */
 export const appRoutes: RouteObject[] = [
   {
@@ -68,9 +70,11 @@ export const appRoutes: RouteObject[] = [
   {
     path: ROUTE_PATHS.home,
     element: (
-      <PasswordChangeGate>
-        <AppShell />
-      </PasswordChangeGate>
+      <RequireAuth>
+        <PasswordChangeGate>
+          <AppShell />
+        </PasswordChangeGate>
+      </RequireAuth>
     ),
     errorElement: (
       <ErrorBoundary>
