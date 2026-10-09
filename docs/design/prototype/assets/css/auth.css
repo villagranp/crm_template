@@ -1,0 +1,234 @@
+/* ==========================================================================
+   Mi Cliente AG — Pantallas de autenticación (MOBILE FIRST)
+   Fondo con partículas + tarjeta split (§5 del DESIGN_SPEC)
+   ========================================================================== */
+
+.auth-body {
+  min-height: 100svh;
+  padding-bottom: 0;              /* aquí no hay bottom nav */
+  display: flex;
+  flex-direction: column;
+  background: var(--brand-900);
+}
+
+/* ---------- Fondo animado ---------- */
+.auth-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background:
+    url('../grupo-ag-login-bg.webp') center center / cover no-repeat,
+    linear-gradient(160deg, #0B1424 0%, #16264B 48%, #29478D 100%);
+}
+.auth-bg::after {
+  /* Velo: la imagen tiene zonas casi blancas y el texto del pie es blanco */
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(16, 28, 56, .28) 0%, rgba(16, 28, 56, .22) 45%, rgba(16, 28, 56, .78) 100%);
+}
+#snowCanvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+/* ---------- Shell ---------- */
+.auth-shell {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1.25rem;
+  padding:
+    calc(1.25rem + env(safe-area-inset-top, 0px))
+    calc(1rem + env(safe-area-inset-right, 0px))
+    calc(1.25rem + env(safe-area-inset-bottom, 0px))
+    calc(1rem + env(safe-area-inset-left, 0px));
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 470px;
+  margin: 0 auto;
+  display: flex;
+  background: var(--bg-surface);
+  border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(16, 28, 56, .45);
+  overflow: hidden;
+}
+
+/* ---------- Panel lateral (≥992px) ---------- */
+.auth-aside { display: none; }
+
+/* ---------- Formulario ---------- */
+.auth-form-panel {
+  flex: 1;
+  min-width: 0;
+  padding: 1.75rem 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.auth-mobile-brand {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  margin-bottom: 1.5rem;
+}
+.auth-mobile-brand .brand-logo { height: 34px; }
+
+.auth-head { margin-bottom: 1.5rem; }
+.auth-head h1 {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: clamp(1.5rem, 6.5vw, 1.85rem);
+  margin: 0 0 .4rem;
+}
+.auth-head p { color: var(--text-muted); font-size: .92rem; margin: 0; }
+
+.field-group { margin-bottom: 1.1rem; }
+.field-group label {
+  display: block;
+  font-size: .84rem;
+  font-weight: 600;
+  margin-bottom: .4rem;
+}
+.field-link { font-size: .85rem; white-space: nowrap; }
+
+.auth-forgot { text-align: center; margin: 1.1rem 0 0; }
+.auth-forgot .field-link { display: inline-flex; align-items: center; min-height: 36px; }
+
+.input-x.has-trailing { padding-right: 3rem; }
+.input-trailing-btn {
+  position: absolute;
+  right: .25rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 42px; height: 42px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  display: grid; place-items: center;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease, transform 160ms var(--ease-out);
+}
+.input-trailing-btn:hover { background: var(--navy-soft); color: var(--text-primary); }
+.input-trailing-btn:active { transform: translateY(-50%) scale(0.92); }
+
+.field-error { color: var(--danger); font-size: .78rem; margin: .35rem 0 0; display: flex; align-items: center; gap: .3rem; }
+.input-x.is-invalid { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(198, 40, 40, .14); }
+
+.auth-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
+
+/* Switch accesible */
+.switch-x { display: inline-flex; align-items: center; gap: .6rem; cursor: pointer; min-height: var(--tap); }
+.switch-x input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch-track {
+  width: 42px; height: 24px;
+  border-radius: 999px;
+  background: var(--border);
+  position: relative;
+  flex-shrink: 0;
+  transition: background-color 180ms var(--ease-out);
+}
+.switch-thumb {
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  transition: transform 180ms var(--ease-out);
+}
+.switch-x input:checked + .switch-track { background: var(--blue-cta); }
+.switch-x input:checked + .switch-track .switch-thumb { transform: translateX(18px); }
+.switch-x input:focus-visible + .switch-track { outline: 2px solid var(--blue-cta); outline-offset: 2px; }
+.switch-label { font-size: .88rem; color: var(--text-muted); }
+
+/* Botón principal */
+.btn-auth {
+  min-height: 50px;
+  font-size: .98rem;
+  color: #fff;
+  background: linear-gradient(120deg, var(--brand-700), var(--brand-500));
+  box-shadow: 0 8px 20px rgba(41, 71, 141, .3);
+}
+.btn-auth:hover { color: #fff; box-shadow: 0 10px 26px rgba(41, 71, 141, .4); }
+
+.auth-page-foot {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .4rem;
+  padding: 0 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+  font-size: .78rem;
+  color: rgba(255, 255, 255, .72);
+  text-align: center;
+}
+.auth-page-foot nav { display: flex; gap: 1rem; }
+.auth-page-foot a { color: rgba(255, 255, 255, .82); }
+.auth-page-foot a:hover { color: #fff; }
+
+/* ==========================================================================
+   ≥576px
+   ========================================================================== */
+@media (min-width: 576px) {
+  .auth-form-panel { padding: 2.25rem 2rem 2rem; }
+  .auth-page-foot { flex-direction: row; justify-content: center; gap: 1.25rem; }
+}
+
+/* ==========================================================================
+   ≥992px — tarjeta split con panel lateral
+   ========================================================================== */
+@media (min-width: 992px) {
+  .auth-card { max-width: 1000px; min-height: 580px; }
+
+  .auth-aside {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    flex: 0 0 46%;
+    padding: 2.5rem;
+    color: #fff;
+    position: relative;
+    background:
+      radial-gradient(circle at 80% 20%, rgba(255, 255, 255, .16), transparent 55%),
+      linear-gradient(150deg, var(--brand-900) 0%, var(--brand-700) 55%, var(--brand-500) 100%);
+  }
+
+  .auth-aside-top { display: flex; align-items: center; gap: .7rem; }
+  .auth-aside-top .brand-logo { height: 42px; }
+
+  /* El bloque de texto se ancla abajo del panel */
+  .auth-aside-copy { margin-top: auto; padding-bottom: 1.5rem; }
+  .auth-aside-copy h2 { font-family: var(--font-heading); font-weight: 700; font-size: 2.1rem; margin: 0 0 .75rem; }
+  .auth-aside-copy p { color: rgba(255, 255, 255, .82); font-size: .95rem; margin: 0 0 1.5rem; max-width: 40ch; }
+
+  .auth-feature-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .7rem; }
+  .auth-feature-list li { display: flex; align-items: center; gap: .6rem; font-size: .9rem; color: rgba(255, 255, 255, .9); }
+  .auth-feature-list .material-symbols-sharp { color: var(--brand-200); }
+
+  .auth-mobile-brand { display: none; }
+  .auth-form-panel { padding: 3rem 3.25rem; justify-content: center; }
+}
+
+/* ==========================================================================
+   Landscape bajo (móvil horizontal): compactar
+   ========================================================================== */
+@media (max-height: 560px) and (orientation: landscape) {
+  .auth-shell { justify-content: flex-start; }
+  .auth-head { margin-bottom: 1rem; }
+  .auth-mobile-brand { margin-bottom: 1rem; }
+  .field-group { margin-bottom: .8rem; }
+}
+
+/* ==========================================================================
+   Reduced motion
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  .input-trailing-btn:active { transform: translateY(-50%); }
+  .switch-thumb { transition: none; }
+}

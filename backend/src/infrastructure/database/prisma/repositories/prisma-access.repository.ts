@@ -724,7 +724,7 @@ interface MenuOptionWithRelations {
   isSystem: boolean;
   isActive: boolean;
   requiredPermission: { code: string } | null;
-  module: { id: string; key: string; name: string; icon: string | null; sortOrder: number };
+  module: { id: string; key: string; name: string; icon: string | null; sortOrder: number; isSystem: boolean };
 }
 
 function toMenuOptionRecord(option: MenuOptionWithRelations): MenuOptionRecord {
@@ -749,6 +749,7 @@ function toMenuOptionRecord(option: MenuOptionWithRelations): MenuOptionRecord {
       name: option.module.name,
       icon: option.module.icon,
       sortOrder: option.module.sortOrder,
+      isSystem: option.module.isSystem,
     },
   };
 }

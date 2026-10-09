@@ -96,7 +96,8 @@ export interface MenuOptionRecord {
   isPublic: boolean;
   isSystem: boolean;
   isActive: boolean;
-  module: { id: string; key: string; name: string; icon: string | null; sortOrder: number };
+  /** `isSystem`: módulo de sistema (Administración); el menú lo agrupa aparte. */
+  module: { id: string; key: string; name: string; icon: string | null; sortOrder: number; isSystem: boolean };
 }
 
 export interface ModuleRecord {

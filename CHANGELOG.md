@@ -26,6 +26,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 - Skill `ui-ux-pro-max` (MIT) como consulta de recomendaciones de UX; sin
   generación de sistemas de diseño propios (ADR-017).
 
+- Prototipo de referencia visual en `docs/design/prototype/` (entregado como
+  `CRM.zip`) y logos, fondo de acceso y favicon actualizados.
+- `GET /me/menu`: cada módulo indica `isSystem` (cambio aditivo) para agrupar
+  la administración en la sección "Sistema" del menú.
+
 ### Changed
 - **Contrato:** `GET /roles` pasa a ser paginado (`{ data, pagination }`).
 - **Contrato:** `PATCH /users/{id}` ya no acepta `status`; el estado cambia con

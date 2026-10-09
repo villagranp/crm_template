@@ -44,7 +44,7 @@ function option(overrides: Partial<MenuOptionRecord> = {}): MenuOptionRecord {
     isPublic: false,
     isSystem: false,
     isActive: true,
-    module: { id: 'mod-1', key: 'administracion', name: 'Administración', icon: 'settings', sortOrder: 90 },
+    module: { id: 'mod-1', key: 'administracion', name: 'Administración', icon: 'settings', sortOrder: 90, isSystem: true },
     ...overrides,
   };
 }
@@ -115,6 +115,12 @@ describe('buildMenu', () => {
 
     expect(menu).toHaveLength(1);
     expect(menu[0]?.options[0]?.id).toBe('inicio');
+  });
+
+  it('indica si el módulo es de sistema, para agruparlo en "Sistema"', () => {
+    const menu = buildMenu([option({ id: 'inicio', isPublic: true })], new Set(), new Set());
+
+    expect(menu[0]?.isSystem).toBe(true);
   });
 
   it('oculta una opción asignada cuyo permiso requerido no tiene el usuario', () => {

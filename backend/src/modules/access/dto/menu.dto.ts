@@ -39,6 +39,9 @@ export class MenuModuleDto {
   @ApiProperty({ example: 90 })
   order!: number;
 
+  @ApiProperty({ description: 'Módulo de sistema (Administración): el menú lo agrupa en "Sistema"', example: true })
+  isSystem!: boolean;
+
   @ApiProperty({ type: [MenuOptionDto] })
   options!: MenuOptionDto[];
 }

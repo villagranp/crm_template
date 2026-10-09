@@ -4,7 +4,7 @@ import type { ActorContext } from './access-rules';
 import { MenuOptionsService, validateMenuOptionShape } from './menu-options.service';
 import type { AccessRepository, MenuOptionRecord } from './ports/access.repository.port';
 
-const MODULE = { id: 'mod-1', key: 'administracion', name: 'Administración', icon: null, sortOrder: 90 };
+const MODULE = { id: 'mod-1', key: 'administracion', name: 'Administración', icon: null, sortOrder: 90, isSystem: true };
 const ACTOR: ActorContext = { userId: 'admin', audit: { correlationId: 'c', actorId: 'admin', actorEmail: null, ipAddress: null } };
 
 function option(overrides: Partial<MenuOptionRecord> = {}): MenuOptionRecord {

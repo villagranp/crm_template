@@ -20,6 +20,8 @@ export interface MenuModuleView {
   label: string;
   icon: string | null;
   order: number;
+  /** Módulo de sistema: el menú lo muestra en la sección "Sistema". */
+  isSystem: boolean;
   options: MenuOptionView[];
 }
 
@@ -344,6 +346,7 @@ export function buildMenu(
       label: option.module.name,
       icon: option.module.icon,
       order: option.module.sortOrder,
+      isSystem: option.module.isSystem,
       options: [view],
     });
   }
