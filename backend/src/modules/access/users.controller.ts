@@ -37,6 +37,7 @@ import { PaginatedResponseDto } from '@/common/dto/paginated-response.dto';
 import type { AppRequest } from '@/common/types/request-context';
 
 import { AccessService, type MenuModuleView } from './access.service';
+import { ADMIN_ONLY_FORBIDDEN_DOC } from './admin-only';
 import { ReplaceAssignmentsDto, ReplaceIdsDto } from './dto/assignment.dto';
 import {
   CreateUserDto,
@@ -134,12 +135,23 @@ export class UsersController {
   @ApiOperation({
     summary: 'Alta de usuario',
     description:
-      'Nace INVITED. Si AUTH_DEFAULT_PASSWORD está configurada, recibe esa contraseña con cambio obligatorio en el primer acceso; si no, nace sin credencial.',
+      'Nace INVITED. Si AUTH_DEFAULT_PASSWORD está configurada, recibe esa contraseña con cambio obligatorio en el primer acceso; si no, nace sin credencial. ' +
+      'Enviar `teamIds` no vacío exige además el permiso `equipos.editar` (el mismo que asignar miembros a un equipo); sin él responde 403 `PERMISSION_DENIED` con `details[].requiredPermission = "equipos.editar"`. ' +
+      'El primer equipo de la lista queda como equipo principal. ' +
+      'ADR-020: un actor sin el rol `administrador` sólo puede asignar roles que no conceden ningún permiso (hoy, `usuario`); con cualquier otro responde 403 `ADMIN_ONLY`.',
   })
   @ApiCreatedResponse({ type: UserResponseDto })
   @ApiBadRequestResponse({ type: ErrorResponseDto })
+  @ApiForbiddenResponse({
+    type: ErrorResponseDto,
+    description:
+      'PERMISSION_DENIED: falta `usuarios.crear`, o `equipos.editar` cuando se envían `teamIds` · ADMIN_ONLY: un no administrador asigna un rol que concede permisos (ADR-020)',
+  })
   @ApiConflictResponse({ type: ErrorResponseDto, description: 'RESOURCE_CONFLICT: correo ya registrado' })
-  @ApiUnprocessableEntityResponse({ type: ErrorResponseDto, description: 'UNKNOWN_REFERENCE: rol inexistente' })
+  @ApiUnprocessableEntityResponse({
+    type: ErrorResponseDto,
+    description: 'UNKNOWN_REFERENCE: rol inexistente o inactivo, o equipo inexistente o eliminado',
+  })
   async create(
     @Body() dto: CreateUserDto,
     @Req() request: AppRequest,
@@ -156,8 +168,10 @@ export class UsersController {
   @RequirePermission('usuarios.editar')
   @ApiOperation({
     summary: 'Actualiza los datos de un usuario',
-    description: 'El estado no se cambia aquí: usa /suspend y /reactivate. Enviar `status` responde 400.',
+    description:
+      'El estado no se cambia aquí: usa /suspend y /reactivate. Enviar `status` responde 400. Si el usuario tiene el rol `administrador`, sólo otro administrador puede editarlo (ADR-020): 403 ADMIN_ONLY.',
   })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: ADMIN_ONLY_FORBIDDEN_DOC })
   @ApiOkResponse({ type: UserDetailResponseDto })
   @ApiBadRequestResponse({ type: ErrorResponseDto })
   @ApiNotFoundResponse({ type: ErrorResponseDto })
@@ -174,8 +188,10 @@ export class UsersController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Suspende al usuario y cierra todas sus sesiones (D3, D4)',
-    description: 'Nadie se suspende a sí mismo y siempre queda un administrador activo.',
+    description:
+      'Nadie se suspende a sí mismo y siempre queda un administrador activo con `usuarios.editar` y `roles.editar` efectivos. La comprobación y el cambio son atómicos. Suspender a un administrador es exclusivo de otro administrador (ADR-020): 403 ADMIN_ONLY.',
   })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: ADMIN_ONLY_FORBIDDEN_DOC })
   @ApiOkResponse({ type: UserDetailResponseDto })
   @ApiNotFoundResponse({ type: ErrorResponseDto })
   @ApiConflictResponse({
@@ -194,10 +210,15 @@ export class UsersController {
   @Post(':id/reactivate')
   @RequirePermission('usuarios.editar')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Reactiva al usuario: ACTIVE, o INVITED si nunca fijó su contraseña (D4)' })
+  @ApiOperation({
+    summary: 'Reactiva al usuario: ACTIVE, o INVITED si nunca fijó su contraseña (D4)',
+    description:
+      'Si estaba LOCKED, además limpia el bloqueo de su credencial (intentos fallidos y bloqueo temporal). Reactivar a un administrador es exclusivo de otro administrador (ADR-020): 403 ADMIN_ONLY.',
+  })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: ADMIN_ONLY_FORBIDDEN_DOC })
   @ApiOkResponse({ type: UserDetailResponseDto })
   @ApiNotFoundResponse({ type: ErrorResponseDto })
-  @ApiConflictResponse({ type: ErrorResponseDto, description: 'INVALID_STATUS_TRANSITION: no está suspendido' })
+  @ApiConflictResponse({ type: ErrorResponseDto, description: 'INVALID_STATUS_TRANSITION: no está suspendido ni bloqueado' })
   async reactivate(
     @Param('id', ParseUUIDPipe) userId: string,
     @Body() dto: UserStatusChangeDto,
@@ -227,7 +248,12 @@ export class UsersController {
   @Put(':id/roles')
   @RequirePermission('usuarios.editar')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Reemplaza los roles del usuario (D3)' })
+  @ApiOperation({
+    summary: 'Reemplaza los roles del usuario (D3)',
+    description:
+      'Exclusivo del administrador (ADR-020): 403 ADMIN_ONLY en otro caso. SELF_LOCKOUT si el actor se quita su rol de administrador o su `usuarios.editar` efectivo; LAST_ADMIN si no quedaría ningún administrador activo con `usuarios.editar` y `roles.editar` efectivos.',
+  })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: ADMIN_ONLY_FORBIDDEN_DOC })
   @ApiNoContentResponse()
   @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'Lista vacía o inválida' })
   @ApiNotFoundResponse({ type: ErrorResponseDto })
@@ -244,10 +270,16 @@ export class UsersController {
   @Put(':id/permissions')
   @RequirePermission('usuarios.editar')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Reemplaza las excepciones directas de permisos (GRANT/DENY, razón ≥ 10)' })
+  @ApiOperation({
+    summary: 'Reemplaza las excepciones directas de permisos (GRANT/DENY, razón ≥ 10)',
+    description:
+      'Exclusivo del administrador (ADR-020): 403 ADMIN_ONLY en otro caso. DENY gana sobre los roles, así que también aplica D3: SELF_LOCKOUT si el actor se deniega `usuarios.editar`; LAST_ADMIN si no quedaría ningún administrador activo con `usuarios.editar` y `roles.editar` efectivos.',
+  })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: ADMIN_ONLY_FORBIDDEN_DOC })
   @ApiNoContentResponse()
-  @ApiBadRequestResponse({ type: ErrorResponseDto })
+  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'Datos inválidos, `targetId` repetido o más de 200 asignaciones' })
   @ApiNotFoundResponse({ type: ErrorResponseDto })
+  @ApiConflictResponse({ type: ErrorResponseDto, description: 'SELF_LOCKOUT o LAST_ADMIN' })
   @ApiUnprocessableEntityResponse({ type: ErrorResponseDto, description: 'UNKNOWN_REFERENCE' })
   async replacePermissions(
     @Param('id', ParseUUIDPipe) userId: string,
@@ -260,9 +292,13 @@ export class UsersController {
   @Put(':id/menu-options')
   @RequirePermission('opciones.configurar')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Reemplaza las opciones de menú asignadas directamente al usuario (razón ≥ 10)' })
+  @ApiOperation({
+    summary: 'Reemplaza las opciones de menú asignadas directamente al usuario (razón ≥ 10)',
+    description: 'Exclusivo del administrador (ADR-020): 403 ADMIN_ONLY en otro caso.',
+  })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: ADMIN_ONLY_FORBIDDEN_DOC })
   @ApiNoContentResponse()
-  @ApiBadRequestResponse({ type: ErrorResponseDto })
+  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'Datos inválidos, `targetId` repetido o más de 200 asignaciones' })
   @ApiNotFoundResponse({ type: ErrorResponseDto })
   @ApiUnprocessableEntityResponse({ type: ErrorResponseDto, description: 'UNKNOWN_REFERENCE' })
   async replaceMenuOptions(

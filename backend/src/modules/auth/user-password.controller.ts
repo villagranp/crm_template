@@ -35,11 +35,15 @@ export class UserPasswordController {
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Restablece la contraseña a la inicial (AUTH_DEFAULT_PASSWORD)',
-    description: 'Obliga a cambiarla en el siguiente acceso, levanta el bloqueo temporal y cierra todas sus sesiones.',
+    description:
+      'Obliga a cambiarla en el siguiente acceso, levanta el bloqueo temporal y cierra todas sus sesiones. Sólo un administrador puede restablecerla, sea quien sea el usuario (ADR-020): la contraseña inicial es conocida y restablecerla equivale a dar acceso a la cuenta. 403 ADMIN_ONLY en otro caso.',
   })
   @ApiNoContentResponse()
   @ApiUnauthorizedResponse({ type: ErrorResponseDto })
-  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'Falta el permiso usuarios.editar' })
+  @ApiForbiddenResponse({
+    type: ErrorResponseDto,
+    description: 'PERMISSION_DENIED: falta usuarios.editar · ADMIN_ONLY: el actor no es administrador (ADR-020)',
+  })
   @ApiNotFoundResponse({ type: ErrorResponseDto })
   @ApiUnprocessableEntityResponse({ type: ErrorResponseDto, description: 'DEFAULT_PASSWORD_NOT_CONFIGURED' })
   async reset(@Param('id', new ParseUUIDPipe()) userId: string, @Req() request: AppRequest): Promise<void> {

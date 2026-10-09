@@ -250,6 +250,20 @@ export interface PermissionRecord {
  * motor o de ORM es escribir otro adaptador, no tocar las reglas.
  */
 export interface AccessRepository {
+  /**
+   * Sección crítica del invariante de administración (PLAN-ADMIN D3).
+   *
+   * Ejecuta `work` en una única transacción serializada frente a cualquier otra
+   * llamada a este mismo método: el adaptador toma un bloqueo exclusivo antes
+   * de invocar `work` y lo libera al terminar. `work` recibe un repositorio
+   * ligado a esa transacción; todo lo que lea y escriba con él es atómico, y si
+   * lanza, nada se aplica. Así la comprobación del invariante y la escritura no
+   * pueden intercalarse con las de otra petición.
+   */
+  withAdminInvariantLock<T>(work: (repository: AccessRepository) => Promise<T>): Promise<T>;
+  /** Igual que `withAdminInvariantLock`, para la jerarquía de opciones de menú (D7, sin ciclos). */
+  withMenuHierarchyLock<T>(work: (repository: AccessRepository) => Promise<T>): Promise<T>;
+
   /** Devuelve el usuario por el sujeto del proveedor de identidad. */
   findUserBySubject(provider: 'LOCAL' | 'ENTRA_ID', subject: string): Promise<AccessUserRecord | null>;
   findUserByEmail(email: string): Promise<AccessUserRecord | null>;
@@ -266,10 +280,11 @@ export interface AccessRepository {
   updateUser(userId: string, input: UpdateUserInput): Promise<AccessUserRecord>;
   setUserStatus(userId: string, status: UserStatus, actorId: string | null): Promise<void>;
   /**
-   * Usuarios `ACTIVE`, no borrados, con el rol `roleCode` vigente (rol activo y
-   * asignación sin caducar), sin contar `excludingUserId`. Base de D3.
+   * Ids de los usuarios `ACTIVE`, no borrados, con el rol `roleCode` vigente
+   * (rol activo y asignación sin caducar), sin contar `excludingUserId`.
+   * Candidatos de D3: el servicio decide con sus permisos efectivos.
    */
-  countActiveUsersWithRole(roleCode: string, excludingUserId: string | null): Promise<number>;
+  listActiveUserIdsWithRole(roleCode: string, excludingUserId: string | null): Promise<string[]>;
 
   replaceUserRoles(userId: string, roleIds: string[], actorId: string | null): Promise<void>;
   replaceUserPermissions(userId: string, assignments: DirectAssignmentInput[], actorId: string | null): Promise<void>;
@@ -292,6 +307,10 @@ export interface AccessRepository {
   existingRoleIds(ids: string[]): Promise<string[]>;
   existingPermissionIds(ids: string[]): Promise<string[]>;
   existingMenuOptionIds(ids: string[]): Promise<string[]>;
+  /** Equipos no borrados. */
+  existingTeamIds(ids: string[]): Promise<string[]>;
+  /** De los roles dados, los que conceden al menos un permiso (ADR-020, alta por un no administrador). */
+  findRoleIdsGrantingPermissions(roleIds: string[]): Promise<string[]>;
 
   findMenuOptionById(menuOptionId: string): Promise<MenuOptionRecord | null>;
   /** Incluye las opciones borradas: su clave sigue reservada. */

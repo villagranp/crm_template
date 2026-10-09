@@ -25,6 +25,7 @@ import {
   type UserStatus,
 } from '@/modules/access/ports/access.repository.port';
 
+import { ADVISORY_LOCK_KEYS, type AdvisoryLockKey, acquireAdvisoryXactLock, withAdvisoryXactLock } from '../advisory-lock';
 import { PrismaService } from '../prisma.service';
 
 const ROLE_INCLUDE = {
@@ -44,10 +45,66 @@ const MENU_OPTION_INCLUDE = { module: true, requiredPermission: { select: { code
  */
 @Injectable()
 export class PrismaAccessRepository implements AccessRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  /**
+   * Cliente con el que consulta este adaptador: el global o, en la copia que
+   * entregan los métodos `with…Lock`, el de la transacción interactiva.
+   */
+  private db: Prisma.TransactionClient;
+  /** `true` en la copia ligada a una transacción interactiva. */
+  private transactional = false;
+
+  constructor(private readonly prisma: PrismaService) {
+    this.db = prisma;
+  }
+
+  // --- Secciones críticas (bloqueos consultivos) ------------------------------
+
+  withAdminInvariantLock<T>(work: (repository: AccessRepository) => Promise<T>): Promise<T> {
+    return this.withLock(ADVISORY_LOCK_KEYS.adminInvariant, work);
+  }
+
+  withMenuHierarchyLock<T>(work: (repository: AccessRepository) => Promise<T>): Promise<T> {
+    return this.withLock(ADVISORY_LOCK_KEYS.menuHierarchy, work);
+  }
+
+  private async withLock<T>(key: AdvisoryLockKey, work: (repository: AccessRepository) => Promise<T>): Promise<T> {
+    if (this.transactional) {
+      // Ya dentro de una transacción: se toma el bloqueo en ella (es reentrante
+      // en la misma sesión) en lugar de anidar otra, que Prisma no admite.
+      await acquireAdvisoryXactLock(this.db, key);
+      return work(this);
+    }
+    return withAdvisoryXactLock(this.prisma, key, (tx) => work(this.boundTo(tx)));
+  }
+
+  /** Copia del adaptador cuyas consultas van por la transacción `tx`. */
+  private boundTo(tx: Prisma.TransactionClient): PrismaAccessRepository {
+    const scoped = new PrismaAccessRepository(this.prisma);
+    scoped.db = tx;
+    scoped.transactional = true;
+    return scoped;
+  }
+
+  /**
+   * Ejecuta varias operaciones de forma atómica y en orden. Fuera de una
+   * transacción abre una por lotes; dentro, ya son atómicas por la
+   * transacción que las contiene y se ejecutan una tras otra.
+   */
+  private async atomic<P extends Prisma.PrismaPromise<unknown>[]>(
+    operations: [...P],
+  ): Promise<{ [K in keyof P]: Awaited<P[K]> }> {
+    if (!this.transactional) {
+      return (await this.prisma.$transaction(operations)) as { [K in keyof P]: Awaited<P[K]> };
+    }
+    const results: unknown[] = [];
+    for (const operation of operations) {
+      results.push(await operation);
+    }
+    return results as { [K in keyof P]: Awaited<P[K]> };
+  }
 
   async findUserBySubject(provider: 'LOCAL' | 'ENTRA_ID', subject: string): Promise<AccessUserRecord | null> {
-    const identity = await this.prisma.userIdentity.findUnique({
+    const identity = await this.db.userIdentity.findUnique({
       where: { provider_subject: { provider, subject } },
       include: { user: { include: { teams: { include: { team: true } } } } },
     });
@@ -60,7 +117,7 @@ export class PrismaAccessRepository implements AccessRepository {
   }
 
   async findUserByEmail(email: string): Promise<AccessUserRecord | null> {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.db.user.findUnique({
       where: { emailNormalized: email.trim().toLowerCase() },
       include: { teams: { include: { team: true } } },
     });
@@ -71,7 +128,7 @@ export class PrismaAccessRepository implements AccessRepository {
   async getUserAccessSnapshot(userId: string): Promise<UserAccessSnapshot | null> {
     const now = new Date();
 
-    const user = await this.prisma.user.findUnique({
+    const user = await this.db.user.findUnique({
       where: { id: userId },
       include: {
         teams: { include: { team: true } },
@@ -130,7 +187,7 @@ export class PrismaAccessRepository implements AccessRepository {
   }
 
   async listMenuOptions(): Promise<MenuOptionRecord[]> {
-    const options = await this.prisma.menuOption.findMany({
+    const options = await this.db.menuOption.findMany({
       where: { deletedAt: null, module: { isActive: true } },
       include: MENU_OPTION_INCLUDE,
       orderBy: [{ module: { sortOrder: 'asc' } }, { sortOrder: 'asc' }],
@@ -163,15 +220,15 @@ export class PrismaAccessRepository implements AccessRepository {
       { id: 'asc' },
     ];
 
-    const [items, totalItems] = await this.prisma.$transaction([
-      this.prisma.user.findMany({
+    const [items, totalItems] = await this.atomic([
+      this.db.user.findMany({
         where,
         include: { teams: { include: { team: true } }, roles: { include: { role: { select: { code: true } } } } },
         orderBy,
         skip: (filter.page - 1) * filter.pageSize,
         take: filter.pageSize,
       }),
-      this.prisma.user.count({ where }),
+      this.db.user.count({ where }),
     ]);
 
     return {
@@ -186,7 +243,7 @@ export class PrismaAccessRepository implements AccessRepository {
   }
 
   async findUserDetail(userId: string): Promise<UserDetailRecord | null> {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.db.user.findUnique({
       where: { id: userId },
       include: {
         teams: { include: { team: true } },
@@ -250,7 +307,7 @@ export class PrismaAccessRepository implements AccessRepository {
   async createUser(input: CreateUserInput): Promise<AccessUserRecord> {
     const displayName = `${input.firstName} ${input.lastName}`.trim();
 
-    const user = await this.prisma.user.create({
+    const user = await this.db.user.create({
       data: {
         email: input.email,
         emailNormalized: input.email.toLowerCase(),
@@ -271,11 +328,11 @@ export class PrismaAccessRepository implements AccessRepository {
   }
 
   async updateUser(userId: string, input: UpdateUserInput): Promise<AccessUserRecord> {
-    const current = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const current = await this.db.user.findUniqueOrThrow({ where: { id: userId } });
     const firstName = input.firstName ?? current.firstName;
     const lastName = input.lastName ?? current.lastName;
 
-    const user = await this.prisma.user.update({
+    const user = await this.db.user.update({
       where: { id: userId },
       data: {
         firstName,
@@ -292,12 +349,14 @@ export class PrismaAccessRepository implements AccessRepository {
   }
 
   async setUserStatus(userId: string, status: UserStatus, actorId: string | null): Promise<void> {
-    await this.prisma.user.update({ where: { id: userId }, data: { status, updatedById: actorId } });
+    await this.db.user.update({ where: { id: userId }, data: { status, updatedById: actorId } });
   }
 
-  async countActiveUsersWithRole(roleCode: string, excludingUserId: string | null): Promise<number> {
+  async listActiveUserIdsWithRole(roleCode: string, excludingUserId: string | null): Promise<string[]> {
     const now = new Date();
-    return this.prisma.user.count({
+    const rows = await this.db.user.findMany({
+      select: { id: true },
+      orderBy: { id: 'asc' },
       where: {
         deletedAt: null,
         status: 'ACTIVE',
@@ -310,14 +369,15 @@ export class PrismaAccessRepository implements AccessRepository {
         },
       },
     });
+    return rows.map((row) => row.id);
   }
 
   async replaceUserRoles(userId: string, roleIds: string[], actorId: string | null): Promise<void> {
     // En una transacción: entre el borrado y el alta el usuario no debe quedar
     // ni un instante sin roles para una petición concurrente.
-    await this.prisma.$transaction([
-      this.prisma.userRole.deleteMany({ where: { userId } }),
-      this.prisma.userRole.createMany({
+    await this.atomic([
+      this.db.userRole.deleteMany({ where: { userId } }),
+      this.db.userRole.createMany({
         data: roleIds.map((roleId) => ({ userId, roleId, createdById: actorId })),
         skipDuplicates: true,
       }),
@@ -329,9 +389,9 @@ export class PrismaAccessRepository implements AccessRepository {
     assignments: DirectAssignmentInput[],
     actorId: string | null,
   ): Promise<void> {
-    await this.prisma.$transaction([
-      this.prisma.userPermission.deleteMany({ where: { userId } }),
-      this.prisma.userPermission.createMany({
+    await this.atomic([
+      this.db.userPermission.deleteMany({ where: { userId } }),
+      this.db.userPermission.createMany({
         data: assignments.map((assignment) => ({
           userId,
           permissionId: assignment.targetId,
@@ -350,9 +410,9 @@ export class PrismaAccessRepository implements AccessRepository {
     assignments: DirectAssignmentInput[],
     actorId: string | null,
   ): Promise<void> {
-    await this.prisma.$transaction([
-      this.prisma.userMenuOption.deleteMany({ where: { userId } }),
-      this.prisma.userMenuOption.createMany({
+    await this.atomic([
+      this.db.userMenuOption.deleteMany({ where: { userId } }),
+      this.db.userMenuOption.createMany({
         data: assignments.map((assignment) => ({
           userId,
           menuOptionId: assignment.targetId,
@@ -383,31 +443,31 @@ export class PrismaAccessRepository implements AccessRepository {
     };
     const sortBy = filter.sortBy ?? 'name';
 
-    const [roles, totalItems] = await this.prisma.$transaction([
-      this.prisma.role.findMany({
+    const [roles, totalItems] = await this.atomic([
+      this.db.role.findMany({
         where,
         include: ROLE_INCLUDE,
         orderBy: [{ [sortBy]: filter.sortOrder ?? 'asc' }, { id: 'asc' }],
         skip: (filter.page - 1) * filter.pageSize,
         take: filter.pageSize,
       }),
-      this.prisma.role.count({ where }),
+      this.db.role.count({ where }),
     ]);
 
     return { items: roles.map(toRoleRecord), totalItems };
   }
 
   async findRoleById(roleId: string): Promise<RoleRecord | null> {
-    const role = await this.prisma.role.findUnique({ where: { id: roleId }, include: ROLE_INCLUDE });
+    const role = await this.db.role.findUnique({ where: { id: roleId }, include: ROLE_INCLUDE });
     return role && !role.deletedAt ? toRoleRecord(role) : null;
   }
 
   async roleCodeExists(code: string): Promise<boolean> {
-    return (await this.prisma.role.count({ where: { code } })) > 0;
+    return (await this.db.role.count({ where: { code } })) > 0;
   }
 
   async createRole(input: CreateRoleInput): Promise<RoleRecord> {
-    const role = await this.prisma.role.create({
+    const role = await this.db.role.create({
       data: {
         code: input.code,
         name: input.name,
@@ -427,7 +487,7 @@ export class PrismaAccessRepository implements AccessRepository {
   }
 
   async updateRole(roleId: string, input: UpdateRoleInput): Promise<void> {
-    await this.prisma.role.update({
+    await this.db.role.update({
       where: { id: roleId },
       data: {
         name: input.name,
@@ -439,13 +499,13 @@ export class PrismaAccessRepository implements AccessRepository {
   }
 
   async softDeleteRole(roleId: string): Promise<void> {
-    await this.prisma.role.update({ where: { id: roleId }, data: { deletedAt: new Date(), isActive: false } });
+    await this.db.role.update({ where: { id: roleId }, data: { deletedAt: new Date(), isActive: false } });
   }
 
   async replaceRolePermissions(roleId: string, permissionIds: string[], actorId: string | null): Promise<void> {
-    await this.prisma.$transaction([
-      this.prisma.rolePermission.deleteMany({ where: { roleId } }),
-      this.prisma.rolePermission.createMany({
+    await this.atomic([
+      this.db.rolePermission.deleteMany({ where: { roleId } }),
+      this.db.rolePermission.createMany({
         data: permissionIds.map((permissionId) => ({ roleId, permissionId, createdById: actorId })),
         skipDuplicates: true,
       }),
@@ -453,9 +513,9 @@ export class PrismaAccessRepository implements AccessRepository {
   }
 
   async replaceRoleMenuOptions(roleId: string, menuOptionIds: string[], actorId: string | null): Promise<void> {
-    await this.prisma.$transaction([
-      this.prisma.roleMenuOption.deleteMany({ where: { roleId } }),
-      this.prisma.roleMenuOption.createMany({
+    await this.atomic([
+      this.db.roleMenuOption.deleteMany({ where: { roleId } }),
+      this.db.roleMenuOption.createMany({
         data: menuOptionIds.map((menuOptionId) => ({ roleId, menuOptionId, createdById: actorId })),
         skipDuplicates: true,
       }),
@@ -463,7 +523,7 @@ export class PrismaAccessRepository implements AccessRepository {
   }
 
   async listPermissions(): Promise<PermissionRecord[]> {
-    const permissions = await this.prisma.permission.findMany({
+    const permissions = await this.db.permission.findMany({
       include: { module: { select: { key: true } } },
       orderBy: [{ resource: 'asc' }, { action: 'asc' }],
     });
@@ -484,7 +544,7 @@ export class PrismaAccessRepository implements AccessRepository {
     if (ids.length === 0) {
       return [];
     }
-    const rows = await this.prisma.role.findMany({
+    const rows = await this.db.role.findMany({
       where: { id: { in: ids }, deletedAt: null, isActive: true },
       select: { id: true },
     });
@@ -495,7 +555,7 @@ export class PrismaAccessRepository implements AccessRepository {
     if (ids.length === 0) {
       return [];
     }
-    const rows = await this.prisma.permission.findMany({ where: { id: { in: ids } }, select: { id: true } });
+    const rows = await this.db.permission.findMany({ where: { id: { in: ids } }, select: { id: true } });
     return rows.map((row) => row.id);
   }
 
@@ -503,8 +563,27 @@ export class PrismaAccessRepository implements AccessRepository {
     if (ids.length === 0) {
       return [];
     }
-    const rows = await this.prisma.menuOption.findMany({
+    const rows = await this.db.menuOption.findMany({
       where: { id: { in: ids }, deletedAt: null },
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
+  async existingTeamIds(ids: string[]): Promise<string[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    const rows = await this.db.team.findMany({ where: { id: { in: ids }, deletedAt: null }, select: { id: true } });
+    return rows.map((row) => row.id);
+  }
+
+  async findRoleIdsGrantingPermissions(roleIds: string[]): Promise<string[]> {
+    if (roleIds.length === 0) {
+      return [];
+    }
+    const rows = await this.db.role.findMany({
+      where: { id: { in: roleIds }, permissions: { some: {} } },
       select: { id: true },
     });
     return rows.map((row) => row.id);
@@ -513,16 +592,16 @@ export class PrismaAccessRepository implements AccessRepository {
   // --- Opciones de menú y módulos --------------------------------------------
 
   async findMenuOptionById(menuOptionId: string): Promise<MenuOptionRecord | null> {
-    const option = await this.prisma.menuOption.findUnique({ where: { id: menuOptionId }, include: MENU_OPTION_INCLUDE });
+    const option = await this.db.menuOption.findUnique({ where: { id: menuOptionId }, include: MENU_OPTION_INCLUDE });
     return option && !option.deletedAt ? toMenuOptionRecord(option) : null;
   }
 
   async menuOptionKeyExists(key: string): Promise<boolean> {
-    return (await this.prisma.menuOption.count({ where: { key } })) > 0;
+    return (await this.db.menuOption.count({ where: { key } })) > 0;
   }
 
   async createMenuOption(input: CreateMenuOptionInput): Promise<MenuOptionRecord> {
-    const option = await this.prisma.menuOption.create({
+    const option = await this.db.menuOption.create({
       data: { ...input, isSystem: false },
       include: MENU_OPTION_INCLUDE,
     });
@@ -530,7 +609,7 @@ export class PrismaAccessRepository implements AccessRepository {
   }
 
   async updateMenuOption(menuOptionId: string, input: UpdateMenuOptionInput): Promise<MenuOptionRecord> {
-    const option = await this.prisma.menuOption.update({
+    const option = await this.db.menuOption.update({
       where: { id: menuOptionId },
       data: input,
       include: MENU_OPTION_INCLUDE,
@@ -539,20 +618,20 @@ export class PrismaAccessRepository implements AccessRepository {
   }
 
   async softDeleteMenuOption(menuOptionId: string): Promise<void> {
-    await this.prisma.menuOption.update({
+    await this.db.menuOption.update({
       where: { id: menuOptionId },
       data: { deletedAt: new Date(), isActive: false },
     });
   }
 
   async countMenuOptionChildren(menuOptionId: string): Promise<number> {
-    return this.prisma.menuOption.count({ where: { parentId: menuOptionId, deletedAt: null } });
+    return this.db.menuOption.count({ where: { parentId: menuOptionId, deletedAt: null } });
   }
 
   async reorderMenuOptions(items: MenuOrderItem[]): Promise<void> {
-    await this.prisma.$transaction(
+    await this.atomic(
       items.map((item) =>
-        this.prisma.menuOption.update({
+        this.db.menuOption.update({
           where: { id: item.id },
           data: { parentId: item.parentId, sortOrder: item.sortOrder },
         }),
@@ -561,7 +640,7 @@ export class PrismaAccessRepository implements AccessRepository {
   }
 
   async listModules(): Promise<ModuleRecord[]> {
-    const modules = await this.prisma.appModule.findMany({ orderBy: [{ sortOrder: 'asc' }, { key: 'asc' }] });
+    const modules = await this.db.appModule.findMany({ orderBy: [{ sortOrder: 'asc' }, { key: 'asc' }] });
     return modules.map((module) => ({
       id: module.id,
       key: module.key,

@@ -182,13 +182,34 @@ opción de menú (ADR-018) y oculta las acciones que el usuario no tiene, pero
 
 ## 9. Pasos
 
-1. Base común: servicio de auditoría con diferencias (D11), registro de rutas (D6), andamiaje del frontend
-2. Usuarios: backend pendiente (D3, D4, D5, D13) y pantallas
-3. Roles y permisos (D1, D2)
-4. Opciones de menú (D6, D7)
-5. Equipos (D8)
-6. Catálogos (D9)
-7. Parámetros (D10)
-8. Auditoría: consulta y exportación (D11, D13)
-9. Aprobaciones: bandeja de solo lectura (D12)
+1. ✅ Base común: servicio de auditoría con diferencias (D11), registro de rutas (D6), andamiaje del frontend
+2. ✅ Usuarios: backend pendiente (D3, D4, D5, D13) y pantallas
+3. ✅ Roles y permisos (D1, D2)
+4. ✅ Opciones de menú (D6, D7)
+5. ✅ Equipos (D8)
+6. ✅ Catálogos (D9)
+7. ✅ Parámetros (D10)
+8. ✅ Auditoría: consulta y exportación (D11, D13)
+9. ✅ Aprobaciones: bandeja de solo lectura (D12)
 10. E2E y documentación (`docs/api/README.md`, `access-management`, CHANGELOG)
+
+## 10. Desviaciones de la implementación
+
+Decididas al implementar; ninguna cambia una decisión aprobada.
+
+| Tema | Qué se hizo | Por qué |
+|---|---|---|
+| Estado del usuario | `PATCH /users/{id}` ya no acepta `status`; solo `suspend`/`reactivate` | Un único camino aplica siempre D3 y D4 |
+| Códigos nuevos | `INVALID_STATUS_TRANSITION` (409), `UNKNOWN_REFERENCE` (422), `INVALID_MENU_STRUCTURE` (422) | Un id inexistente daba 500 por la clave foránea; estructuras inválidas necesitaban un código propio |
+| Opciones de sistema | Además de la ruta, tampoco cambian tipo, permiso, padre ni visibilidad pública | La semilla las repone; la UI avisa de que etiqueta y orden también se reponen |
+| Exportación sobre el tope | Se corta en 10 000 filas con `X-Export-Truncated: true` | Mismo comportamiento en usuarios y auditoría |
+| Listas sin paginar | `/permissions`, `/modules`, `/menu-options`, `/parameters` | Catálogos pequeños que la pantalla dibuja enteros |
+| Códigos inmutables | `teams.code` y `catalog_items.code` | Pueden usarse como referencia estable desde otros módulos |
+| Reordenar elementos de catálogo | Dos `PATCH` sucesivos, no atómicos | No había endpoint de orden en bloque en el contrato |
+| Índices | Solo `audit_logs(occurred_at)` | Índices parciales y de prefijo no se expresan en Prisma: `migrate dev` los borraría como deriva. El equipo principal único lo garantiza un bloqueo de fila |
+| Registro de rutas | Vive en `backend/src/modules/access/` | La imagen de producción solo empaqueta `backend/` |
+| Escalada de privilegios | Asignar accesos es exclusivo del administrador ([ADR-020](../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md)) | Hallazgo bloqueante de la revisión; decisión del responsable |
+| D3 ampliada | `SELF_LOCKOUT`/`LAST_ADMIN` evalúan los permisos efectivos (también con DENY) y se comprueban bajo bloqueo consultivo | Una denegación directa saltaba la salvaguarda; dos cambios simultáneos podían dejar el sistema sin administrador |
+| Alta con equipos | `teamIds` exige `equipos.editar` y equipos válidos | Con solo `usuarios.crear` se podía añadir gente a cualquier equipo |
+| Auditoría fuera de la transacción | La fila de auditoría se escribe tras la mutación, en otra sentencia | Aceptado: si falla, la petición da 500 con el cambio aplicado y queda en el log con su correlation ID. Pendiente: pasar la transacción (unidad de trabajo) |
+

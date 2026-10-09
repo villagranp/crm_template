@@ -54,8 +54,11 @@ Historia de usuario con sus actores, y qué debe poder hacer cada uno.
 4. Decidir qué roles la reciben y actualizar `ROLES`.
 5. Crear la migración y ejecutar la semilla.
 6. Declarar `@RequirePermission('recurso.accion')` en cada endpoint.
-7. Crear la ruta del frontend con el **mismo** `path` de la opción y envolverla
-   en `RequireAuth` con el mismo permiso.
+7. Crear la ruta del frontend con el **mismo** `path` de la opción, envuelta en
+   `RequirePermission` con el mismo permiso, y registrar ese `path` en
+   `backend/src/modules/access/app-routes.registry.json` (PLAN-ADMIN, D6): sin
+   registro, la opción no se puede crear desde la pantalla de administración y
+   la prueba `route-registry.spec.ts` del frontend falla.
 8. Probar con un usuario que **no** tenga el permiso: no debe ver la opción y
    debe recibir 403 si escribe la URL.
 
@@ -63,6 +66,8 @@ Historia de usuario con sus actores, y qué debe poder hacer cada uno.
 
 - [ ] Cada endpoint nuevo declara permiso o `@AuthenticatedOnly` con razón.
 - [ ] La ruta del frontend coincide exactamente con el `path` de la opción.
+- [ ] El `path` está en `app-routes.registry.json`.
+- [ ] Toda mutación de administración escribe en la bitácora (`AuditService`).
 - [ ] El permiso de la ruta coincide con el `requiredPermission` de la opción.
 - [ ] Existe una prueba con un usuario sin el permiso.
 - [ ] Ninguna asignación directa se creó sin razón escrita.

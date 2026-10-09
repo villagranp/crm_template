@@ -81,6 +81,8 @@ function setup(found: AccountRecord | null) {
   const initialCredentials = { isConfigured: jest.fn(() => true), assignDefaultPassword: jest.fn(async () => true) };
   const accessService = {
     getEffectiveAccess: jest.fn(async () => ({ roles: ['administrador'], permissions: ['usuarios.ver'] })),
+    findUserIdForPrincipal: jest.fn(async () => 'admin-1'),
+    assertActorIsAdministrador: jest.fn(async () => undefined),
   };
   const logger = { info: jest.fn(), warn: jest.fn() };
 
@@ -95,7 +97,17 @@ function setup(found: AccountRecord | null) {
     logger as unknown as AppLogger,
   );
 
-  return { service, repository, passwordService, lockoutService, sessionService, tokenService, initialCredentials, logger };
+  return {
+    service,
+    repository,
+    passwordService,
+    lockoutService,
+    sessionService,
+    tokenService,
+    initialCredentials,
+    logger,
+    accessService,
+  };
 }
 
 async function errorOf(promise: Promise<unknown>): Promise<{ code: string; name: string }> {
@@ -312,6 +324,17 @@ describe('AuthService.resetPasswordByAdmin', () => {
     const error = await errorOf(service.resetPasswordByAdmin('user-x', ADMIN, CONTEXT));
 
     expect(error.code).toBe('RESOURCE_NOT_FOUND');
+  });
+
+  it('ADR-020: un actor que no es administrador recibe ADMIN_ONLY sin tocar la credencial', async () => {
+    const { service, initialCredentials, accessService } = setup(account());
+    accessService.assertActorIsAdministrador.mockRejectedValueOnce(Object.assign(new Error('admin only'), { code: 'ADMIN_ONLY' }));
+
+    const error = await errorOf(service.resetPasswordByAdmin('user-1', ADMIN, CONTEXT));
+
+    expect(error.code).toBe('ADMIN_ONLY');
+    expect(accessService.assertActorIsAdministrador).toHaveBeenCalledWith('admin-1');
+    expect(initialCredentials.assignDefaultPassword).not.toHaveBeenCalled();
   });
 
   it('asigna la contraseña inicial, cierra sus sesiones y lo audita con el actor', async () => {

@@ -28,8 +28,8 @@ import {
 } from '@mui/material';
 import { useEffect, useId, useMemo, useState } from 'react';
 
-import { describeApiError } from '@/features/admin/common';
-import { useCan } from '@/hooks/use-permission';
+import { ADMIN_ONLY_NOTE, describeApiError } from '@/features/admin/common';
+import { useCan, useIsAdministrador } from '@/hooks/use-permission';
 
 import { ACTION_LABEL, DATA_SCOPE_LABEL, ROLE_ERRORS, buildPermissionMatrix } from '../roles-format';
 import type { MenuOptionSummary, Role } from '../roles.api';
@@ -57,6 +57,9 @@ export function RoleDetailDialog({ roleId, onClose, onOpenForm }: RoleDetailDial
   const [tab, setTab] = useState<TabKey>('datos');
   const role = useRole(roleId);
   const can = useCan();
+  const isAdministrador = useIsAdministrador();
+  // ADR-020: duplicar un rol es sólo para el administrador (UX; el backend decide).
+  const canDuplicate = can(ROLE_PERMISSIONS.create) && isAdministrador;
 
   useEffect(() => {
     if (roleId) {
@@ -81,7 +84,7 @@ export function RoleDetailDialog({ roleId, onClose, onOpenForm }: RoleDetailDial
               <Alert
                 severity="info"
                 action={
-                  can(ROLE_PERMISSIONS.create) ? (
+                  canDuplicate ? (
                     <Button
                       color="inherit"
                       size="small"
@@ -164,8 +167,12 @@ function RoleSummary({ role, onEdit }: { role: Role; onEdit: () => void }) {
 
 function PermissionMatrix({ role }: { role: Role }) {
   const can = useCan();
+  const isAdministrador = useIsAdministrador();
   const canLoad = can(ROLE_PERMISSIONS.viewPermissions);
-  const editable = !role.isSystem && can(ROLE_PERMISSIONS.edit) && canLoad;
+  const wouldEdit = !role.isSystem && can(ROLE_PERMISSIONS.edit) && canLoad;
+  // ADR-020: cambiar lo que concede un rol es sólo para el administrador. El
+  // backend lo vuelve a exigir (403 ADMIN_ONLY); esto sólo evita ofrecerlo.
+  const editable = wouldEdit && isAdministrador;
   const permissions = usePermissions(canLoad);
   const mutation = useReplaceRolePermissions(role.id);
   const [selected, setSelected] = useState<Set<string>>(() => new Set(role.permissionCodes));
@@ -210,6 +217,7 @@ function PermissionMatrix({ role }: { role: Role }) {
 
   return (
     <Stack spacing={3}>
+      {wouldEdit && !isAdministrador ? <Alert severity="info">{ADMIN_ONLY_NOTE}</Alert> : null}
       {matrix.map((module) => (
         <Box key={module.moduleKey} component="section">
           <Typography variant="subtitle1" component="h3" sx={{ mb: 1, textTransform: 'capitalize' }}>
@@ -276,8 +284,11 @@ function PermissionMatrix({ role }: { role: Role }) {
 
 function MenuOptionsAssignment({ role }: { role: Role }) {
   const can = useCan();
+  const isAdministrador = useIsAdministrador();
   const canLoad = can(ROLE_PERMISSIONS.viewMenuOptions);
-  const editable = !role.isSystem && can(ROLE_PERMISSIONS.assignMenuOptions) && canLoad;
+  const wouldEdit = !role.isSystem && can(ROLE_PERMISSIONS.assignMenuOptions) && canLoad;
+  // ADR-020: igual que la matriz de permisos, sólo el administrador (el backend decide).
+  const editable = wouldEdit && isAdministrador;
   const options = useMenuOptions(canLoad);
   const mutation = useReplaceRoleMenuOptions(role.id);
   const [selected, setSelected] = useState<Set<string>>(() => new Set(role.menuOptionIds));
@@ -309,6 +320,7 @@ function MenuOptionsAssignment({ role }: { role: Role }) {
 
   return (
     <Stack spacing={2}>
+      {wouldEdit && !isAdministrador ? <Alert severity="info">{ADMIN_ONLY_NOTE}</Alert> : null}
       <Typography variant="body2" color="text.secondary">
         Una opción sólo aparece en el menú si además se tiene el permiso que exige.
       </Typography>

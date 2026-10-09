@@ -35,6 +35,7 @@ import { PaginatedResponseDto } from '@/common/dto/paginated-response.dto';
 import type { AppRequest } from '@/common/types/request-context';
 
 import { AccessService } from './access.service';
+import { ADMIN_ONLY_FORBIDDEN_DOC } from './admin-only';
 import { ReplaceIdsDto } from './dto/assignment.dto';
 import {
   CreateRoleDto,
@@ -78,7 +79,8 @@ export class RolesController {
 
   @Post('roles')
   @RequirePermission('roles.crear')
-  @ApiOperation({ summary: 'Crea un rol propio (D2)' })
+  @ApiOperation({ summary: 'Crea un rol propio (D2)', description: 'Exclusivo del administrador (ADR-020): 403 ADMIN_ONLY en otro caso.' })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: ADMIN_ONLY_FORBIDDEN_DOC })
   @ApiCreatedResponse({ type: RoleResponseDto })
   @ApiBadRequestResponse({ type: ErrorResponseDto })
   @ApiConflictResponse({ type: ErrorResponseDto, description: 'RESOURCE_CONFLICT: código en uso' })
@@ -95,7 +97,11 @@ export class RolesController {
 
   @Post('roles/:id/duplicate')
   @RequirePermission('roles.crear')
-  @ApiOperation({ summary: 'Crea una copia editable del rol, también de uno de sistema (D1)' })
+  @ApiOperation({
+    summary: 'Crea una copia editable del rol, también de uno de sistema (D1)',
+    description: 'Exclusivo del administrador (ADR-020): 403 ADMIN_ONLY en otro caso.',
+  })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: ADMIN_ONLY_FORBIDDEN_DOC })
   @ApiCreatedResponse({ type: RoleResponseDto })
   @ApiBadRequestResponse({ type: ErrorResponseDto })
   @ApiNotFoundResponse({ type: ErrorResponseDto })
@@ -113,7 +119,12 @@ export class RolesController {
 
   @Patch('roles/:id')
   @RequirePermission('roles.editar')
-  @ApiOperation({ summary: 'Edita nombre, descripción, alcance o estado de un rol propio' })
+  @ApiOperation({
+    summary: 'Edita nombre, descripción, alcance o estado de un rol propio',
+    description:
+      'Cambiar `dataScope` o `isActive` (activar o desactivar el rol cambia lo que concede) es exclusivo del administrador (ADR-020): 403 ADMIN_ONLY en otro caso. Nombre y descripción no.',
+  })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: ADMIN_ONLY_FORBIDDEN_DOC })
   @ApiOkResponse({ type: RoleResponseDto })
   @ApiBadRequestResponse({ type: ErrorResponseDto })
   @ApiNotFoundResponse({ type: ErrorResponseDto })
@@ -139,7 +150,11 @@ export class RolesController {
 
   @Put('roles/:id/permissions')
   @RequirePermission('roles.editar')
-  @ApiOperation({ summary: 'Reemplaza el conjunto de permisos del rol' })
+  @ApiOperation({
+    summary: 'Reemplaza el conjunto de permisos del rol',
+    description: 'Exclusivo del administrador (ADR-020): 403 ADMIN_ONLY en otro caso.',
+  })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: ADMIN_ONLY_FORBIDDEN_DOC })
   @ApiOkResponse({ type: RoleResponseDto })
   @ApiNotFoundResponse({ type: ErrorResponseDto })
   @ApiConflictResponse({ type: ErrorResponseDto, description: SYSTEM_READ_ONLY })
@@ -154,7 +169,11 @@ export class RolesController {
 
   @Put('roles/:id/menu-options')
   @RequirePermission('opciones.configurar')
-  @ApiOperation({ summary: 'Reemplaza las opciones de menú que concede el rol' })
+  @ApiOperation({
+    summary: 'Reemplaza las opciones de menú que concede el rol',
+    description: 'Exclusivo del administrador (ADR-020): 403 ADMIN_ONLY en otro caso.',
+  })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: ADMIN_ONLY_FORBIDDEN_DOC })
   @ApiOkResponse({ type: RoleResponseDto })
   @ApiNotFoundResponse({ type: ErrorResponseDto })
   @ApiConflictResponse({ type: ErrorResponseDto, description: SYSTEM_READ_ONLY })

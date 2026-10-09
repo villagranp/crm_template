@@ -1,6 +1,6 @@
 /** Piezas compartidas por las pantallas de administración. Ver `features/admin/README.md`. */
 export { adminBreadcrumbs } from './admin-breadcrumbs';
-export { ADMIN_ERROR_CODES, createQueryKeys, describeApiError } from './admin-api';
+export { ADMIN_ERROR_CODES, ADMIN_ONLY_NOTE, createQueryKeys, describeApiError } from './admin-api';
 export type { ApiErrorView, ListQuery, Paginated } from './admin-api';
 export { ConfirmDialog, REASON_MIN_LENGTH } from './ConfirmDialog';
 export type { ConfirmDialogProps, ConfirmDialogReasonOptions } from './ConfirmDialog';

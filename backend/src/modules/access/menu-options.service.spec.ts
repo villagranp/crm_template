@@ -41,6 +41,10 @@ function setup(options: MenuOptionRecord[]) {
     countMenuOptionChildren: jest.fn(async () => 0),
     reorderMenuOptions: jest.fn(async () => undefined),
     existingPermissionIds: jest.fn(async (ids: string[]) => ids),
+    // La sección crítica se simula ejecutando el trabajo con el mismo repositorio.
+    withMenuHierarchyLock: jest.fn(<T>(work: (repo: AccessRepository) => Promise<T>): Promise<T> =>
+      work(repository as unknown as AccessRepository),
+    ),
   };
   const audit = { record: jest.fn(async () => undefined) };
   const service = new MenuOptionsService(repository as unknown as AccessRepository, audit as unknown as AuditService);

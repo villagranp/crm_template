@@ -88,13 +88,18 @@ export interface DirectAssignmentRequest {
   expiresAt?: string;
 }
 
-/** Catálogos que la pantalla necesita para asignar. */
+/**
+ * Catálogos que la pantalla necesita para asignar. `GET /roles` devuelve el
+ * `RoleResponseDto` completo; aquí sólo se declara lo que usa esta área.
+ */
 export interface RoleOption {
   id: string;
   code: string;
   name: string;
   isSystem: boolean;
   isActive: boolean;
+  /** Permisos que concede el rol. Vacío = no da acceso a nada (ADR-020, alta por un no administrador). */
+  permissionCodes: string[];
 }
 
 export interface PermissionOption {

@@ -18,6 +18,7 @@ import { useEffect, useId, type FormEvent } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 
 import { describeApiError } from '@/features/admin/common';
+import { useIsAdministrador } from '@/hooks/use-permission';
 
 import { DATA_SCOPE_LABEL, ROLE_ERRORS } from '../roles-format';
 import { DATA_SCOPES, type Role } from '../roles.api';
@@ -57,6 +58,10 @@ export function RoleFormDialog({ mode, onClose, onSaved }: RoleFormDialogProps) 
   const updateMutation = useUpdateRole();
   const duplicateMutation = useDuplicateRole();
   const kind = mode?.kind ?? 'create';
+  // ADR-020: el alcance de datos y la activación cambian lo que concede el rol
+  // y son sólo para el administrador; quien no lo es edita nombre y
+  // descripción. El backend responde 403 ADMIN_ONLY si cambian igualmente.
+  const canChangeGrants = useIsAdministrador();
   const mutation = kind === 'create' ? createMutation : kind === 'edit' ? updateMutation : duplicateMutation;
 
   const {
@@ -99,7 +104,11 @@ export function RoleFormDialog({ mode, onClose, onSaved }: RoleFormDialogProps) 
       updateMutation.mutate(
         {
           id: mode.role.id,
-          body: { name: values.name, description: description || null, dataScope: values.dataScope, isActive: values.isActive },
+          body: {
+            name: values.name,
+            description: description || null,
+            ...(canChangeGrants ? { dataScope: values.dataScope, isActive: values.isActive } : {}),
+          },
         },
         { onSuccess: done },
       );
@@ -166,8 +175,12 @@ export function RoleFormDialog({ mode, onClose, onSaved }: RoleFormDialogProps) 
                   label="Alcance de datos"
                   value={field.value}
                   onChange={field.onChange}
-                  disabled={pending}
-                  helperText="Hasta dónde ven los datos las personas con este rol."
+                  disabled={pending || (kind === 'edit' && !canChangeGrants)}
+                  helperText={
+                    kind === 'edit' && !canChangeGrants
+                      ? 'Sólo un administrador puede cambiar el alcance (ADR-020).'
+                      : 'Hasta dónde ven los datos las personas con este rol.'
+                  }
                 >
                   {DATA_SCOPES.map((scope) => (
                     <MenuItem key={scope} value={scope}>
@@ -184,8 +197,18 @@ export function RoleFormDialog({ mode, onClose, onSaved }: RoleFormDialogProps) 
               name="isActive"
               render={({ field }) => (
                 <FormControlLabel
-                  label="Activo (un rol inactivo deja de conceder acceso)"
-                  control={<Switch checked={field.value} onChange={(event) => field.onChange(event.target.checked)} disabled={pending} />}
+                  label={
+                    canChangeGrants
+                      ? 'Activo (un rol inactivo deja de conceder acceso)'
+                      : 'Activo. Sólo un administrador puede activarlo o desactivarlo (ADR-020).'
+                  }
+                  control={
+                    <Switch
+                      checked={field.value}
+                      onChange={(event) => field.onChange(event.target.checked)}
+                      disabled={pending || !canChangeGrants}
+                    />
+                  }
                 />
               )}
             />

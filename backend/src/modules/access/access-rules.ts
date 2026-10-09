@@ -22,6 +22,8 @@ export const ACCESS_ERROR_CODES = {
   unknownReference: 'UNKNOWN_REFERENCE',
   /** Estructura de menú no válida (GROUP con ruta, padre que no es GROUP…). */
   invalidMenuStructure: 'INVALID_MENU_STRUCTURE',
+  /** 403: la operación cambia accesos y sólo la hace un administrador (ADR-020). */
+  adminOnly: 'ADMIN_ONLY',
 } as const;
 
 /** Quién ejecuta una mutación: su usuario local (para D3 y trazabilidad) y su contexto de auditoría. */

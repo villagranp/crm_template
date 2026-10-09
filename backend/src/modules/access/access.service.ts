@@ -5,6 +5,7 @@ import type { AuthenticatedPrincipal } from '@/infrastructure/authentication/por
 import { auditContextFrom } from '@/modules/audit/audit.service';
 
 import type { ActorContext } from './access-rules';
+import { adminOnlyError, holdsAdministradorRole, isActingAdministrador } from './admin-only';
 import {
   ACCESS_REPOSITORY,
   type AccessRepository,
@@ -115,6 +116,33 @@ export class AccessService {
   async resolveActor(request: AppRequest): Promise<ActorContext> {
     const userId = request.principal ? await this.findUserIdForPrincipal(request.principal) : null;
     return { userId, audit: auditContextFrom(request) };
+  }
+
+  /** ADR-020: el usuario local puede ejercer como administrador (ACTIVE + rol `administrador` vigente). */
+  async isAdministrador(userId: string | null): Promise<boolean> {
+    return userId ? isActingAdministrador(await this.repository.getUserAccessSnapshot(userId)) : false;
+  }
+
+  /**
+   * ADR-020: único punto que exige ser administrador. Lanza `403 ADMIN_ONLY`.
+   * `actorId` es el usuario local resuelto en la base (`resolveActor`), no el token.
+   */
+  async assertActorIsAdministrador(actorId: string | null): Promise<void> {
+    if (!(await this.isAdministrador(actorId))) {
+      throw adminOnlyError();
+    }
+  }
+
+  /**
+   * ADR-020: actuar sobre la cuenta de un administrador (editar, suspender,
+   * reactivar, restablecer su contraseña) también es exclusivo del
+   * administrador. Si el objetivo no existe no hace nada: el caso de uso
+   * responde 404.
+   */
+  async assertActorMayActOn(actorId: string | null, targetUserId: string): Promise<void> {
+    if (holdsAdministradorRole(await this.repository.getUserAccessSnapshot(targetUserId))) {
+      await this.assertActorIsAdministrador(actorId);
+    }
   }
 
   /** Permisos efectivos por identificador de usuario. */

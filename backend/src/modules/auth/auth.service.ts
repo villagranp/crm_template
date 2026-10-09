@@ -252,6 +252,12 @@ export class AuthService {
     if (!account) {
       throw new ResourceNotFoundError('User', targetUserId);
     }
+    // ADR-020: devolver una cuenta a la contraseña inicial, que es conocida,
+    // equivale a poder entrar con ella y quedarse sus permisos. Es dar acceso,
+    // así que sólo un administrador puede hacerlo, sea quien sea el objetivo.
+    // El actor se resuelve contra la cuenta local, no contra el token.
+    const actorUserId = await this.accessService.findUserIdForPrincipal(actor);
+    await this.accessService.assertActorIsAdministrador(actorUserId);
     if (!this.initialCredentials.isConfigured()) {
       throw new BusinessRuleViolationError(
         'DEFAULT_PASSWORD_NOT_CONFIGURED',

@@ -77,6 +77,15 @@ export interface TeamMembershipInput {
  * adaptador solo traduce y garantiza la atomicidad que se le pide.
  */
 export interface TeamsRepository {
+  /**
+   * Sección crítica de la jerarquía (D8, sin ciclos). Ejecuta `work` en una
+   * única transacción serializada frente a cualquier otra llamada a este mismo
+   * método; `work` recibe un repositorio ligado a esa transacción. Así la
+   * lectura del árbol, la comprobación de ciclos y la escritura no se
+   * intercalan con otro movimiento. Si `work` lanza, nada se aplica.
+   */
+  withHierarchyLock<T>(work: (repository: TeamsRepository) => Promise<T>): Promise<T>;
+
   list(filter: ListTeamsFilter): Promise<Page<TeamRecord>>;
   /** Solo equipos no eliminados. */
   findById(teamId: string): Promise<TeamDetailRecord | null>;

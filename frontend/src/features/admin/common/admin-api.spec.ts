@@ -14,6 +14,7 @@ describe('describeApiError', () => {
     [409, ADMIN_ERROR_CODES.selfLockout, 'No puedes suspenderte ni retirarte tu propio acceso de administración.'],
     [422, ADMIN_ERROR_CODES.routeNotRegistered, 'La ruta no corresponde a ninguna pantalla registrada.'],
     [409, ADMIN_ERROR_CODES.roleInUse, 'El rol tiene usuarios asignados. Reasígnalos antes de eliminarlo.'],
+    [403, ADMIN_ERROR_CODES.adminOnly, 'Sólo un administrador puede asignar o modificar accesos.'],
   ])('traduce %i %s a un mensaje propio', (status, code, message) => {
     expect(describeApiError(apiError(status, code)).message).toBe(message);
   });

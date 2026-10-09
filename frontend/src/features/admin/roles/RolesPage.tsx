@@ -2,11 +2,12 @@ import AddIcon from '@mui/icons-material/Add';
 import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
-import { Button, Chip, IconButton, MenuItem, Stack, TextField } from '@mui/material';
+import { Alert, Button, Chip, IconButton, MenuItem, Stack, TextField } from '@mui/material';
 import { useState } from 'react';
 
 import { PageHeader } from '@/components/layout/PageHeader';
 import {
+  ADMIN_ONLY_NOTE,
   adminBreadcrumbs,
   ConfirmDialog,
   DataTable,
@@ -14,7 +15,7 @@ import {
   useTableQueryState,
   type DataTableColumn,
 } from '@/features/admin/common';
-import { useCan } from '@/hooks/use-permission';
+import { useCan, useIsAdministrador } from '@/hooks/use-permission';
 
 import { RoleDetailDialog } from './components/RoleDetailDialog';
 import { RoleFormDialog, type RoleFormMode } from './components/RoleFormDialog';
@@ -49,6 +50,11 @@ const COLUMNS: DataTableColumn<Role>[] = [
 /** Pantalla de administración «Roles y permisos». Ruta y permiso en `features/admin/admin-routes.ts`. */
 export function RolesPage() {
   const can = useCan();
+  const isAdministrador = useIsAdministrador();
+  // ADR-020: crear o duplicar un rol es asignar accesos; sólo el administrador.
+  // Ocultarlo es UX: el backend responde 403 ADMIN_ONLY igualmente.
+  const canCreate = can(ROLE_PERMISSIONS.create) && isAdministrador;
+  const showAdminOnlyNote = !isAdministrador && (can(ROLE_PERMISSIONS.create) || can(ROLE_PERMISSIONS.edit));
   const [form, setForm] = useState<RoleFormMode | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<Role | null>(null);
@@ -65,13 +71,19 @@ export function RolesPage() {
         subtitle="Roles del sistema y propios, con sus permisos y opciones de menú."
         breadcrumbs={adminBreadcrumbs(TITLE)}
         actions={
-          can(ROLE_PERMISSIONS.create) ? (
+          canCreate ? (
             <Button startIcon={<AddIcon />} onClick={() => setForm({ kind: 'create' })}>
               Nuevo rol
             </Button>
           ) : null
         }
       />
+
+      {showAdminOnlyNote ? (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          {ADMIN_ONLY_NOTE} Puedes consultar los roles y editar su nombre y descripción.
+        </Alert>
+      ) : null}
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 2 }}>
         <TextField
@@ -122,7 +134,7 @@ export function RolesPage() {
             <IconButton aria-label={`Ver ${role.name}`} onClick={() => setSelectedId(role.id)}>
               <VisibilityOutlinedIcon />
             </IconButton>
-            {can(ROLE_PERMISSIONS.create) ? (
+            {canCreate ? (
               <IconButton aria-label={`Duplicar ${role.name}`} onClick={() => setForm({ kind: 'duplicate', role })}>
                 <ContentCopyOutlinedIcon />
               </IconButton>

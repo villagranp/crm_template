@@ -37,6 +37,10 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     css: false,
+    // Las pruebas de formularios de MUI en jsdom tardan varios segundos con la
+    // máquina cargada (CI, suites en paralelo). 5 s por defecto daba falsos
+    // rojos; una prueba colgada sigue fallando, solo que a los 15 s.
+    testTimeout: 15_000,
     // JUnit output is always produced so that the Azure DevOps test tab works
     // with the generic `pnpm run test` step used by templates/verify.yml.
     reporters: ['default', ['junit', { outputFile: './junit-frontend.xml' }]],

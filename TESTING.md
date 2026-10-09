@@ -98,6 +98,21 @@ salta si faltan sus variables. Recorrido aislado:
 
 Para repetirlo, vuelve al paso 1.
 
+### E2E de administración
+
+`frontend/tests/e2e/admin-access.e2e.spec.ts` crea un rol propio, da de alta un
+usuario con ese rol, comprueba que solo ve su menú y que suspendido ya no
+entra. Usa el mismo stack aislado, con dos diferencias:
+
+- El backend necesita `AUTH_DEFAULT_PASSWORD` (12+ caracteres).
+- El administrador ya **no** debe tener el cambio de contraseña pendiente:
+  ejecuta antes `auth-local.e2e.spec.ts`, que lo cambia.
+
+Variables: `E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD` (la contraseña ya cambiada),
+`E2E_DEFAULT_PASSWORD` (= `AUTH_DEFAULT_PASSWORD`) y `E2E_NEW_USER_PASSWORD`
+(12+). Cada ejecución deja un rol y un usuario nuevos con sufijo único; vuelve
+al paso 1 de vez en cuando para empezar de una base limpia.
+
 ## 9. En el pipeline
 
 `lint → typecheck → unit → integration → build → security checks`.

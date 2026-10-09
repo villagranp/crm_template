@@ -97,18 +97,25 @@ export class TeamsService {
     return created;
   }
 
+  /**
+   * Cambiar de padre puede crear un ciclo junto con otro movimiento simultáneo
+   * (A bajo B y B bajo A, cada uno válido por separado). La lectura del árbol,
+   * la comprobación y la escritura van en la sección crítica de la jerarquía.
+   */
   async update(teamId: string, input: UpdateTeamInput, context: AuditContext): Promise<TeamDetailRecord> {
-    const current = await this.findById(teamId);
+    const { current, updated } = await this.repository.withHierarchyLock(async (repository) => {
+      const before = await findOrThrow(repository, teamId);
 
-    if (input.parentId !== undefined && input.parentId !== current.parentId) {
-      await this.assertValidParent(teamId, input.parentId);
-    }
-    if (input.managerId) {
-      await this.assertUsersExist([input.managerId]);
-    }
+      if (input.parentId !== undefined && input.parentId !== before.parentId) {
+        await assertValidParent(repository, teamId, input.parentId);
+      }
+      if (input.managerId) {
+        await assertUsersExist(repository, [input.managerId]);
+      }
 
-    await this.repository.update(teamId, input);
-    const updated = await this.findById(teamId);
+      await repository.update(teamId, input);
+      return { current: before, updated: await findOrThrow(repository, teamId) };
+    });
 
     await this.audit.record('team.updated', context, {
       resourceType: RESOURCE_TYPE,
@@ -165,31 +172,43 @@ export class TeamsService {
     return updated;
   }
 
-  /** El padre debe existir y no puede ser el propio equipo ni un descendiente. */
-  private async assertValidParent(teamId: string, parentId: string | null): Promise<void> {
-    if (parentId === null) {
-      return;
-    }
-    if (parentId !== teamId) {
-      await this.findById(parentId);
-    }
+  private assertUsersExist(userIds: readonly string[]): Promise<void> {
+    return assertUsersExist(this.repository, userIds);
+  }
+}
 
-    const links = await this.repository.listLinks();
-    if (wouldCreateTeamCycle(teamId, parentId, links)) {
-      throw new BusinessRuleViolationError(TEAM_CYCLE, 'A team cannot be placed under itself or one of its sub-teams', [
-        { field: 'parentId', issue: 'cycle' },
-      ]);
-    }
+async function findOrThrow(repository: TeamsRepository, teamId: string): Promise<TeamDetailRecord> {
+  const team = await repository.findById(teamId);
+  if (!team) {
+    throw new ResourceNotFoundError('Team', teamId);
+  }
+  return team;
+}
+
+/** El padre debe existir y no puede ser el propio equipo ni un descendiente. */
+async function assertValidParent(repository: TeamsRepository, teamId: string, parentId: string | null): Promise<void> {
+  if (parentId === null) {
+    return;
+  }
+  if (parentId !== teamId) {
+    await findOrThrow(repository, parentId);
   }
 
-  private async assertUsersExist(userIds: readonly string[]): Promise<void> {
-    if (userIds.length === 0) {
-      return;
-    }
-    const existing = new Set(await this.repository.findExistingUserIds(userIds));
-    const missing = userIds.find((userId) => !existing.has(userId));
-    if (missing) {
-      throw new ResourceNotFoundError('User', missing);
-    }
+  const links = await repository.listLinks();
+  if (wouldCreateTeamCycle(teamId, parentId, links)) {
+    throw new BusinessRuleViolationError(TEAM_CYCLE, 'A team cannot be placed under itself or one of its sub-teams', [
+      { field: 'parentId', issue: 'cycle' },
+    ]);
+  }
+}
+
+async function assertUsersExist(repository: TeamsRepository, userIds: readonly string[]): Promise<void> {
+  if (userIds.length === 0) {
+    return;
+  }
+  const existing = new Set(await repository.findExistingUserIds(userIds));
+  const missing = userIds.find((userId) => !existing.has(userId));
+  if (missing) {
+    throw new ResourceNotFoundError('User', missing);
   }
 }

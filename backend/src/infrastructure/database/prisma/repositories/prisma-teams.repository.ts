@@ -14,6 +14,7 @@ import type {
   UpdateTeamInput,
 } from '@/modules/teams/ports/teams.repository.port';
 
+import { ADVISORY_LOCK_KEYS, acquireAdvisoryXactLock, withAdvisoryXactLock } from '../advisory-lock';
 import { PrismaService } from '../prisma.service';
 
 const UNIQUE_VIOLATION = 'P2002';
@@ -57,7 +58,46 @@ function toTeamRecord(row: TeamRow): TeamRecord {
  */
 @Injectable()
 export class PrismaTeamsRepository implements TeamsRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  /** Cliente global o, en la copia de `withHierarchyLock`, el de la transacción. */
+  private db: Prisma.TransactionClient;
+  /** `true` en la copia ligada a una transacción interactiva. */
+  private transactional = false;
+
+  constructor(private readonly prisma: PrismaService) {
+    this.db = prisma;
+  }
+
+  async withHierarchyLock<T>(work: (repository: TeamsRepository) => Promise<T>): Promise<T> {
+    if (this.transactional) {
+      await acquireAdvisoryXactLock(this.db, ADVISORY_LOCK_KEYS.teamsHierarchy);
+      return work(this);
+    }
+    return withAdvisoryXactLock(this.prisma, ADVISORY_LOCK_KEYS.teamsHierarchy, (tx) => {
+      const scoped = new PrismaTeamsRepository(this.prisma);
+      scoped.db = tx;
+      scoped.transactional = true;
+      return work(scoped);
+    });
+  }
+
+  /** Transacción interactiva propia, o la que ya contiene a esta copia (Prisma no las anida). */
+  private inTransaction<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return this.transactional ? work(this.db) : this.prisma.$transaction(work);
+  }
+
+  /** Lecturas/escrituras en lote atómicas: por lotes fuera de una transacción, en orden dentro de ella. */
+  private async atomic<P extends Prisma.PrismaPromise<unknown>[]>(
+    operations: [...P],
+  ): Promise<{ [K in keyof P]: Awaited<P[K]> }> {
+    if (!this.transactional) {
+      return (await this.prisma.$transaction(operations)) as { [K in keyof P]: Awaited<P[K]> };
+    }
+    const results: unknown[] = [];
+    for (const operation of operations) {
+      results.push(await operation);
+    }
+    return results as { [K in keyof P]: Awaited<P[K]> };
+  }
 
   async list(filter: ListTeamsFilter): Promise<Page<TeamRecord>> {
     const where: Prisma.TeamWhereInput = {
@@ -76,22 +116,22 @@ export class PrismaTeamsRepository implements TeamsRepository {
     const sortBy = filter.sortBy ?? 'name';
     const sortOrder = filter.sortOrder ?? 'asc';
 
-    const [rows, totalItems] = await this.prisma.$transaction([
-      this.prisma.team.findMany({
+    const [rows, totalItems] = await this.atomic([
+      this.db.team.findMany({
         where,
         select: TEAM_SELECT,
         orderBy: [{ [sortBy]: sortOrder }, { id: 'asc' }],
         skip: (filter.page - 1) * filter.pageSize,
         take: filter.pageSize,
       }),
-      this.prisma.team.count({ where }),
+      this.db.team.count({ where }),
     ]);
 
     return createPage(rows.map(toTeamRecord), totalItems, filter);
   }
 
   async findById(teamId: string): Promise<TeamDetailRecord | null> {
-    const row = await this.prisma.team.findFirst({
+    const row = await this.db.team.findFirst({
       where: { id: teamId, deletedAt: null },
       select: {
         ...TEAM_SELECT,
@@ -117,16 +157,16 @@ export class PrismaTeamsRepository implements TeamsRepository {
   }
 
   async existsByCode(code: string): Promise<boolean> {
-    const count = await this.prisma.team.count({ where: { code: { equals: code, mode: 'insensitive' } } });
+    const count = await this.db.team.count({ where: { code: { equals: code, mode: 'insensitive' } } });
     return count > 0;
   }
 
   listLinks(): Promise<TeamLink[]> {
-    return this.prisma.team.findMany({ where: { deletedAt: null }, select: { id: true, parentId: true } });
+    return this.db.team.findMany({ where: { deletedAt: null }, select: { id: true, parentId: true } });
   }
 
   async findExistingUserIds(userIds: readonly string[]): Promise<string[]> {
-    const users = await this.prisma.user.findMany({
+    const users = await this.db.user.findMany({
       where: { id: { in: [...userIds] }, deletedAt: null },
       select: { id: true },
     });
@@ -135,7 +175,7 @@ export class PrismaTeamsRepository implements TeamsRepository {
 
   async create(input: CreateTeamInput): Promise<string> {
     try {
-      const team = await this.prisma.team.create({ data: input, select: { id: true } });
+      const team = await this.db.team.create({ data: input, select: { id: true } });
       return team.id;
     } catch (error) {
       // Carrera entre la comprobación del servicio y la inserción.
@@ -147,11 +187,11 @@ export class PrismaTeamsRepository implements TeamsRepository {
   }
 
   async update(teamId: string, input: UpdateTeamInput): Promise<void> {
-    await this.prisma.team.update({ where: { id: teamId }, data: input });
+    await this.db.team.update({ where: { id: teamId }, data: input });
   }
 
   async softDelete(teamId: string): Promise<void> {
-    await this.prisma.team.update({ where: { id: teamId }, data: { deletedAt: new Date(), isActive: false } });
+    await this.db.team.update({ where: { id: teamId }, data: { deletedAt: new Date(), isActive: false } });
   }
 
   async replaceMembers(
@@ -161,7 +201,7 @@ export class PrismaTeamsRepository implements TeamsRepository {
   ): Promise<void> {
     const userIds = members.map((member) => member.userId);
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.inTransaction(async (tx) => {
       if (clearPrimaryElsewhereFor.length > 0) {
         // Bloquea las filas de los usuarios (en orden, sin interbloqueos) para que
         // dos reemplazos concurrentes no dejen a un usuario con dos equipos

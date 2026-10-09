@@ -4,6 +4,7 @@ import { BusinessRuleViolationError, ResourceConflictError } from '@/common/erro
 import { AuditService } from '@/modules/audit/audit.service';
 
 import { ACCESS_ERROR_CODES, type ActorContext, missingIds } from './access-rules';
+import { AccessService } from './access.service';
 import type { CreateRoleDto, DuplicateRoleDto, ListRolesQueryDto, UpdateRoleDto } from './dto/role.dto';
 import {
   ACCESS_REPOSITORY,
@@ -23,12 +24,16 @@ import {
  * - D2: los roles propios se crean, editan, duplican y eliminan (borrado
  *   lógico). No se elimina un rol con usuarios asignados.
  * - D11: toda mutación queda en la bitácora con su diferencia.
+ * - ADR-020: crear, duplicar y cambiar lo que concede un rol (permisos,
+ *   opciones, alcance de datos, activación) es exclusivo del administrador
+ *   (`403 ADMIN_ONLY`). Renombrar, describir o eliminar no lo es.
  */
 @Injectable()
 export class RolesService {
   constructor(
     @Inject(ACCESS_REPOSITORY) private readonly repository: AccessRepository,
     private readonly audit: AuditService,
+    private readonly accessService: AccessService,
   ) {}
 
   list(query: ListRolesQueryDto): Promise<Paginated<RoleRecord>> {
@@ -53,6 +58,7 @@ export class RolesService {
   }
 
   async create(dto: CreateRoleDto, actor: ActorContext): Promise<RoleRecord> {
+    await this.accessService.assertActorIsAdministrador(actor.userId);
     const permissionIds = dto.permissionIds ?? [];
     const menuOptionIds = dto.menuOptionIds ?? [];
     await this.assertReferences(permissionIds, menuOptionIds);
@@ -79,6 +85,7 @@ export class RolesService {
 
   /** D1: copia editable de cualquier rol, incluido uno de sistema. */
   async duplicate(sourceId: string, dto: DuplicateRoleDto, actor: ActorContext): Promise<RoleRecord> {
+    await this.accessService.assertActorIsAdministrador(actor.userId);
     const source = await this.findById(sourceId);
     await this.assertCodeAvailable(dto.code);
 
@@ -105,6 +112,12 @@ export class RolesService {
 
   async update(roleId: string, dto: UpdateRoleDto, actor: ActorContext): Promise<RoleRecord> {
     const before = await this.requireEditable(roleId);
+    // ADR-020: el alcance y la activación cambian lo que concede el rol.
+    const changesScope = dto.dataScope !== undefined && dto.dataScope !== before.dataScope;
+    const changesActivation = dto.isActive !== undefined && dto.isActive !== before.isActive;
+    if (changesScope || changesActivation) {
+      await this.accessService.assertActorIsAdministrador(actor.userId);
+    }
 
     await this.repository.updateRole(roleId, {
       name: dto.name?.trim(),
@@ -145,6 +158,7 @@ export class RolesService {
   }
 
   async replacePermissions(roleId: string, permissionIds: string[], actor: ActorContext): Promise<RoleRecord> {
+    await this.accessService.assertActorIsAdministrador(actor.userId);
     const before = await this.requireEditable(roleId);
     await this.assertReferences(permissionIds, []);
 
@@ -161,6 +175,7 @@ export class RolesService {
   }
 
   async replaceMenuOptions(roleId: string, menuOptionIds: string[], actor: ActorContext): Promise<RoleRecord> {
+    await this.accessService.assertActorIsAdministrador(actor.userId);
     const before = await this.requireEditable(roleId);
     await this.assertReferences([], menuOptionIds);
 

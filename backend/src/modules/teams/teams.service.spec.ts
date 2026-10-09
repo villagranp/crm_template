@@ -78,7 +78,9 @@ describe('TeamsService', () => {
       update: jest.fn(),
       softDelete: jest.fn(),
       replaceMembers: jest.fn(),
-    };
+      // La sección crítica se simula ejecutando el trabajo con el mismo repositorio.
+      withHierarchyLock: jest.fn((work: (repo: TeamsRepository) => Promise<unknown>) => work(repository)),
+    } as jest.Mocked<TeamsRepository>;
     audit = { record: jest.fn() };
     service = new TeamsService(repository, audit as unknown as AuditService);
   });

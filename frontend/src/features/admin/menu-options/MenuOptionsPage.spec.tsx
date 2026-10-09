@@ -144,8 +144,10 @@ describe('MenuOptionsPage', () => {
 
     await user.click(within(dialog).getByRole('combobox', { name: /módulo/i }));
     await user.click(await screen.findByRole('option', { name: 'Administración' }));
-    await user.type(within(dialog).getByRole('textbox', { name: /clave/i }), 'ventas-cotizaciones');
-    await user.type(within(dialog).getByRole('textbox', { name: /etiqueta/i }), 'Cotizaciones');
+    await user.click(within(dialog).getByRole('textbox', { name: /clave/i }));
+    await user.paste('ventas-cotizaciones');
+    await user.click(within(dialog).getByRole('textbox', { name: /etiqueta/i }));
+    await user.paste('Cotizaciones');
     await user.click(within(dialog).getByRole('combobox', { name: /pantalla/i }));
     await user.click(await screen.findByRole('option', { name: /Roles y permisos/ }));
     await user.click(within(dialog).getByRole('button', { name: 'Crear opción' }));

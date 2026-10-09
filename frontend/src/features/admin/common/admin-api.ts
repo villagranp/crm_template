@@ -58,7 +58,16 @@ export const ADMIN_ERROR_CODES = {
   invalidStatusTransition: 'INVALID_STATUS_TRANSITION',
   unknownReference: 'UNKNOWN_REFERENCE',
   invalidMenuStructure: 'INVALID_MENU_STRUCTURE',
+  /** ADR-020: la operación cambia accesos y sólo la puede hacer un administrador. */
+  adminOnly: 'ADMIN_ONLY',
 } as const;
+
+/**
+ * Nota que sustituye a los editores de accesos cuando quien mira no es
+ * administrador (ADR-020). Ocultarlos es experiencia de usuario: el backend
+ * responde `403 ADMIN_ONLY` igualmente y es la autoridad.
+ */
+export const ADMIN_ONLY_NOTE = 'La asignación de accesos es exclusiva del administrador (ADR-020).';
 
 const MESSAGES_BY_CODE: Readonly<Record<string, string>> = {
   [ADMIN_ERROR_CODES.systemResourceReadOnly]: 'Es un elemento del sistema y no se puede modificar desde la interfaz.',
@@ -74,6 +83,7 @@ const MESSAGES_BY_CODE: Readonly<Record<string, string>> = {
   [ADMIN_ERROR_CODES.invalidStatusTransition]: 'El elemento ya está en ese estado. Actualiza la pantalla.',
   [ADMIN_ERROR_CODES.unknownReference]: 'Alguno de los elementos seleccionados ya no existe. Actualiza y vuelve a intentarlo.',
   [ADMIN_ERROR_CODES.invalidMenuStructure]: 'La estructura del menú no es válida: revisa el tipo, la ruta y el padre.',
+  [ADMIN_ERROR_CODES.adminOnly]: 'Sólo un administrador puede asignar o modificar accesos.',
 };
 
 const NETWORK_ERROR_MESSAGE = 'No se pudo conectar con el servidor. Comprueba tu conexión e inténtalo de nuevo.';

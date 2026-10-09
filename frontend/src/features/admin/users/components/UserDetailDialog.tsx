@@ -31,9 +31,10 @@ import {
 import { useEffect, useId, useState } from 'react';
 
 import { env } from '@/config/env';
-import { ConfirmDialog, describeApiError } from '@/features/admin/common';
-import { useCan } from '@/hooks/use-permission';
+import { ADMIN_ONLY_NOTE, ConfirmDialog, describeApiError } from '@/features/admin/common';
+import { useCan, useIsAdministrador } from '@/hooks/use-permission';
 
+import { ADMIN_TARGET_NOTE, holdsAdministrador } from '../users-access';
 import { USER_ERRORS, USER_STATUS_VIEW, formatDate, formatDateTime } from '../users-format';
 import type { UserDetail } from '../users.api';
 import { USER_PERMISSIONS } from '../users.permissions';
@@ -121,7 +122,16 @@ export function UserDetailDialog({ userId, onClose }: UserDetailDialogProps) {
 
 function ProfileSection({ user }: { user: UserDetail }) {
   const can = useCan();
-  const canEdit = can(USER_PERMISSIONS.edit);
+  const isAdministrador = useIsAdministrador();
+  // ADR-020: editar, suspender, reactivar o restablecer la contraseña de un
+  // administrador es sólo para administradores. Ocultarlo es UX; el backend
+  // responde 403 ADMIN_ONLY igualmente.
+  const targetIsProtected = !isAdministrador && holdsAdministrador(user);
+  const canEdit = can(USER_PERMISSIONS.edit) && !targetIsProtected;
+  // ADR-020: restablecer deja la cuenta con la contraseña inicial, que es
+  // conocida, así que es dar acceso: sólo el administrador, sea quien sea el
+  // usuario mostrado.
+  const canResetPassword = canEdit && isAdministrador && env.VITE_AUTH_PROVIDER === 'local';
   const [editing, setEditing] = useState(false);
   const [statusAction, setStatusAction] = useState<StatusAction | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -184,6 +194,8 @@ function ProfileSection({ user }: { user: UserDetail }) {
         </Alert>
       ) : null}
 
+      {can(USER_PERMISSIONS.edit) && targetIsProtected ? <Alert severity="info">{ADMIN_TARGET_NOTE}</Alert> : null}
+
       {canEdit ? (
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap" useFlexGap>
           <Button variant="outlined" startIcon={<EditOutlinedIcon />} onClick={() => setEditing(true)}>
@@ -214,7 +226,7 @@ function ProfileSection({ user }: { user: UserDetail }) {
               Reactivar
             </Button>
           ) : null}
-          {env.VITE_AUTH_PROVIDER === 'local' ? (
+          {canResetPassword ? (
             <Button
               variant="outlined"
               startIcon={<LockResetOutlinedIcon />}
@@ -284,9 +296,12 @@ function ProfileSection({ user }: { user: UserDetail }) {
 
 function RolesSection({ user }: { user: UserDetail }) {
   const can = useCan();
-  const canEdit = can(USER_PERMISSIONS.edit);
+  const isAdministrador = useIsAdministrador();
+  const hasEditPermission = can(USER_PERMISSIONS.edit);
+  // ADR-020: asignar roles exige además ser administrador (el backend lo vuelve a exigir).
+  const canEdit = hasEditPermission && isAdministrador;
   const canListRoles = can(USER_PERMISSIONS.viewRoles);
-  const roles = useAssignableRoles(canListRoles);
+  const roles = useAssignableRoles(canEdit && canListRoles);
   const mutation = useReplaceUserRoles(user.id);
   const [selected, setSelected] = useState<string[]>(() => user.roles.map((role) => role.id));
   const [saved, setSaved] = useState(false);
@@ -297,10 +312,13 @@ function RolesSection({ user }: { user: UserDetail }) {
 
   if (!canEdit || !canListRoles) {
     return (
-      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-        {user.roles.map((role) => (
-          <Chip key={role.id} label={role.name} />
-        ))}
+      <Stack spacing={2}>
+        {hasEditPermission && !isAdministrador ? <Alert severity="info">{ADMIN_ONLY_NOTE}</Alert> : null}
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          {user.roles.map((role) => (
+            <Chip key={role.id} label={role.name} />
+          ))}
+        </Stack>
       </Stack>
     );
   }
@@ -349,8 +367,13 @@ function RolesSection({ user }: { user: UserDetail }) {
 
 function ExceptionsSection({ user }: { user: UserDetail }) {
   const can = useCan();
-  const canEditPermissions = can(USER_PERMISSIONS.edit) && can(USER_PERMISSIONS.viewPermissions);
-  const canEditMenu = can(USER_PERMISSIONS.assignMenuOptions) && can(USER_PERMISSIONS.viewMenuOptions);
+  const isAdministrador = useIsAdministrador();
+  const hasPermissionGrant = can(USER_PERMISSIONS.edit) && can(USER_PERMISSIONS.viewPermissions);
+  const hasMenuGrant = can(USER_PERMISSIONS.assignMenuOptions) && can(USER_PERMISSIONS.viewMenuOptions);
+  // ADR-020: las excepciones directas son asignación de accesos; sólo el
+  // administrador las edita. El backend lo vuelve a exigir (403 ADMIN_ONLY).
+  const canEditPermissions = hasPermissionGrant && isAdministrador;
+  const canEditMenu = hasMenuGrant && isAdministrador;
   const permissions = usePermissionCatalog(canEditPermissions);
   const menuOptions = useMenuOptionCatalog(canEditMenu);
   const permissionMutation = useReplaceUserPermissions(user.id);
@@ -358,6 +381,7 @@ function ExceptionsSection({ user }: { user: UserDetail }) {
 
   return (
     <Stack spacing={3}>
+      {(hasPermissionGrant || hasMenuGrant) && !isAdministrador ? <Alert severity="info">{ADMIN_ONLY_NOTE}</Alert> : null}
       <Box component="section" aria-labelledby="excepciones-permisos">
         <Typography id="excepciones-permisos" variant="subtitle1" component="h3" sx={{ mb: 1 }}>
           Permisos

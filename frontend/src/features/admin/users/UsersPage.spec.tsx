@@ -34,16 +34,49 @@ const DETAIL: UserDetail = {
   directMenuOptions: [],
 };
 
-const ROLES = [{ id: 'r-admin', code: 'administrador', name: 'Administrador', isSystem: true, isActive: true }];
+const ROLE_ADMIN = {
+  id: 'r-admin',
+  code: 'administrador',
+  name: 'Administrador',
+  isSystem: true,
+  isActive: true,
+  permissionCodes: ['usuarios.ver', 'usuarios.editar'],
+};
+const ROLE_USUARIO = { id: 'r-usuario', code: 'usuario', name: 'Usuario', isSystem: true, isActive: true, permissionCodes: [] };
+const ROLES = [ROLE_ADMIN];
+
+/** Sesión tipo `gestor-accesos` (ADR-020): gestiona datos de usuarios, pero no es administrador. */
+const GESTOR_PERMISSIONS = [
+  'usuarios.ver',
+  'usuarios.editar',
+  'usuarios.crear',
+  'roles.ver',
+  'roles.editar',
+  'permisos.ver',
+  'opciones.ver',
+  'opciones.configurar',
+];
+const GESTOR_ROLES = ['gestor-accesos'];
+const ADMIN_ONLY_NOTE = 'La asignación de accesos es exclusiva del administrador (ADR-020).';
+
+/** Usuario sin rol de administrador: el gestor sí puede editar sus datos. */
+const PLAIN_USER: UserListItem = { ...USER, id: 'u-2', displayName: 'Bruno Cano', email: 'bruno@example.test', roles: ['usuario'] };
+const PLAIN_DETAIL: UserDetail = {
+  ...DETAIL,
+  ...PLAIN_USER,
+  firstName: 'Bruno',
+  lastName: 'Cano',
+  roles: [{ id: 'r-usuario', code: 'usuario', name: 'Usuario', isSystem: true, expiresAt: null }],
+};
 
 function page<T>(data: T[]) {
   return { data, pagination: { page: 1, pageSize: 20, totalItems: data.length, totalPages: 1 } };
 }
 
-function signInWith(permissions: string[]) {
+function signInWith(permissions: string[], roles: string[] = ['administrador']) {
   useAuthStore.setState({
     status: 'authenticated',
-    user: { id: 'yo', displayName: 'Persona de Prueba', roles: ['ADMIN'], permissions },
+    user: { id: 'yo', displayName: 'Persona de Prueba', roles, permissions },
     passwordChangeRequired: false,
     errorMessage: null,
   });
@@ -170,5 +203,130 @@ describe('UsersPage', () => {
     await waitFor(() => expect(within(dialog).getByText('ana@example.test')).toBeInTheDocument());
     expect(within(dialog).queryByRole('button', { name: 'Suspender' })).not.toBeInTheDocument();
     expect(within(dialog).queryByRole('button', { name: 'Editar datos' })).not.toBeInTheDocument();
+  });
+
+  describe('ADR-020: la asignación de accesos es del administrador', () => {
+    it('un no administrador no ve los editores de roles ni de excepciones', async () => {
+      const user = userEvent.setup();
+      signInWith(GESTOR_PERMISSIONS, GESTOR_ROLES);
+      const fetchMock = mockApi({
+        'GET /users': () => jsonResponse(page([PLAIN_USER])),
+        'GET /roles': () => jsonResponse(page([ROLE_ADMIN, ROLE_USUARIO])),
+        'GET /users/u-2': () => jsonResponse(PLAIN_DETAIL),
+      });
+
+      renderWithProviders(<UsersPage />);
+      await user.click(await screen.findByRole('button', { name: 'Ver Bruno Cano' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Bruno Cano' });
+
+      // Los datos de un no administrador sí los gestiona.
+      expect(await within(dialog).findByRole('button', { name: 'Editar datos' })).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: 'Suspender' })).toBeInTheDocument();
+      // Restablecer la contraseña de cualquiera es del administrador (ADR-020).
+      expect(within(dialog).queryByRole('button', { name: 'Restablecer contraseña' })).not.toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole('tab', { name: 'Roles' }));
+      expect(within(dialog).getByText(ADMIN_ONLY_NOTE)).toBeInTheDocument();
+      expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument();
+      expect(within(dialog).queryByRole('button', { name: 'Guardar roles' })).not.toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole('tab', { name: 'Excepciones' }));
+      expect(within(dialog).getByText(ADMIN_ONLY_NOTE)).toBeInTheDocument();
+      expect(within(dialog).queryByRole('button', { name: 'Añadir excepción' })).not.toBeInTheDocument();
+      // Ni siquiera se piden los catálogos para asignar.
+      expect(callsTo(fetchMock, 'GET', '/permissions')).toHaveLength(0);
+      expect(callsTo(fetchMock, 'GET', '/menu-options')).toHaveLength(0);
+    });
+
+    it('un no administrador no puede editar, suspender ni restablecer a un administrador', async () => {
+      const user = userEvent.setup();
+      signInWith(GESTOR_PERMISSIONS, GESTOR_ROLES);
+      mockApi({ 'GET /users': () => jsonResponse(page([USER])), 'GET /users/u-1': () => jsonResponse(DETAIL) });
+
+      renderWithProviders(<UsersPage />);
+      await user.click(await screen.findByRole('button', { name: 'Ver Ana Beltrán' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Ana Beltrán' });
+
+      expect(
+        await within(dialog).findByText('Sólo un administrador puede modificar a otro administrador (ADR-020).'),
+      ).toBeInTheDocument();
+      expect(within(dialog).queryByRole('button', { name: 'Editar datos' })).not.toBeInTheDocument();
+      expect(within(dialog).queryByRole('button', { name: 'Suspender' })).not.toBeInTheDocument();
+      expect(within(dialog).queryByRole('button', { name: 'Reactivar' })).not.toBeInTheDocument();
+      expect(within(dialog).queryByRole('button', { name: 'Restablecer contraseña' })).not.toBeInTheDocument();
+    });
+
+    it('en el alta, un no administrador sólo puede elegir roles sin permisos', async () => {
+      const user = userEvent.setup();
+      signInWith(GESTOR_PERMISSIONS, GESTOR_ROLES);
+      mockApi({
+        'GET /users': () => jsonResponse(page([])),
+        'GET /roles': () => jsonResponse(page([ROLE_ADMIN, ROLE_USUARIO])),
+      });
+
+      renderWithProviders(<UsersPage />);
+      await user.click(await screen.findByRole('button', { name: 'Nuevo usuario' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Nuevo usuario' });
+
+      expect(await within(dialog).findByRole('checkbox', { name: 'Usuario' })).toBeInTheDocument();
+      expect(within(dialog).queryByRole('checkbox', { name: 'Administrador' })).not.toBeInTheDocument();
+      expect(within(dialog).getByText(/Sólo puedes dar roles sin permisos/)).toBeInTheDocument();
+    });
+
+    it('un administrador sigue viendo todos los editores y todos los roles', async () => {
+      const user = userEvent.setup();
+      signInWith(GESTOR_PERMISSIONS);
+      mockApi({
+        'GET /users': () => jsonResponse(page([USER])),
+        'GET /roles': () => jsonResponse(page([ROLE_ADMIN, ROLE_USUARIO])),
+        'GET /users/u-1': () => jsonResponse(DETAIL),
+        'GET /permissions': () => jsonResponse([]),
+        'GET /menu-options': () => jsonResponse([]),
+      });
+
+      renderWithProviders(<UsersPage />);
+      await user.click(await screen.findByRole('button', { name: 'Nuevo usuario' }));
+      const form = await screen.findByRole('dialog', { name: 'Nuevo usuario' });
+      expect(await within(form).findByRole('checkbox', { name: 'Administrador' })).toBeInTheDocument();
+      expect(within(form).getByRole('checkbox', { name: 'Usuario' })).toBeInTheDocument();
+      expect(within(form).queryByText(/Sólo puedes dar roles sin permisos/)).not.toBeInTheDocument();
+      await user.click(within(form).getByRole('button', { name: 'Cancelar' }));
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Nuevo usuario' })).not.toBeInTheDocument());
+
+      await user.click(screen.getByRole('button', { name: 'Ver Ana Beltrán' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Ana Beltrán' });
+      expect(await within(dialog).findByRole('button', { name: 'Editar datos' })).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: 'Suspender' })).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: 'Restablecer contraseña' })).toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole('tab', { name: 'Roles' }));
+      expect(await within(dialog).findByRole('checkbox', { name: 'Administrador (sistema)' })).toBeChecked();
+      expect(within(dialog).getByRole('button', { name: 'Guardar roles' })).toBeInTheDocument();
+      expect(within(dialog).queryByText(ADMIN_ONLY_NOTE)).not.toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole('tab', { name: 'Excepciones' }));
+      expect(within(dialog).getAllByRole('button', { name: 'Añadir excepción' })).toHaveLength(2);
+      expect(within(dialog).queryByText(ADMIN_ONLY_NOTE)).not.toBeInTheDocument();
+    });
+
+    it('un 403 ADMIN_ONLY del backend muestra su mensaje', async () => {
+      const user = userEvent.setup();
+      signInWith(GESTOR_PERMISSIONS);
+      mockApi({
+        'GET /users': () => jsonResponse(page([PLAIN_USER])),
+        'GET /roles': () => jsonResponse(page([ROLE_ADMIN, ROLE_USUARIO])),
+        'GET /users/u-2': () => jsonResponse(PLAIN_DETAIL),
+        'PUT /users/u-2/roles': () => errorResponse(403, 'ADMIN_ONLY'),
+      });
+
+      renderWithProviders(<UsersPage />);
+      await user.click(await screen.findByRole('button', { name: 'Ver Bruno Cano' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Bruno Cano' });
+      await user.click(await within(dialog).findByRole('tab', { name: 'Roles' }));
+      await user.click(await within(dialog).findByRole('checkbox', { name: 'Administrador (sistema)' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Guardar roles' }));
+
+      expect(await within(dialog).findByText('Sólo un administrador puede asignar o modificar accesos.')).toBeInTheDocument();
+    });
   });
 });

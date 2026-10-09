@@ -1,12 +1,25 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 
 import { MAX_EXPORT_ROWS, toCsv, type CsvColumn } from '@/common/csv';
-import { BusinessRuleViolationError, ResourceConflictError } from '@/common/errors/application-error';
+import {
+  BusinessRuleViolationError,
+  PermissionDeniedError,
+  ResourceConflictError,
+} from '@/common/errors/application-error';
 import { AuditService } from '@/modules/audit/audit.service';
 import { InitialCredentialService } from '@/modules/auth/initial-credential.service';
 import { AUTH_REPOSITORY, type AuthRepository } from '@/modules/auth/ports/auth.repository.port';
 
 import { ACCESS_ERROR_CODES, ADMIN_ROLE_CODE, type ActorContext, missingIds } from './access-rules';
+import { AccessService } from './access.service';
+import {
+  ADMIN_CRITICAL_PERMISSIONS,
+  SELF_ADMINISTRATION_PERMISSION,
+  isAdminGuardian,
+  isSelfLockout,
+  losesAdminGuardian,
+} from './admin-invariant';
+import { assertAssignableByNonAdministrador } from './admin-only';
 import type { DirectAssignmentDto } from './dto/assignment.dto';
 import type { CreateUserDto, ExportUsersQueryDto, ListUsersQueryDto, UpdateUserDto } from './dto/user.dto';
 import {
@@ -23,6 +36,9 @@ import {
 
 const SUSPENDABLE: ReadonlySet<UserStatus> = new Set(['ACTIVE', 'INVITED', 'LOCKED']);
 const REACTIVATABLE: ReadonlySet<UserStatus> = new Set(['SUSPENDED', 'LOCKED']);
+
+/** Permiso que exige asignar miembros a un equipo; también al darlos en el alta. */
+export const TEAM_MEMBERSHIP_PERMISSION = 'equipos.editar';
 
 export interface UsersExport {
   csv: string;
@@ -49,26 +65,41 @@ const EXPORT_COLUMNS: readonly CsvColumn<UserListItem>[] = [
  * cuando el caso de uso se invoque desde un proceso o una importación:
  * - Un usuario nace con al menos un rol: sin rol no ve nada y el alta parecería
  *   rota.
+ * - Asignar equipos en el alta exige además `equipos.editar` (lo mismo que
+ *   `PUT /teams/{id}/members`); los equipos deben existir y no estar borrados.
  * - Las asignaciones directas siempre llevan razón (lo exige el DTO) y se
  *   reemplazan en bloque, no se acumulan.
- * - D3: nadie se suspende ni se quita su propio rol de administrador, y siempre
- *   queda al menos un administrador activo.
+ * - D3: nadie se suspende ni se quita su propio rol de administrador, nadie se
+ *   deja sin `usuarios.editar` efectivo (`SELF_LOCKOUT`), y siempre queda al
+ *   menos un administrador activo con los permisos críticos efectivos
+ *   (`LAST_ADMIN`; ver `admin-invariant.ts`).
  * - D4: el estado sólo cambia con suspender/reactivar; suspender cierra todas
- *   las sesiones al instante.
+ *   las sesiones al instante; reactivar a un bloqueado limpia su bloqueo.
  * - D11: toda mutación queda en la bitácora con su diferencia.
+ * - ADR-020: asignar roles, permisos u opciones directas es exclusivo del
+ *   administrador, igual que editar, suspender o reactivar a un administrador;
+ *   en el alta, un no administrador sólo asigna roles sin permisos
+ *   (`403 ADMIN_ONLY`). Se comprueba al principio de cada caso de uso, antes
+ *   que el resto de reglas.
  *
- * Límite conocido: la comprobación del último administrador y el cambio no
- * son atómicos. Dos administradores suspendiéndose mutuamente en el mismo
- * instante podrían dejar el sistema sin ninguno; el riesgo es mínimo y se
- * corrige con la semilla (repone el usuario administrador).
+ * Toda mutación que puede romper D3 (suspender, roles, permisos y opciones
+ * directas) pasa por `mutateUnderAdminInvariant`: comprobación y escritura en
+ * la misma transacción, serializada con un bloqueo, así que dos
+ * administradores que se suspenden mutuamente a la vez no dejan el sistema
+ * sin ninguno.
  */
 @Injectable()
 export class UsersService {
   constructor(
     @Inject(ACCESS_REPOSITORY) private readonly repository: AccessRepository,
-    @Inject(AUTH_REPOSITORY) private readonly authRepository: Pick<AuthRepository, 'revokeAllUserSessions'>,
+    @Inject(AUTH_REPOSITORY)
+    private readonly authRepository: Pick<
+      AuthRepository,
+      'revokeAllUserSessions' | 'findAccountByUserId' | 'clearFailedAttempts'
+    >,
     private readonly initialCredentials: InitialCredentialService,
     private readonly audit: AuditService,
+    private readonly accessService: AccessService,
   ) {}
 
   list(query: ListUsersQueryDto): Promise<Paginated<UserListItem>> {
@@ -99,19 +130,28 @@ export class UsersService {
     return { csv: toCsv(result.items, EXPORT_COLUMNS), rowCount: result.items.length, truncated };
   }
 
-  async getDetail(userId: string): Promise<UserDetailRecord> {
-    const user = await this.repository.findUserDetail(userId);
-    if (!user) {
-      throw new NotFoundException('El usuario no existe');
-    }
-    return user;
+  getDetail(userId: string): Promise<UserDetailRecord> {
+    return detailOrThrow(this.repository, userId);
   }
 
   async create(dto: CreateUserDto, actor: ActorContext): Promise<AccessUserRecord> {
+    const teamIds = dto.teamIds ?? [];
+
     if (dto.roleIds.length === 0) {
       throw new BadRequestException('El usuario debe tener al menos un rol asignado');
     }
+    // ADR-020: un no administrador sólo da de alta con roles que no conceden
+    // ningún permiso (hoy, `usuario`).
+    if (!(await this.accessService.isAdministrador(actor.userId))) {
+      assertAssignableByNonAdministrador(await this.repository.findRoleIdsGrantingPermissions(dto.roleIds));
+    }
+    // Autorización antes que validar referencias: sin el permiso no se revela
+    // qué equipos existen.
+    if (teamIds.length > 0) {
+      await this.assertActorHolds(actor, TEAM_MEMBERSHIP_PERMISSION);
+    }
     await this.assertExisting('role', dto.roleIds, await this.repository.existingRoleIds(dto.roleIds));
+    await this.assertExisting('team', teamIds, await this.repository.existingTeamIds(teamIds));
 
     const existing = await this.repository.findUserByEmail(dto.email);
     if (existing) {
@@ -125,7 +165,7 @@ export class UsersService {
       jobTitle: dto.jobTitle,
       phone: dto.phone,
       roleIds: dto.roleIds,
-      teamIds: dto.teamIds ?? [],
+      teamIds,
       createdById: actor.userId,
     });
 
@@ -139,13 +179,18 @@ export class UsersService {
       resourceType: 'user',
       resourceId: user.id,
       before: null,
-      after: { ...userAuditView(created), roles: created.roles.map((role) => role.code) },
+      after: {
+        ...userAuditView(created),
+        roles: created.roles.map((role) => role.code),
+        teamIds: created.teams.map((team) => team.id),
+      },
     });
 
     return user;
   }
 
   async update(userId: string, dto: UpdateUserDto, actor: ActorContext): Promise<UserDetailRecord> {
+    await this.accessService.assertActorMayActOn(actor.userId, userId);
     const before = await this.getDetail(userId);
 
     await this.repository.updateUser(userId, {
@@ -168,27 +213,33 @@ export class UsersService {
 
   /** D3 + D4: suspende y cierra todas sus sesiones. */
   async suspend(userId: string, reason: string | undefined, actor: ActorContext): Promise<UserDetailRecord> {
-    const user = await this.getDetail(userId);
+    await this.accessService.assertActorMayActOn(actor.userId, userId);
+    const previousStatus = await this.mutateUnderAdminInvariant(userId, actor, async (repository) => {
+      const user = await detailOrThrow(repository, userId);
 
-    if (actor.userId === user.id) {
-      throw new ResourceConflictError('You cannot suspend yourself', [], ACCESS_ERROR_CODES.selfLockout);
-    }
-    if (!SUSPENDABLE.has(user.status)) {
-      throw new ResourceConflictError(
-        `A user in status ${user.status} cannot be suspended`,
-        [{ status: user.status }],
-        ACCESS_ERROR_CODES.invalidStatusTransition,
-      );
-    }
-    await this.assertNotLastAdmin(user);
+      if (actor.userId === user.id) {
+        throw new ResourceConflictError('You cannot suspend yourself', [], ACCESS_ERROR_CODES.selfLockout);
+      }
+      if (!SUSPENDABLE.has(user.status)) {
+        throw new ResourceConflictError(
+          `A user in status ${user.status} cannot be suspended`,
+          [{ status: user.status }],
+          ACCESS_ERROR_CODES.invalidStatusTransition,
+        );
+      }
 
-    await this.repository.setUserStatus(userId, 'SUSPENDED', actor.userId);
+      await repository.setUserStatus(userId, 'SUSPENDED', actor.userId);
+      return user.status;
+    });
+
+    // Después de confirmar: si se revocaran dentro y la transacción se
+    // deshiciera, perdería sus sesiones sin quedar suspendido.
     const revokedSessions = await this.authRepository.revokeAllUserSessions(userId, 'account_disabled', new Date());
 
     await this.audit.record('user.suspended', actor.audit, {
       resourceType: 'user',
       resourceId: userId,
-      before: { status: user.status },
+      before: { status: previousStatus },
       after: { status: 'SUSPENDED' },
       metadata: { revokedSessions, reason: reason ?? null },
     });
@@ -196,8 +247,16 @@ export class UsersService {
     return this.getDetail(userId);
   }
 
-  /** D4: vuelve a ACTIVE, o a INVITED si nunca fijó su contraseña. */
+  /**
+   * D4: vuelve a ACTIVE, o a INVITED si nunca fijó su contraseña. Reactivar a
+   * un `LOCKED` limpia también el bloqueo de su credencial (intentos fallidos y
+   * `lockedUntil`): si no, el estado diría que puede entrar y el login lo
+   * seguiría rechazando hasta que caducara el bloqueo.
+   *
+   * No pasa por el invariante D3: reactivar sólo puede añadir administradores.
+   */
   async reactivate(userId: string, reason: string | undefined, actor: ActorContext): Promise<UserDetailRecord> {
+    await this.accessService.assertActorMayActOn(actor.userId, userId);
     const user = await this.getDetail(userId);
 
     if (!REACTIVATABLE.has(user.status)) {
@@ -211,58 +270,73 @@ export class UsersService {
     const status: UserStatus = user.hasCompletedActivation ? 'ACTIVE' : 'INVITED';
     await this.repository.setUserStatus(userId, status, actor.userId);
 
+    let clearedLockout = false;
+    if (user.status === 'LOCKED') {
+      const credentialId = (await this.authRepository.findAccountByUserId(userId))?.credential?.id;
+      if (credentialId) {
+        await this.authRepository.clearFailedAttempts(credentialId);
+        clearedLockout = true;
+      }
+    }
+
     await this.audit.record('user.reactivated', actor.audit, {
       resourceType: 'user',
       resourceId: userId,
       before: { status: user.status },
       after: { status },
-      metadata: { reason: reason ?? null },
+      metadata: { reason: reason ?? null, clearedLockout },
     });
 
     return this.getDetail(userId);
   }
 
   async replaceRoles(userId: string, roleIds: string[], actor: ActorContext): Promise<void> {
-    const user = await this.getDetail(userId);
-
+    await this.accessService.assertActorIsAdministrador(actor.userId);
     if (roleIds.length === 0) {
       throw new BadRequestException('El usuario debe conservar al menos un rol');
     }
-    await this.assertExisting('role', roleIds, await this.repository.existingRoleIds(roleIds));
 
-    const adminRole = user.roles.find((role) => role.code === ADMIN_ROLE_CODE && isCurrent(role.expiresAt));
-    if (adminRole && !roleIds.includes(adminRole.id)) {
-      if (actor.userId === user.id) {
+    const { before, after } = await this.mutateUnderAdminInvariant(userId, actor, async (repository) => {
+      const user = await detailOrThrow(repository, userId);
+      await this.assertExisting('role', roleIds, await repository.existingRoleIds(roleIds));
+
+      // D3 literal: el propio rol de administrador no se quita, aunque otro rol
+      // conservara los permisos críticos.
+      const adminRole = user.roles.find((role) => role.code === ADMIN_ROLE_CODE && isCurrent(role.expiresAt));
+      if (adminRole && !roleIds.includes(adminRole.id) && actor.userId === user.id) {
         throw new ResourceConflictError(
           'You cannot remove your own administrator role',
           [],
           ACCESS_ERROR_CODES.selfLockout,
         );
       }
-      await this.assertNotLastAdmin(user);
-    }
 
-    await this.repository.replaceUserRoles(userId, roleIds, actor.userId);
+      await repository.replaceUserRoles(userId, roleIds, actor.userId);
+      return { before: user, after: await detailOrThrow(repository, userId) };
+    });
 
-    const after = await this.getDetail(userId);
     await this.audit.record('user.roles_replaced', actor.audit, {
       resourceType: 'user',
       resourceId: userId,
-      before: { roles: user.roles.map((role) => role.code) },
+      before: { roles: before.roles.map((role) => role.code) },
       after: { roles: after.roles.map((role) => role.code) },
     });
   }
 
-  /** Excepciones directas de permisos. Reemplaza el conjunto completo. */
+  /** Excepciones directas de permisos. Reemplaza el conjunto completo. Un DENY también cuenta para D3. */
   async replacePermissions(userId: string, assignments: DirectAssignmentDto[], actor: ActorContext): Promise<void> {
-    const before = await this.getDetail(userId);
+    await this.accessService.assertActorIsAdministrador(actor.userId);
     const ids = assignments.map((assignment) => assignment.targetId);
     assertFutureExpiry(assignments);
-    await this.assertExisting('permission', ids, await this.repository.existingPermissionIds(ids));
 
-    await this.repository.replaceUserPermissions(userId, assignments.map(toAssignmentInput), actor.userId);
+    const { before, after } = await this.mutateUnderAdminInvariant(userId, actor, async (repository) => {
+      const current = await detailOrThrow(repository, userId);
+      await this.assertExisting('permission', ids, await repository.existingPermissionIds(ids));
 
-    const after = await this.getDetail(userId);
+      await repository.replaceUserPermissions(userId, assignments.map(toAssignmentInput), actor.userId);
+      return { before: current, after: await detailOrThrow(repository, userId) };
+    });
+
     await this.audit.record('user.permissions_replaced', actor.audit, {
       resourceType: 'user',
       resourceId: userId,
@@ -271,16 +345,27 @@ export class UsersService {
     });
   }
 
-  /** Asignación directa de opciones de menú. Reemplaza el conjunto completo. */
+  /**
+   * Asignación directa de opciones de menú. Reemplaza el conjunto completo.
+   *
+   * Hoy una opción de menú no aporta ni quita permisos (sólo visibilidad), así
+   * que no puede romper D3; pasa igualmente por el invariante para que la regla
+   * siga valiendo si eso cambia y para que toda asignación directa tenga un
+   * único camino.
+   */
   async replaceMenuOptions(userId: string, assignments: DirectAssignmentDto[], actor: ActorContext): Promise<void> {
-    const before = await this.getDetail(userId);
+    await this.accessService.assertActorIsAdministrador(actor.userId);
     const ids = assignments.map((assignment) => assignment.targetId);
     assertFutureExpiry(assignments);
-    await this.assertExisting('menuOption', ids, await this.repository.existingMenuOptionIds(ids));
 
-    await this.repository.replaceUserMenuOptions(userId, assignments.map(toAssignmentInput), actor.userId);
+    const { before, after } = await this.mutateUnderAdminInvariant(userId, actor, async (repository) => {
+      const current = await detailOrThrow(repository, userId);
+      await this.assertExisting('menuOption', ids, await repository.existingMenuOptionIds(ids));
 
-    const after = await this.getDetail(userId);
+      await repository.replaceUserMenuOptions(userId, assignments.map(toAssignmentInput), actor.userId);
+      return { before: current, after: await detailOrThrow(repository, userId) };
+    });
+
     await this.audit.record('user.menu_options_replaced', actor.audit, {
       resourceType: 'user',
       resourceId: userId,
@@ -289,21 +374,49 @@ export class UsersService {
     });
   }
 
-  /** D3: si el usuario es un administrador activo, debe quedar otro. */
-  private async assertNotLastAdmin(user: UserDetailRecord): Promise<void> {
-    const isActiveAdmin =
-      user.status === 'ACTIVE' && user.roles.some((role) => role.code === ADMIN_ROLE_CODE && isCurrent(role.expiresAt));
-    if (!isActiveAdmin) {
-      return;
-    }
+  /**
+   * Único punto donde se aplica el invariante D3 (ver `admin-invariant.ts`).
+   *
+   * Dentro de la sección crítica del repositorio: lee el acceso efectivo del
+   * usuario, ejecuta `change` (sus comprobaciones previas y su escritura, con el
+   * repositorio de la transacción), lo vuelve a leer y valida la
+   * postcondición. Si se viola, lanza y la transacción se deshace: nada queda
+   * escrito. Las reglas que dependan del actor y de lo que concede (p. ej.
+   * "sólo concede lo que tiene") encajan aquí, junto a las de D3.
+   */
+  private mutateUnderAdminInvariant<T>(
+    userId: string,
+    actor: ActorContext,
+    change: (repository: AccessRepository) => Promise<T>,
+  ): Promise<T> {
+    return this.repository.withAdminInvariantLock(async (repository) => {
+      const before = await repository.getUserAccessSnapshot(userId);
+      const result = await change(repository);
+      const after = await repository.getUserAccessSnapshot(userId);
 
-    const others = await this.repository.countActiveUsersWithRole(ADMIN_ROLE_CODE, user.id);
-    if (others === 0) {
-      throw new ResourceConflictError(
-        'At least one active administrator must remain',
-        [],
-        ACCESS_ERROR_CODES.lastAdmin,
-      );
+      if (isSelfLockout(actor.userId === userId, before, after)) {
+        throw new ResourceConflictError(
+          `You cannot remove your own ${SELF_ADMINISTRATION_PERMISSION} permission`,
+          [{ permission: SELF_ADMINISTRATION_PERMISSION }],
+          ACCESS_ERROR_CODES.selfLockout,
+        );
+      }
+      if (losesAdminGuardian(before, after) && !(await anotherAdminGuardianExists(repository, userId))) {
+        throw new ResourceConflictError(
+          'At least one active administrator with the critical permissions must remain',
+          [{ permissions: [...ADMIN_CRITICAL_PERMISSIONS] }],
+          ACCESS_ERROR_CODES.lastAdmin,
+        );
+      }
+      return result;
+    });
+  }
+
+  /** 403 `PERMISSION_DENIED` (con `requiredPermission`) si el actor no tiene `permission` efectivo. */
+  private async assertActorHolds(actor: ActorContext, permission: string): Promise<void> {
+    const granted = actor.userId ? await this.accessService.getEffectivePermissions(actor.userId) : new Set<string>();
+    if (!granted.has(permission)) {
+      throw new PermissionDeniedError(permission);
     }
   }
 
@@ -317,6 +430,25 @@ export class UsersService {
       );
     }
   }
+}
+
+async function detailOrThrow(repository: AccessRepository, userId: string): Promise<UserDetailRecord> {
+  const user = await repository.findUserDetail(userId);
+  if (!user) {
+    throw new NotFoundException('El usuario no existe');
+  }
+  return user;
+}
+
+/** Algún administrador activo, distinto de `excludingUserId`, sostiene el invariante D3. */
+async function anotherAdminGuardianExists(repository: AccessRepository, excludingUserId: string): Promise<boolean> {
+  const candidates = await repository.listActiveUserIdsWithRole(ADMIN_ROLE_CODE, excludingUserId);
+  for (const candidateId of candidates) {
+    if (isAdminGuardian(await repository.getUserAccessSnapshot(candidateId))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function toFilter(query: ExportUsersQueryDto): Omit<ListUsersFilter, 'page' | 'pageSize'> {

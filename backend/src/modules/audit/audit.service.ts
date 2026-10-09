@@ -38,6 +38,21 @@ export interface AuditEventOptions {
  * Toda mutación de administración llama aquí con un evento `recurso.accion`
  * en pasado (`role.created`, `user.suspended`) y el antes/después. Una
  * actualización que no cambia nada no deja registro.
+ *
+ * Compromiso aceptado (no atómico): la fila de auditoría se escribe **después**
+ * de la mutación y en una sentencia aparte, fuera de su transacción (incluidas
+ * las secciones críticas con bloqueo consultivo de D3, D7 y D8). Motivo: los
+ * puertos de cada módulo abren su propia transacción y aún no hay un contexto
+ * transaccional compartido entre adaptadores; pasar la transacción a esta
+ * bitácora exigiría acoplar `AuditRepository` a cada uno de ellos. Mantener la
+ * escritura fuera además evita alargar el bloqueo con la inserción.
+ *
+ * Consecuencia: si la inserción falla, la petición responde 500 **con el
+ * cambio ya aplicado** y sin su registro. El fallo queda en el log
+ * estructurado (con correlation ID) por el filtro global, así que es
+ * detectable, pero no se deshace. Seguimiento previsto en PLAN-ADMIN: pasar la
+ * transacción (unidad de trabajo) a `record` para que mutación y auditoría se
+ * confirmen juntas.
  */
 @Injectable()
 export class AuditService {

@@ -21,7 +21,9 @@ import { useEffect, useId, type FormEvent } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 
 import { describeApiError } from '@/features/admin/common';
+import { useIsAdministrador } from '@/hooks/use-permission';
 
+import { grantsNoPermissions } from '../users-access';
 import { USER_ERRORS } from '../users-format';
 import type { UserDetail } from '../users.api';
 import { useAssignableRoles, useCreateUser, useUpdateUser } from '../users.queries';
@@ -56,6 +58,7 @@ export function UserFormDialog({ open, user, onClose, onSaved }: UserFormDialogP
   const titleId = useId();
   const fullScreen = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
   const isCreate = user === null;
+  const isAdministrador = useIsAdministrador();
 
   const roles = useAssignableRoles(open && isCreate);
   const createMutation = useCreateUser();
@@ -121,7 +124,12 @@ export function UserFormDialog({ open, user, onClose, onSaved }: UserFormDialogP
   });
 
   const error = mutation.isError ? describeApiError(mutation.error, USER_ERRORS) : null;
-  const assignable = (roles.data ?? []).filter((role) => role.isActive);
+  // ADR-020: en el alta, un no administrador sólo puede dar roles que no
+  // conceden ningún permiso (hoy, `usuario`). Filtrar es UX: el backend
+  // rechaza cualquier otro con 403 ADMIN_ONLY.
+  const assignable = (roles.data ?? []).filter(
+    (role) => role.isActive && (isAdministrador || grantsNoPermissions(role)),
+  );
 
   return (
     <Dialog
@@ -222,6 +230,11 @@ export function UserFormDialog({ open, user, onClose, onSaved }: UserFormDialogP
                   <FormHelperText>
                     {errors.roleIds?.message ?? 'Nace como «Invitado» y debe cambiar la contraseña inicial al entrar.'}
                   </FormHelperText>
+                  {isAdministrador ? null : (
+                    <FormHelperText>
+                      Sólo puedes dar roles sin permisos: la asignación de accesos es exclusiva del administrador (ADR-020).
+                    </FormHelperText>
+                  )}
                 </FormControl>
               )}
             />

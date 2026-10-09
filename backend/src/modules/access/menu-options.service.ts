@@ -117,7 +117,7 @@ export class MenuOptionsService {
     };
     const parent = shape.parentId ? await this.repository.findMenuOptionById(shape.parentId) : null;
     throwIf(validateMenuOptionShape(shape, parent));
-    await this.assertPermissionExists(dto.requiredPermissionId);
+    await assertPermissionExists(this.repository, dto.requiredPermissionId);
 
     if (await this.repository.menuOptionKeyExists(dto.key)) {
       throw new ResourceConflictError('A menu option with that key already exists', [{ field: 'key', value: dto.key }]);
@@ -147,8 +147,32 @@ export class MenuOptionsService {
     return option;
   }
 
+  /**
+   * Cambiar de padre puede crear un ciclo junto con otro movimiento simultáneo
+   * (A bajo B y B bajo A, cada uno válido por separado). Por eso la lectura del
+   * árbol, la comprobación y la escritura van en la sección crítica de la
+   * jerarquía del menú (D7).
+   */
   async update(menuOptionId: string, dto: UpdateMenuOptionDto, actor: ActorContext): Promise<MenuOptionRecord> {
-    const current = await this.findById(menuOptionId);
+    const { current, updated } = await this.repository.withMenuHierarchyLock((repository) =>
+      this.applyUpdate(repository, menuOptionId, dto),
+    );
+
+    await this.audit.record('menu_option.updated', actor.audit, {
+      resourceType: 'menu_option',
+      resourceId: menuOptionId,
+      before: menuOptionAuditView(current),
+      after: menuOptionAuditView(updated),
+    });
+    return updated;
+  }
+
+  private async applyUpdate(
+    repository: AccessRepository,
+    menuOptionId: string,
+    dto: UpdateMenuOptionDto,
+  ): Promise<{ current: MenuOptionRecord; updated: MenuOptionRecord }> {
+    const current = await findOrThrow(repository, menuOptionId);
 
     if (current.isSystem) {
       const locked: (keyof UpdateMenuOptionDto)[] = ['path', 'kind', 'requiredPermissionId', 'parentId', 'isPublic'];
@@ -170,15 +194,15 @@ export class MenuOptionsService {
       // Pasar a GROUP sin indicar ruta la quita: un grupo no lleva ruta.
       path: dto.path === undefined ? (dto.kind === 'GROUP' ? null : current.path) : dto.path,
     };
-    const parent = shape.parentId ? await this.repository.findMenuOptionById(shape.parentId) : null;
+    const parent = shape.parentId ? await repository.findMenuOptionById(shape.parentId) : null;
     throwIf(validateMenuOptionShape(shape, parent));
     if (shape.parentId !== current.parentId) {
-      await this.assertNoCycle([{ id: current.id, parentId: shape.parentId }]);
+      assertNoCycle([{ id: current.id, parentId: shape.parentId }], await repository.listMenuOptions());
     }
-    if (dto.kind === 'LINK' && current.kind === 'GROUP' && (await this.repository.countMenuOptionChildren(current.id)) > 0) {
+    if (dto.kind === 'LINK' && current.kind === 'GROUP' && (await repository.countMenuOptionChildren(current.id)) > 0) {
       throw new ResourceConflictError('The group has child options', [], ACCESS_ERROR_CODES.hasChildren);
     }
-    await this.assertPermissionExists(dto.requiredPermissionId);
+    await assertPermissionExists(repository, dto.requiredPermissionId);
 
     const input: UpdateMenuOptionInput = {
       parentId: dto.parentId,
@@ -192,15 +216,7 @@ export class MenuOptionsService {
       isPublic: dto.isPublic,
       isActive: dto.isActive,
     };
-    const updated = await this.repository.updateMenuOption(menuOptionId, input);
-
-    await this.audit.record('menu_option.updated', actor.audit, {
-      resourceType: 'menu_option',
-      resourceId: menuOptionId,
-      before: menuOptionAuditView(current),
-      after: menuOptionAuditView(updated),
-    });
-    return updated;
+    return { current, updated: await repository.updateMenuOption(menuOptionId, input) };
   }
 
   /** D7: borrado lógico; nunca de sistema ni con hijas. */
@@ -228,7 +244,10 @@ export class MenuOptionsService {
     });
   }
 
-  /** Orden y padre en bloque. Valida el árbol resultante completo antes de escribir. */
+  /**
+   * Orden y padre en bloque. Valida el árbol resultante completo antes de
+   * escribir, en la sección crítica de la jerarquía del menú (ver `update`).
+   */
   async reorder(dto: ReorderMenuOptionsDto, actor: ActorContext): Promise<MenuOptionRecord[]> {
     const ids = dto.items.map((item) => item.id);
     if (new Set(ids).size !== ids.length) {
@@ -237,36 +256,10 @@ export class MenuOptionsService {
       ]);
     }
 
-    const all = await this.repository.listMenuOptions();
-    const byId = new Map(all.map((option) => [option.id, option]));
-    const missing = missingIds(ids, [...byId.keys()]);
-    if (missing.length > 0) {
-      throw unknownReference('menuOption', missing[0] ?? '');
-    }
+    const previous = await this.repository.withMenuHierarchyLock((repository) => applyReorder(repository, dto));
 
     for (const item of dto.items) {
-      const option = byId.get(item.id)!;
-      if (option.isSystem && item.parentId !== option.parentId) {
-        throw new ResourceConflictError(
-          'System menu options cannot change parent',
-          [{ key: option.key }],
-          ACCESS_ERROR_CODES.systemResourceReadOnly,
-        );
-      }
-      const parent = item.parentId ? byId.get(item.parentId) : null;
-      throwIf(
-        validateMenuOptionShape(
-          { id: option.id, moduleId: option.module.id, parentId: item.parentId, kind: option.kind, path: option.path },
-          parent,
-        ),
-      );
-    }
-
-    await this.assertNoCycle(dto.items, all);
-    await this.repository.reorderMenuOptions(dto.items);
-
-    for (const item of dto.items) {
-      const option = byId.get(item.id)!;
+      const option = previous.get(item.id)!;
       await this.audit.record('menu_option.reordered', actor.audit, {
         resourceType: 'menu_option',
         resourceId: item.id,
@@ -278,42 +271,83 @@ export class MenuOptionsService {
     return this.repository.listMenuOptions();
   }
 
-  async findById(menuOptionId: string): Promise<MenuOptionRecord> {
-    const option = await this.repository.findMenuOptionById(menuOptionId);
-    if (!option) {
-      throw new NotFoundException('La opción de menú no existe');
-    }
-    return option;
+  findById(menuOptionId: string): Promise<MenuOptionRecord> {
+    return findOrThrow(this.repository, menuOptionId);
+  }
+}
+
+/** Valida y aplica un reordenamiento. Devuelve el estado previo de cada opción, para auditar. */
+async function applyReorder(
+  repository: AccessRepository,
+  dto: ReorderMenuOptionsDto,
+): Promise<Map<string, MenuOptionRecord>> {
+  const all = await repository.listMenuOptions();
+  const byId = new Map(all.map((option) => [option.id, option]));
+  const missing = missingIds(
+    dto.items.map((item) => item.id),
+    [...byId.keys()],
+  );
+  if (missing.length > 0) {
+    throw unknownReference('menuOption', missing[0] ?? '');
   }
 
-  /** Superpone los cambios al árbol actual y busca un ciclo. */
-  private async assertNoCycle(
-    changes: { id: string; parentId: string | null }[],
-    current?: MenuOptionRecord[],
-  ): Promise<void> {
-    const options = current ?? (await this.repository.listMenuOptions());
-    const overrides = new Map(changes.map((change) => [change.id, change.parentId]));
-    const nodes = options.map((option) => ({
-      id: option.id,
-      parentId: overrides.has(option.id) ? (overrides.get(option.id) ?? null) : option.parentId,
-    }));
-
-    if (findCycle(nodes)) {
-      throw new BusinessRuleViolationError(
-        ACCESS_ERROR_CODES.menuCycle,
-        'An option cannot be placed inside itself or one of its descendants',
+  for (const item of dto.items) {
+    const option = byId.get(item.id)!;
+    if (option.isSystem && item.parentId !== option.parentId) {
+      throw new ResourceConflictError(
+        'System menu options cannot change parent',
+        [{ key: option.key }],
+        ACCESS_ERROR_CODES.systemResourceReadOnly,
       );
     }
+    const parent = item.parentId ? byId.get(item.parentId) : null;
+    throwIf(
+      validateMenuOptionShape(
+        { id: option.id, moduleId: option.module.id, parentId: item.parentId, kind: option.kind, path: option.path },
+        parent,
+      ),
+    );
   }
 
-  private async assertPermissionExists(permissionId: string | null | undefined): Promise<void> {
-    if (!permissionId) {
-      return;
-    }
-    const existing = await this.repository.existingPermissionIds([permissionId]);
-    if (existing.length === 0) {
-      throw unknownReference('permission', permissionId);
-    }
+  assertNoCycle(dto.items, all);
+  await repository.reorderMenuOptions(dto.items);
+  return byId;
+}
+
+async function findOrThrow(repository: AccessRepository, menuOptionId: string): Promise<MenuOptionRecord> {
+  const option = await repository.findMenuOptionById(menuOptionId);
+  if (!option) {
+    throw new NotFoundException('La opción de menú no existe');
+  }
+  return option;
+}
+
+/** Superpone los cambios al árbol dado y busca un ciclo. */
+function assertNoCycle(changes: { id: string; parentId: string | null }[], options: MenuOptionRecord[]): void {
+  const overrides = new Map(changes.map((change) => [change.id, change.parentId]));
+  const nodes = options.map((option) => ({
+    id: option.id,
+    parentId: overrides.has(option.id) ? (overrides.get(option.id) ?? null) : option.parentId,
+  }));
+
+  if (findCycle(nodes)) {
+    throw new BusinessRuleViolationError(
+      ACCESS_ERROR_CODES.menuCycle,
+      'An option cannot be placed inside itself or one of its descendants',
+    );
+  }
+}
+
+async function assertPermissionExists(
+  repository: AccessRepository,
+  permissionId: string | null | undefined,
+): Promise<void> {
+  if (!permissionId) {
+    return;
+  }
+  const existing = await repository.existingPermissionIds([permissionId]);
+  if (existing.length === 0) {
+    throw unknownReference('permission', permissionId);
   }
 }
 

@@ -1,6 +1,8 @@
 import type { AuditService } from '@/modules/audit/audit.service';
 
 import type { ActorContext } from './access-rules';
+import type { AccessService } from './access.service';
+import { adminOnlyError } from './admin-only';
 import type { AccessRepository, RoleRecord } from './ports/access.repository.port';
 import { RolesService } from './roles.service';
 
@@ -22,7 +24,7 @@ function role(overrides: Partial<RoleRecord> = {}): RoleRecord {
   };
 }
 
-function setup(current: RoleRecord) {
+function setup(current: RoleRecord, actorIsAdministrador = true) {
   const repository = {
     findRoleById: jest.fn(async () => current),
     roleCodeExists: jest.fn(async () => false),
@@ -39,8 +41,20 @@ function setup(current: RoleRecord) {
     ]),
   };
   const audit = { record: jest.fn(async () => undefined) };
-  const service = new RolesService(repository as unknown as AccessRepository, audit as unknown as AuditService);
-  return { service, repository, audit };
+  // Doble de AccessService con la regla real de ADR-020: no administrador → ADMIN_ONLY.
+  const accessService = {
+    assertActorIsAdministrador: jest.fn(async () => {
+      if (!actorIsAdministrador) {
+        throw adminOnlyError();
+      }
+    }),
+  };
+  const service = new RolesService(
+    repository as unknown as AccessRepository,
+    audit as unknown as AuditService,
+    accessService as unknown as AccessService,
+  );
+  return { service, repository, audit, accessService };
 }
 
 const ACTOR: ActorContext = { userId: 'admin', audit: { correlationId: 'c', actorId: 'admin', actorEmail: null, ipAddress: null } };
@@ -111,5 +125,39 @@ describe('RolesService · D2 roles propios', () => {
     await expect(service.replacePermissions('role-1', ['nope'], ACTOR)).rejects.toMatchObject({
       code: 'UNKNOWN_REFERENCE',
     });
+  });
+});
+
+describe('RolesService · ADR-020 cambiar lo que concede un rol es exclusivo del administrador', () => {
+  it.each([
+    ['crear', (service: RolesService) => service.create({ code: 'nuevo', name: 'Nuevo', dataScope: 'OWN' }, ACTOR)],
+    ['duplicar', (service: RolesService) => service.duplicate('role-1', { code: 'copia', name: 'Copia' }, ACTOR)],
+    ['reemplazar permisos', (service: RolesService) => service.replacePermissions('role-1', ['perm-1'], ACTOR)],
+    ['reemplazar opciones', (service: RolesService) => service.replaceMenuOptions('role-1', ['opt-1'], ACTOR)],
+    ['cambiar el alcance de datos', (service: RolesService) => service.update('role-1', { dataScope: 'ORGANIZATION' }, ACTOR)],
+    ['desactivar', (service: RolesService) => service.update('role-1', { isActive: false }, ACTOR)],
+  ])('un no administrador no puede %s: 403 ADMIN_ONLY sin escribir', async (_, act) => {
+    const { service, repository } = setup(role(), false);
+
+    await expect(act(service)).rejects.toMatchObject({ code: 'ADMIN_ONLY' });
+    expect(repository.createRole).not.toHaveBeenCalled();
+    expect(repository.updateRole).not.toHaveBeenCalled();
+    expect(repository.replaceRolePermissions).not.toHaveBeenCalled();
+    expect(repository.replaceRoleMenuOptions).not.toHaveBeenCalled();
+  });
+
+  it('un no administrador sí renombra un rol propio sin tocar el alcance ni la activación', async () => {
+    const { service, repository } = setup(role(), false);
+
+    await service.update('role-1', { name: 'Otro nombre', dataScope: 'OWN', isActive: true }, ACTOR);
+    expect(repository.updateRole).toHaveBeenCalled();
+  });
+
+  it('el administrador cambia el alcance de datos', async () => {
+    const { service, repository, accessService } = setup(role());
+
+    await service.update('role-1', { dataScope: 'ORGANIZATION' }, ACTOR);
+    expect(accessService.assertActorIsAdministrador).toHaveBeenCalledWith('admin');
+    expect(repository.updateRole).toHaveBeenCalled();
   });
 });
