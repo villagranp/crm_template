@@ -89,6 +89,14 @@ describe('useTableQueryState', () => {
     expect(result.current.table.state.filters).toEqual({ roleId: 'r-1' });
   });
 
+  it('setFilters aplica varios filtros en una sola navegación, sin pisarse', () => {
+    const { result } = renderTableState('/lista?page=3&status=ACTIVE');
+
+    act(() => result.current.table.setFilters({ status: undefined, roleId: ' r-2 ' }));
+
+    expect(result.current.table.state).toMatchObject({ page: 1, filters: { roleId: 'r-2' } });
+  });
+
   it('aplica la búsqueda a la URL sólo cuando el usuario deja de escribir, y vuelve a la primera página', () => {
     vi.useFakeTimers();
     const { result } = renderTableState('/lista?page=3');

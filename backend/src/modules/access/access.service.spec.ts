@@ -1,5 +1,13 @@
-import { buildMenu, resolveMenuOptionIds, resolvePermissions, widestScope } from './access.service';
+import {
+  buildMenu,
+  resolveMenuOptionIds,
+  resolvePermissionOrigins,
+  resolvePermissions,
+  widestScope,
+} from './access.service';
 import type { MenuOptionRecord, UserAccessSnapshot } from './ports/access.repository.port';
+
+const REASON = 'Excepción justificada de prueba';
 
 function snapshot(overrides: Partial<UserAccessSnapshot> = {}): UserAccessSnapshot {
   return {
@@ -11,7 +19,7 @@ function snapshot(overrides: Partial<UserAccessSnapshot> = {}): UserAccessSnapsh
       jobTitle: null,
       teams: [],
     },
-    roles: [{ id: 'role-1', code: 'usuario', name: 'Usuario', dataScope: 'OWN' }],
+    roles: [{ id: 'role-1', code: 'usuario', name: 'Usuario', dataScope: 'OWN', permissionCodes: [] }],
     rolePermissionCodes: [],
     directPermissions: [],
     roleMenuOptionIds: [],
@@ -26,14 +34,17 @@ function option(overrides: Partial<MenuOptionRecord> = {}): MenuOptionRecord {
     key: 'opt-1',
     parentId: null,
     label: 'Opción',
+    description: null,
     icon: null,
     path: '/opcion',
     kind: 'LINK',
     sortOrder: 10,
+    requiredPermissionId: null,
     requiredPermissionCode: null,
     isPublic: false,
+    isSystem: false,
     isActive: true,
-    module: { key: 'administracion', name: 'Administración', icon: 'settings', sortOrder: 90 },
+    module: { id: 'mod-1', key: 'administracion', name: 'Administración', icon: 'settings', sortOrder: 90 },
     ...overrides,
   };
 }
@@ -49,7 +60,7 @@ describe('resolvePermissions', () => {
     const result = resolvePermissions(
       snapshot({
         rolePermissionCodes: ['usuarios.ver'],
-        directPermissions: [{ code: 'usuarios.exportar', effect: 'GRANT' }],
+        directPermissions: [{ code: 'usuarios.exportar', effect: 'GRANT', reason: REASON, expiresAt: null }],
       }),
     );
 
@@ -60,7 +71,7 @@ describe('resolvePermissions', () => {
     const result = resolvePermissions(
       snapshot({
         rolePermissionCodes: ['usuarios.ver', 'usuarios.eliminar'],
-        directPermissions: [{ code: 'usuarios.eliminar', effect: 'DENY' }],
+        directPermissions: [{ code: 'usuarios.eliminar', effect: 'DENY', reason: REASON, expiresAt: null }],
       }),
     );
 
@@ -72,8 +83,8 @@ describe('resolvePermissions', () => {
     const result = resolvePermissions(
       snapshot({
         directPermissions: [
-          { code: 'usuarios.editar', effect: 'GRANT' },
-          { code: 'usuarios.editar', effect: 'DENY' },
+          { code: 'usuarios.editar', effect: 'GRANT', reason: REASON, expiresAt: null },
+          { code: 'usuarios.editar', effect: 'DENY', reason: REASON, expiresAt: null },
         ],
       }),
     );
@@ -167,5 +178,43 @@ describe('widestScope', () => {
 
   it('devuelve OWN cuando el usuario no tiene roles', () => {
     expect(widestScope([])).toBe('OWN');
+  });
+});
+
+describe('resolvePermissionOrigins (D5)', () => {
+  it('indica los roles que conceden cada permiso', () => {
+    const origins = resolvePermissionOrigins(
+      snapshot({
+        roles: [
+          { id: 'r1', code: 'auditor', name: 'Auditor', dataScope: 'OWN', permissionCodes: ['usuarios.ver'] },
+          { id: 'r2', code: 'gestor', name: 'Gestor', dataScope: 'OWN', permissionCodes: ['usuarios.ver', 'roles.ver'] },
+        ],
+        rolePermissionCodes: ['usuarios.ver', 'roles.ver'],
+      }),
+    );
+
+    expect(origins).toEqual([
+      { code: 'roles.ver', effective: true, roles: ['gestor'], grant: null, deny: null },
+      { code: 'usuarios.ver', effective: true, roles: ['auditor', 'gestor'], grant: null, deny: null },
+    ]);
+  });
+
+  it('marca la concesión directa y la denegación que anula a un rol', () => {
+    const expiresAt = new Date('2030-01-01T00:00:00Z');
+    const origins = resolvePermissionOrigins(
+      snapshot({
+        roles: [{ id: 'r1', code: 'gestor', name: 'Gestor', dataScope: 'OWN', permissionCodes: ['usuarios.editar'] }],
+        rolePermissionCodes: ['usuarios.editar'],
+        directPermissions: [
+          { code: 'usuarios.exportar', effect: 'GRANT', reason: REASON, expiresAt },
+          { code: 'usuarios.editar', effect: 'DENY', reason: REASON, expiresAt: null },
+        ],
+      }),
+    );
+
+    expect(origins).toEqual([
+      { code: 'usuarios.editar', effective: false, roles: ['gestor'], grant: null, deny: { reason: REASON, expiresAt: null } },
+      { code: 'usuarios.exportar', effective: true, roles: [], grant: { reason: REASON, expiresAt }, deny: null },
+    ]);
   });
 });

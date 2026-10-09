@@ -55,6 +55,9 @@ export const ADMIN_ERROR_CODES = {
   hasChildren: 'HAS_CHILDREN',
   catalogNotEmpty: 'CATALOG_NOT_EMPTY',
   invalidParameterValue: 'INVALID_PARAMETER_VALUE',
+  invalidStatusTransition: 'INVALID_STATUS_TRANSITION',
+  unknownReference: 'UNKNOWN_REFERENCE',
+  invalidMenuStructure: 'INVALID_MENU_STRUCTURE',
 } as const;
 
 const MESSAGES_BY_CODE: Readonly<Record<string, string>> = {
@@ -68,6 +71,9 @@ const MESSAGES_BY_CODE: Readonly<Record<string, string>> = {
   [ADMIN_ERROR_CODES.hasChildren]: 'Tiene elementos que dependen de él. Muévelos o elimínalos primero.',
   [ADMIN_ERROR_CODES.catalogNotEmpty]: 'El catálogo tiene elementos; sólo se puede eliminar si está vacío.',
   [ADMIN_ERROR_CODES.invalidParameterValue]: 'El valor no es válido para el tipo de este parámetro.',
+  [ADMIN_ERROR_CODES.invalidStatusTransition]: 'El elemento ya está en ese estado. Actualiza la pantalla.',
+  [ADMIN_ERROR_CODES.unknownReference]: 'Alguno de los elementos seleccionados ya no existe. Actualiza y vuelve a intentarlo.',
+  [ADMIN_ERROR_CODES.invalidMenuStructure]: 'La estructura del menú no es válida: revisa el tipo, la ruta y el padre.',
 };
 
 const NETWORK_ERROR_MESSAGE = 'No se pudo conectar con el servidor. Comprueba tu conexión e inténtalo de nuevo.';

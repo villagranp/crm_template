@@ -7,6 +7,7 @@ import { AuthCoreModule } from '@/modules/auth/auth-core.module';
 import { AccessService } from './access.service';
 import { MeController } from './me.controller';
 import { MenuOptionsController } from './menu-options.controller';
+import { MenuOptionsService } from './menu-options.service';
 import { ACCESS_REPOSITORY } from './ports/access.repository.port';
 import { RolesController } from './roles.controller';
 import { RolesService } from './roles.service';
@@ -27,6 +28,7 @@ import { UsersService } from './users.service';
     AccessService,
     UsersService,
     RolesService,
+    MenuOptionsService,
     { provide: ACCESS_REPOSITORY, useClass: PrismaAccessRepository },
   ],
   exports: [AccessService],

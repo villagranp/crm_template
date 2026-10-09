@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError } from './api-error';
 import { CORRELATION_ID_HEADER } from './correlation-id';
-import { configureHttpClient, httpClient } from './http-client';
+import { configureHttpClient, fileNameFromContentDisposition, httpClient } from './http-client';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -206,5 +206,45 @@ describe('httpClient', () => {
 
     await expect(httpClient.get('/me/menu')).rejects.toMatchObject({ code: 'PASSWORD_CHANGE_REQUIRED' });
     expect(onPasswordChangeRequired).toHaveBeenCalledOnce();
+  });
+
+  describe('download', () => {
+    it('devuelve el archivo y su nombre, con el token y la correlación de siempre', async () => {
+      fetchMock.mockResolvedValue(
+        new Response('a,b\r\n', {
+          status: 200,
+          headers: { 'content-type': 'text/csv', 'content-disposition': 'attachment; filename="usuarios.csv"' },
+        }),
+      );
+
+      const file = await httpClient.download('/users/export', { query: { status: 'ACTIVE' } });
+
+      // jsdom no implementa Blob.text(): basta con comprobar que llega el contenido.
+      expect(file.blob.size).toBe(5);
+      expect(file.fileName).toBe('usuarios.csv');
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toContain('/users/export?status=ACTIVE');
+      expect((init.headers as Headers).get('Authorization')).toBe('Bearer test-token');
+    });
+
+    it('traduce el error de la API igual que el resto de llamadas', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({ statusCode: 403, code: 'PERMISSION_DENIED', message: 'x', details: [], correlationId: 'c' }, 403),
+      );
+
+      await expect(httpClient.download('/users/export')).rejects.toMatchObject({ statusCode: 403 });
+    });
+  });
+});
+
+describe('fileNameFromContentDisposition', () => {
+  it.each([
+    [null, null],
+    ['attachment', null],
+    ['attachment; filename="auditoria.csv"', 'auditoria.csv'],
+    ['attachment; filename=plano.csv', 'plano.csv'],
+    ["attachment; filename=\"a.csv\"; filename*=UTF-8''auditor%C3%ADa.csv", 'auditoría.csv'],
+  ])('%s → %s', (header, expected) => {
+    expect(fileNameFromContentDisposition(header)).toBe(expected);
   });
 });

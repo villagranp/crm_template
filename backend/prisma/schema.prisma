@@ -725,5 +725,7 @@ model AuditLog {
   @@index([subjectId, occurredAt], map: "idx_audit_logs_subject_id_occurred_at")
   @@index([resourceType, resourceId], map: "idx_audit_logs_resource")
   @@index([event, occurredAt], map: "idx_audit_logs_event_occurred_at")
+  /// Listado por defecto de la bitácora: sin filtros, por fecha descendente (PLAN-ADMIN, D11).
+  @@index([occurredAt], map: "idx_audit_logs_occurred_at")
   @@map("audit_logs")
 }

@@ -156,7 +156,12 @@ async function getTokenForRetry(rejectedToken: string): Promise<string | null> {
   return accessTokenProvider({ forceRefresh: true });
 }
 
-async function request<TResponse>(method: HttpMethod, path: string, options: RequestOptions = {}): Promise<TResponse> {
+/**
+ * Sends the request with auth, one renew-and-retry on 401 and the shared error
+ * handling. Returns the successful response unread, so each caller decides how
+ * to read the body (JSON or file).
+ */
+async function execute(method: HttpMethod, path: string, options: RequestOptions = {}): Promise<Response> {
   const correlationId = createCorrelationId();
   const accessToken = options.isPublic ? null : await accessTokenProvider();
 
@@ -185,11 +190,53 @@ async function request<TResponse>(method: HttpMethod, path: string, options: Req
     throw error;
   }
 
+  return response;
+}
+
+async function request<TResponse>(method: HttpMethod, path: string, options: RequestOptions = {}): Promise<TResponse> {
+  const response = await execute(method, path, options);
+
   if (response.status === 204 || response.headers.get('content-length') === '0') {
     return undefined as TResponse;
   }
 
   return (await response.json()) as TResponse;
+}
+
+export interface DownloadedFile {
+  blob: Blob;
+  /** Name from `Content-Disposition`, if the server sent one. */
+  fileName: string | null;
+}
+
+/** `filename*=UTF-8''...` (RFC 5987) wins over plain `filename="..."`. */
+export function fileNameFromContentDisposition(header: string | null): string | null {
+  if (!header) {
+    return null;
+  }
+  const encoded = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header);
+  if (encoded?.[1]) {
+    try {
+      return decodeURIComponent(encoded[1].trim());
+    } catch {
+      // Malformed encoding: fall back to the plain parameter.
+    }
+  }
+  const plain = /filename\s*=\s*"?([^";]+)"?/i.exec(header);
+  return plain?.[1]?.trim() || null;
+}
+
+/**
+ * Downloads a file (CSV exports) through the same pipeline as every other call.
+ * A plain `<a href>` cannot be used: the access token lives in memory and would
+ * not be sent.
+ */
+async function download(path: string, options: RequestOptions = {}): Promise<DownloadedFile> {
+  const response = await execute('GET', path, options);
+  return {
+    blob: await response.blob(),
+    fileName: fileNameFromContentDisposition(response.headers.get('content-disposition')),
+  };
 }
 
 export const httpClient = {
@@ -198,4 +245,5 @@ export const httpClient = {
   put: <TResponse>(path: string, options?: RequestOptions) => request<TResponse>('PUT', path, options),
   patch: <TResponse>(path: string, options?: RequestOptions) => request<TResponse>('PATCH', path, options),
   delete: <TResponse>(path: string, options?: RequestOptions) => request<TResponse>('DELETE', path, options),
+  download,
 };

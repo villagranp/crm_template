@@ -82,6 +82,12 @@ export interface UseTableQueryStateResult<TFilter extends string> {
   setSort: (sort: TableSort | null) => void;
   /** Fija o quita (`undefined`/`''`) un filtro y vuelve a la primera página. */
   setFilter: (key: TFilter, value: string | undefined) => void;
+  /**
+   * Fija varios filtros en una sola navegación y vuelve a la primera página.
+   * Usar en formularios de filtros: varias llamadas a `setFilter` seguidas se
+   * pisarían, porque cada una parte de la URL anterior a las demás.
+   */
+  setFilters: (values: Partial<Record<TFilter, string | undefined>>) => void;
   /** Quita búsqueda y filtros; conserva tamaño y orden. */
   clearFilters: () => void;
   pageSizeOptions: readonly number[];
@@ -212,6 +218,16 @@ export function useTableQueryState<TFilter extends string = never>(
 
   const setFilter = useCallback((key: TFilter, value: string | undefined) => update({ [key]: value ?? null }), [update]);
 
+  const setFilters = useCallback(
+    (values: Partial<Record<TFilter, string | undefined>>) =>
+      update(
+        Object.fromEntries(
+          Object.entries<string | undefined>(values).map(([key, value]) => [key, value?.trim() || null]),
+        ),
+      ),
+    [update],
+  );
+
   const clearFilters = useCallback(() => {
     setSearchInput('');
     update(Object.fromEntries([PARAM.search, ...filterKeys].map((key) => [key, null])));
@@ -226,6 +242,7 @@ export function useTableQueryState<TFilter extends string = never>(
     setPageSize,
     setSort,
     setFilter,
+    setFilters,
     clearFilters,
     pageSizeOptions,
   };

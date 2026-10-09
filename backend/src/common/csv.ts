@@ -35,5 +35,8 @@ export function toCsv<TRow>(rows: readonly TRow[], columns: readonly CsvColumn<T
   return `﻿${lines.join('\r\n')}\r\n`;
 }
 
+/** Cabecera con la que una exportación avisa de que se cortó en `MAX_EXPORT_ROWS`. */
+export const EXPORT_TRUNCATED_HEADER = 'X-Export-Truncated';
+
 /** Tope de filas de una exportación: evita volcados masivos de datos personales. */
 export const MAX_EXPORT_ROWS = 10_000;

@@ -1,20 +1,39 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 
 import {
   type AccessRepository,
   type AccessUserRecord,
+  type CreateMenuOptionInput,
+  type CreateRoleInput,
   type CreateUserInput,
   type DirectAssignmentInput,
+  type ListRolesFilter,
   type ListUsersFilter,
   type MenuOptionRecord,
+  type MenuOrderItem,
+  type ModuleRecord,
   type Paginated,
   type PermissionRecord,
   type RoleRecord,
+  type UpdateMenuOptionInput,
+  type UpdateRoleInput,
   type UpdateUserInput,
   type UserAccessSnapshot,
+  type UserDetailRecord,
+  type UserListItem,
+  type UserStatus,
 } from '@/modules/access/ports/access.repository.port';
 
 import { PrismaService } from '../prisma.service';
+
+const ROLE_INCLUDE = {
+  permissions: { include: { permission: { select: { code: true } } } },
+  menuOptions: { select: { menuOptionId: true } },
+  _count: { select: { users: true } },
+} as const;
+
+const MENU_OPTION_INCLUDE = { module: true, requiredPermission: { select: { code: true } } } as const;
 
 /**
  * Adaptador Prisma del puerto de acceso (ADR-004).
@@ -90,13 +109,19 @@ export class PrismaAccessRepository implements AccessRepository {
         code: assignment.role.code,
         name: assignment.role.name,
         dataScope: assignment.role.dataScope,
+        permissionCodes: assignment.role.permissions.map((item) => item.permission.code),
       })),
       rolePermissionCodes: [
         ...new Set(
           activeRoles.flatMap((assignment) => assignment.role.permissions.map((item) => item.permission.code)),
         ),
       ],
-      directPermissions: user.permissions.map((item) => ({ code: item.permission.code, effect: item.effect })),
+      directPermissions: user.permissions.map((item) => ({
+        code: item.permission.code,
+        effect: item.effect,
+        reason: item.reason,
+        expiresAt: item.expiresAt,
+      })),
       roleMenuOptionIds: [
         ...new Set(activeRoles.flatMap((assignment) => assignment.role.menuOptions.map((item) => item.menuOptionId))),
       ],
@@ -107,33 +132,17 @@ export class PrismaAccessRepository implements AccessRepository {
   async listMenuOptions(): Promise<MenuOptionRecord[]> {
     const options = await this.prisma.menuOption.findMany({
       where: { deletedAt: null, module: { isActive: true } },
-      include: { module: true, requiredPermission: { select: { code: true } } },
+      include: MENU_OPTION_INCLUDE,
       orderBy: [{ module: { sortOrder: 'asc' } }, { sortOrder: 'asc' }],
     });
 
-    return options.map((option) => ({
-      id: option.id,
-      key: option.key,
-      parentId: option.parentId,
-      label: option.label,
-      icon: option.icon,
-      path: option.path,
-      kind: option.kind,
-      sortOrder: option.sortOrder,
-      requiredPermissionCode: option.requiredPermission?.code ?? null,
-      isPublic: option.isPublic,
-      isActive: option.isActive,
-      module: {
-        key: option.module.key,
-        name: option.module.name,
-        icon: option.module.icon,
-        sortOrder: option.module.sortOrder,
-      },
-    }));
+    return options.map(toMenuOptionRecord);
   }
 
-  async listUsers(filter: ListUsersFilter): Promise<Paginated<AccessUserRecord & { roles: string[] }>> {
-    const where = {
+  // --- Usuarios --------------------------------------------------------------
+
+  async listUsers(filter: ListUsersFilter): Promise<Paginated<UserListItem>> {
+    const where: Prisma.UserWhereInput = {
       deletedAt: null,
       ...(filter.status ? { status: filter.status } : {}),
       ...(filter.roleCode ? { roles: { some: { role: { code: filter.roleCode } } } } : {}),
@@ -147,12 +156,18 @@ export class PrismaAccessRepository implements AccessRepository {
           }
         : {}),
     };
+    const sortBy = filter.sortBy ?? 'displayName';
+    const orderBy: Prisma.UserOrderByWithRelationInput[] = [
+      { [sortBy]: filter.sortOrder ?? 'asc' },
+      // Desempate estable: sin él, la paginación puede repetir o saltar filas.
+      { id: 'asc' },
+    ];
 
     const [items, totalItems] = await this.prisma.$transaction([
       this.prisma.user.findMany({
         where,
         include: { teams: { include: { team: true } }, roles: { include: { role: { select: { code: true } } } } },
-        orderBy: { displayName: 'asc' },
+        orderBy,
         skip: (filter.page - 1) * filter.pageSize,
         take: filter.pageSize,
       }),
@@ -163,8 +178,72 @@ export class PrismaAccessRepository implements AccessRepository {
       items: items.map((user) => ({
         ...toUserRecord(user),
         roles: user.roles.map((assignment) => assignment.role.code),
+        lastLoginAt: user.lastLoginAt,
+        createdAt: user.createdAt,
       })),
       totalItems,
+    };
+  }
+
+  async findUserDetail(userId: string): Promise<UserDetailRecord | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        teams: { include: { team: true } },
+        roles: { include: { role: true }, orderBy: { createdAt: 'asc' } },
+        permissions: { include: { permission: { select: { code: true, name: true } } }, orderBy: { createdAt: 'asc' } },
+        menuOptions: { include: { menuOption: { select: { key: true, label: true } } }, orderBy: { createdAt: 'asc' } },
+        credential: { select: { passwordChangedAt: true } },
+        identities: { select: { provider: true } },
+      },
+    });
+
+    if (!user || user.deletedAt) {
+      return null;
+    }
+
+    return {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      displayName: user.displayName,
+      jobTitle: user.jobTitle,
+      phone: user.phone,
+      status: user.status,
+      lastLoginAt: user.lastLoginAt,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      teams: toUserRecord(user).teams,
+      roles: user.roles
+        .filter((assignment) => !assignment.role.deletedAt)
+        .map((assignment) => ({
+          id: assignment.role.id,
+          code: assignment.role.code,
+          name: assignment.role.name,
+          isSystem: assignment.role.isSystem,
+          expiresAt: assignment.expiresAt,
+        })),
+      directPermissions: user.permissions.map((item) => ({
+        targetId: item.permissionId,
+        code: item.permission.code,
+        name: item.permission.name,
+        effect: item.effect,
+        reason: item.reason,
+        expiresAt: item.expiresAt,
+        createdAt: item.createdAt,
+      })),
+      directMenuOptions: user.menuOptions.map((item) => ({
+        targetId: item.menuOptionId,
+        key: item.menuOption.key,
+        label: item.menuOption.label,
+        effect: item.effect,
+        reason: item.reason,
+        expiresAt: item.expiresAt,
+        createdAt: item.createdAt,
+      })),
+      hasCompletedActivation:
+        Boolean(user.credential?.passwordChangedAt) || user.identities.some((identity) => identity.provider === 'ENTRA_ID'),
     };
   }
 
@@ -204,13 +283,33 @@ export class PrismaAccessRepository implements AccessRepository {
         displayName: `${firstName} ${lastName}`.trim(),
         jobTitle: input.jobTitle === undefined ? undefined : input.jobTitle,
         phone: input.phone === undefined ? undefined : input.phone,
-        status: input.status,
         updatedById: input.updatedById,
       },
       include: { teams: { include: { team: true } } },
     });
 
     return toUserRecord(user);
+  }
+
+  async setUserStatus(userId: string, status: UserStatus, actorId: string | null): Promise<void> {
+    await this.prisma.user.update({ where: { id: userId }, data: { status, updatedById: actorId } });
+  }
+
+  async countActiveUsersWithRole(roleCode: string, excludingUserId: string | null): Promise<number> {
+    const now = new Date();
+    return this.prisma.user.count({
+      where: {
+        deletedAt: null,
+        status: 'ACTIVE',
+        ...(excludingUserId ? { id: { not: excludingUserId } } : {}),
+        roles: {
+          some: {
+            role: { code: roleCode, isActive: true, deletedAt: null },
+            OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+          },
+        },
+      },
+    });
   }
 
   async replaceUserRoles(userId: string, roleIds: string[], actorId: string | null): Promise<void> {
@@ -267,31 +366,80 @@ export class PrismaAccessRepository implements AccessRepository {
     ]);
   }
 
-  async listRoles(): Promise<RoleRecord[]> {
-    const roles = await this.prisma.role.findMany({
-      where: { deletedAt: null },
-      include: {
-        permissions: { include: { permission: { select: { code: true } } } },
-        menuOptions: { select: { menuOptionId: true } },
-        _count: { select: { users: true } },
-      },
-      orderBy: { name: 'asc' },
-    });
+  // --- Roles -----------------------------------------------------------------
 
-    return roles.map(toRoleRecord);
+  async listRoles(filter: ListRolesFilter): Promise<Paginated<RoleRecord>> {
+    const where: Prisma.RoleWhereInput = {
+      deletedAt: null,
+      ...(filter.isSystem === undefined ? {} : { isSystem: filter.isSystem }),
+      ...(filter.search
+        ? {
+            OR: [
+              { name: { contains: filter.search, mode: 'insensitive' as const } },
+              { code: { contains: filter.search.toLowerCase() } },
+            ],
+          }
+        : {}),
+    };
+    const sortBy = filter.sortBy ?? 'name';
+
+    const [roles, totalItems] = await this.prisma.$transaction([
+      this.prisma.role.findMany({
+        where,
+        include: ROLE_INCLUDE,
+        orderBy: [{ [sortBy]: filter.sortOrder ?? 'asc' }, { id: 'asc' }],
+        skip: (filter.page - 1) * filter.pageSize,
+        take: filter.pageSize,
+      }),
+      this.prisma.role.count({ where }),
+    ]);
+
+    return { items: roles.map(toRoleRecord), totalItems };
   }
 
   async findRoleById(roleId: string): Promise<RoleRecord | null> {
-    const role = await this.prisma.role.findUnique({
+    const role = await this.prisma.role.findUnique({ where: { id: roleId }, include: ROLE_INCLUDE });
+    return role && !role.deletedAt ? toRoleRecord(role) : null;
+  }
+
+  async roleCodeExists(code: string): Promise<boolean> {
+    return (await this.prisma.role.count({ where: { code } })) > 0;
+  }
+
+  async createRole(input: CreateRoleInput): Promise<RoleRecord> {
+    const role = await this.prisma.role.create({
+      data: {
+        code: input.code,
+        name: input.name,
+        description: input.description,
+        dataScope: input.dataScope,
+        isSystem: false,
+        permissions: {
+          create: input.permissionIds.map((permissionId) => ({ permissionId, createdById: input.actorId })),
+        },
+        menuOptions: {
+          create: input.menuOptionIds.map((menuOptionId) => ({ menuOptionId, createdById: input.actorId })),
+        },
+      },
+      include: ROLE_INCLUDE,
+    });
+    return toRoleRecord(role);
+  }
+
+  async updateRole(roleId: string, input: UpdateRoleInput): Promise<void> {
+    await this.prisma.role.update({
       where: { id: roleId },
-      include: {
-        permissions: { include: { permission: { select: { code: true } } } },
-        menuOptions: { select: { menuOptionId: true } },
-        _count: { select: { users: true } },
+      data: {
+        name: input.name,
+        description: input.description,
+        dataScope: input.dataScope,
+        isActive: input.isActive,
       },
     });
+  }
 
-    return role && !role.deletedAt ? toRoleRecord(role) : null;
+  async softDeleteRole(roleId: string): Promise<void> {
+    await this.prisma.role.update({ where: { id: roleId }, data: { deletedAt: new Date(), isActive: false } });
   }
 
   async replaceRolePermissions(roleId: string, permissionIds: string[], actorId: string | null): Promise<void> {
@@ -329,6 +477,101 @@ export class PrismaAccessRepository implements AccessRepository {
       moduleKey: permission.module?.key ?? null,
     }));
   }
+
+  // --- Validación de referencias ---------------------------------------------
+
+  async existingRoleIds(ids: string[]): Promise<string[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    const rows = await this.prisma.role.findMany({
+      where: { id: { in: ids }, deletedAt: null, isActive: true },
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
+  async existingPermissionIds(ids: string[]): Promise<string[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    const rows = await this.prisma.permission.findMany({ where: { id: { in: ids } }, select: { id: true } });
+    return rows.map((row) => row.id);
+  }
+
+  async existingMenuOptionIds(ids: string[]): Promise<string[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    const rows = await this.prisma.menuOption.findMany({
+      where: { id: { in: ids }, deletedAt: null },
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
+  // --- Opciones de menú y módulos --------------------------------------------
+
+  async findMenuOptionById(menuOptionId: string): Promise<MenuOptionRecord | null> {
+    const option = await this.prisma.menuOption.findUnique({ where: { id: menuOptionId }, include: MENU_OPTION_INCLUDE });
+    return option && !option.deletedAt ? toMenuOptionRecord(option) : null;
+  }
+
+  async menuOptionKeyExists(key: string): Promise<boolean> {
+    return (await this.prisma.menuOption.count({ where: { key } })) > 0;
+  }
+
+  async createMenuOption(input: CreateMenuOptionInput): Promise<MenuOptionRecord> {
+    const option = await this.prisma.menuOption.create({
+      data: { ...input, isSystem: false },
+      include: MENU_OPTION_INCLUDE,
+    });
+    return toMenuOptionRecord(option);
+  }
+
+  async updateMenuOption(menuOptionId: string, input: UpdateMenuOptionInput): Promise<MenuOptionRecord> {
+    const option = await this.prisma.menuOption.update({
+      where: { id: menuOptionId },
+      data: input,
+      include: MENU_OPTION_INCLUDE,
+    });
+    return toMenuOptionRecord(option);
+  }
+
+  async softDeleteMenuOption(menuOptionId: string): Promise<void> {
+    await this.prisma.menuOption.update({
+      where: { id: menuOptionId },
+      data: { deletedAt: new Date(), isActive: false },
+    });
+  }
+
+  async countMenuOptionChildren(menuOptionId: string): Promise<number> {
+    return this.prisma.menuOption.count({ where: { parentId: menuOptionId, deletedAt: null } });
+  }
+
+  async reorderMenuOptions(items: MenuOrderItem[]): Promise<void> {
+    await this.prisma.$transaction(
+      items.map((item) =>
+        this.prisma.menuOption.update({
+          where: { id: item.id },
+          data: { parentId: item.parentId, sortOrder: item.sortOrder },
+        }),
+      ),
+    );
+  }
+
+  async listModules(): Promise<ModuleRecord[]> {
+    const modules = await this.prisma.appModule.findMany({ orderBy: [{ sortOrder: 'asc' }, { key: 'asc' }] });
+    return modules.map((module) => ({
+      id: module.id,
+      key: module.key,
+      name: module.name,
+      icon: module.icon,
+      sortOrder: module.sortOrder,
+      isSystem: module.isSystem,
+      isActive: module.isActive,
+    }));
+  }
 }
 
 interface UserWithTeams {
@@ -363,6 +606,8 @@ interface RoleWithRelations {
   dataScope: RoleRecord['dataScope'];
   isSystem: boolean;
   isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
   permissions: { permission: { code: string } }[];
   menuOptions: { menuOptionId: string }[];
   _count: { users: number };
@@ -377,8 +622,54 @@ function toRoleRecord(role: RoleWithRelations): RoleRecord {
     dataScope: role.dataScope,
     isSystem: role.isSystem,
     isActive: role.isActive,
-    permissionCodes: role.permissions.map((item) => item.permission.code),
+    permissionCodes: role.permissions.map((item) => item.permission.code).sort(),
     menuOptionIds: role.menuOptions.map((item) => item.menuOptionId),
     userCount: role._count.users,
+    createdAt: role.createdAt,
+    updatedAt: role.updatedAt,
+  };
+}
+
+interface MenuOptionWithRelations {
+  id: string;
+  key: string;
+  parentId: string | null;
+  label: string;
+  description: string | null;
+  icon: string | null;
+  path: string | null;
+  kind: MenuOptionRecord['kind'];
+  sortOrder: number;
+  requiredPermissionId: string | null;
+  isPublic: boolean;
+  isSystem: boolean;
+  isActive: boolean;
+  requiredPermission: { code: string } | null;
+  module: { id: string; key: string; name: string; icon: string | null; sortOrder: number };
+}
+
+function toMenuOptionRecord(option: MenuOptionWithRelations): MenuOptionRecord {
+  return {
+    id: option.id,
+    key: option.key,
+    parentId: option.parentId,
+    label: option.label,
+    description: option.description,
+    icon: option.icon,
+    path: option.path,
+    kind: option.kind,
+    sortOrder: option.sortOrder,
+    requiredPermissionId: option.requiredPermissionId,
+    requiredPermissionCode: option.requiredPermission?.code ?? null,
+    isPublic: option.isPublic,
+    isSystem: option.isSystem,
+    isActive: option.isActive,
+    module: {
+      id: option.module.id,
+      key: option.module.key,
+      name: option.module.name,
+      icon: option.module.icon,
+      sortOrder: option.module.sortOrder,
+    },
   };
 }
