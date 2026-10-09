@@ -1,23 +1,15 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import {
-  Alert,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControlLabel,
-  MenuItem,
-  Stack,
-  Switch,
-  TextField,
-  useMediaQuery,
-  type Theme,
-} from '@mui/material';
-import { useEffect, useId, type FormEvent } from 'react';
+import { Alert, FormControlLabel, MenuItem, Switch, TextField } from '@mui/material';
+import { useEffect } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 
-import { describeApiError } from '@/features/admin/common';
+import {
+  AdminDialog,
+  describeApiError,
+  DialogFooter,
+  FormSection,
+  FullRow,
+} from '@/features/admin/common';
 import { useIsAdministrador } from '@/hooks/use-permission';
 
 import { DATA_SCOPE_LABEL, ROLE_ERRORS } from '../roles-format';
@@ -25,7 +17,8 @@ import { DATA_SCOPES, type Role } from '../roles.api';
 import { useCreateRole, useDuplicateRole, useUpdateRole } from '../roles.queries';
 import { roleFormSchema, type RoleFormValues } from '../roles.schemas';
 
-export type RoleFormMode = { kind: 'create' } | { kind: 'edit'; role: Role } | { kind: 'duplicate'; role: Role };
+export type RoleFormMode =
+  { kind: 'create' } | { kind: 'edit'; role: Role } | { kind: 'duplicate'; role: Role };
 
 export interface RoleFormDialogProps {
   mode: RoleFormMode | null;
@@ -39,9 +32,21 @@ function defaults(mode: RoleFormMode | null): RoleFormValues {
   }
   const { role } = mode;
   if (mode.kind === 'duplicate') {
-    return { code: `${role.code}-copia`, name: `${role.name} (copia)`, description: role.description ?? '', dataScope: role.dataScope, isActive: true };
+    return {
+      code: `${role.code}-copia`,
+      name: `${role.name} (copia)`,
+      description: role.description ?? '',
+      dataScope: role.dataScope,
+      isActive: true,
+    };
   }
-  return { code: role.code, name: role.name, description: role.description ?? '', dataScope: role.dataScope, isActive: role.isActive };
+  return {
+    code: role.code,
+    name: role.name,
+    description: role.description ?? '',
+    dataScope: role.dataScope,
+    isActive: role.isActive,
+  };
 }
 
 const TITLES = { create: 'Nuevo rol', edit: 'Editar rol', duplicate: 'Duplicar rol' } as const;
@@ -52,8 +57,6 @@ const SUBMIT = { create: 'Crear rol', edit: 'Guardar cambios', duplicate: 'Crear
  * duplicar (es inmutable). Al duplicar se copian permisos, opciones y alcance.
  */
 export function RoleFormDialog({ mode, onClose, onSaved }: RoleFormDialogProps) {
-  const titleId = useId();
-  const fullScreen = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
   const createMutation = useCreateRole();
   const updateMutation = useUpdateRole();
   const duplicateMutation = useDuplicateRole();
@@ -62,7 +65,8 @@ export function RoleFormDialog({ mode, onClose, onSaved }: RoleFormDialogProps) 
   // y son sólo para el administrador; quien no lo es edita nombre y
   // descripción. El backend responde 403 ADMIN_ONLY si cambian igualmente.
   const canChangeGrants = useIsAdministrador();
-  const mutation = kind === 'create' ? createMutation : kind === 'edit' ? updateMutation : duplicateMutation;
+  const mutation =
+    kind === 'create' ? createMutation : kind === 'edit' ? updateMutation : duplicateMutation;
 
   const {
     control,
@@ -70,7 +74,10 @@ export function RoleFormDialog({ mode, onClose, onSaved }: RoleFormDialogProps) 
     handleSubmit,
     reset,
     formState: { errors },
-  } = useForm<RoleFormValues>({ resolver: zodResolver(roleFormSchema), defaultValues: defaults(mode) });
+  } = useForm<RoleFormValues>({
+    resolver: zodResolver(roleFormSchema),
+    defaultValues: defaults(mode),
+  });
 
   useEffect(() => {
     if (mode) {
@@ -92,12 +99,20 @@ export function RoleFormDialog({ mode, onClose, onSaved }: RoleFormDialogProps) 
     const description = values.description.trim();
     if (!mode || mode.kind === 'create') {
       createMutation.mutate(
-        { code: values.code, name: values.name, dataScope: values.dataScope, ...(description ? { description } : {}) },
+        {
+          code: values.code,
+          name: values.name,
+          dataScope: values.dataScope,
+          ...(description ? { description } : {}),
+        },
         { onSuccess: done },
       );
     } else if (mode.kind === 'duplicate') {
       duplicateMutation.mutate(
-        { id: mode.role.id, body: { code: values.code, name: values.name, ...(description ? { description } : {}) } },
+        {
+          id: mode.role.id,
+          body: { code: values.code, name: values.name, ...(description ? { description } : {}) },
+        },
         { onSuccess: done },
       );
     } else {
@@ -119,43 +134,43 @@ export function RoleFormDialog({ mode, onClose, onSaved }: RoleFormDialogProps) 
   const pending = mutation.isPending;
 
   return (
-    <Dialog
+    <AdminDialog
       open={mode !== null}
       onClose={pending ? undefined : onClose}
-      aria-labelledby={titleId}
-      fullScreen={fullScreen}
-      fullWidth
-      maxWidth="sm"
-      PaperProps={{
-        component: 'form',
-        noValidate: true,
-        onSubmit: (event: FormEvent<HTMLFormElement>) => {
-          void submit(event);
-        },
+      title={TITLES[kind]}
+      subtitle="Roles y permisos"
+      requiredNote
+      onSubmit={(event) => {
+        void submit(event);
       }}
+      actions={<DialogFooter onCancel={onClose} submitLabel={SUBMIT[kind]} pending={pending} />}
     >
-      <DialogTitle id={titleId}>{TITLES[kind]}</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2} sx={{ pt: 1 }}>
-          {mode?.kind === 'duplicate' ? (
-            <Alert severity="info">Se copiarán los permisos, las opciones de menú y el alcance de «{mode.role.name}».</Alert>
-          ) : null}
-          <TextField
-            {...register('code')}
-            label="Código"
-            required
-            disabled={kind === 'edit' || pending}
-            error={Boolean(errors.code)}
-            helperText={errors.code?.message ?? (kind === 'edit' ? 'El código no se puede cambiar.' : 'No se podrá cambiar después.')}
-          />
-          <TextField
-            {...register('name')}
-            label="Nombre"
-            required
-            disabled={pending}
-            error={Boolean(errors.name)}
-            helperText={errors.name?.message}
-          />
+      {mode?.kind === 'duplicate' ? (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Se copiarán los permisos, las opciones de menú y el alcance de «{mode.role.name}».
+        </Alert>
+      ) : null}
+      <FormSection number={1} title="Datos generales">
+        <TextField
+          {...register('code')}
+          label="Código"
+          required
+          disabled={kind === 'edit' || pending}
+          error={Boolean(errors.code)}
+          helperText={
+            errors.code?.message ??
+            (kind === 'edit' ? 'El código no se puede cambiar.' : 'No se podrá cambiar después.')
+          }
+        />
+        <TextField
+          {...register('name')}
+          label="Nombre"
+          required
+          disabled={pending}
+          error={Boolean(errors.name)}
+          helperText={errors.name?.message}
+        />
+        <FullRow>
           <TextField
             {...register('description')}
             label="Descripción"
@@ -165,32 +180,34 @@ export function RoleFormDialog({ mode, onClose, onSaved }: RoleFormDialogProps) 
             error={Boolean(errors.description)}
             helperText={errors.description?.message}
           />
-          {kind !== 'duplicate' ? (
-            <Controller
-              control={control}
-              name="dataScope"
-              render={({ field }) => (
-                <TextField
-                  select
-                  label="Alcance de datos"
-                  value={field.value}
-                  onChange={field.onChange}
-                  disabled={pending || (kind === 'edit' && !canChangeGrants)}
-                  helperText={
-                    kind === 'edit' && !canChangeGrants
-                      ? 'Sólo un administrador puede cambiar el alcance (ADR-020).'
-                      : 'Hasta dónde ven los datos las personas con este rol.'
-                  }
-                >
-                  {DATA_SCOPES.map((scope) => (
-                    <MenuItem key={scope} value={scope}>
-                      {DATA_SCOPE_LABEL[scope]}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              )}
-            />
-          ) : null}
+        </FullRow>
+      </FormSection>
+      {kind !== 'duplicate' ? (
+        <FormSection number={2} title="Acceso">
+          <Controller
+            control={control}
+            name="dataScope"
+            render={({ field }) => (
+              <TextField
+                select
+                label="Alcance de datos"
+                value={field.value}
+                onChange={field.onChange}
+                disabled={pending || (kind === 'edit' && !canChangeGrants)}
+                helperText={
+                  kind === 'edit' && !canChangeGrants
+                    ? 'Sólo un administrador puede cambiar el alcance (ADR-020).'
+                    : 'Hasta dónde ven los datos las personas con este rol.'
+                }
+              >
+                {DATA_SCOPES.map((scope) => (
+                  <MenuItem key={scope} value={scope}>
+                    {DATA_SCOPE_LABEL[scope]}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
+          />
           {kind === 'edit' ? (
             <Controller
               control={control}
@@ -213,17 +230,13 @@ export function RoleFormDialog({ mode, onClose, onSaved }: RoleFormDialogProps) 
               )}
             />
           ) : null}
-          {error ? <Alert severity="error">{error.message}</Alert> : null}
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button variant="text" onClick={onClose} disabled={pending}>
-          Cancelar
-        </Button>
-        <Button type="submit" disabled={pending}>
-          {SUBMIT[kind]}
-        </Button>
-      </DialogActions>
-    </Dialog>
+        </FormSection>
+      ) : null}
+      {error ? (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          {error.message}
+        </Alert>
+      ) : null}
+    </AdminDialog>
   );
 }

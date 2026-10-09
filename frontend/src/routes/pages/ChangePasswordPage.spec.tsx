@@ -5,7 +5,14 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { PasswordChangeGate } from '@/components/layout/PasswordChangeGate';
 import { resetAuthProviderForTests, useAuthStore } from '@/stores/auth.store';
-import { buildSession, callsTo, errorResponse, jsonResponse, mockApi, type RouteHandler } from '@/test/api-mocks';
+import {
+  buildSession,
+  callsTo,
+  errorResponse,
+  jsonResponse,
+  mockApi,
+  type RouteHandler,
+} from '@/test/api-mocks';
 import { renderWithProviders } from '@/test/render-with-providers';
 
 import { ChangePasswordPage } from './ChangePasswordPage';
@@ -52,14 +59,21 @@ async function fillForm(values: { current: string; next: string; confirmation: s
 describe('ChangePasswordPage', () => {
   beforeEach(() => {
     resetAuthProviderForTests();
-    useAuthStore.setState({ status: 'initializing', user: null, passwordChangeRequired: false, errorMessage: null });
+    useAuthStore.setState({
+      status: 'initializing',
+      user: null,
+      passwordChangeRequired: false,
+      errorMessage: null,
+    });
   });
 
   it('explica el cambio obligatorio y ofrece cerrar sesión en lugar de cancelar', async () => {
     await startSession(true);
     renderChangePassword();
 
-    expect(screen.getByText('Debes establecer una contraseña personal antes de continuar')).toBeInTheDocument();
+    expect(
+      screen.getByText('Debes establecer una contraseña personal antes de continuar'),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /cerrar sesión/i })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /cancelar/i })).not.toBeInTheDocument();
   });
@@ -68,7 +82,9 @@ describe('ChangePasswordPage', () => {
     await startSession(false);
     renderChangePassword();
 
-    expect(screen.queryByText('Debes establecer una contraseña personal antes de continuar')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Debes establecer una contraseña personal antes de continuar'),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /cancelar/i })).toHaveAttribute('href', '/');
   });
 
@@ -102,16 +118,24 @@ describe('ChangePasswordPage', () => {
     );
     renderChangePassword();
 
-    await fillForm({ current: CURRENT_PASSWORD, next: 'contraseña123', confirmation: 'contraseña123' });
+    await fillForm({
+      current: CURRENT_PASSWORD,
+      next: 'contraseña123',
+      confirmation: 'contraseña123',
+    });
 
-    expect(await screen.findByText('La nueva contraseña no cumple la política de contraseñas.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('La nueva contraseña no cumple la política de contraseñas.'),
+    ).toBeInTheDocument();
     expect(screen.getByRole('listitem')).toHaveTextContent('La contraseña es demasiado común.');
     expect(screen.getByLabelText(/^nueva contraseña/i)).toHaveAttribute('aria-invalid', 'true');
   });
 
   it('guarda la contraseña, adopta la sesión nueva y entra a la aplicación', async () => {
     const fetchMock = await startSession(true, () =>
-      jsonResponse(buildSession({ accessToken: 'access-token-after-change', passwordChangeRequired: false })),
+      jsonResponse(
+        buildSession({ accessToken: 'access-token-after-change', passwordChangeRequired: false }),
+      ),
     );
     renderChangePassword();
 
@@ -120,7 +144,10 @@ describe('ChangePasswordPage', () => {
     expect(await screen.findByText('Pantalla de inicio')).toBeInTheDocument();
     expect(useAuthStore.getState().passwordChangeRequired).toBe(false);
     const [changeCall] = callsTo(fetchMock, 'POST', '/auth/password/change');
-    expect(JSON.parse(String(changeCall?.body))).toEqual({ currentPassword: CURRENT_PASSWORD, newPassword: NEW_PASSWORD });
+    expect(JSON.parse(String(changeCall?.body))).toEqual({
+      currentPassword: CURRENT_PASSWORD,
+      newPassword: NEW_PASSWORD,
+    });
     expect((changeCall?.headers as Headers).get('Authorization')).toBe('Bearer access-token-1');
   });
 });

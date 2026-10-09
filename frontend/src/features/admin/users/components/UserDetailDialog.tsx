@@ -8,10 +8,6 @@ import {
   Button,
   Checkbox,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   FormControlLabel,
   FormGroup,
   Skeleton,
@@ -25,13 +21,18 @@ import {
   TableRow,
   Tabs,
   Typography,
-  useMediaQuery,
-  type Theme,
 } from '@mui/material';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { env } from '@/config/env';
-import { ADMIN_ONLY_NOTE, ConfirmDialog, describeApiError } from '@/features/admin/common';
+import {
+  ADMIN_ONLY_NOTE,
+  AdminDialog,
+  ConfirmDialog,
+  describeApiError,
+  DetailList,
+  DetailSection,
+} from '@/features/admin/common';
 import { useCan, useIsAdministrador } from '@/hooks/use-permission';
 
 import { ADMIN_TARGET_NOTE, holdsAdministrador } from '../users-access';
@@ -67,8 +68,6 @@ const REACTIVATABLE = new Set(['SUSPENDED', 'LOCKED']);
 
 /** Detalle de un usuario: datos, roles, excepciones directas y acceso efectivo con su origen. */
 export function UserDetailDialog({ userId, onClose }: UserDetailDialogProps) {
-  const titleId = useId();
-  const fullScreen = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
   const [tab, setTab] = useState<TabKey>('datos');
   const user = useUser(userId);
 
@@ -79,44 +78,42 @@ export function UserDetailDialog({ userId, onClose }: UserDetailDialogProps) {
   }, [userId]);
 
   return (
-    <Dialog open={userId !== null} onClose={onClose} aria-labelledby={titleId} fullScreen={fullScreen} fullWidth maxWidth="md">
-      <DialogTitle id={titleId}>{user.data?.displayName ?? 'Usuario'}</DialogTitle>
-      <DialogContent dividers>
-        {user.isPending ? (
-          <Stack role="status" aria-label="Cargando" spacing={1}>
-            <Skeleton variant="text" />
-            <Skeleton variant="text" />
-          </Stack>
-        ) : user.isError ? (
-          <Alert severity="error">{describeApiError(user.error).message}</Alert>
-        ) : (
-          <>
-            <Tabs
-              value={tab}
-              onChange={(_, value: TabKey) => setTab(value)}
-              variant="scrollable"
-              allowScrollButtonsMobile
-              aria-label="Secciones del usuario"
-              sx={{ mb: 2 }}
-            >
-              <Tab value="datos" label="Datos" />
-              <Tab value="roles" label="Roles" />
-              <Tab value="excepciones" label="Excepciones" />
-              <Tab value="acceso" label="Acceso efectivo" />
-            </Tabs>
-            {tab === 'datos' ? <ProfileSection user={user.data} /> : null}
-            {tab === 'roles' ? <RolesSection user={user.data} /> : null}
-            {tab === 'excepciones' ? <ExceptionsSection user={user.data} /> : null}
-            {tab === 'acceso' ? <AccessSection userId={user.data.id} /> : null}
-          </>
-        )}
-      </DialogContent>
-      <DialogActions>
-        <Button variant="text" onClick={onClose}>
-          Cerrar
-        </Button>
-      </DialogActions>
-    </Dialog>
+    <AdminDialog
+      open={userId !== null}
+      onClose={onClose}
+      title={user.data?.displayName ?? 'Usuario'}
+      subtitle="Usuarios"
+      fullScreenBelow="md"
+    >
+      {user.isPending ? (
+        <Stack role="status" aria-label="Cargando" spacing={1}>
+          <Skeleton variant="text" />
+          <Skeleton variant="text" />
+        </Stack>
+      ) : user.isError ? (
+        <Alert severity="error">{describeApiError(user.error).message}</Alert>
+      ) : (
+        <>
+          <Tabs
+            value={tab}
+            onChange={(_, value: TabKey) => setTab(value)}
+            variant="scrollable"
+            allowScrollButtonsMobile
+            aria-label="Secciones del usuario"
+            sx={{ mb: 2.5, mt: -1, borderBottom: 1, borderColor: 'divider' }}
+          >
+            <Tab value="datos" label="Datos" />
+            <Tab value="roles" label="Roles" />
+            <Tab value="excepciones" label="Excepciones" />
+            <Tab value="acceso" label="Acceso efectivo" />
+          </Tabs>
+          {tab === 'datos' ? <ProfileSection user={user.data} /> : null}
+          {tab === 'roles' ? <RolesSection user={user.data} /> : null}
+          {tab === 'excepciones' ? <ExceptionsSection user={user.data} /> : null}
+          {tab === 'acceso' ? <AccessSection userId={user.data.id} /> : null}
+        </>
+      )}
+    </AdminDialog>
   );
 }
 
@@ -140,40 +137,22 @@ function ProfileSection({ user }: { user: UserDetail }) {
   const resetMutation = useResetUserPassword(user.id);
   const status = USER_STATUS_VIEW[user.status];
 
-  const fields: [string, string][] = [
-    ['Correo', user.email],
-    ['Puesto', user.jobTitle ?? '—'],
-    ['Teléfono', user.phone ?? '—'],
-    ['Último acceso', formatDateTime(user.lastLoginAt)],
-    ['Alta', formatDate(user.createdAt)],
+  const fields = [
+    { label: 'Estado', value: <Chip size="small" color={status.color} label={status.label} /> },
+    { label: 'Correo', value: user.email },
+    { label: 'Puesto', value: user.jobTitle ?? '—' },
+    { label: 'Teléfono', value: user.phone ?? '—' },
+    { label: 'Último acceso', value: formatDateTime(user.lastLoginAt) },
+    { label: 'Alta', value: formatDate(user.createdAt) },
   ];
 
   return (
-    <Stack spacing={2}>
-      <Stack direction="row" spacing={1} alignItems="center">
-        <Typography variant="body2" color="text.secondary">
-          Estado:
-        </Typography>
-        <Chip size="small" color={status.color} label={status.label} />
-      </Stack>
+    <Stack spacing={3}>
+      <DetailSection number={1} title="Datos generales">
+        <DetailList items={fields} />
+      </DetailSection>
 
-      <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 2, rowGap: 1 }}>
-        {fields.map(([label, value]) => (
-          <Box key={label} sx={{ display: 'contents' }}>
-            <Typography component="dt" variant="body2" color="text.secondary">
-              {label}
-            </Typography>
-            <Typography component="dd" variant="body2" sx={{ m: 0, overflowWrap: 'anywhere' }}>
-              {value}
-            </Typography>
-          </Box>
-        ))}
-      </Box>
-
-      <Box>
-        <Typography variant="subtitle2" component="h3">
-          Equipos
-        </Typography>
+      <DetailSection number={2} title="Equipos">
         <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
           Los miembros se gestionan desde la pantalla de Equipos.
         </Typography>
@@ -182,11 +161,15 @@ function ProfileSection({ user }: { user: UserDetail }) {
         ) : (
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             {user.teams.map((team) => (
-              <Chip key={team.id} label={team.isPrimary ? `${team.name} (principal)` : team.name} variant="outlined" />
+              <Chip
+                key={team.id}
+                label={team.isPrimary ? `${team.name} (principal)` : team.name}
+                variant="outlined"
+              />
             ))}
           </Stack>
         )}
-      </Box>
+      </DetailSection>
 
       {notice ? (
         <Alert severity="success" onClose={() => setNotice(null)}>
@@ -194,11 +177,17 @@ function ProfileSection({ user }: { user: UserDetail }) {
         </Alert>
       ) : null}
 
-      {can(USER_PERMISSIONS.edit) && targetIsProtected ? <Alert severity="info">{ADMIN_TARGET_NOTE}</Alert> : null}
+      {can(USER_PERMISSIONS.edit) && targetIsProtected ? (
+        <Alert severity="info">{ADMIN_TARGET_NOTE}</Alert>
+      ) : null}
 
       {canEdit ? (
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap" useFlexGap>
-          <Button variant="outlined" startIcon={<EditOutlinedIcon />} onClick={() => setEditing(true)}>
+          <Button
+            variant="outlined"
+            startIcon={<EditOutlinedIcon />}
+            onClick={() => setEditing(true)}
+          >
             Editar datos
           </Button>
           {SUSPENDABLE.has(user.status) ? (
@@ -255,7 +244,11 @@ function ProfileSection({ user }: { user: UserDetail }) {
         destructive={statusAction === 'suspend'}
         reason={{ label: 'Motivo', helperText: 'Queda en la bitácora. Mínimo 10 caracteres.' }}
         isPending={statusMutation.isPending}
-        errorMessage={statusMutation.isError ? describeApiError(statusMutation.error, USER_ERRORS).message : null}
+        errorMessage={
+          statusMutation.isError
+            ? describeApiError(statusMutation.error, USER_ERRORS).message
+            : null
+        }
         onClose={() => setStatusAction(null)}
         onConfirm={(reason) => {
           if (statusAction) {
@@ -263,7 +256,11 @@ function ProfileSection({ user }: { user: UserDetail }) {
               { action: statusAction, reason },
               {
                 onSuccess: () => {
-                  setNotice(statusAction === 'suspend' ? 'Usuario suspendido. Sus sesiones se cerraron.' : 'Usuario reactivado.');
+                  setNotice(
+                    statusAction === 'suspend'
+                      ? 'Usuario suspendido. Sus sesiones se cerraron.'
+                      : 'Usuario reactivado.',
+                  );
                   setStatusAction(null);
                 },
               },
@@ -279,7 +276,9 @@ function ProfileSection({ user }: { user: UserDetail }) {
         confirmLabel="Restablecer"
         destructive
         isPending={resetMutation.isPending}
-        errorMessage={resetMutation.isError ? describeApiError(resetMutation.error, USER_ERRORS).message : null}
+        errorMessage={
+          resetMutation.isError ? describeApiError(resetMutation.error, USER_ERRORS).message : null
+        }
         onClose={() => setConfirmReset(false)}
         onConfirm={() =>
           resetMutation.mutate(undefined, {
@@ -313,7 +312,9 @@ function RolesSection({ user }: { user: UserDetail }) {
   if (!canEdit || !canListRoles) {
     return (
       <Stack spacing={2}>
-        {hasEditPermission && !isAdministrador ? <Alert severity="info">{ADMIN_ONLY_NOTE}</Alert> : null}
+        {hasEditPermission && !isAdministrador ? (
+          <Alert severity="info">{ADMIN_ONLY_NOTE}</Alert>
+        ) : null}
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           {user.roles.map((role) => (
             <Chip key={role.id} label={role.name} />
@@ -325,11 +326,14 @@ function RolesSection({ user }: { user: UserDetail }) {
 
   const options = (roles.data ?? []).filter((role) => role.isActive || selected.includes(role.id));
   const dirty =
-    selected.length !== user.roles.length || selected.some((id) => !user.roles.some((role) => role.id === id));
+    selected.length !== user.roles.length ||
+    selected.some((id) => !user.roles.some((role) => role.id === id));
 
   return (
     <Stack spacing={2}>
-      {roles.isError ? <Alert severity="error">{describeApiError(roles.error).message}</Alert> : null}
+      {roles.isError ? (
+        <Alert severity="error">{describeApiError(roles.error).message}</Alert>
+      ) : null}
       <FormGroup aria-label="Roles del usuario">
         {options.map((role) => (
           <FormControlLabel
@@ -342,7 +346,9 @@ function RolesSection({ user }: { user: UserDetail }) {
                 onChange={(event) => {
                   setSaved(false);
                   setSelected((current) =>
-                    event.target.checked ? [...current, role.id] : current.filter((id) => id !== role.id),
+                    event.target.checked
+                      ? [...current, role.id]
+                      : current.filter((id) => id !== role.id),
                   );
                 }}
               />
@@ -350,8 +356,12 @@ function RolesSection({ user }: { user: UserDetail }) {
           />
         ))}
       </FormGroup>
-      {selected.length === 0 ? <Alert severity="warning">El usuario debe conservar al menos un rol.</Alert> : null}
-      {mutation.isError ? <Alert severity="error">{describeApiError(mutation.error, USER_ERRORS).message}</Alert> : null}
+      {selected.length === 0 ? (
+        <Alert severity="warning">El usuario debe conservar al menos un rol.</Alert>
+      ) : null}
+      {mutation.isError ? (
+        <Alert severity="error">{describeApiError(mutation.error, USER_ERRORS).message}</Alert>
+      ) : null}
       {saved ? <Alert severity="success">Roles actualizados.</Alert> : null}
       <Box>
         <Button
@@ -369,7 +379,8 @@ function ExceptionsSection({ user }: { user: UserDetail }) {
   const can = useCan();
   const isAdministrador = useIsAdministrador();
   const hasPermissionGrant = can(USER_PERMISSIONS.edit) && can(USER_PERMISSIONS.viewPermissions);
-  const hasMenuGrant = can(USER_PERMISSIONS.assignMenuOptions) && can(USER_PERMISSIONS.viewMenuOptions);
+  const hasMenuGrant =
+    can(USER_PERMISSIONS.assignMenuOptions) && can(USER_PERMISSIONS.viewMenuOptions);
   // ADR-020: las excepciones directas son asignación de accesos; sólo el
   // administrador las edita. El backend lo vuelve a exigir (403 ADMIN_ONLY).
   const canEditPermissions = hasPermissionGrant && isAdministrador;
@@ -381,44 +392,58 @@ function ExceptionsSection({ user }: { user: UserDetail }) {
 
   return (
     <Stack spacing={3}>
-      {(hasPermissionGrant || hasMenuGrant) && !isAdministrador ? <Alert severity="info">{ADMIN_ONLY_NOTE}</Alert> : null}
-      <Box component="section" aria-labelledby="excepciones-permisos">
-        <Typography id="excepciones-permisos" variant="subtitle1" component="h3" sx={{ mb: 1 }}>
-          Permisos
-        </Typography>
+      {(hasPermissionGrant || hasMenuGrant) && !isAdministrador ? (
+        <Alert severity="info">{ADMIN_ONLY_NOTE}</Alert>
+      ) : null}
+      <DetailSection number={1} title="Permisos">
         <DirectAssignmentsPanel
           noun="permiso"
           canEdit={canEditPermissions}
-          items={user.directPermissions.map((item) => ({ ...item, label: item.name, secondary: item.code }))}
+          items={user.directPermissions.map((item) => ({
+            ...item,
+            label: item.name,
+            secondary: item.code,
+          }))}
           targets={(permissions.data ?? []).map((permission) => ({
             id: permission.id,
             label: `${permission.name} (${permission.code})`,
           }))}
           isPending={permissionMutation.isPending}
-          errorMessage={permissionMutation.isError ? describeApiError(permissionMutation.error, USER_ERRORS).message : null}
+          errorMessage={
+            permissionMutation.isError
+              ? describeApiError(permissionMutation.error, USER_ERRORS).message
+              : null
+          }
           onResetError={() => permissionMutation.reset()}
-          onReplace={(assignments, onDone) => permissionMutation.mutate(assignments, { onSuccess: onDone })}
+          onReplace={(assignments, onDone) =>
+            permissionMutation.mutate(assignments, { onSuccess: onDone })
+          }
         />
-      </Box>
-      <Box component="section" aria-labelledby="excepciones-opciones">
-        <Typography id="excepciones-opciones" variant="subtitle1" component="h3" sx={{ mb: 1 }}>
-          Opciones de menú
-        </Typography>
+      </DetailSection>
+      <DetailSection number={2} title="Opciones de menú">
         <DirectAssignmentsPanel
           noun="opción de menú"
           canEdit={canEditMenu}
-          items={user.directMenuOptions.map((item) => ({ ...item, label: item.label, secondary: item.key }))}
+          items={user.directMenuOptions.map((item) => ({
+            ...item,
+            label: item.label,
+            secondary: item.key,
+          }))}
           targets={(menuOptions.data ?? []).map((option) => ({
             id: option.id,
             label: option.label,
             group: option.module.name,
           }))}
           isPending={menuMutation.isPending}
-          errorMessage={menuMutation.isError ? describeApiError(menuMutation.error, USER_ERRORS).message : null}
+          errorMessage={
+            menuMutation.isError ? describeApiError(menuMutation.error, USER_ERRORS).message : null
+          }
           onResetError={() => menuMutation.reset()}
-          onReplace={(assignments, onDone) => menuMutation.mutate(assignments, { onSuccess: onDone })}
+          onReplace={(assignments, onDone) =>
+            menuMutation.mutate(assignments, { onSuccess: onDone })
+          }
         />
-      </Box>
+      </DetailSection>
     </Stack>
   );
 }
@@ -463,10 +488,22 @@ function AccessSection({ userId }: { userId: string }) {
                     <Chip key={role} size="small" variant="outlined" label={`Rol: ${role}`} />
                   ))}
                   {origin.grant ? (
-                    <Chip size="small" variant="outlined" color="success" label="Concesión directa" title={origin.grant.reason} />
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      color="success"
+                      label="Concesión directa"
+                      title={origin.grant.reason}
+                    />
                   ) : null}
                   {origin.deny ? (
-                    <Chip size="small" variant="outlined" color="error" label="Denegación directa" title={origin.deny.reason} />
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      color="error"
+                      label="Denegación directa"
+                      title={origin.deny.reason}
+                    />
                   ) : null}
                 </Stack>
               </TableCell>

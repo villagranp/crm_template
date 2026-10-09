@@ -1,4 +1,5 @@
-import { Autocomplete, Box, Button, Stack, TextField } from '@mui/material';
+import SearchIcon from '@mui/icons-material/Search';
+import { Autocomplete, Box, Button, InputAdornment, Stack, TextField } from '@mui/material';
 import { useEffect, useState, type FormEvent } from 'react';
 
 import type { AuditFilterKey } from '../audit.api';
@@ -27,14 +28,22 @@ const TEXT_FILTERS: readonly { key: AuditFilterKey; label: string }[] = [
  * debounce); el resto, al pulsar «Aplicar», para no lanzar una consulta por
  * cada tecla en campos de identificadores.
  */
-export function AuditFilters({ value, searchInput, onSearchInputChange, eventOptions, onApply, onClear }: AuditFiltersProps) {
+export function AuditFilters({
+  value,
+  searchInput,
+  onSearchInputChange,
+  eventOptions,
+  onApply,
+  onClear,
+}: AuditFiltersProps) {
   const [draft, setDraft] = useState<AuditFilterValues>(value);
 
   useEffect(() => {
     setDraft(value);
   }, [value]);
 
-  const set = (key: AuditFilterKey, next: string | null) => setDraft((previous) => ({ ...previous, [key]: next ?? '' }));
+  const set = (key: AuditFilterKey, next: string | null) =>
+    setDraft((previous) => ({ ...previous, [key]: next ?? '' }));
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -44,12 +53,22 @@ export function AuditFilters({ value, searchInput, onSearchInputChange, eventOpt
   const dateError = Boolean(draft.from && draft.to && draft.from > draft.to);
 
   return (
-    <Box component="form" role="search" aria-label="Filtros de auditoría" noValidate onSubmit={submit} sx={{ mb: 2 }}>
+    <Box
+      component="form"
+      role="search"
+      aria-label="Filtros de auditoría"
+      noValidate
+      onSubmit={submit}
+    >
       <Box
         sx={{
           display: 'grid',
           gap: 2,
-          gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' },
+          gridTemplateColumns: {
+            xs: '1fr',
+            sm: 'repeat(2, minmax(0, 1fr))',
+            lg: 'repeat(4, minmax(0, 1fr))',
+          },
         }}
       >
         <TextField
@@ -58,6 +77,15 @@ export function AuditFilters({ value, searchInput, onSearchInputChange, eventOpt
           size="small"
           value={searchInput}
           onChange={(event) => onSearchInputChange(event.target.value)}
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            },
+          }}
         />
         <Autocomplete
           freeSolo
@@ -67,7 +95,11 @@ export function AuditFilters({ value, searchInput, onSearchInputChange, eventOpt
           onChange={(_, next) => set('event', next)}
           onInputChange={(_, next) => set('event', next)}
           renderInput={(params) => (
-            <TextField {...params} label="Evento" helperText="Termina en «.» para filtrar por prefijo (p. ej. auth.)" />
+            <TextField
+              {...params}
+              label="Evento"
+              helperText="Termina en «.» para filtrar por prefijo (p. ej. auth.)"
+            />
           )}
         />
         {TEXT_FILTERS.map((filter) => (
@@ -99,7 +131,12 @@ export function AuditFilters({ value, searchInput, onSearchInputChange, eventOpt
         />
       </Box>
       <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 2 }}>
-        <Button variant="text" onClick={onClear}>
+        <Button
+          variant="outlined"
+          color="inherit"
+          onClick={onClear}
+          sx={{ borderColor: 'divider' }}
+        >
           Limpiar filtros
         </Button>
         <Button type="submit" variant="contained" disabled={dateError}>

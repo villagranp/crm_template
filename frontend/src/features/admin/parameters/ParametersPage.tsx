@@ -1,12 +1,9 @@
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
+import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
 import {
-  Alert,
   Box,
   Button,
-  Card,
-  CardContent,
-  CardHeader,
   Chip,
   Divider,
   IconButton,
@@ -15,19 +12,29 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import { useQueryClient } from '@tanstack/react-query';
 import { Fragment, useState } from 'react';
 
 import { PageHeader } from '@/components/layout/PageHeader';
-import { adminBreadcrumbs, describeApiError, EmptyState } from '@/features/admin/common';
+import {
+  AdminListCard,
+  adminBreadcrumbs,
+  describeApiError,
+  EmptyState,
+  recordsSubtitle,
+  RefreshTool,
+  subtleSurface,
+} from '@/features/admin/common';
 import { useCan } from '@/hooks/use-permission';
 
 import { ParameterEditDialog } from './components/ParameterEditDialog';
 import type { SystemParameter } from './parameters.api';
 import { PARAMETER_PERMISSIONS } from './parameters.permissions';
-import { useParameters } from './parameters.queries';
+import { parameterKeys, useParameters } from './parameters.queries';
 
 const TITLE = 'Parámetros';
-const SKELETON_GROUPS = 2;
+const DESCRIPTION = 'Valores de configuración que lee la aplicación.';
+const SKELETON_ROWS = 4;
 
 const GROUP_LABELS: Readonly<Record<string, string>> = {
   general: 'General',
@@ -64,10 +71,10 @@ function ParameterRow({
       direction={{ xs: 'column', sm: 'row' }}
       spacing={{ xs: 1, sm: 2 }}
       alignItems={{ xs: 'stretch', sm: 'center' }}
-      sx={{ py: 1.5 }}
+      sx={{ py: 1.5, px: { xs: 2, md: 2.5 } }}
     >
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="subtitle2" component="h3">
+        <Typography variant="body2" component="h3" sx={{ fontWeight: 600 }}>
           {parameter.name}
         </Typography>
         {parameter.description ? (
@@ -75,7 +82,11 @@ function ParameterRow({
             {parameter.description}
           </Typography>
         ) : null}
-        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', overflowWrap: 'anywhere' }}>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ fontFamily: 'monospace', overflowWrap: 'anywhere' }}
+        >
           {parameter.key}
         </Typography>
       </Box>
@@ -94,13 +105,20 @@ function ParameterRow({
           {displayValue(parameter)}
         </Typography>
         {canEdit ? (
-          <IconButton aria-label={`Editar ${parameter.name}`} onClick={onEdit}>
+          <IconButton
+            aria-label={`Editar ${parameter.name}`}
+            onClick={onEdit}
+            sx={{ color: 'text.secondary' }}
+          >
             <EditOutlinedIcon />
           </IconButton>
         ) : null}
         {lockedByConfigure ? (
           <Tooltip title="Requiere el permiso de configuración de seguridad">
-            <LockOutlinedIcon aria-label="Sólo lectura: requiere permiso de configuración" color="disabled" />
+            <LockOutlinedIcon
+              aria-label="Sólo lectura: requiere permiso de configuración"
+              color="disabled"
+            />
           </Tooltip>
         ) : null}
       </Stack>
@@ -112,6 +130,7 @@ function ParameterRow({
 export function ParametersPage() {
   const can = useCan();
   const parameters = useParameters();
+  const queryClient = useQueryClient();
   const [editing, setEditing] = useState<SystemParameter | null>(null);
 
   const canEditAny = can(PARAMETER_PERMISSIONS.edit);
@@ -120,65 +139,97 @@ export function ParametersPage() {
   let content;
   if (parameters.isPending) {
     content = (
-      <Stack role="status" aria-label="Cargando" spacing={2}>
-        {Array.from({ length: SKELETON_GROUPS }, (_, index) => (
-          <Skeleton key={index} variant="rounded" sx={{ height: (theme) => theme.spacing(20) }} />
+      <Stack role="status" aria-label="Cargando" spacing={1} sx={{ p: 2 }}>
+        {Array.from({ length: SKELETON_ROWS }, (_, index) => (
+          <Skeleton key={index} variant="text" />
         ))}
       </Stack>
     );
   } else if (parameters.isError) {
     content = (
-      <Alert
-        severity="error"
+      <EmptyState
+        role="alert"
+        title="No se pudieron cargar los parámetros"
+        description={describeApiError(parameters.error).message}
         action={
-          <Button color="inherit" size="small" variant="text" onClick={() => void parameters.refetch()}>
+          <Button variant="outlined" onClick={() => void parameters.refetch()}>
             Reintentar
           </Button>
         }
-      >
-        {describeApiError(parameters.error).message}
-      </Alert>
+      />
     );
   } else if (parameters.data.length === 0) {
     content = (
-      <Card>
-        <EmptyState title="No hay parámetros" description="Los parámetros llegan con la semilla del sistema." />
-      </Card>
+      <EmptyState
+        icon={<TuneOutlinedIcon />}
+        title="No hay parámetros"
+        description="Los parámetros llegan con la semilla del sistema."
+      />
     );
   } else {
-    content = (
-      <Stack spacing={2}>
-        {parameters.data.map((group) => (
-          <Card key={group.group} component="section" aria-label={groupLabel(group.group)}>
-            <CardHeader title={groupLabel(group.group)} titleTypographyProps={{ variant: 'h6', component: 'h2' }} />
-            <CardContent sx={{ pt: 0 }}>
-              <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0 }}>
-                {group.parameters.map((parameter, index) => {
-                  const lockedByConfigure = canEditAny && parameter.requiresConfigurePermission && !canConfigure;
-                  return (
-                    <Fragment key={parameter.key}>
-                      {index > 0 ? <Divider component="li" aria-hidden /> : null}
-                      <ParameterRow
-                        parameter={parameter}
-                        canEdit={canEditAny && !lockedByConfigure}
-                        lockedByConfigure={lockedByConfigure}
-                        onEdit={() => setEditing(parameter)}
-                      />
-                    </Fragment>
-                  );
-                })}
-              </Box>
-            </CardContent>
-          </Card>
-        ))}
-      </Stack>
-    );
+    content = parameters.data.map((group) => (
+      <Box
+        key={group.group}
+        component="section"
+        aria-label={groupLabel(group.group)}
+        sx={{ '&:not(:last-of-type)': { borderBottom: 1, borderColor: 'divider' } }}
+      >
+        <Typography
+          component="h3"
+          aria-hidden
+          sx={(theme) => ({
+            ...theme.typography.overline,
+            fontFamily: theme.typography.fontFamily,
+            fontWeight: 700,
+            color: theme.palette.text.secondary,
+            bgcolor: subtleSurface(theme),
+            px: { xs: 2, md: 2.5 },
+            py: 1,
+            borderBottom: 1,
+            borderColor: 'divider',
+          })}
+        >
+          {groupLabel(group.group)}
+        </Typography>
+        <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0 }}>
+          {group.parameters.map((parameter, index) => {
+            const lockedByConfigure =
+              canEditAny && parameter.requiresConfigurePermission && !canConfigure;
+            return (
+              <Fragment key={parameter.key}>
+                {index > 0 ? <Divider component="li" aria-hidden /> : null}
+                <ParameterRow
+                  parameter={parameter}
+                  canEdit={canEditAny && !lockedByConfigure}
+                  lockedByConfigure={lockedByConfigure}
+                  onEdit={() => setEditing(parameter)}
+                />
+              </Fragment>
+            );
+          })}
+        </Box>
+      </Box>
+    ));
   }
+
+  const total = parameters.data?.reduce((sum, group) => sum + group.parameters.length, 0);
 
   return (
     <>
-      <PageHeader title={TITLE} subtitle="Valores de configuración que lee la aplicación." breadcrumbs={adminBreadcrumbs(TITLE)} />
-      {content}
+      <PageHeader title={TITLE} breadcrumbs={adminBreadcrumbs(TITLE)} />
+      <AdminListCard
+        icon={<TuneOutlinedIcon />}
+        title={TITLE}
+        subtitle={recordsSubtitle(total, DESCRIPTION, ['parámetro', 'parámetros'])}
+        tools={
+          <RefreshTool
+            busy={parameters.isFetching}
+            onRefresh={() => void queryClient.invalidateQueries({ queryKey: parameterKeys.all })}
+          />
+        }
+      >
+        {content}
+      </AdminListCard>
       <ParameterEditDialog parameter={editing} onClose={() => setEditing(null)} />
     </>
   );

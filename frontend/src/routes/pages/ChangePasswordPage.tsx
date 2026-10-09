@@ -6,11 +6,19 @@ import { useForm } from 'react-hook-form';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 
 import { AuthLayout } from '@/features/auth/AuthLayout';
-import { getChangePasswordError, type ChangePasswordError } from '@/features/auth/auth-error-messages';
+import { AuthSubmitButton } from '@/features/auth/AuthSubmitButton';
+import {
+  getChangePasswordError,
+  type ChangePasswordError,
+} from '@/features/auth/auth-error-messages';
 import { PasswordField } from '@/features/auth/PasswordField';
 import { useAuth } from '@/hooks/use-auth';
 import { ROUTE_PATHS } from '@/routes/route-paths';
-import { changePasswordSchema, MIN_PASSWORD_LENGTH, type ChangePasswordFormValues } from '@/schemas/auth.schema';
+import {
+  changePasswordSchema,
+  MIN_PASSWORD_LENGTH,
+  type ChangePasswordFormValues,
+} from '@/schemas/auth.schema';
 
 const PANEL_TITLE = 'Tu contraseña, sólo tuya';
 const PANEL_DESCRIPTION =
@@ -49,7 +57,10 @@ export function ChangePasswordPage() {
   const onSubmit = async (values: ChangePasswordFormValues): Promise<void> => {
     setFormError(null);
     try {
-      await changePassword({ currentPassword: values.currentPassword, newPassword: values.newPassword });
+      await changePassword({
+        currentPassword: values.currentPassword,
+        newPassword: values.newPassword,
+      });
       await queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
       navigate(ROUTE_PATHS.home, { replace: true });
     } catch (error) {
@@ -72,17 +83,21 @@ export function ChangePasswordPage() {
       panelTitle={PANEL_TITLE}
       panelDescription={PANEL_DESCRIPTION}
       title="Cambiar contraseña"
-      subtitle={passwordChangeRequired ? undefined : 'Al guardar la nueva contraseña se cerrarán tus otras sesiones.'}
+      subtitle={
+        passwordChangeRequired
+          ? undefined
+          : 'Al guardar la nueva contraseña se cerrarán tus otras sesiones.'
+      }
     >
       {passwordChangeRequired ? (
-        <Alert severity="info">
+        <Alert severity="info" sx={{ mb: 2.5 }}>
           <AlertTitle>{FORCED_CHANGE_TITLE}</AlertTitle>
           {FORCED_CHANGE_DESCRIPTION}
         </Alert>
       ) : null}
 
       <Box component="form" noValidate onSubmit={(event) => void handleSubmit(onSubmit)(event)}>
-        <Stack spacing={2.5}>
+        <Stack spacing={2.25}>
           {shouldShowFormAlert ? (
             <Alert severity="error" role="alert">
               {/* Con campo asociado el mensaje ya está junto al campo: aquí sólo los motivos. */}
@@ -131,9 +146,9 @@ export function ChangePasswordPage() {
             helperText={errors.confirmation?.message}
           />
 
-          <Button type="submit" size="large" fullWidth disabled={isSubmitting}>
+          <AuthSubmitButton type="submit" disabled={isSubmitting}>
             {isSubmitting ? 'Guardando…' : 'Guardar contraseña'}
-          </Button>
+          </AuthSubmitButton>
 
           {passwordChangeRequired ? (
             <Button variant="text" fullWidth onClick={() => void signOut()}>

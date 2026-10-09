@@ -1,25 +1,23 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   Alert,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   FormControlLabel,
   MenuItem,
   Radio,
   RadioGroup,
-  Stack,
   Switch,
   TextField,
-  useMediaQuery,
-  type Theme,
 } from '@mui/material';
-import { useEffect, useId, useMemo, type FormEvent } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 
-import { describeApiError } from '@/features/admin/common';
+import {
+  AdminDialog,
+  describeApiError,
+  DialogFooter,
+  FormSection,
+  FullRow,
+} from '@/features/admin/common';
 import { useCan } from '@/hooks/use-permission';
 
 import type { MenuOption, MenuOptionRequest } from '../menu-options.api';
@@ -34,7 +32,8 @@ import {
 import { menuOptionFormSchema, type MenuOptionFormValues } from '../menu-options.schemas';
 import { MENU_OPTION_ERRORS, withDescendants } from '../menu-tree';
 
-export type MenuOptionFormMode = { kind: 'create'; moduleId?: string; parentId?: string } | { kind: 'edit'; option: MenuOption };
+export type MenuOptionFormMode =
+  { kind: 'create'; moduleId?: string; parentId?: string } | { kind: 'edit'; option: MenuOption };
 
 export interface MenuOptionFormDialogProps {
   mode: MenuOptionFormMode | null;
@@ -109,8 +108,6 @@ function changedFields(next: MenuOptionRequest, current: MenuOption): MenuOption
  * después; las de sistema no cambian de ruta, tipo, permiso, padre ni visibilidad.
  */
 export function MenuOptionFormDialog({ mode, options, onClose }: MenuOptionFormDialogProps) {
-  const titleId = useId();
-  const fullScreen = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
   const can = useCan();
   const open = mode !== null;
   const isEdit = mode?.kind === 'edit';
@@ -129,7 +126,10 @@ export function MenuOptionFormDialog({ mode, options, onClose }: MenuOptionFormD
     handleSubmit,
     reset,
     formState: { errors },
-  } = useForm<MenuOptionFormValues>({ resolver: zodResolver(menuOptionFormSchema), defaultValues: defaults(mode) });
+  } = useForm<MenuOptionFormValues>({
+    resolver: zodResolver(menuOptionFormSchema),
+    defaultValues: defaults(mode),
+  });
   const moduleId = useWatch({ control, name: 'moduleId' });
   const kind = useWatch({ control, name: 'kind' });
 
@@ -145,16 +145,26 @@ export function MenuOptionFormDialog({ mode, options, onClose }: MenuOptionFormD
 
   /** Padres posibles: grupos del mismo módulo, sin la propia opción ni sus descendientes. */
   const parentCandidates = useMemo(() => {
-    const excluded = mode?.kind === 'edit' ? withDescendants(options, mode.option.id) : new Set<string>();
-    return options.filter((option) => option.kind === 'GROUP' && option.module.id === moduleId && !excluded.has(option.id));
+    const excluded =
+      mode?.kind === 'edit' ? withDescendants(options, mode.option.id) : new Set<string>();
+    return options.filter(
+      (option) =>
+        option.kind === 'GROUP' && option.module.id === moduleId && !excluded.has(option.id),
+    );
   }, [options, mode, moduleId]);
 
   const submit = handleSubmit((values) => {
     const request = toRequest(values);
     if (mode?.kind === 'edit') {
-      updateMutation.mutate({ id: mode.option.id, body: changedFields(request, mode.option) }, { onSuccess: onClose });
+      updateMutation.mutate(
+        { id: mode.option.id, body: changedFields(request, mode.option) },
+        { onSuccess: onClose },
+      );
     } else {
-      createMutation.mutate({ ...request, moduleId: values.moduleId, key: values.key.trim() }, { onSuccess: onClose });
+      createMutation.mutate(
+        { ...request, moduleId: values.moduleId, key: values.key.trim() },
+        { onSuccess: onClose },
+      );
     }
   });
 
@@ -162,58 +172,84 @@ export function MenuOptionFormDialog({ mode, options, onClose }: MenuOptionFormD
   const error = mutation.isError ? describeApiError(mutation.error, MENU_OPTION_ERRORS) : null;
 
   return (
-    <Dialog
+    <AdminDialog
       open={open}
       onClose={pending ? undefined : onClose}
-      aria-labelledby={titleId}
-      fullScreen={fullScreen}
-      fullWidth
-      maxWidth="sm"
-      PaperProps={{
-        component: 'form',
-        noValidate: true,
-        onSubmit: (event: FormEvent<HTMLFormElement>) => {
-          void submit(event);
-        },
+      title={isEdit ? 'Editar opción de menú' : 'Nueva opción de menú'}
+      subtitle="Opciones de menú"
+      requiredNote
+      onSubmit={(event) => {
+        void submit(event);
       }}
+      actions={
+        <DialogFooter
+          onCancel={onClose}
+          submitLabel={isEdit ? 'Guardar cambios' : 'Crear opción'}
+          pending={pending}
+        />
+      }
     >
-      <DialogTitle id={titleId}>{isEdit ? 'Editar opción de menú' : 'Nueva opción de menú'}</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2} sx={{ pt: 1 }}>
-          {isSystem ? (
-            <Alert severity="info">Opción del sistema: sólo se cambian etiqueta, descripción, icono, orden y estado.</Alert>
-          ) : null}
-          <Controller
-            control={control}
-            name="moduleId"
-            render={({ field }) => (
-              <TextField
-                select
-                label="Módulo"
-                required
-                value={field.value}
-                onChange={field.onChange}
-                disabled={isEdit || pending}
-                error={Boolean(errors.moduleId)}
-                helperText={errors.moduleId?.message ?? (isEdit ? 'El módulo no se puede cambiar.' : undefined)}
-              >
-                {(modules.data ?? []).map((module) => (
-                  <MenuItem key={module.id} value={module.id}>
-                    {module.name}
-                  </MenuItem>
-                ))}
-              </TextField>
-            )}
-          />
-          <TextField
-            {...register('key')}
-            label="Clave"
-            required
-            disabled={isEdit || pending}
-            error={Boolean(errors.key)}
-            helperText={errors.key?.message ?? (isEdit ? 'La clave no se puede cambiar.' : 'Única y permanente, p. ej. ventas-cotizaciones.')}
-          />
-          <TextField {...register('label')} label="Etiqueta" required disabled={pending} error={Boolean(errors.label)} helperText={errors.label?.message} />
+      {isSystem ? (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Opción del sistema: sólo se cambian etiqueta, descripción, icono, orden y estado.
+        </Alert>
+      ) : null}
+      <FormSection number={1} title="Datos generales">
+        <Controller
+          control={control}
+          name="moduleId"
+          render={({ field }) => (
+            <TextField
+              select
+              label="Módulo"
+              required
+              value={field.value}
+              onChange={field.onChange}
+              disabled={isEdit || pending}
+              error={Boolean(errors.moduleId)}
+              helperText={
+                errors.moduleId?.message ?? (isEdit ? 'El módulo no se puede cambiar.' : undefined)
+              }
+            >
+              {(modules.data ?? []).map((module) => (
+                <MenuItem key={module.id} value={module.id}>
+                  {module.name}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
+        />
+        <TextField
+          {...register('key')}
+          label="Clave"
+          required
+          disabled={isEdit || pending}
+          error={Boolean(errors.key)}
+          helperText={
+            errors.key?.message ??
+            (isEdit
+              ? 'La clave no se puede cambiar.'
+              : 'Única y permanente, p. ej. ventas-cotizaciones.')
+          }
+        />
+        <TextField
+          {...register('label')}
+          label="Etiqueta"
+          required
+          disabled={pending}
+          error={Boolean(errors.label)}
+          helperText={errors.label?.message}
+        />
+        <TextField
+          {...register('icon')}
+          label="Icono"
+          disabled={pending}
+          error={Boolean(errors.icon)}
+          helperText={
+            errors.icon?.message ?? 'Nombre del glifo de Material Symbols, p. ej. manage_accounts.'
+          }
+        />
+        <FullRow>
           <TextField
             {...register('description')}
             label="Descripción"
@@ -223,24 +259,39 @@ export function MenuOptionFormDialog({ mode, options, onClose }: MenuOptionFormD
             error={Boolean(errors.description)}
             helperText={errors.description?.message}
           />
-          <TextField
-            {...register('icon')}
-            label="Icono"
-            disabled={pending}
-            error={Boolean(errors.icon)}
-            helperText={errors.icon?.message ?? 'Nombre del glifo de Material Symbols, p. ej. manage_accounts.'}
-          />
+        </FullRow>
+      </FormSection>
+
+      <FormSection number={2} title="Navegación">
+        <FullRow>
           <Controller
             control={control}
             name="kind"
             render={({ field }) => (
-              <RadioGroup row aria-label="Tipo de opción" value={field.value} onChange={(event) => field.onChange(event.target.value)}>
-                <FormControlLabel value="LINK" control={<Radio />} label="Navegable" disabled={isSystem || pending} />
-                <FormControlLabel value="GROUP" control={<Radio />} label="Grupo" disabled={isSystem || pending} />
+              <RadioGroup
+                row
+                aria-label="Tipo de opción"
+                value={field.value}
+                onChange={(event) => field.onChange(event.target.value)}
+              >
+                <FormControlLabel
+                  value="LINK"
+                  control={<Radio />}
+                  label="Navegable"
+                  disabled={isSystem || pending}
+                />
+                <FormControlLabel
+                  value="GROUP"
+                  control={<Radio />}
+                  label="Grupo"
+                  disabled={isSystem || pending}
+                />
               </RadioGroup>
             )}
           />
-          {kind === 'LINK' ? (
+        </FullRow>
+        {kind === 'LINK' ? (
+          <FullRow>
             <Controller
               control={control}
               name="path"
@@ -263,22 +314,41 @@ export function MenuOptionFormDialog({ mode, options, onClose }: MenuOptionFormD
                 </TextField>
               )}
             />
-          ) : null}
-          <Controller
-            control={control}
-            name="parentId"
-            render={({ field }) => (
-              <TextField select label="Dentro de" value={field.value} onChange={field.onChange} disabled={isSystem || pending}>
-                <MenuItem value="">Raíz del módulo</MenuItem>
-                {parentCandidates.map((option) => (
-                  <MenuItem key={option.id} value={option.id}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </TextField>
-            )}
-          />
-          {permissions.data ? (
+          </FullRow>
+        ) : null}
+        <Controller
+          control={control}
+          name="parentId"
+          render={({ field }) => (
+            <TextField
+              select
+              label="Dentro de"
+              value={field.value}
+              onChange={field.onChange}
+              disabled={isSystem || pending}
+            >
+              <MenuItem value="">Raíz del módulo</MenuItem>
+              {parentCandidates.map((option) => (
+                <MenuItem key={option.id} value={option.id}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
+        />
+        <TextField
+          {...register('sortOrder', { valueAsNumber: true })}
+          label="Orden"
+          type="number"
+          disabled={pending}
+          error={Boolean(errors.sortOrder)}
+          helperText={errors.sortOrder?.message}
+        />
+      </FormSection>
+
+      <FormSection number={3} title="Acceso y estado">
+        {permissions.data ? (
+          <FullRow>
             <Controller
               control={control}
               name="requiredPermissionId"
@@ -300,46 +370,46 @@ export function MenuOptionFormDialog({ mode, options, onClose }: MenuOptionFormD
                 </TextField>
               )}
             />
-          ) : null}
-          <TextField
-            {...register('sortOrder', { valueAsNumber: true })}
-            label="Orden"
-            type="number"
-            disabled={pending}
-            error={Boolean(errors.sortOrder)}
-            helperText={errors.sortOrder?.message}
-          />
-          <Controller
-            control={control}
-            name="isPublic"
-            render={({ field }) => (
-              <FormControlLabel
-                label="Pública (visible sin asignación)"
-                control={<Switch checked={field.value} onChange={(event) => field.onChange(event.target.checked)} disabled={isSystem || pending} />}
-              />
-            )}
-          />
-          <Controller
-            control={control}
-            name="isActive"
-            render={({ field }) => (
-              <FormControlLabel
-                label="Activa"
-                control={<Switch checked={field.value} onChange={(event) => field.onChange(event.target.checked)} disabled={pending} />}
-              />
-            )}
-          />
-          {error ? <Alert severity="error">{error.message}</Alert> : null}
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button variant="text" onClick={onClose} disabled={pending}>
-          Cancelar
-        </Button>
-        <Button type="submit" disabled={pending}>
-          {isEdit ? 'Guardar cambios' : 'Crear opción'}
-        </Button>
-      </DialogActions>
-    </Dialog>
+          </FullRow>
+        ) : null}
+        <Controller
+          control={control}
+          name="isPublic"
+          render={({ field }) => (
+            <FormControlLabel
+              label="Pública (visible sin asignación)"
+              control={
+                <Switch
+                  checked={field.value}
+                  onChange={(event) => field.onChange(event.target.checked)}
+                  disabled={isSystem || pending}
+                />
+              }
+            />
+          )}
+        />
+        <Controller
+          control={control}
+          name="isActive"
+          render={({ field }) => (
+            <FormControlLabel
+              label="Activa"
+              control={
+                <Switch
+                  checked={field.value}
+                  onChange={(event) => field.onChange(event.target.checked)}
+                  disabled={pending}
+                />
+              }
+            />
+          )}
+        />
+      </FormSection>
+      {error ? (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          {error.message}
+        </Alert>
+      ) : null}
+    </AdminDialog>
   );
 }

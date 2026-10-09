@@ -32,6 +32,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   la administración en la sección "Sistema" del menú.
 
 ### Changed
+- **Look and feel** alineado con el prototipo (`docs/design/prototype/`):
+  cabecera con módulos en pestañas, menú lateral por secciones (Principal,
+  Módulos, Sistema) con grupos plegables, encabezado de página en banda,
+  etiquetas de formulario sobre el campo, tablas en tarjeta con chips de
+  filtro, diálogos con secciones numeradas, login con fondo completo y panel
+  de inicio con datos reales. Sin controles sin función (decisión del
+  responsable).
 - **Contrato:** `GET /roles` pasa a ser paginado (`{ data, pagination }`).
 - **Contrato:** `PATCH /users/{id}` ya no acepta `status`; el estado cambia con
   `POST /users/{id}/suspend` y `/reactivate`, que cierran sesiones y aplican

@@ -1,6 +1,31 @@
-import type { Components, Theme } from '@mui/material';
+import { alpha, type Components, type Theme } from '@mui/material';
 
-import { duration, easing, layout, semantic, soft } from './tokens';
+import {
+  darkSurfaces,
+  duration,
+  easing,
+  fonts,
+  formField,
+  gradients,
+  layout,
+  lightSurfaces,
+  soft,
+  softDark,
+  softTintsFor,
+} from './tokens';
+
+/** Superficies del modo activo que la paleta de MUI no expone (borde marcado, gris sutil). */
+function surfacesOf(theme: Theme) {
+  return theme.palette.mode === 'dark' ? darkSurfaces : lightSurfaces;
+}
+
+function navySoftOf(theme: Theme): string {
+  return theme.palette.mode === 'dark' ? softDark.navy : soft.navy;
+}
+
+function brandSoftOf(theme: Theme): string {
+  return theme.palette.mode === 'dark' ? softDark.brand : soft.brand;
+}
 
 /**
  * Overrides de componentes: aquí vive el motion system del spec.
@@ -105,14 +130,40 @@ export const components: Components<Omit<Theme, 'components'>> = {
   MuiCard: {
     defaultProps: { elevation: 0 },
     styleOverrides: {
-      root: {
+      // `.card-x` del prototipo: borde, radio 14 y sombra corta.
+      root: ({ theme }) => ({
         borderRadius: layout.radius,
-        // El realce en hover sólo existe con puntero fino.
-        '@media (hover: hover)': {
+        boxShadow: theme.shadows[1],
+        // Sólo se realza una tarjeta que se puede pulsar, y sólo con puntero fino.
+        '@media (hover: hover) and (pointer: fine)': {
           transition: `transform ${duration.hover}ms ease, box-shadow ${duration.hover}ms ease`,
-          '&:hover': { transform: 'translateY(-2px)' },
+          '&:has(.MuiCardActionArea-root):hover': {
+            transform: 'translateY(-2px)',
+            boxShadow: theme.shadows[4],
+          },
         },
-      },
+      }),
+    },
+  },
+
+  MuiCardHeader: {
+    styleOverrides: {
+      // `.card-x-header`: franja con degradado sutil y borde inferior.
+      root: ({ theme }) => ({
+        paddingBlock: theme.spacing(1.75),
+        borderBottom: `1px solid ${theme.palette.divider}`,
+        backgroundImage:
+          theme.palette.mode === 'dark' ? gradients.cardHeaderDark : gradients.cardHeaderLight,
+      }),
+      title: { fontFamily: fonts.heading, fontWeight: 600, fontSize: '0.96rem' },
+      subheader: ({ theme }) => ({ fontSize: '0.78rem', color: theme.palette.text.secondary }),
+    },
+  },
+
+  MuiAppBar: {
+    styleOverrides: {
+      // La barra superior sólo lleva borde inferior (lo pone el Topbar), sin sombra.
+      root: { border: 0, borderRadius: 0, boxShadow: 'none' },
     },
   },
 
@@ -120,6 +171,12 @@ export const components: Components<Omit<Theme, 'components'>> = {
     defaultProps: { transitionDuration: { enter: duration.modalIn, exit: duration.modalOut } },
     styleOverrides: {
       paper: { borderRadius: layout.radius },
+    },
+  },
+
+  MuiDialogTitle: {
+    styleOverrides: {
+      root: { fontFamily: fonts.heading, fontWeight: 600, fontSize: '1.02rem' },
     },
   },
 
@@ -153,16 +210,121 @@ export const components: Components<Omit<Theme, 'components'>> = {
     defaultProps: { size: 'medium', fullWidth: true, variant: 'outlined' },
   },
 
+  // ---- Campos de formulario (`.field-label` + `.input-x` del prototipo) ----
+  // La etiqueta va SIEMPRE encima del campo, nunca flotando dentro: se fuerza
+  // `shrink` y se saca la etiqueta del posicionamiento absoluto. Así todos los
+  // formularios (incluidos los diálogos de administración) lo heredan sin
+  // tocar su código. El `<label for>` se conserva: la accesibilidad y
+  // `getByLabelText` no cambian.
+  MuiFormLabel: {
+    styleOverrides: {
+      root: ({ theme }) => ({
+        fontSize: formField.labelFontSize,
+        fontWeight: 600,
+        lineHeight: 1.4,
+        color: theme.palette.text.primary,
+        '&.Mui-focused': { color: theme.palette.text.primary },
+        '&.Mui-disabled': { color: theme.palette.text.secondary },
+      }),
+      // Asterisco rojo de campo obligatorio.
+      asterisk: ({ theme }) => ({ color: theme.palette.error.main }),
+    },
+  },
+
+  MuiInputLabel: {
+    defaultProps: { shrink: true },
+    styleOverrides: {
+      root: {
+        // Gana a `.MuiInputLabel-outlined.MuiInputLabel-shrink` (posición absoluta + escala).
+        '&, &.MuiInputLabel-shrink, &.MuiInputLabel-sizeSmall': {
+          position: 'relative',
+          transform: 'none',
+          maxWidth: '100%',
+          whiteSpace: 'normal',
+          pointerEvents: 'auto',
+          marginBottom: formField.labelGap,
+        },
+      },
+    },
+  },
+
   MuiInputBase: {
     styleOverrides: {
       // 16 px mínimo: por debajo, iOS hace zoom al enfocar el campo.
-      input: { fontSize: '1rem' },
+      input: {
+        fontSize: '1rem',
+        // El anillo de foco lo pinta el contenedor; el contorno global de
+        // `:focus-visible` sobre el `<input>` interno sería un segundo anillo.
+        '&:focus-visible': { outline: 'none' },
+      },
     },
   },
 
   MuiOutlinedInput: {
     styleOverrides: {
-      root: { borderRadius: layout.radiusSm },
+      root: ({ theme }) => ({
+        borderRadius: layout.radiusSm,
+        backgroundColor: theme.palette.background.paper,
+        transition: `box-shadow ${duration.hover}ms ease`,
+        '&:hover:not(.Mui-disabled):not(.Mui-error):not(.Mui-focused) .MuiOutlinedInput-notchedOutline':
+          {
+            borderColor: surfacesOf(theme).borderStrong,
+          },
+        '&.Mui-focused': {
+          boxShadow: `0 0 0 ${formField.focusRingWidth}px ${alpha(theme.palette.primary.main, formField.focusRingAlpha)}`,
+        },
+        '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderWidth: 1 },
+        '&.Mui-error.Mui-focused': {
+          boxShadow: `0 0 0 ${formField.focusRingWidth}px ${alpha(theme.palette.error.main, formField.focusRingAlpha)}`,
+        },
+        '&.Mui-disabled': { backgroundColor: surfacesOf(theme).subtle },
+      }),
+      // Sin "muesca": la etiqueta ya no vive sobre el borde.
+      notchedOutline: ({ theme }) => ({
+        top: 0,
+        borderColor: theme.palette.divider,
+        '& legend': { display: 'none' },
+      }),
+      input: ({ theme }) => ({
+        padding: `${formField.inputPaddingY}px ${formField.inputPaddingX}px`,
+        [theme.breakpoints.up('lg')]: {
+          padding: `${formField.inputPaddingYDesktop}px ${formField.inputPaddingX}px`,
+        },
+        '&::placeholder': { color: theme.palette.text.secondary, opacity: 0.8 },
+      }),
+      inputSizeSmall: {
+        paddingTop: formField.inputPaddingYDesktop,
+        paddingBottom: formField.inputPaddingYDesktop,
+      },
+      multiline: { padding: `${formField.inputPaddingY}px ${formField.inputPaddingX}px` },
+      inputMultiline: { padding: 0 },
+      adornedStart: { paddingLeft: formField.inputPaddingX },
+      inputAdornedStart: { paddingLeft: 0 },
+    },
+  },
+
+  MuiInputAdornment: {
+    styleOverrides: {
+      root: ({ theme }) => ({ color: theme.palette.text.secondary }),
+    },
+  },
+
+  MuiFormHelperText: {
+    styleOverrides: {
+      root: { marginLeft: 0, marginRight: 0, marginTop: 5, fontSize: formField.helperFontSize },
+    },
+  },
+
+  MuiAutocomplete: {
+    styleOverrides: {
+      // Misma altura que un campo normal (Autocomplete trae su propio relleno de 56 px).
+      inputRoot: ({ theme }) => ({
+        '&.MuiOutlinedInput-root:not(.MuiInputBase-sizeSmall)': {
+          paddingTop: 3,
+          paddingBottom: 3,
+          [theme.breakpoints.up('lg')]: { paddingTop: 1, paddingBottom: 1 },
+        },
+      }),
     },
   },
 
@@ -172,22 +334,41 @@ export const components: Components<Omit<Theme, 'components'>> = {
       // relleno sólido de MUI, que compite con las acciones primarias.
       // MUI no expone una ranura `filled<Color>` para los semánticos, así que
       // la variante se resuelve con `ownerState`.
-      root: ({ ownerState }) => ({
-        borderRadius: 8,
-        fontWeight: 600,
-        ...(ownerState.variant === 'filled' && ownerState.color === 'success'
-          ? { backgroundColor: soft.success, color: semantic.success }
-          : {}),
-        ...(ownerState.variant === 'filled' && ownerState.color === 'warning'
-          ? { backgroundColor: soft.warning, color: semantic.warning }
-          : {}),
-        ...(ownerState.variant === 'filled' && ownerState.color === 'error'
-          ? { backgroundColor: soft.danger, color: semantic.danger }
-          : {}),
-        ...(ownerState.variant === 'filled' && ownerState.color === 'info'
-          ? { backgroundColor: soft.info, color: semantic.info }
-          : {}),
-      }),
+      // `.badge-x` del prototipo: píldora, 600 y tinte suave. En tema oscuro el
+      // texto toma el `main` de la paleta oscura, que ya es el tono aclarado.
+      root: ({ ownerState, theme }) => {
+        const filled = ownerState.variant !== 'outlined';
+        const tint = (background: string, color: string) =>
+          filled ? { backgroundColor: background, color } : {};
+        const tints = softTintsFor(theme.palette.mode);
+        return {
+          borderRadius: layout.radiusPill,
+          fontWeight: 600,
+          ...(!ownerState.color || ownerState.color === 'default'
+            ? tint(navySoftOf(theme), theme.palette.text.primary)
+            : {}),
+          ...(ownerState.color === 'primary'
+            ? tint(brandSoftOf(theme), theme.palette.primary.main)
+            : {}),
+          ...(ownerState.color === 'secondary'
+            ? tint(tints.steel, theme.palette.secondary.main)
+            : {}),
+          ...(ownerState.color === 'success'
+            ? tint(tints.success, theme.palette.success.main)
+            : {}),
+          ...(ownerState.color === 'warning'
+            ? tint(tints.warning, theme.palette.warning.main)
+            : {}),
+          ...(ownerState.color === 'error' ? tint(tints.danger, theme.palette.error.main) : {}),
+          ...(ownerState.color === 'info' ? tint(tints.info, theme.palette.info.main) : {}),
+          ...(!filled && (!ownerState.color || ownerState.color === 'default')
+            ? { borderColor: theme.palette.divider, color: theme.palette.text.secondary }
+            : {}),
+        };
+      },
+      sizeSmall: { fontSize: '0.72rem' },
+      // El icono de borrar hereda el color del chip: el gris de MUI desaparece sobre el tinte.
+      deleteIcon: { color: 'inherit', opacity: 0.7, '&:hover': { color: 'inherit', opacity: 1 } },
     },
   },
 

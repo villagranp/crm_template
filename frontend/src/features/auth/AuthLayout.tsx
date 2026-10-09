@@ -1,13 +1,29 @@
-import { Box, Card, CardContent, Stack, Typography } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import type { ReactNode } from 'react';
 
 import { BrandLogo } from '@/components/layout/BrandLogo';
-import { authLayout, brandAssets } from '@/theme/tokens';
+import { SnowCanvas } from '@/features/auth/SnowCanvas';
+import {
+  authLayout,
+  brand,
+  brandAssets,
+  brandIdentity,
+  fonts,
+  fontSizes,
+  onBrand,
+} from '@/theme/tokens';
+
+export interface AuthFeature {
+  icon: ReactNode;
+  label: string;
+}
 
 interface AuthLayoutProps {
-  /** Título del panel de marca (visible desde `md`). */
+  /** Título del panel de marca (visible desde `lg`). */
   panelTitle: string;
   panelDescription: string;
+  /** Viñetas del panel de marca: sólo capacidades que existen hoy. */
+  features?: AuthFeature[];
   /** Título de la tarjeta: es el `h1` accesible de la pantalla. */
   title: string;
   subtitle?: ReactNode;
@@ -15,63 +31,213 @@ interface AuthLayoutProps {
 }
 
 /**
- * Marco de las pantallas de acceso: panel de marca a la izquierda sobre el
- * fondo corporativo y tarjeta con el formulario a la derecha (en móvil sólo la
- * tarjeta). Vive fuera del shell porque aún no hay menú que mostrar.
+ * Marco de las pantallas de acceso (`pages/auth/login.html` del prototipo):
+ * foto corporativa a sangre con velo y nieve decorativa, tarjeta centrada
+ * dividida desde `lg` (panel azul de marca a la izquierda, formulario blanco a
+ * la derecha) y una sola columna en móvil. Vive fuera del shell porque aún no
+ * hay menú que mostrar.
  */
-export function AuthLayout({ panelTitle, panelDescription, title, subtitle, children }: AuthLayoutProps) {
+export function AuthLayout({
+  panelTitle,
+  panelDescription,
+  features = [],
+  title,
+  subtitle,
+  children,
+}: AuthLayoutProps) {
   return (
-    <Box sx={{ minHeight: '100dvh', display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.1fr 1fr' } }}>
+    <Box
+      sx={{
+        minHeight: '100dvh',
+        display: 'flex',
+        flexDirection: 'column',
+        position: 'relative',
+        bgcolor: brand[900],
+      }}
+    >
+      {/* Fondo: foto + velo (en ::after) + nieve. Decorativo. */}
       <Box
         aria-hidden="true"
         sx={{
-          display: { xs: 'none', md: 'grid' },
-          alignContent: 'center',
-          p: 8,
-          color: 'common.white',
-          position: 'relative',
-          backgroundImage: `${authLayout.backgroundOverlay}, url(${brandAssets.authBackground})`,
+          position: 'fixed',
+          inset: 0,
+          zIndex: 0,
+          backgroundImage: `url(${brandAssets.authBackground}), ${authLayout.backgroundFallback}`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+          '&::after': {
+            content: '""',
+            position: 'absolute',
+            inset: 0,
+            backgroundImage: authLayout.backgroundOverlay,
+          },
         }}
       >
-        <Stack spacing={3} sx={{ maxWidth: authLayout.brandPanelMaxWidth }}>
-          <BrandLogo onDark height={authLayout.logoHeightPanel} />
-          <Typography variant="h1" component="p" sx={{ color: 'inherit' }}>
-            {panelTitle}
-          </Typography>
-          <Typography variant="body1" sx={{ color: 'inherit', opacity: 0.85 }}>
-            {panelDescription}
-          </Typography>
-        </Stack>
+        <SnowCanvas />
       </Box>
 
       <Box
         component="main"
-        sx={{ display: 'grid', placeItems: 'center', p: { xs: 2, sm: 3, md: 6 }, bgcolor: 'background.default' }}
+        sx={(theme) => ({
+          position: 'relative',
+          zIndex: 1,
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          pt: `calc(${theme.spacing(2.5)} + env(safe-area-inset-top, 0px))`,
+          pb: theme.spacing(2.5),
+          pl: `calc(${theme.spacing(2)} + env(safe-area-inset-left, 0px))`,
+          pr: `calc(${theme.spacing(2)} + env(safe-area-inset-right, 0px))`,
+          '@media (max-height: 560px) and (orientation: landscape)': {
+            justifyContent: 'flex-start',
+          },
+        })}
       >
-        <Card sx={{ width: '100%', maxWidth: authLayout.formCardMaxWidth }}>
-          <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
-            <Stack spacing={3}>
-              <Box sx={{ display: { xs: 'block', md: 'none' } }}>
-                <BrandLogo height={authLayout.logoHeightMobile} />
-              </Box>
+        <Box
+          sx={{
+            width: '100%',
+            maxWidth: { xs: authLayout.cardMaxWidthCompact, lg: authLayout.cardMaxWidth },
+            minHeight: { lg: authLayout.cardMinHeight },
+            mx: 'auto',
+            display: 'flex',
+            bgcolor: 'background.paper',
+            color: 'text.primary',
+            borderRadius: `${authLayout.cardRadius}px`,
+            boxShadow: authLayout.cardShadow,
+            overflow: 'hidden',
+          }}
+        >
+          {/* Panel de marca: repite la identidad, así que se oculta a lectores de pantalla. */}
+          <Box
+            aria-hidden="true"
+            sx={{
+              display: { xs: 'none', lg: 'flex' },
+              flexDirection: 'column',
+              flex: `0 0 ${authLayout.asideBasis}`,
+              p: 5,
+              color: 'common.white',
+              backgroundImage: authLayout.asideBackground,
+            }}
+          >
+            <BrandLogo onDark height={authLayout.logoHeightPanel} />
 
-              <Box>
-                <Typography variant="h3" component="h1" gutterBottom>
-                  {title}
+            <Box sx={{ mt: 'auto', pb: 3 }}>
+              <Typography
+                component="p"
+                sx={{
+                  fontFamily: fonts.heading,
+                  fontWeight: 700,
+                  fontSize: fontSizes.authAsideTitle,
+                  lineHeight: 1.2,
+                  mb: 1.5,
+                }}
+              >
+                {panelTitle}
+              </Typography>
+              <Typography
+                sx={{
+                  color: onBrand.textMuted,
+                  fontSize: fontSizes.nav,
+                  maxWidth: authLayout.asideTextMaxWidth,
+                  mb: 3,
+                }}
+              >
+                {panelDescription}
+              </Typography>
+
+              {features.length > 0 ? (
+                <Box
+                  component="ul"
+                  sx={{
+                    listStyle: 'none',
+                    p: 0,
+                    m: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 1.25,
+                  }}
+                >
+                  {features.map((feature) => (
+                    <Box
+                      component="li"
+                      key={feature.label}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1.25,
+                        fontSize: fontSizes.topnav,
+                        color: onBrand.text,
+                        '& .MuiSvgIcon-root': { color: brand[200] },
+                      }}
+                    >
+                      {feature.icon}
+                      {feature.label}
+                    </Box>
+                  ))}
+                </Box>
+              ) : null}
+            </Box>
+          </Box>
+
+          {/* Formulario */}
+          <Box
+            sx={{
+              flex: 1,
+              minWidth: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: { lg: 'center' },
+              pt: { xs: 3.5, sm: 4.5, lg: 6 },
+              pb: { xs: 3, sm: 4, lg: 6 },
+              px: { xs: 2.5, sm: 4, lg: 6.5 },
+            }}
+          >
+            <Box sx={{ display: { xs: 'flex', lg: 'none' }, mb: 3 }}>
+              <BrandLogo height={authLayout.logoHeightMobile} />
+            </Box>
+
+            <Box sx={{ mb: 3 }}>
+              <Typography
+                variant="h1"
+                sx={{
+                  fontFamily: fonts.heading,
+                  fontWeight: 700,
+                  fontSize: fontSizes.authTitle,
+                  mb: 0.75,
+                }}
+              >
+                {title}
+              </Typography>
+              {subtitle ? (
+                <Typography
+                  component="div"
+                  sx={{ color: 'text.secondary', fontSize: fontSizes.nav }}
+                >
+                  {subtitle}
                 </Typography>
-                {subtitle ? (
-                  <Typography variant="body2" color="text.secondary">
-                    {subtitle}
-                  </Typography>
-                ) : null}
-              </Box>
+              ) : null}
+            </Box>
 
-              {children}
-            </Stack>
-          </CardContent>
-        </Card>
+            {children}
+          </Box>
+        </Box>
+      </Box>
+
+      <Box
+        component="footer"
+        sx={(theme) => ({
+          position: 'relative',
+          zIndex: 1,
+          textAlign: 'center',
+          px: 2,
+          pb: `calc(${theme.spacing(2)} + env(safe-area-inset-bottom, 0px))`,
+          fontSize: fontSizes.small,
+          color: authLayout.footerText,
+        })}
+      >
+        © {new Date().getFullYear()} {brandIdentity.productName}
       </Box>
     </Box>
   );

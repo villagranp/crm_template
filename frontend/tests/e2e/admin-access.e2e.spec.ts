@@ -40,7 +40,12 @@ const TEST_TIMEOUT_MS = 120_000;
  * Promesa de la respuesta de la API con ese método y ruta. `query` exige
  * además esos parámetros, para no confundir una búsqueda con la carga inicial.
  */
-function waitForApi(page: Page, method: string, path: RegExp, query: Record<string, string> = {}): Promise<Response> {
+function waitForApi(
+  page: Page,
+  method: string,
+  path: RegExp,
+  query: Record<string, string> = {},
+): Promise<Response> {
   return page.waitForResponse((response) => {
     if (response.request().method() !== method) {
       return false;
@@ -123,7 +128,9 @@ test.describe.serial('administración de accesos', () => {
       await roleDetail.getByRole('button', { name: 'Guardar permisos' }).click();
       const response = await saved;
       expect(response.status()).toBe(HTTP_OK);
-      expect(((await response.json()) as { permissionCodes: string[] }).permissionCodes).toEqual(['equipos.ver']);
+      expect(((await response.json()) as { permissionCodes: string[] }).permissionCodes).toEqual([
+        'equipos.ver',
+      ]);
       await expect(roleDetail.getByText('Permisos actualizados.')).toBeVisible();
     });
 
@@ -137,7 +144,9 @@ test.describe.serial('administración de accesos', () => {
       await roleDetail.getByRole('button', { name: 'Guardar opciones' }).click();
       const response = await saved;
       expect(response.status()).toBe(HTTP_OK);
-      expect(((await response.json()) as { menuOptionIds: string[] }).menuOptionIds).toHaveLength(1);
+      expect(((await response.json()) as { menuOptionIds: string[] }).menuOptionIds).toHaveLength(
+        1,
+      );
       await expect(roleDetail.getByText('Opciones actualizadas.')).toBeVisible();
 
       await roleDetail.getByRole('button', { name: 'Cerrar' }).click();
@@ -191,9 +200,16 @@ test.describe.serial('administración de accesos', () => {
 
     await test.step('ve sólo el menú que le concede su rol', async () => {
       const navigation = page.getByRole('navigation', { name: 'Navegación principal' });
+      // Las opciones del módulo viven dentro de su grupo desplegable del menú lateral.
+      const adminGroup = navigation.getByRole('button', { name: 'Administración', exact: true });
+      if ((await adminGroup.getAttribute('aria-expanded')) !== 'true') {
+        await adminGroup.click();
+      }
       await expect(navigation.getByRole('link', { name: 'Equipos', exact: true })).toBeVisible();
       await expect(navigation.getByRole('link', { name: 'Usuarios', exact: true })).toHaveCount(0);
-      await expect(navigation.getByRole('link', { name: 'Roles y permisos', exact: true })).toHaveCount(0);
+      await expect(
+        navigation.getByRole('link', { name: 'Roles y permisos', exact: true }),
+      ).toHaveCount(0);
     });
 
     await test.step('una pantalla sin permiso muestra «Sin acceso»', async () => {
@@ -218,7 +234,10 @@ test.describe.serial('administración de accesos', () => {
       await page.getByLabel('Buscar por nombre o correo').fill(userEmail);
       expect((await search).status()).toBe(HTTP_OK);
 
-      const row = page.getByRole('table', { name: 'Usuarios' }).getByRole('row').filter({ hasText: userEmail });
+      const row = page
+        .getByRole('table', { name: 'Usuarios' })
+        .getByRole('row')
+        .filter({ hasText: userEmail });
       await expect(row).toHaveCount(1);
       await row.getByRole('button', { name: `Ver ${userFirstName} ${userLastName}` }).click();
 
@@ -227,7 +246,9 @@ test.describe.serial('administración de accesos', () => {
       await detail.getByRole('button', { name: 'Suspender' }).click();
 
       const confirm = page.getByRole('dialog', { name: 'Suspender usuario' });
-      await confirm.getByLabel(/^motivo/i).fill('Prueba E2E: verificar que la suspensión corta el acceso.');
+      await confirm
+        .getByLabel(/^motivo/i)
+        .fill('Prueba E2E: verificar que la suspensión corta el acceso.');
 
       const suspended = waitForApi(page, 'POST', /^\/users\/[^/]+\/suspend$/);
       await confirm.getByRole('button', { name: 'Suspender' }).click();

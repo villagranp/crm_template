@@ -1,8 +1,7 @@
-import CloseIcon from '@mui/icons-material/Close';
-import { Alert, Box, Button, Chip, Drawer, IconButton, Skeleton, Stack, Typography } from '@mui/material';
-import { useId, type ReactNode } from 'react';
+import { Alert, Box, Button, Chip, Skeleton, Stack, Typography } from '@mui/material';
+import type { ReactNode } from 'react';
 
-import { describeApiError } from '@/features/admin/common';
+import { AdminDrawer, describeApiError, DetailList, DetailSection } from '@/features/admin/common';
 
 import { APPROVAL_STATUS_VIEW, formatDateTime } from '../approval-status';
 import type { ApprovalStep } from '../approvals.api';
@@ -11,19 +10,6 @@ import { useApproval } from '../approvals.queries';
 export interface ApprovalDetailDrawerProps {
   approvalId: string | null;
   onClose: () => void;
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <Box sx={{ display: 'contents' }}>
-      <Typography component="dt" variant="caption" color="text.secondary">
-        {label}
-      </Typography>
-      <Typography component="dd" variant="body2" sx={{ m: 0, minWidth: 0, overflowWrap: 'anywhere' }}>
-        {children}
-      </Typography>
-    </Box>
-  );
 }
 
 function approverLabel(step: ApprovalStep): string {
@@ -52,7 +38,10 @@ function StepsTimeline({ steps }: { steps: ApprovalStep[] }) {
         const isLast = index === steps.length - 1;
         return (
           <Box component="li" key={step.id} sx={{ display: 'flex', gap: 2 }}>
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }} aria-hidden>
+            <Box
+              sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}
+              aria-hidden
+            >
               <Box
                 sx={{
                   width: (theme) => theme.spacing(1.5),
@@ -62,7 +51,9 @@ function StepsTimeline({ steps }: { steps: ApprovalStep[] }) {
                   bgcolor: status.color === 'default' ? 'text.disabled' : `${status.color}.main`,
                 }}
               />
-              {isLast ? null : <Box sx={{ flex: 1, borderLeft: 1, borderColor: 'divider', my: 0.5 }} />}
+              {isLast ? null : (
+                <Box sx={{ flex: 1, borderLeft: 1, borderColor: 'divider', my: 0.5 }} />
+              )}
             </Box>
             <Box sx={{ pb: isLast ? 0 : 2, minWidth: 0 }}>
               <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
@@ -73,10 +64,16 @@ function StepsTimeline({ steps }: { steps: ApprovalStep[] }) {
               </Stack>
               <Typography variant="body2">{approverLabel(step)}</Typography>
               <Typography variant="caption" color="text.secondary">
-                {step.resolvedAt ? `Resuelto: ${formatDateTime(step.resolvedAt)}` : `Creado: ${formatDateTime(step.createdAt)}`}
+                {step.resolvedAt
+                  ? `Resuelto: ${formatDateTime(step.resolvedAt)}`
+                  : `Creado: ${formatDateTime(step.createdAt)}`}
               </Typography>
               {step.comment ? (
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, overflowWrap: 'anywhere' }}>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mt: 0.5, overflowWrap: 'anywhere' }}
+                >
                   {`«${step.comment}»`}
                 </Typography>
               ) : null}
@@ -90,7 +87,6 @@ function StepsTimeline({ steps }: { steps: ApprovalStep[] }) {
 
 /** Detalle de una solicitud: datos, motivo, instantánea y cadena de pasos. Sin acciones (D12). */
 export function ApprovalDetailDrawer({ approvalId, onClose }: ApprovalDetailDrawerProps) {
-  const titleId = useId();
   const approval = useApproval(approvalId);
 
   let content: ReactNode = null;
@@ -107,7 +103,12 @@ export function ApprovalDetailDrawer({ approvalId, onClose }: ApprovalDetailDraw
       <Alert
         severity="error"
         action={
-          <Button color="inherit" size="small" variant="text" onClick={() => void approval.refetch()}>
+          <Button
+            color="inherit"
+            size="small"
+            variant="text"
+            onClick={() => void approval.refetch()}
+          >
             Reintentar
           </Button>
         }
@@ -120,64 +121,68 @@ export function ApprovalDetailDrawer({ approvalId, onClose }: ApprovalDetailDraw
     const status = APPROVAL_STATUS_VIEW[detail.status];
     content = (
       <Stack spacing={3}>
-        <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 2, rowGap: 1 }}>
-          <Field label="Estado">
-            <Chip size="small" color={status.color} label={status.label} />
-          </Field>
-          <Field label="Solicitante">{detail.requestedBy.displayName}</Field>
-          <Field label="Recurso">{`${detail.resourceType} · ${detail.resourceId}`}</Field>
-          <Field label="Creada">{formatDateTime(detail.createdAt)}</Field>
-          <Field label="Resuelta">{formatDateTime(detail.resolvedAt)}</Field>
-          {detail.reason ? <Field label="Motivo">{detail.reason}</Field> : null}
-        </Box>
+        <DetailSection number={1} title="Datos generales">
+          <DetailList
+            items={[
+              {
+                label: 'Estado',
+                value: <Chip size="small" color={status.color} label={status.label} />,
+              },
+              { label: 'Solicitante', value: detail.requestedBy.displayName },
+              {
+                label: 'Recurso',
+                value: `${detail.resourceType} · ${detail.resourceId}`,
+                wide: true,
+              },
+              { label: 'Creada', value: formatDateTime(detail.createdAt) },
+              { label: 'Resuelta', value: formatDateTime(detail.resolvedAt) },
+              ...(detail.reason ? [{ label: 'Motivo', value: detail.reason, wide: true }] : []),
+            ]}
+          />
+        </DetailSection>
 
-        <Box component="section" aria-label="Historial">
-          <Typography variant="subtitle2" component="h3" sx={{ mb: 1 }}>
-            Historial
-          </Typography>
+        <DetailSection number={2} title="Historial">
           <StepsTimeline steps={detail.steps} />
-        </Box>
+        </DetailSection>
 
         {detail.payload !== null ? (
-          <Box component="section" aria-label="Lo que se aprueba">
-            <Typography variant="subtitle2" component="h3" sx={{ mb: 1 }}>
-              Lo que se aprueba
-            </Typography>
+          <DetailSection number={3} title="Lo que se aprueba">
             <Box
               component="pre"
               className="scroll-x"
-              sx={{ m: 0, p: 1.5, bgcolor: 'action.hover', borderRadius: 1, typography: 'body2', fontFamily: 'monospace' }}
+              sx={{
+                m: 0,
+                p: 1.5,
+                bgcolor: 'action.hover',
+                borderRadius: 1,
+                typography: 'body2',
+                fontFamily: 'monospace',
+              }}
             >
               {JSON.stringify(detail.payload, null, 2)}
             </Box>
-          </Box>
+          </DetailSection>
         ) : null}
 
-        <Alert severity="info">La resolución de solicitudes llegará con el primer flujo de negocio que las utilice.</Alert>
+        <Alert severity="info">
+          La resolución de solicitudes llegará con el primer flujo de negocio que las utilice.
+        </Alert>
       </Stack>
     );
   }
 
-  const heading = approval.data ? `${approval.data.code} · ${approval.data.title}` : 'Solicitud de aprobación';
+  const heading = approval.data
+    ? `${approval.data.code} · ${approval.data.title}`
+    : 'Solicitud de aprobación';
 
   return (
-    <Drawer
-      anchor="right"
+    <AdminDrawer
       open={approvalId !== null}
       onClose={onClose}
-      slotProps={{ paper: { 'aria-labelledby': titleId, sx: { width: { xs: '100%', sm: (theme) => theme.spacing(70) } } } }}
+      title={heading}
+      subtitle="Aprobaciones"
     >
-      <Stack spacing={3} sx={{ p: 3 }}>
-        <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1}>
-          <Typography id={titleId} variant="h6" component="h2" sx={{ overflowWrap: 'anywhere' }}>
-            {heading}
-          </Typography>
-          <IconButton aria-label="Cerrar detalle" onClick={onClose}>
-            <CloseIcon />
-          </IconButton>
-        </Stack>
-        {content}
-      </Stack>
-    </Drawer>
+      {content}
+    </AdminDrawer>
   );
 }

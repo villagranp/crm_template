@@ -1,17 +1,10 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import {
-  Alert,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
-  TextField,
-} from '@mui/material';
-import { useEffect, useId, useMemo, type FormEvent, type ReactNode } from 'react';
+import { Alert, DialogContentText, TextField } from '@mui/material';
+import { useEffect, useId, useMemo, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
+
+import { AdminDialog, DialogFooter } from './AdminDialog';
 
 /** Longitud mínima de la razón de una asignación directa (ADR-018 §4, PLAN-ADMIN D5). */
 export const REASON_MIN_LENGTH = 10;
@@ -70,7 +63,6 @@ export function ConfirmDialog({
   onConfirm,
   onClose,
 }: ConfirmDialogProps) {
-  const titleId = useId();
   const descriptionId = useId();
   const requiresReason = reason !== undefined;
   const minLength = reason?.minLength ?? REASON_MIN_LENGTH;
@@ -106,58 +98,54 @@ export function ConfirmDialog({
   const submit = handleSubmit((values) => onConfirm(requiresReason ? values.reason : undefined));
 
   return (
-    <Dialog
+    <AdminDialog
       open={open}
       onClose={isPending ? undefined : onClose}
-      aria-labelledby={titleId}
-      aria-describedby={description ? descriptionId : undefined}
-      fullWidth
+      title={title}
+      describedBy={description ? descriptionId : undefined}
       maxWidth="sm"
-      PaperProps={{
-        component: 'form',
-        noValidate: true,
-        onSubmit: (event: FormEvent<HTMLFormElement>) => {
-          void submit(event);
-        },
+      fullScreenBelow="xs"
+      onSubmit={(event) => {
+        void submit(event);
       }}
+      actions={
+        <DialogFooter
+          onCancel={onClose}
+          cancelLabel={cancelLabel}
+          submitLabel={confirmLabel}
+          pending={isPending}
+          destructive={destructive}
+        />
+      }
     >
-      <DialogTitle id={titleId}>{title}</DialogTitle>
-      <DialogContent>
-        {description ? (
-          <DialogContentText id={descriptionId} sx={{ mb: requiresReason ? 2 : 0 }}>
-            {description}
-          </DialogContentText>
-        ) : null}
+      {description ? (
+        <DialogContentText id={descriptionId} sx={{ mb: requiresReason ? 2 : 0 }}>
+          {description}
+        </DialogContentText>
+      ) : null}
 
-        {requiresReason ? (
-          <TextField
-            {...register('reason')}
-            label={reason.label ?? 'Razón'}
-            required
-            fullWidth
-            multiline
-            minRows={2}
-            autoFocus
-            disabled={isPending}
-            error={Boolean(errors.reason)}
-            helperText={errors.reason?.message ?? reason.helperText ?? `Mínimo ${minLength} caracteres.`}
-          />
-        ) : null}
+      {requiresReason ? (
+        <TextField
+          {...register('reason')}
+          label={reason.label ?? 'Razón'}
+          required
+          fullWidth
+          multiline
+          minRows={2}
+          autoFocus
+          disabled={isPending}
+          error={Boolean(errors.reason)}
+          helperText={
+            errors.reason?.message ?? reason.helperText ?? `Mínimo ${minLength} caracteres.`
+          }
+        />
+      ) : null}
 
-        {errorMessage ? (
-          <Alert severity="error" sx={{ mt: 2 }}>
-            {errorMessage}
-          </Alert>
-        ) : null}
-      </DialogContent>
-      <DialogActions>
-        <Button variant="text" onClick={onClose} disabled={isPending}>
-          {cancelLabel}
-        </Button>
-        <Button type="submit" color={destructive ? 'error' : 'primary'} disabled={isPending}>
-          {confirmLabel}
-        </Button>
-      </DialogActions>
-    </Dialog>
+      {errorMessage ? (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          {errorMessage}
+        </Alert>
+      ) : null}
+    </AdminDialog>
   );
 }

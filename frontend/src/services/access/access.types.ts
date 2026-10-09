@@ -24,6 +24,11 @@ export interface MenuModule {
   label: string;
   icon: string | null;
   order: number;
+  /**
+   * Módulo de sistema (administración, configuración): el shell lo agrupa en
+   * la sección "Sistema" del menú lateral, separado de los módulos de negocio.
+   */
+  isSystem: boolean;
   options: MenuOptionNode[];
 }
 

@@ -35,7 +35,12 @@ function renderGuardedRoute() {
 }
 
 afterEach(() => {
-  useAuthStore.setState({ status: 'anonymous', user: null, passwordChangeRequired: false, errorMessage: null });
+  useAuthStore.setState({
+    status: 'anonymous',
+    user: null,
+    passwordChangeRequired: false,
+    errorMessage: null,
+  });
 });
 
 describe('RequirePermission', () => {
@@ -69,7 +74,12 @@ describe('RequirePermission', () => {
   });
 
   it('mientras se restaura la sesión muestra el cargador, no "Sin acceso"', () => {
-    useAuthStore.setState({ status: 'initializing', user: null, passwordChangeRequired: false, errorMessage: null });
+    useAuthStore.setState({
+      status: 'initializing',
+      user: null,
+      passwordChangeRequired: false,
+      errorMessage: null,
+    });
     renderGuardedRoute();
 
     expect(screen.getByRole('status')).toBeInTheDocument();

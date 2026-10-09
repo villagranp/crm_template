@@ -1,5 +1,12 @@
 import type { PaletteOptions } from '@mui/material';
 
+declare module '@mui/material/styles' {
+  interface TypeBackground {
+    /** Fondo sutil (`--bg-subtle`): cabeceras de tabla y de tarjeta, campos deshabilitados. */
+    subtle: string;
+  }
+}
+
 import { ag, brand, darkSurfaces, lightSurfaces, semantic } from './tokens';
 
 /**
@@ -30,6 +37,7 @@ export const lightPalette: PaletteOptions = {
   background: {
     default: lightSurfaces.app,
     paper: lightSurfaces.surface,
+    subtle: lightSurfaces.subtle,
   },
   text: {
     primary: lightSurfaces.textPrimary,
@@ -72,6 +80,7 @@ export const darkPalette: PaletteOptions = {
   background: {
     default: darkSurfaces.app,
     paper: darkSurfaces.surface,
+    subtle: darkSurfaces.subtle,
   },
   text: {
     primary: darkSurfaces.textPrimary,

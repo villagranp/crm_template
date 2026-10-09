@@ -1,26 +1,23 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   Alert,
-  Button,
   Checkbox,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   FormControl,
   FormControlLabel,
   FormGroup,
   FormHelperText,
-  FormLabel,
-  Stack,
   TextField,
-  useMediaQuery,
-  type Theme,
 } from '@mui/material';
-import { useEffect, useId, type FormEvent } from 'react';
+import { useEffect } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 
-import { describeApiError } from '@/features/admin/common';
+import {
+  AdminDialog,
+  describeApiError,
+  DialogFooter,
+  FormSection,
+  FullRow,
+} from '@/features/admin/common';
 import { useIsAdministrador } from '@/hooks/use-permission';
 
 import { grantsNoPermissions } from '../users-access';
@@ -55,8 +52,6 @@ function defaults(user: UserDetail | null): UserFormValues {
  * detalle (con las salvaguardas D3). El estado nunca se edita aquí.
  */
 export function UserFormDialog({ open, user, onClose, onSaved }: UserFormDialogProps) {
-  const titleId = useId();
-  const fullScreen = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
   const isCreate = user === null;
   const isAdministrador = useIsAdministrador();
 
@@ -132,24 +127,25 @@ export function UserFormDialog({ open, user, onClose, onSaved }: UserFormDialogP
   );
 
   return (
-    <Dialog
+    <AdminDialog
       open={open}
       onClose={mutation.isPending ? undefined : onClose}
-      aria-labelledby={titleId}
-      fullScreen={fullScreen}
-      fullWidth
-      maxWidth="sm"
-      PaperProps={{
-        component: 'form',
-        noValidate: true,
-        onSubmit: (event: FormEvent<HTMLFormElement>) => {
-          void submit(event);
-        },
+      title={isCreate ? 'Nuevo usuario' : `Editar ${user.displayName}`}
+      subtitle="Usuarios"
+      requiredNote
+      onSubmit={(event) => {
+        void submit(event);
       }}
+      actions={
+        <DialogFooter
+          onCancel={onClose}
+          submitLabel={isCreate ? 'Crear usuario' : 'Guardar cambios'}
+          pending={mutation.isPending}
+        />
+      }
     >
-      <DialogTitle id={titleId}>{isCreate ? 'Nuevo usuario' : `Editar ${user.displayName}`}</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2} sx={{ pt: 1 }}>
+      <FormSection number={1} title="Datos generales">
+        <FullRow>
           <TextField
             {...register('email')}
             label="Correo"
@@ -157,111 +153,115 @@ export function UserFormDialog({ open, user, onClose, onSaved }: UserFormDialogP
             required
             disabled={!isCreate || mutation.isPending}
             error={Boolean(errors.email)}
-            helperText={errors.email?.message ?? (isCreate ? 'Será su usuario de acceso.' : 'El correo no se puede cambiar.')}
+            helperText={
+              errors.email?.message ??
+              (isCreate ? 'Será su usuario de acceso.' : 'El correo no se puede cambiar.')
+            }
             autoComplete="off"
           />
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <TextField
-              {...register('firstName')}
-              label="Nombre"
-              required
-              fullWidth
-              disabled={mutation.isPending}
-              error={Boolean(errors.firstName)}
-              helperText={errors.firstName?.message}
-            />
-            <TextField
-              {...register('lastName')}
-              label="Apellidos"
-              required
-              fullWidth
-              disabled={mutation.isPending}
-              error={Boolean(errors.lastName)}
-              helperText={errors.lastName?.message}
-            />
-          </Stack>
-          <TextField
-            {...register('jobTitle')}
-            label="Puesto"
-            disabled={mutation.isPending}
-            error={Boolean(errors.jobTitle)}
-            helperText={errors.jobTitle?.message}
-          />
-          <TextField
-            {...register('phone')}
-            label="Teléfono"
-            type="tel"
-            disabled={mutation.isPending}
-            error={Boolean(errors.phone)}
-            helperText={errors.phone?.message}
-          />
+        </FullRow>
+        <TextField
+          {...register('firstName')}
+          label="Nombre"
+          required
+          disabled={mutation.isPending}
+          error={Boolean(errors.firstName)}
+          helperText={errors.firstName?.message}
+        />
+        <TextField
+          {...register('lastName')}
+          label="Apellidos"
+          required
+          disabled={mutation.isPending}
+          error={Boolean(errors.lastName)}
+          helperText={errors.lastName?.message}
+        />
+        <TextField
+          {...register('jobTitle')}
+          label="Puesto"
+          disabled={mutation.isPending}
+          error={Boolean(errors.jobTitle)}
+          helperText={errors.jobTitle?.message}
+        />
+        <TextField
+          {...register('phone')}
+          label="Teléfono"
+          type="tel"
+          disabled={mutation.isPending}
+          error={Boolean(errors.phone)}
+          helperText={errors.phone?.message}
+        />
+      </FormSection>
 
-          {isCreate ? (
-            <Controller
-              control={control}
-              name="roleIds"
-              render={({ field }) => (
-                <FormControl component="fieldset" error={Boolean(errors.roleIds)} disabled={mutation.isPending}>
-                  <FormLabel component="legend">Roles iniciales</FormLabel>
-                  {roles.isError ? (
-                    <Alert severity="error">{describeApiError(roles.error).message}</Alert>
-                  ) : (
-                    <FormGroup>
-                      {assignable.map((role) => (
-                        <FormControlLabel
-                          key={role.id}
-                          label={role.name}
-                          control={
-                            <Checkbox
-                              checked={field.value.includes(role.id)}
-                              onChange={(event) =>
-                                field.onChange(
-                                  event.target.checked
-                                    ? [...field.value, role.id]
-                                    : field.value.filter((id) => id !== role.id),
-                                )
-                              }
-                            />
-                          }
-                        />
-                      ))}
-                    </FormGroup>
-                  )}
+      {isCreate ? (
+        <FormSection number={2} title="Roles iniciales" columns={1}>
+          <Controller
+            control={control}
+            name="roleIds"
+            render={({ field }) => (
+              <FormControl
+                component="div"
+                error={Boolean(errors.roleIds)}
+                disabled={mutation.isPending}
+              >
+                {roles.isError ? (
+                  <Alert severity="error">{describeApiError(roles.error).message}</Alert>
+                ) : (
+                  <FormGroup
+                    aria-label="Roles iniciales"
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: { sm: 'repeat(2, minmax(0, 1fr))' },
+                    }}
+                  >
+                    {assignable.map((role) => (
+                      <FormControlLabel
+                        key={role.id}
+                        label={role.name}
+                        control={
+                          <Checkbox
+                            checked={field.value.includes(role.id)}
+                            onChange={(event) =>
+                              field.onChange(
+                                event.target.checked
+                                  ? [...field.value, role.id]
+                                  : field.value.filter((id) => id !== role.id),
+                              )
+                            }
+                          />
+                        }
+                      />
+                    ))}
+                  </FormGroup>
+                )}
+                <FormHelperText>
+                  {errors.roleIds?.message ??
+                    'Nace como «Invitado» y debe cambiar la contraseña inicial al entrar.'}
+                </FormHelperText>
+                {isAdministrador ? null : (
                   <FormHelperText>
-                    {errors.roleIds?.message ?? 'Nace como «Invitado» y debe cambiar la contraseña inicial al entrar.'}
+                    Sólo puedes dar roles sin permisos: la asignación de accesos es exclusiva del
+                    administrador (ADR-020).
                   </FormHelperText>
-                  {isAdministrador ? null : (
-                    <FormHelperText>
-                      Sólo puedes dar roles sin permisos: la asignación de accesos es exclusiva del administrador (ADR-020).
-                    </FormHelperText>
-                  )}
-                </FormControl>
-              )}
-            />
-          ) : null}
+                )}
+              </FormControl>
+            )}
+          />
+        </FormSection>
+      ) : null}
 
-          {error ? (
-            <Alert severity="error">
-              {error.message}
-              {error.issues.length > 0 ? (
-                <ul>
-                  {error.issues.map((issue) => (
-                    <li key={issue}>{issue}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </Alert>
+      {error ? (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          {error.message}
+          {error.issues.length > 0 ? (
+            <ul>
+              {error.issues.map((issue) => (
+                <li key={issue}>{issue}</li>
+              ))}
+            </ul>
           ) : null}
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button variant="text" onClick={onClose} disabled={mutation.isPending}>
-          Cancelar
-        </Button>
-        <Button type="submit" disabled={mutation.isPending}>
-          {isCreate ? 'Crear usuario' : 'Guardar cambios'}
-        </Button>
-      </DialogActions>
-    </Dialog>
+        </Alert>
+      ) : null}
+    </AdminDialog>
   );
 }

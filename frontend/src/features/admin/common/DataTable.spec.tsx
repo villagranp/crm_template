@@ -75,7 +75,11 @@ describe('DataTable en pantalla ancha', () => {
     const user = userEvent.setup();
     const props = renderTable({ page: 2 });
 
-    expect(screen.getByText('21–40 de 45')).toBeInTheDocument();
+    expect(screen.getByText('Mostrando 21–40 de 45')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Página 2, actual' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
 
     await user.click(screen.getByRole('button', { name: 'Página siguiente' }));
     expect(props.onPageChange).toHaveBeenCalledWith(3);
@@ -83,7 +87,10 @@ describe('DataTable en pantalla ancha', () => {
     await user.click(screen.getByRole('button', { name: 'Página anterior' }));
     expect(props.onPageChange).toHaveBeenCalledWith(1);
 
-    await user.click(screen.getByRole('combobox'));
+    await user.click(screen.getByRole('button', { name: 'Ir a la página 3' }));
+    expect(props.onPageChange).toHaveBeenLastCalledWith(3);
+
+    await user.click(screen.getByRole('combobox', { name: 'Filas por página' }));
     await user.click(screen.getByRole('option', { name: '50' }));
     expect(props.onPageSizeChange).toHaveBeenCalledWith(50);
   });
@@ -97,7 +104,9 @@ describe('DataTable en pantalla ancha', () => {
 
     await user.click(within(header).getByRole('button'));
     expect(props.onSortChange).toHaveBeenCalledWith({ field: 'name', direction: 'desc' });
-    expect(within(screen.getByRole('columnheader', { name: 'Correo' })).queryByRole('button')).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole('columnheader', { name: 'Correo' })).queryByRole('button'),
+    ).not.toBeInTheDocument();
   });
 
   it('muestra el estado vacío y no pagina cuando no hay filas', () => {
@@ -118,9 +127,15 @@ describe('DataTable en pantalla ancha', () => {
   it('muestra el error traducido con opción de reintentar', async () => {
     const user = userEvent.setup();
     const onRetry = vi.fn();
-    renderTable({ rows: undefined, errorMessage: 'No tienes permiso para realizar esta acción.', onRetry });
+    renderTable({
+      rows: undefined,
+      errorMessage: 'No tienes permiso para realizar esta acción.',
+      onRetry,
+    });
 
-    expect(screen.getByRole('alert')).toHaveTextContent('No tienes permiso para realizar esta acción.');
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'No tienes permiso para realizar esta acción.',
+    );
     await user.click(screen.getByRole('button', { name: 'Reintentar' }));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
@@ -139,7 +154,10 @@ describe('DataTable en móvil', () => {
     expect(within(cards[0]!).getByText('Ana Pruebas')).toBeInTheDocument();
     expect(within(cards[0]!).getByText('Correo')).toBeInTheDocument();
     expect(within(cards[0]!).getByText('ana@example.test')).toBeInTheDocument();
-    expect(within(cards[0]!).getByRole('button', { name: 'Editar Ana Pruebas' })).toBeInTheDocument();
+    expect(within(cards[0]!).getByText('Acciones')).toBeInTheDocument();
+    expect(
+      within(cards[0]!).getByRole('button', { name: 'Editar Ana Pruebas' }),
+    ).toBeInTheDocument();
   });
 
   it('ofrece el orden con un selector y sigue paginando', async () => {

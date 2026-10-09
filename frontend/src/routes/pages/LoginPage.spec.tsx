@@ -34,14 +34,46 @@ async function submitCredentials(email: string, password: string) {
 describe('LoginPage', () => {
   beforeEach(() => {
     resetAuthProviderForTests();
-    useAuthStore.setState({ status: 'anonymous', user: null, passwordChangeRequired: false, errorMessage: null });
+    useAuthStore.setState({
+      status: 'anonymous',
+      user: null,
+      passwordChangeRequired: false,
+      errorMessage: null,
+    });
   });
 
   it('muestra el formulario y cómo recuperar el acceso sin flujo de correo', () => {
     renderLogin();
 
-    expect(screen.getByRole('heading', { name: /iniciar sesión/i })).toBeInTheDocument();
-    expect(screen.getByText('¿Olvidaste tu contraseña? Pide al administrador que la restablezca.')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 1, name: /bienvenido de nuevo/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /correo electrónico/i })).toBeRequired();
+    expect(screen.getByLabelText(/^contraseña/i)).toHaveAttribute('type', 'password');
+    expect(screen.getByRole('button', { name: /iniciar sesión/i })).toHaveAttribute(
+      'type',
+      'submit',
+    );
+    expect(
+      screen.getByText('¿Olvidaste tu contraseña? Pide al administrador que la restablezca.'),
+    ).toBeInTheDocument();
+    // Sin flujo de recuperación ni "Recordarme": no se pinta un enlace ni un control sin función.
+    expect(screen.queryByRole('link', { name: /olvidaste/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /recordarme/i })).not.toBeInTheDocument();
+  });
+
+  it('permite mostrar y ocultar la contraseña', async () => {
+    const user = userEvent.setup();
+    renderLogin();
+
+    const password = screen.getByLabelText(/^contraseña/i);
+    await user.click(screen.getByRole('button', { name: 'Mostrar contraseña' }));
+
+    expect(password).toHaveAttribute('type', 'text');
+    expect(screen.getByRole('button', { name: 'Ocultar contraseña' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 
   it('valida los campos antes de llamar a la API', async () => {
@@ -72,24 +104,37 @@ describe('LoginPage', () => {
 
     await submitCredentials('persona@example.test', 'contraseña equivocada');
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('El correo o la contraseña no son correctos.');
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'El correo o la contraseña no son correctos.',
+    );
     expect(screen.getByLabelText(/^contraseña/i)).toHaveValue('');
     expect(useAuthStore.getState().status).toBe('anonymous');
   });
 
   it.each([
-    [403, 'ACCOUNT_DISABLED', 'Tu cuenta está deshabilitada. Contacta al administrador del sistema.'],
-    [429, 'TOO_MANY_REQUESTS', 'Demasiados intentos. Espera un minuto antes de volver a intentarlo.'],
+    [
+      403,
+      'ACCOUNT_DISABLED',
+      'Tu cuenta está deshabilitada. Contacta al administrador del sistema.',
+    ],
+    [
+      429,
+      'TOO_MANY_REQUESTS',
+      'Demasiados intentos. Espera un minuto antes de volver a intentarlo.',
+    ],
     [400, 'VALIDATION_ERROR', 'Revisa el correo y la contraseña.'],
     [500, 'INTERNAL_ERROR', 'No se pudo iniciar sesión. Inténtalo de nuevo más tarde.'],
-  ])('traduce la respuesta %i %s a un mensaje accionable', async (status, code, expectedMessage) => {
-    mockApi({ 'POST /auth/login': () => errorResponse(status, code) });
-    renderLogin();
+  ])(
+    'traduce la respuesta %i %s a un mensaje accionable',
+    async (status, code, expectedMessage) => {
+      mockApi({ 'POST /auth/login': () => errorResponse(status, code) });
+      renderLogin();
 
-    await submitCredentials('persona@example.test', 'una frase larga de prueba');
+      await submitCredentials('persona@example.test', 'una frase larga de prueba');
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(expectedMessage);
-  });
+      expect(await screen.findByRole('alert')).toHaveTextContent(expectedMessage);
+    },
+  );
 
   it('envía las credenciales y entra a la aplicación', async () => {
     const fetchMock = mockApi({ 'POST /auth/login': () => jsonResponse(buildSession()) });
@@ -106,7 +151,9 @@ describe('LoginPage', () => {
   });
 
   it('lleva al cambio de contraseña si la sesión lo exige', async () => {
-    mockApi({ 'POST /auth/login': () => jsonResponse(buildSession({ passwordChangeRequired: true })) });
+    mockApi({
+      'POST /auth/login': () => jsonResponse(buildSession({ passwordChangeRequired: true })),
+    });
     renderLogin();
 
     await submitCredentials('persona@example.test', 'contraseña inicial');

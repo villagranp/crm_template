@@ -13,15 +13,24 @@ type Filter = 'status' | 'roleId';
 
 const FILTER_KEYS: readonly Filter[] = ['status', 'roleId'];
 const SORTABLE_FIELDS = ['displayName', 'createdAt'] as const;
-const OPTIONS: UseTableQueryStateOptions<Filter> = { filterKeys: FILTER_KEYS, sortableFields: SORTABLE_FIELDS };
+const OPTIONS: UseTableQueryStateOptions<Filter> = {
+  filterKeys: FILTER_KEYS,
+  sortableFields: SORTABLE_FIELDS,
+};
 
-function renderTableState(initialUrl = '/lista', options: UseTableQueryStateOptions<Filter> = OPTIONS) {
+function renderTableState(
+  initialUrl = '/lista',
+  options: UseTableQueryStateOptions<Filter> = OPTIONS,
+) {
   function Wrapper({ children }: { children: ReactNode }) {
     return <MemoryRouter initialEntries={[initialUrl]}>{children}</MemoryRouter>;
   }
-  return renderHook(() => ({ table: useTableQueryState<Filter>(options), location: useLocation() }), {
-    wrapper: Wrapper,
-  });
+  return renderHook(
+    () => ({ table: useTableQueryState<Filter>(options), location: useLocation() }),
+    {
+      wrapper: Wrapper,
+    },
+  );
 }
 
 afterEach(() => {
@@ -32,7 +41,13 @@ describe('useTableQueryState', () => {
   it('sin parámetros usa los valores por defecto y no escribe nada en la URL', () => {
     const { result } = renderTableState();
 
-    expect(result.current.table.state).toEqual({ page: 1, pageSize: 20, search: '', sort: null, filters: {} });
+    expect(result.current.table.state).toEqual({
+      page: 1,
+      pageSize: 20,
+      search: '',
+      sort: null,
+      filters: {},
+    });
     expect(result.current.table.apiQuery).toEqual({ page: 1, pageSize: 20 });
     expect(result.current.location.search).toBe('');
   });
@@ -60,7 +75,9 @@ describe('useTableQueryState', () => {
   });
 
   it('ignora valores manipulados: página inválida, tamaño no ofrecido y orden fuera de la lista blanca', () => {
-    const { result } = renderTableState('/lista?page=-2&pageSize=5000&sortBy=passwordHash&sortOrder=desc');
+    const { result } = renderTableState(
+      '/lista?page=-2&pageSize=5000&sortBy=passwordHash&sortOrder=desc',
+    );
 
     expect(result.current.table.state.page).toBe(1);
     expect(result.current.table.state.pageSize).toBe(20);
@@ -83,7 +100,10 @@ describe('useTableQueryState', () => {
 
     act(() => result.current.table.setPage(2));
     act(() => result.current.table.setFilter('roleId', 'r-1'));
-    expect(result.current.table.state).toMatchObject({ page: 1, filters: { status: 'ACTIVE', roleId: 'r-1' } });
+    expect(result.current.table.state).toMatchObject({
+      page: 1,
+      filters: { status: 'ACTIVE', roleId: 'r-1' },
+    });
 
     act(() => result.current.table.setFilter('status', undefined));
     expect(result.current.table.state.filters).toEqual({ roleId: 'r-1' });
@@ -120,7 +140,9 @@ describe('useTableQueryState', () => {
   });
 
   it('limpiar filtros quita búsqueda y filtros pero conserva tamaño y orden', () => {
-    const { result } = renderTableState('/lista?search=ana&status=ACTIVE&pageSize=50&sortBy=createdAt&sortOrder=asc');
+    const { result } = renderTableState(
+      '/lista?search=ana&status=ACTIVE&pageSize=50&sortBy=createdAt&sortOrder=asc',
+    );
 
     act(() => result.current.table.clearFilters());
 

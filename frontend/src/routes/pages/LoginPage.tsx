@@ -1,20 +1,34 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Alert, Box, Button, Stack, TextField, Typography } from '@mui/material';
+import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
+import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
+import MailOutlineIcon from '@mui/icons-material/MailOutline';
+import VerifiedUserOutlinedIcon from '@mui/icons-material/VerifiedUserOutlined';
+import { Alert, Box, InputAdornment, Stack, TextField, Typography } from '@mui/material';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Navigate, useLocation } from 'react-router-dom';
 
 import { env } from '@/config/env';
-import { AuthLayout } from '@/features/auth/AuthLayout';
+import { AuthLayout, type AuthFeature } from '@/features/auth/AuthLayout';
+import { AuthSubmitButton } from '@/features/auth/AuthSubmitButton';
 import { getLoginErrorMessage } from '@/features/auth/auth-error-messages';
 import { PasswordField } from '@/features/auth/PasswordField';
 import { useAuth } from '@/hooks/use-auth';
 import { ROUTE_PATHS } from '@/routes/route-paths';
 import { loginSchema, type LoginFormValues } from '@/schemas/auth.schema';
+import { brandIdentity } from '@/theme/tokens';
 
-const PANEL_TITLE = 'Acceso a la plataforma';
 const PANEL_DESCRIPTION =
-  'Tu menú y tus permisos se resuelven en el servidor a partir de los roles y las opciones asignadas a tu cuenta.';
+  'Un solo acceso para trabajar con los módulos que tu rol tiene asignados. Tu menú y tus permisos se resuelven en el servidor.';
+/** Sólo capacidades que existen hoy en la aplicación (decisión del responsable, 2026-10-09). */
+const PANEL_FEATURES: AuthFeature[] = [
+  { icon: <VerifiedUserOutlinedIcon fontSize="small" />, label: 'Acceso por roles y permisos' },
+  {
+    icon: <AdminPanelSettingsOutlinedIcon fontSize="small" />,
+    label: 'Administración centralizada',
+  },
+  { icon: <HistoryOutlinedIcon fontSize="small" />, label: 'Auditoría de cambios' },
+];
 const FORGOT_PASSWORD_HINT = '¿Olvidaste tu contraseña? Pide al administrador que la restablezca.';
 const PROVIDER_ERROR_MESSAGE = 'No se pudo iniciar sesión. Contacta al administrador del sistema.';
 
@@ -24,7 +38,12 @@ const NON_RETURNABLE_PATHS: readonly string[] = [ROUTE_PATHS.login, ROUTE_PATHS.
 /** Sólo rutas internas: un `from` manipulado no puede sacar al usuario del sitio. */
 function getReturnPath(state: unknown): string {
   const from = (state as { from?: unknown } | null)?.from;
-  if (typeof from === 'string' && from.startsWith('/') && !from.startsWith('//') && !NON_RETURNABLE_PATHS.includes(from)) {
+  if (
+    typeof from === 'string' &&
+    from.startsWith('/') &&
+    !from.startsWith('//') &&
+    !NON_RETURNABLE_PATHS.includes(from)
+  ) {
     return from;
   }
   return ROUTE_PATHS.home;
@@ -58,7 +77,7 @@ function LocalSignInForm() {
 
   return (
     <Box component="form" noValidate onSubmit={(event) => void handleSubmit(onSubmit)(event)}>
-      <Stack spacing={2.5}>
+      <Stack spacing={2.25}>
         {serverError ? (
           <Alert severity="error" role="alert">
             {serverError}
@@ -72,11 +91,21 @@ function LocalSignInForm() {
           type="email"
           autoComplete="username"
           inputMode="email"
+          placeholder="nombre@empresa.com"
           required
           fullWidth
           autoFocus
           error={Boolean(errors.email)}
           helperText={errors.email?.message}
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <MailOutlineIcon fontSize="small" aria-hidden="true" />
+                </InputAdornment>
+              ),
+            },
+          }}
         />
 
         <PasswordField
@@ -90,11 +119,14 @@ function LocalSignInForm() {
           helperText={errors.password?.message}
         />
 
-        <Button type="submit" size="large" fullWidth disabled={isSubmitting}>
-          {isSubmitting ? 'Entrando…' : 'Iniciar sesión'}
-        </Button>
+        <Box sx={{ pt: 0.75 }}>
+          <AuthSubmitButton type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Entrando…' : 'Iniciar sesión'}
+          </AuthSubmitButton>
+        </Box>
 
-        <Typography variant="caption" color="text.secondary">
+        {/* Sin flujo de recuperación por correo: se explica cómo recuperar el acceso, sin enlace. */}
+        <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center' }}>
           {FORGOT_PASSWORD_HINT}
         </Typography>
       </Stack>
@@ -110,9 +142,9 @@ function RedirectSignIn() {
     <Stack spacing={3}>
       {status === 'error' ? <Alert severity="error">{PROVIDER_ERROR_MESSAGE}</Alert> : null}
 
-      <Button size="large" fullWidth onClick={() => void signIn().catch(() => undefined)}>
+      <AuthSubmitButton onClick={() => void signIn().catch(() => undefined)}>
         Continuar
-      </Button>
+      </AuthSubmitButton>
 
       <Typography variant="caption" color="text.secondary">
         ¿Problemas para entrar? Contacta al administrador del sistema.
@@ -133,7 +165,9 @@ export function LoginPage() {
   const location = useLocation();
 
   if (isAuthenticated) {
-    const target = passwordChangeRequired ? ROUTE_PATHS.changePassword : getReturnPath(location.state);
+    const target = passwordChangeRequired
+      ? ROUTE_PATHS.changePassword
+      : getReturnPath(location.state);
     return <Navigate to={target} replace />;
   }
 
@@ -141,10 +175,15 @@ export function LoginPage() {
 
   return (
     <AuthLayout
-      panelTitle={PANEL_TITLE}
+      panelTitle={brandIdentity.productName}
       panelDescription={PANEL_DESCRIPTION}
-      title="Iniciar sesión"
-      subtitle="Usa la cuenta corporativa que te asignó el administrador del sistema."
+      features={PANEL_FEATURES}
+      title="Bienvenido de nuevo"
+      subtitle={
+        isLocalProvider
+          ? 'Introduce tu correo y contraseña para acceder a tu cuenta.'
+          : 'Usa la cuenta corporativa que te asignó el administrador del sistema.'
+      }
     >
       {isLocalProvider ? <LocalSignInForm /> : <RedirectSignIn />}
     </AuthLayout>

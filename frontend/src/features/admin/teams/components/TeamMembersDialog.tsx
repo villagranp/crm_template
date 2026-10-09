@@ -1,13 +1,8 @@
 import PersonRemoveOutlinedIcon from '@mui/icons-material/PersonRemoveOutlined';
 import {
   Alert,
-  Button,
   Checkbox,
-  Dialog,
-  DialogActions,
-  DialogContent,
   DialogContentText,
-  DialogTitle,
   FormControlLabel,
   IconButton,
   List,
@@ -15,12 +10,10 @@ import {
   ListItemText,
   Skeleton,
   Stack,
-  useMediaQuery,
-  type Theme,
 } from '@mui/material';
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
-import { describeApiError, EmptyState } from '@/features/admin/common';
+import { AdminDialog, describeApiError, DialogFooter, EmptyState } from '@/features/admin/common';
 import { usePermission } from '@/hooks/use-permission';
 
 import type { TeamMember } from '../teams.api';
@@ -28,7 +21,6 @@ import { TEAM_PERMISSIONS } from '../teams.permissions';
 import { useReplaceTeamMembers, useTeam } from '../teams.queries';
 import { UserPicker } from './UserPicker';
 import { TEAM_MEMBERS_ERRORS } from '../teams.errors';
-
 
 export interface TeamMembersDialogProps {
   teamId: string | null;
@@ -42,8 +34,6 @@ export interface TeamMembersDialogProps {
  * backend en la misma transacción).
  */
 export function TeamMembersDialog({ teamId, onClose }: TeamMembersDialogProps) {
-  const titleId = useId();
-  const fullScreen = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
   const canSearchUsers = usePermission(TEAM_PERMISSIONS.searchUsers);
   const team = useTeam(teamId);
   const mutation = useReplaceTeamMembers();
@@ -99,16 +89,26 @@ export function TeamMembersDialog({ teamId, onClose }: TeamMembersDialogProps) {
               if (user && !memberIds.has(user.id)) {
                 setMembers((current) => [
                   ...current,
-                  { userId: user.id, displayName: user.displayName, email: user.email, isPrimary: false },
+                  {
+                    userId: user.id,
+                    displayName: user.displayName,
+                    email: user.email,
+                    isPrimary: false,
+                  },
                 ]);
               }
             }}
           />
         ) : (
-          <Alert severity="info">Necesitas permiso para consultar usuarios para añadir miembros.</Alert>
+          <Alert severity="info">
+            Necesitas permiso para consultar usuarios para añadir miembros.
+          </Alert>
         )}
         {members.length === 0 ? (
-          <EmptyState title="El equipo no tiene miembros" description="Busca usuarios para añadirlos." />
+          <EmptyState
+            title="El equipo no tiene miembros"
+            description="Busca usuarios para añadirlos."
+          />
         ) : (
           <List aria-label="Miembros" disablePadding>
             {members.map((member) => (
@@ -120,7 +120,11 @@ export function TeamMembersDialog({ teamId, onClose }: TeamMembersDialogProps) {
                     edge="end"
                     aria-label={`Quitar a ${member.displayName}`}
                     disabled={isPending}
-                    onClick={() => setMembers((current) => current.filter((item) => item.userId !== member.userId))}
+                    onClick={() =>
+                      setMembers((current) =>
+                        current.filter((item) => item.userId !== member.userId),
+                      )
+                    }
                   >
                     <PersonRemoveOutlinedIcon />
                   </IconButton>
@@ -140,7 +144,9 @@ export function TeamMembersDialog({ teamId, onClose }: TeamMembersDialogProps) {
                         onChange={(event) =>
                           setMembers((current) =>
                             current.map((item) =>
-                              item.userId === member.userId ? { ...item, isPrimary: event.target.checked } : item,
+                              item.userId === member.userId
+                                ? { ...item, isPrimary: event.target.checked }
+                                : item,
                             ),
                           )
                         }
@@ -159,29 +165,27 @@ export function TeamMembersDialog({ teamId, onClose }: TeamMembersDialogProps) {
   }
 
   return (
-    <Dialog
+    <AdminDialog
       open={teamId !== null}
       onClose={isPending ? undefined : onClose}
-      aria-labelledby={titleId}
-      fullWidth
+      title={team.data ? `Miembros de ${team.data.name}` : 'Miembros'}
+      subtitle="Equipos"
       maxWidth="sm"
-      fullScreen={fullScreen}
+      actions={
+        <DialogFooter
+          onCancel={onClose}
+          submitLabel="Guardar miembros"
+          pending={isPending}
+          submitDisabled={!team.data}
+          onSubmit={save}
+        />
+      }
     >
-      <DialogTitle id={titleId}>{team.data ? `Miembros de ${team.data.name}` : 'Miembros'}</DialogTitle>
-      <DialogContent>
-        <DialogContentText sx={{ mb: 2 }}>
-          Cada persona tiene como mucho un equipo principal: al marcarlo aquí se desmarca en sus otros equipos.
-        </DialogContentText>
-        {content}
-      </DialogContent>
-      <DialogActions>
-        <Button variant="text" onClick={onClose} disabled={isPending}>
-          Cancelar
-        </Button>
-        <Button onClick={save} disabled={isPending || !team.data}>
-          Guardar miembros
-        </Button>
-      </DialogActions>
-    </Dialog>
+      <DialogContentText variant="body2" sx={{ mb: 2 }}>
+        Cada persona tiene como mucho un equipo principal: al marcarlo aquí se desmarca en sus otros
+        equipos.
+      </DialogContentText>
+      {content}
+    </AdminDialog>
   );
 }

@@ -40,7 +40,9 @@ describe('ConfirmDialog', () => {
     await user.type(screen.getByRole('textbox', { name: /razón/i }), '   corta     ');
     await user.click(screen.getByRole('button', { name: 'Suspender' }));
 
-    expect(await screen.findByText(`Escribe al menos ${REASON_MIN_LENGTH} caracteres.`)).toBeInTheDocument();
+    expect(
+      await screen.findByText(`Escribe al menos ${REASON_MIN_LENGTH} caracteres.`),
+    ).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: /razón/i })).toHaveAttribute('aria-invalid', 'true');
     expect(props.onConfirm).not.toHaveBeenCalled();
   });
@@ -49,7 +51,10 @@ describe('ConfirmDialog', () => {
     const user = userEvent.setup();
     const props = renderDialog({ reason: { label: 'Motivo' } });
 
-    await user.type(screen.getByRole('textbox', { name: /motivo/i }), '  Baja temporal por auditoría  ');
+    await user.type(
+      screen.getByRole('textbox', { name: /motivo/i }),
+      '  Baja temporal por auditoría  ',
+    );
     await user.click(screen.getByRole('button', { name: 'Suspender' }));
 
     expect(props.onConfirm).toHaveBeenCalledWith('Baja temporal por auditoría');
@@ -69,11 +74,16 @@ describe('ConfirmDialog', () => {
   });
 
   it('mientras la mutación está en curso bloquea los botones y muestra el error traducido', () => {
-    renderDialog({ isPending: true, errorMessage: 'Debe quedar al menos un administrador activo.' });
+    renderDialog({
+      isPending: true,
+      errorMessage: 'Debe quedar al menos un administrador activo.',
+    });
 
     expect(screen.getByRole('button', { name: 'Suspender' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
-    expect(screen.getByRole('alert')).toHaveTextContent('Debe quedar al menos un administrador activo.');
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Debe quedar al menos un administrador activo.',
+    );
   });
 
   it('cancelar cierra sin confirmar', async () => {

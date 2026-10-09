@@ -1,25 +1,24 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   Alert,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
   DialogContentText,
-  DialogTitle,
   FormControlLabel,
   Stack,
   Switch,
   TextField,
 } from '@mui/material';
-import { useEffect, useId, useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 
-import { describeApiError } from '@/features/admin/common';
+import { AdminDialog, describeApiError, DialogFooter } from '@/features/admin/common';
 
 import type { SystemParameter } from '../parameters.api';
 import { useUpdateParameter } from '../parameters.queries';
-import { PARAMETER_RANGES, parameterFormSchema, type ParameterFormValues } from '../parameters.schemas';
+import {
+  PARAMETER_RANGES,
+  parameterFormSchema,
+  type ParameterFormValues,
+} from '../parameters.schemas';
 
 export interface ParameterEditDialogProps {
   /** Parámetro a editar; `null` cierra el diálogo. */
@@ -43,7 +42,6 @@ function helperFor(parameter: SystemParameter): string | undefined {
  * El backend vuelve a validar; su `422` se muestra con el motivo.
  */
 export function ParameterEditDialog({ parameter, onClose }: ParameterEditDialogProps) {
-  const titleId = useId();
   const mutation = useUpdateParameter();
   const schema = useMemo(() => (parameter ? parameterFormSchema(parameter) : null), [parameter]);
 
@@ -71,66 +69,74 @@ export function ParameterEditDialog({ parameter, onClose }: ParameterEditDialogP
   };
 
   const submit = form.handleSubmit((values) => {
-    mutation.mutate({ key: parameter.key, value: values.value.trim() }, { onSuccess: () => onClose() });
+    mutation.mutate(
+      { key: parameter.key, value: values.value.trim() },
+      { onSuccess: () => onClose() },
+    );
   });
 
   return (
-    <Dialog open onClose={handleClose} aria-labelledby={titleId} fullWidth maxWidth="sm">
-      <form noValidate onSubmit={(event) => void submit(event)}>
-        <DialogTitle id={titleId}>{`Editar «${parameter.name}»`}</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2}>
-            {parameter.description ? <DialogContentText>{parameter.description}</DialogContentText> : null}
-            <Controller
-              name="value"
-              control={form.control}
-              render={({ field, fieldState }) =>
-                parameter.type === 'BOOLEAN' ? (
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={field.value === 'true'}
-                        onChange={(event) => field.onChange(event.target.checked ? 'true' : 'false')}
-                      />
-                    }
-                    label={field.value === 'true' ? 'Activado' : 'Desactivado'}
+    <AdminDialog
+      open
+      onClose={mutation.isPending ? undefined : handleClose}
+      title={`Editar «${parameter.name}»`}
+      subtitle="Parámetros"
+      maxWidth="sm"
+      onSubmit={(event) => {
+        void submit(event);
+      }}
+      actions={
+        <DialogFooter onCancel={handleClose} submitLabel="Guardar" pending={mutation.isPending} />
+      }
+    >
+      <Stack spacing={2}>
+        {parameter.description ? (
+          <DialogContentText variant="body2">{parameter.description}</DialogContentText>
+        ) : null}
+        <Controller
+          name="value"
+          control={form.control}
+          render={({ field, fieldState }) =>
+            parameter.type === 'BOOLEAN' ? (
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={field.value === 'true'}
+                    onChange={(event) => field.onChange(event.target.checked ? 'true' : 'false')}
                   />
-                ) : (
-                  <TextField
-                    {...field}
-                    autoFocus
-                    fullWidth
-                    label="Valor"
-                    type={parameter.type === 'DATE' && /^\d{4}-\d{2}-\d{2}$/.test(parameter.value) ? 'date' : 'text'}
-                    multiline={parameter.type === 'JSON'}
-                    minRows={parameter.type === 'JSON' ? 4 : undefined}
-                    slotProps={{
-                      htmlInput: parameter.type === 'NUMBER' ? { inputMode: 'decimal' } : undefined,
-                      inputLabel: parameter.type === 'DATE' ? { shrink: true } : undefined,
-                    }}
-                    error={Boolean(fieldState.error)}
-                    helperText={fieldState.error?.message ?? helperFor(parameter)}
-                  />
-                )
-              }
-            />
-            {error ? (
-              <Alert severity="error">
-                {error.message}
-                {error.issues.length > 0 ? ` ${error.issues.join(' ')}` : null}
-              </Alert>
-            ) : null}
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button variant="text" onClick={handleClose} disabled={mutation.isPending}>
-            Cancelar
-          </Button>
-          <Button type="submit" variant="contained" disabled={mutation.isPending}>
-            Guardar
-          </Button>
-        </DialogActions>
-      </form>
-    </Dialog>
+                }
+                label={field.value === 'true' ? 'Activado' : 'Desactivado'}
+              />
+            ) : (
+              <TextField
+                {...field}
+                autoFocus
+                fullWidth
+                label="Valor"
+                type={
+                  parameter.type === 'DATE' && /^\d{4}-\d{2}-\d{2}$/.test(parameter.value)
+                    ? 'date'
+                    : 'text'
+                }
+                multiline={parameter.type === 'JSON'}
+                minRows={parameter.type === 'JSON' ? 4 : undefined}
+                slotProps={{
+                  htmlInput: parameter.type === 'NUMBER' ? { inputMode: 'decimal' } : undefined,
+                  inputLabel: parameter.type === 'DATE' ? { shrink: true } : undefined,
+                }}
+                error={Boolean(fieldState.error)}
+                helperText={fieldState.error?.message ?? helperFor(parameter)}
+              />
+            )
+          }
+        />
+        {error ? (
+          <Alert severity="error">
+            {error.message}
+            {error.issues.length > 0 ? ` ${error.issues.join(' ')}` : null}
+          </Alert>
+        ) : null}
+      </Stack>
+    </AdminDialog>
   );
 }

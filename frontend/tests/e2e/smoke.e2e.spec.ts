@@ -12,11 +12,15 @@ test.describe('shell de la aplicación sin sesión', () => {
     await page.goto('/');
 
     await expect(page).toHaveURL(/\/acceso$/);
-    await expect(page.getByRole('heading', { name: /iniciar sesión/i })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { level: 1, name: /bienvenido de nuevo/i }),
+    ).toBeVisible();
     await expect(page.getByRole('navigation', { name: 'Navegación principal' })).toHaveCount(0);
   });
 
-  test('una ruta protegida o desconocida también lleva a la pantalla de acceso', async ({ page }) => {
+  test('una ruta protegida o desconocida también lleva a la pantalla de acceso', async ({
+    page,
+  }) => {
     for (const path of ['/administracion/usuarios', '/esta-ruta-no-existe']) {
       await page.goto(path);
 
@@ -27,6 +31,8 @@ test.describe('shell de la aplicación sin sesión', () => {
   test('muestra la pantalla de acceso', async ({ page }) => {
     await page.goto('/acceso');
 
-    await expect(page.getByRole('heading', { name: /iniciar sesión/i })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { level: 1, name: /bienvenido de nuevo/i }),
+    ).toBeVisible();
   });
 });

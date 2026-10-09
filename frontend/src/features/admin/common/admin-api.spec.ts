@@ -5,15 +5,33 @@ import { ApiError, NETWORK_ERROR_CODE } from '@/services/api/api-error';
 import { ADMIN_ERROR_CODES, createQueryKeys, describeApiError } from './admin-api';
 
 function apiError(statusCode: number, code: string, details: unknown[] = []): ApiError {
-  return new ApiError({ statusCode, code, message: 'texto interno del servidor', details, correlationId: 'corr-1' });
+  return new ApiError({
+    statusCode,
+    code,
+    message: 'texto interno del servidor',
+    details,
+    correlationId: 'corr-1',
+  });
 }
 
 describe('describeApiError', () => {
   it.each([
     [409, ADMIN_ERROR_CODES.lastAdmin, 'Debe quedar al menos un administrador activo.'],
-    [409, ADMIN_ERROR_CODES.selfLockout, 'No puedes suspenderte ni retirarte tu propio acceso de administración.'],
-    [422, ADMIN_ERROR_CODES.routeNotRegistered, 'La ruta no corresponde a ninguna pantalla registrada.'],
-    [409, ADMIN_ERROR_CODES.roleInUse, 'El rol tiene usuarios asignados. Reasígnalos antes de eliminarlo.'],
+    [
+      409,
+      ADMIN_ERROR_CODES.selfLockout,
+      'No puedes suspenderte ni retirarte tu propio acceso de administración.',
+    ],
+    [
+      422,
+      ADMIN_ERROR_CODES.routeNotRegistered,
+      'La ruta no corresponde a ninguna pantalla registrada.',
+    ],
+    [
+      409,
+      ADMIN_ERROR_CODES.roleInUse,
+      'El rol tiene usuarios asignados. Reasígnalos antes de eliminarlo.',
+    ],
     [403, ADMIN_ERROR_CODES.adminOnly, 'Sólo un administrador puede asignar o modificar accesos.'],
   ])('traduce %i %s a un mensaje propio', (status, code, message) => {
     expect(describeApiError(apiError(status, code)).message).toBe(message);
@@ -37,7 +55,11 @@ describe('describeApiError', () => {
 
   it('expone los motivos de validación de details[].issue', () => {
     const view = describeApiError(
-      apiError(400, 'BAD_REQUEST', [{ issue: 'email must be an email' }, { field: 'x' }, { issue: '  ' }]),
+      apiError(400, 'BAD_REQUEST', [
+        { issue: 'email must be an email' },
+        { field: 'x' },
+        { issue: '  ' },
+      ]),
     );
 
     expect(view.message).toBe('Revisa los datos del formulario.');
@@ -54,7 +76,9 @@ describe('describeApiError', () => {
   });
 
   it('distingue la falta de conexión y los errores que no son de la API', () => {
-    expect(describeApiError(apiError(0, NETWORK_ERROR_CODE)).message).toMatch(/no se pudo conectar/i);
+    expect(describeApiError(apiError(0, NETWORK_ERROR_CODE)).message).toMatch(
+      /no se pudo conectar/i,
+    );
     expect(describeApiError(new Error('boom'))).toEqual({
       message: 'Ha ocurrido un error inesperado. Inténtalo de nuevo.',
       issues: [],

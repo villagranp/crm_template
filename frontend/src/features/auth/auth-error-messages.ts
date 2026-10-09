@@ -40,7 +40,9 @@ export function getLoginErrorMessage(error: unknown): string {
     case HTTP_UNAUTHORIZED:
       return MESSAGES.invalidCredentials;
     case HTTP_FORBIDDEN:
-      return error.code === AUTH_ERROR_CODES.accountDisabled ? MESSAGES.accountDisabled : MESSAGES.loginUnexpected;
+      return error.code === AUTH_ERROR_CODES.accountDisabled
+        ? MESSAGES.accountDisabled
+        : MESSAGES.loginUnexpected;
     case HTTP_TOO_MANY_REQUESTS:
       return MESSAGES.tooManyAttempts;
     case HTTP_BAD_REQUEST:
@@ -78,12 +80,22 @@ export function getChangePasswordError(error: unknown): ChangePasswordError {
     return { message: MESSAGES.changeUnexpected, reasons: [] };
   }
 
-  if (error.statusCode === HTTP_UNPROCESSABLE && error.code === AUTH_ERROR_CODES.invalidCurrentPassword) {
+  if (
+    error.statusCode === HTTP_UNPROCESSABLE &&
+    error.code === AUTH_ERROR_CODES.invalidCurrentPassword
+  ) {
     return { field: 'currentPassword', message: MESSAGES.invalidCurrentPassword, reasons: [] };
   }
 
-  if (error.statusCode === HTTP_UNPROCESSABLE && error.code === AUTH_ERROR_CODES.passwordPolicyViolation) {
-    return { field: 'newPassword', message: MESSAGES.passwordPolicy, reasons: extractIssues(error.details) };
+  if (
+    error.statusCode === HTTP_UNPROCESSABLE &&
+    error.code === AUTH_ERROR_CODES.passwordPolicyViolation
+  ) {
+    return {
+      field: 'newPassword',
+      message: MESSAGES.passwordPolicy,
+      reasons: extractIssues(error.details),
+    };
   }
 
   switch (error.statusCode) {

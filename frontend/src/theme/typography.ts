@@ -1,6 +1,6 @@
 import type { TypographyVariantsOptions } from '@mui/material';
 
-import { fonts } from './tokens';
+import { fonts, fontSizes, letterSpacing } from './tokens';
 
 /**
  * Tipografía del sistema Grupo AG: Poppins para títulos, Inter para cuerpo.
@@ -52,7 +52,12 @@ export const typography: TypographyVariantsOptions = {
     letterSpacing: '0.09em',
     lineHeight: 1.4,
   },
-  button: { fontFamily: fonts.heading, fontSize: '0.875rem', fontWeight: 600, textTransform: 'none' },
+  button: {
+    fontFamily: fonts.heading,
+    fontSize: '0.875rem',
+    fontWeight: 600,
+    textTransform: 'none',
+  },
 };
 
 /**
@@ -63,5 +68,25 @@ export const pageTitleSx = {
   fontFamily: fonts.heading,
   fontWeight: 600,
   textTransform: 'uppercase' as const,
-  letterSpacing: '0.02em',
+  letterSpacing: letterSpacing.title,
+};
+
+/**
+ * Título del `PageHeader` (`.page-title` del prototipo): mismo estilo que
+ * `pageTitleSx` pero en el tamaño compacto de la banda de encabezado.
+ */
+export const pageHeaderTitleSx = {
+  ...pageTitleSx,
+  fontSize: fontSizes.pageTitle,
+  lineHeight: 1.35,
+  margin: 0,
+};
+
+/** Etiqueta de sección en versalitas (`.stat-label`, títulos de bloque). */
+export const sectionLabelSx = {
+  fontSize: fontSizes.overline,
+  fontWeight: 600,
+  letterSpacing: letterSpacing.label,
+  textTransform: 'uppercase' as const,
+  lineHeight: 1.4,
 };

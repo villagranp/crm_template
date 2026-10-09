@@ -41,7 +41,9 @@ test.describe('acceso local del administrador', () => {
 
     await test.step('la aplicación exige cambiar la contraseña antes de nada', async () => {
       await expect(page).toHaveURL(/\/cambiar-contrasena$/);
-      await expect(page.getByText('Debes establecer una contraseña personal antes de continuar')).toBeVisible();
+      await expect(
+        page.getByText('Debes establecer una contraseña personal antes de continuar'),
+      ).toBeVisible();
 
       // Cualquier otra ruta devuelve a la pantalla de cambio.
       await page.goto('/');
@@ -54,7 +56,8 @@ test.describe('acceso local del administrador', () => {
       await page.getByLabel(/^repite la nueva contraseña/i).fill(adminNewPassword);
 
       const menuResponse = page.waitForResponse(
-        (response) => response.url().endsWith('/api/v1/me/menu') && response.request().method() === 'GET',
+        (response) =>
+          response.url().endsWith('/api/v1/me/menu') && response.request().method() === 'GET',
       );
       await page.getByRole('button', { name: /guardar contraseña/i }).click();
 
@@ -65,7 +68,7 @@ test.describe('acceso local del administrador', () => {
     await test.step('ve el menú que la base de datos le concede', async () => {
       const navigation = page.getByRole('navigation', { name: 'Navegación principal' });
       await expect(navigation).toBeVisible();
-      // Cada módulo concedido aparece como una sección con su encabezado.
+      // El menú se agrupa en secciones (Principal, Módulos, Sistema) con su encabezado.
       await expect(navigation.getByRole('heading').first()).toBeVisible();
     });
 

@@ -3,14 +3,8 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import {
   Alert,
-  Box,
-  Button,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
   DialogContentText,
-  DialogTitle,
   IconButton,
   Skeleton,
   Stack,
@@ -22,12 +16,10 @@ import {
   TableHead,
   TableRow,
   Typography,
-  useMediaQuery,
-  type Theme,
 } from '@mui/material';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useState } from 'react';
 
-import { describeApiError, EmptyState } from '@/features/admin/common';
+import { AdminDialog, describeApiError, DetailSection, EmptyState } from '@/features/admin/common';
 import { usePermission } from '@/hooks/use-permission';
 
 import type { CatalogItem } from '../catalogs.api';
@@ -43,7 +35,6 @@ import { planMove } from '../item-order';
 import { CatalogItemForm } from './CatalogItemForm';
 import { CATALOG_ITEM_ERRORS } from '../catalogs.errors';
 
-
 const ITEM_COLUMNS = 5;
 
 export interface CatalogDetailDialogProps {
@@ -56,8 +47,6 @@ export interface CatalogDetailDialogProps {
  * activar/desactivar y reordenar. Los elementos nunca se borran (D9).
  */
 export function CatalogDetailDialog({ catalogId, onClose }: CatalogDetailDialogProps) {
-  const titleId = useId();
-  const fullScreen = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
   const canEdit = usePermission(CATALOG_PERMISSIONS.edit);
   const catalog = useCatalog(catalogId);
   const createItem = useCreateCatalogItem(catalogId ?? '');
@@ -98,92 +87,95 @@ export function CatalogDetailDialog({ catalogId, onClose }: CatalogDetailDialogP
     );
   } else {
     body = (
-      <Stack spacing={2}>
-        {items.length === 0 ? (
-          <EmptyState title="El catálogo no tiene elementos" description={canEdit ? 'Añade el primero abajo.' : undefined} />
-        ) : (
-          <TableContainer className="scroll-x">
-            <Table size="small" aria-label="Elementos">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Orden</TableCell>
-                  <TableCell>Código</TableCell>
-                  <TableCell>Etiqueta</TableCell>
-                  <TableCell>Activo</TableCell>
-                  <TableCell align="right">Acciones</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {items.map((item, index) =>
-                  editingId === item.id ? (
-                    <TableRow key={item.id}>
-                      <TableCell colSpan={ITEM_COLUMNS}>
-                        <CatalogItemForm
-                          item={item}
-                          isPending={updateItem.isPending}
-                          onCancel={() => setEditingId(null)}
-                          onSubmit={async (values) => {
-                            await updateItem.mutateAsync({
-                              itemId: item.id,
-                              body: { label: values.label, metadata: values.metadata },
-                            });
-                            setEditingId(null);
-                          }}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    <ItemRow
-                      key={item.id}
-                      item={item}
-                      isFirst={index === 0}
-                      isLast={index === items.length - 1}
-                      canEdit={canEdit}
-                      disabled={isBusy}
-                      onMove={(direction) => move(index, direction)}
-                      onEdit={() => setEditingId(item.id)}
-                      onToggleActive={(isActive) => updateItem.mutate({ itemId: item.id, body: { isActive } })}
-                    />
-                  ),
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        )}
+      <Stack spacing={3}>
+        <DetailSection number={1} title="Elementos">
+          {items.length === 0 ? (
+            <EmptyState
+              title="El catálogo no tiene elementos"
+              description={canEdit ? 'Añade el primero abajo.' : undefined}
+            />
+          ) : (
+            <TableContainer className="scroll-x">
+              <Table size="small" aria-label="Elementos">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Orden</TableCell>
+                    <TableCell>Código</TableCell>
+                    <TableCell>Etiqueta</TableCell>
+                    <TableCell>Activo</TableCell>
+                    <TableCell align="right">Acciones</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {items.map((item, index) =>
+                    editingId === item.id ? (
+                      <TableRow key={item.id}>
+                        <TableCell colSpan={ITEM_COLUMNS}>
+                          <CatalogItemForm
+                            item={item}
+                            isPending={updateItem.isPending}
+                            onCancel={() => setEditingId(null)}
+                            onSubmit={async (values) => {
+                              await updateItem.mutateAsync({
+                                itemId: item.id,
+                                body: { label: values.label, metadata: values.metadata },
+                              });
+                              setEditingId(null);
+                            }}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      <ItemRow
+                        key={item.id}
+                        item={item}
+                        isFirst={index === 0}
+                        isLast={index === items.length - 1}
+                        canEdit={canEdit}
+                        disabled={isBusy}
+                        onMove={(direction) => move(index, direction)}
+                        onEdit={() => setEditingId(item.id)}
+                        onToggleActive={(isActive) =>
+                          updateItem.mutate({ itemId: item.id, body: { isActive } })
+                        }
+                      />
+                    ),
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </DetailSection>
         {errorMessage ? <Alert severity="error">{errorMessage}</Alert> : null}
         {canEdit ? (
-          <Box>
-            <Typography variant="subtitle2" component="h3" sx={{ mb: 1 }}>
-              Añadir elemento
-            </Typography>
+          <DetailSection number={2} title="Añadir elemento">
             <CatalogItemForm
               item={null}
               isPending={createItem.isPending}
               onSubmit={(values) => createItem.mutateAsync(values)}
             />
-          </Box>
+          </DetailSection>
         ) : null}
       </Stack>
     );
   }
 
   return (
-    <Dialog open={catalogId !== null} onClose={onClose} aria-labelledby={titleId} fullWidth maxWidth="lg" fullScreen={fullScreen}>
-      <DialogTitle id={titleId}>{catalog.data ? `Catálogo ${catalog.data.name}` : 'Catálogo'}</DialogTitle>
-      <DialogContent>
-        {catalog.data ? (
-          <DialogContentText sx={{ mb: 2 }}>
-            {`Clave: ${catalog.data.key}${catalog.data.isSystem ? ' · Catálogo del sistema' : ''}. Los elementos no se borran: se desactivan.`}
-          </DialogContentText>
-        ) : null}
-        {body}
-      </DialogContent>
-      <DialogActions>
-        <Button variant="text" onClick={onClose}>
-          Cerrar
-        </Button>
-      </DialogActions>
-    </Dialog>
+    <AdminDialog
+      open={catalogId !== null}
+      onClose={onClose}
+      title={catalog.data ? `Catálogo ${catalog.data.name}` : 'Catálogo'}
+      subtitle="Catálogos"
+      maxWidth="lg"
+      fullScreenBelow="md"
+    >
+      {catalog.data ? (
+        <DialogContentText variant="body2" sx={{ mb: 2.5 }}>
+          {`Clave: ${catalog.data.key}${catalog.data.isSystem ? ' · Catálogo del sistema' : ''}. Los elementos no se borran: se desactivan.`}
+        </DialogContentText>
+      ) : null}
+      {body}
+    </AdminDialog>
   );
 }
 
@@ -198,17 +190,34 @@ interface ItemRowProps {
   onToggleActive: (isActive: boolean) => void;
 }
 
-function ItemRow({ item, isFirst, isLast, canEdit, disabled, onMove, onEdit, onToggleActive }: ItemRowProps) {
+function ItemRow({
+  item,
+  isFirst,
+  isLast,
+  canEdit,
+  disabled,
+  onMove,
+  onEdit,
+  onToggleActive,
+}: ItemRowProps) {
   const metadata = formatMetadata(item.metadata);
   return (
     <TableRow hover>
       <TableCell>
         {canEdit ? (
           <Stack direction="row" spacing={0.5}>
-            <IconButton aria-label={`Subir ${item.label}`} disabled={disabled || isFirst} onClick={() => onMove(-1)}>
+            <IconButton
+              aria-label={`Subir ${item.label}`}
+              disabled={disabled || isFirst}
+              onClick={() => onMove(-1)}
+            >
               <ArrowUpwardIcon fontSize="small" />
             </IconButton>
-            <IconButton aria-label={`Bajar ${item.label}`} disabled={disabled || isLast} onClick={() => onMove(1)}>
+            <IconButton
+              aria-label={`Bajar ${item.label}`}
+              disabled={disabled || isLast}
+              onClick={() => onMove(1)}
+            >
               <ArrowDownwardIcon fontSize="small" />
             </IconButton>
           </Stack>
@@ -231,10 +240,16 @@ function ItemRow({ item, isFirst, isLast, canEdit, disabled, onMove, onEdit, onT
             checked={item.isActive}
             disabled={disabled}
             onChange={(event) => onToggleActive(event.target.checked)}
-            inputProps={{ 'aria-label': `${item.isActive ? 'Desactivar' : 'Activar'} ${item.label}` }}
+            inputProps={{
+              'aria-label': `${item.isActive ? 'Desactivar' : 'Activar'} ${item.label}`,
+            }}
           />
         ) : (
-          <Chip size="small" color={item.isActive ? 'success' : 'default'} label={item.isActive ? 'Activo' : 'Inactivo'} />
+          <Chip
+            size="small"
+            color={item.isActive ? 'success' : 'default'}
+            label={item.isActive ? 'Activo' : 'Inactivo'}
+          />
         )}
       </TableCell>
       <TableCell align="right">

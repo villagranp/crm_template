@@ -51,7 +51,10 @@ const DETAIL: ApprovalDetail = {
 };
 
 function page(data: ApprovalSummary[]) {
-  return { data, pagination: { page: 1, pageSize: 20, totalItems: data.length, totalPages: data.length ? 1 : 0 } };
+  return {
+    data,
+    pagination: { page: 1, pageSize: 20, totalItems: data.length, totalPages: data.length ? 1 : 0 },
+  };
 }
 
 beforeEach(() => {
@@ -87,12 +90,17 @@ describe('ApprovalsPage', () => {
     renderWithProviders(<ApprovalsPage />);
     await screen.findByRole('table', { name: 'Solicitudes de aprobación' });
 
-    await user.click(screen.getByRole('combobox', { name: 'Estado' }));
-    await user.click(screen.getByRole('option', { name: 'Rechazada' }));
+    const filters = screen.getByRole('group', { name: 'Filtrar por estado' });
+    const rejected = within(filters).getByRole('button', { name: /^Rechazada/ });
+    await user.click(rejected);
 
+    expect(rejected).toHaveAttribute('aria-pressed', 'true');
     await waitFor(() => {
-      const last = new URL(String(fetchMock.mock.calls.at(-1)?.[0]), 'http://localhost');
-      expect(last.searchParams.get('status')).toBe('REJECTED');
+      // La consulta de la tabla (no la de los contadores, que pide una sola fila).
+      const listCalls = fetchMock.mock.calls
+        .map(([input]) => new URL(String(input), 'http://localhost'))
+        .filter((url) => url.searchParams.get('pageSize') !== '1');
+      expect(listCalls.at(-1)?.searchParams.get('status')).toBe('REJECTED');
     });
   });
 
@@ -125,6 +133,8 @@ describe('ApprovalsPage', () => {
     renderWithProviders(<ApprovalsPage />);
     await user.click(await screen.findByRole('button', { name: 'Ver detalle de APR-0001' }));
 
-    expect(await screen.findByText('El elemento ya no existe. Actualiza la lista.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('El elemento ya no existe. Actualiza la lista.'),
+    ).toBeInTheDocument();
   });
 });

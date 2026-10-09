@@ -1,11 +1,14 @@
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import SearchOffOutlinedIcon from '@mui/icons-material/SearchOffOutlined';
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import {
-  Alert,
   Box,
   Button,
-  Card,
-  CardContent,
   LinearProgress,
   MenuItem,
+  Pagination,
+  Paper,
+  Select,
   Skeleton,
   Stack,
   Table,
@@ -13,7 +16,6 @@ import {
   TableCell,
   TableContainer,
   TableHead,
-  TablePagination,
   TableRow,
   TableSortLabel,
   TextField,
@@ -24,20 +26,23 @@ import {
 } from '@mui/material';
 import type { ReactNode } from 'react';
 
+import { subtleSurface } from './admin-surfaces';
 import { EmptyState } from './EmptyState';
 import { PAGE_SIZE_OPTIONS, type SortDirection, type TableSort } from './use-table-query-state';
 
 /**
  * Tabla paginada en el servidor sobre `Table` de MUI (PLAN-ADMIN D14: sin
- * DataGrid).
+ * DataGrid), con el acabado del CRUD del prototipo (`table-crud`).
  *
  * Es presentacional: no consulta nada. La pantalla le pasa la página actual,
  * el total y los callbacks (normalmente los de `useTableQueryState`) y el
- * resultado de su `useQuery`.
+ * resultado de su `useQuery`. Va a sangre dentro de una `AdminListCard`: no
+ * pinta su propia tarjeta.
  *
- * Mobile first: por debajo de `cardsBelow` (por defecto `sm`) cada fila se
- * pinta como una tarjeta apilada; desde ahí, como tabla, que scrollea en X
- * dentro de su propio contenedor si no cabe (la página nunca lo hace).
+ * Mobile first: por debajo de `cardsBelow` (por defecto `md`, como el
+ * prototipo) cada fila se pinta como una tarjeta con pares etiqueta/valor;
+ * desde ahí, como tabla, que scrollea en X dentro de su propio contenedor si
+ * no cabe (la página nunca lo hace).
  */
 
 export interface DataTableColumn<TRow> {
@@ -47,7 +52,7 @@ export interface DataTableColumn<TRow> {
   render: (row: TRow) => ReactNode;
   sortable?: boolean;
   align?: 'left' | 'center' | 'right';
-  /** En la vista de tarjetas: título de la tarjeta (sólo una columna). */
+  /** En la vista de tarjetas: primera fila, en negrita (sólo una columna). */
   primary?: boolean;
   /** En la vista de tarjetas: no se muestra (datos secundarios). */
   hideOnMobile?: boolean;
@@ -79,6 +84,7 @@ export interface DataTableProps<TRow> {
   onRetry?: () => void;
   emptyTitle?: string;
   emptyDescription?: string;
+  emptyIcon?: ReactNode;
   emptyAction?: ReactNode;
   /** Acciones de cada fila (botones de icono con `aria-label`, o un menú). */
   rowActions?: (row: TRow) => ReactNode;
@@ -102,14 +108,29 @@ function nextSort(current: TableSort | null | undefined, field: string): TableSo
   return { field, direction: 'asc' };
 }
 
-function ariaSort(sort: TableSort | null | undefined, field: string): 'ascending' | 'descending' | undefined {
+function ariaSort(
+  sort: TableSort | null | undefined,
+  field: string,
+): 'ascending' | 'descending' | undefined {
   if (sort?.field !== field) {
     return undefined;
   }
   return sort.direction === 'asc' ? 'ascending' : 'descending';
 }
 
-const SORT_DIRECTION_LABEL: Record<SortDirection, string> = { asc: 'ascendente', desc: 'descendente' };
+const SORT_DIRECTION_LABEL: Record<SortDirection, string> = {
+  asc: 'ascendente',
+  desc: 'descendente',
+};
+
+/** Etiqueta de columna del prototipo: mayúsculas pequeñas, espaciadas y en gris. */
+const columnLabelSx = (theme: Theme) => ({
+  ...theme.typography.overline,
+  fontFamily: theme.typography.fontFamily,
+  fontWeight: 700,
+  lineHeight: 1.35,
+  color: theme.palette.text.secondary,
+});
 
 export function DataTable<TRow>({
   label,
@@ -130,11 +151,14 @@ export function DataTable<TRow>({
   onRetry,
   emptyTitle = 'No hay resultados',
   emptyDescription = 'Prueba con otra búsqueda o quita algún filtro.',
+  emptyIcon,
   emptyAction,
   rowActions,
-  cardsBelow = 'sm',
+  cardsBelow = 'md',
 }: DataTableProps<TRow>) {
-  const isTableLayout = useMediaQuery((theme: Theme) => theme.breakpoints.up(cardsBelow), { noSsr: true });
+  const isTableLayout = useMediaQuery((theme: Theme) => theme.breakpoints.up(cardsBelow), {
+    noSsr: true,
+  });
   const items = rows ?? [];
   const hasRows = items.length > 0;
   const showSkeleton = isLoading && !hasRows;
@@ -142,66 +166,126 @@ export function DataTable<TRow>({
   let body: ReactNode;
   if (errorMessage) {
     body = (
-      <Box sx={{ p: 2 }}>
-        <Alert
-          severity="error"
-          action={
-            onRetry ? (
-              <Button color="inherit" size="small" variant="text" onClick={onRetry}>
-                Reintentar
-              </Button>
-            ) : undefined
-          }
-        >
-          {errorMessage}
-        </Alert>
-      </Box>
+      <EmptyState
+        role="alert"
+        icon={<ErrorOutlineIcon />}
+        title="No se pudo cargar la lista"
+        description={errorMessage}
+        action={
+          onRetry ? (
+            <Button variant="outlined" onClick={onRetry}>
+              Reintentar
+            </Button>
+          ) : undefined
+        }
+      />
     );
   } else if (showSkeleton) {
     body = (
-      <Stack role="status" aria-label="Cargando" spacing={1} sx={{ p: 2 }}>
+      <Stack
+        role="status"
+        aria-label="Cargando"
+        spacing={1.5}
+        sx={{ px: { xs: 2, md: 2.5 }, py: 2 }}
+      >
         {Array.from({ length: SKELETON_ROWS }, (_, index) => (
-          <Skeleton key={index} variant="text" />
+          <Stack key={index} direction="row" spacing={1.5} alignItems="center">
+            <Skeleton
+              variant="circular"
+              sx={{ width: (theme) => theme.spacing(4.5), height: (theme) => theme.spacing(4.5) }}
+            />
+            <Skeleton variant="text" sx={{ flex: 1 }} />
+          </Stack>
         ))}
       </Stack>
     );
   } else if (!hasRows) {
-    body = <EmptyState title={emptyTitle} description={emptyDescription} action={emptyAction} />;
+    body = (
+      <EmptyState
+        icon={emptyIcon ?? <SearchOffOutlinedIcon />}
+        title={emptyTitle}
+        description={emptyDescription}
+        action={emptyAction}
+      />
+    );
   } else if (isTableLayout) {
     body = (
       <TableContainer className="scroll-x">
         <Table aria-label={label}>
           <TableHead>
             <TableRow>
-              {columns.map((column) => (
-                <TableCell key={column.id} align={column.align} aria-sort={ariaSort(sort, column.id)}>
-                  {column.sortable && onSortChange ? (
-                    <TableSortLabel
-                      active={sort?.field === column.id}
-                      direction={sort?.field === column.id ? sort.direction : 'asc'}
-                      onClick={() => onSortChange(nextSort(sort, column.id))}
-                    >
-                      {column.header}
-                    </TableSortLabel>
-                  ) : (
-                    column.header
-                  )}
+              {columns.map((column) => {
+                const active = sort?.field === column.id;
+                return (
+                  <TableCell
+                    key={column.id}
+                    align={column.align}
+                    aria-sort={ariaSort(sort, column.id)}
+                    sx={(theme) => ({
+                      ...columnLabelSx(theme),
+                      bgcolor: subtleSurface(theme),
+                      whiteSpace: 'nowrap',
+                    })}
+                  >
+                    {column.sortable && onSortChange ? (
+                      <TableSortLabel
+                        active={active}
+                        direction={active ? sort.direction : 'asc'}
+                        onClick={() => onSortChange(nextSort(sort, column.id))}
+                        IconComponent={active ? undefined : UnfoldMoreIcon}
+                        sx={{
+                          '&, &:hover, &.Mui-active': { color: 'inherit' },
+                          '&:hover': { color: 'text.primary' },
+                          '& .MuiTableSortLabel-icon': {
+                            opacity: active ? 1 : 0.4,
+                            fontSize: '1rem',
+                          },
+                        }}
+                      >
+                        {column.header}
+                      </TableSortLabel>
+                    ) : (
+                      column.header
+                    )}
+                  </TableCell>
+                );
+              })}
+              {rowActions ? (
+                <TableCell
+                  align="right"
+                  sx={(theme) => ({
+                    ...columnLabelSx(theme),
+                    bgcolor: subtleSurface(theme),
+                    whiteSpace: 'nowrap',
+                  })}
+                >
+                  {ACTIONS_HEADER}
                 </TableCell>
-              ))}
-              {rowActions ? <TableCell align="right">{ACTIONS_HEADER}</TableCell> : null}
+              ) : null}
             </TableRow>
           </TableHead>
-          <TableBody>
+          <TableBody
+            sx={{
+              '& .MuiTableCell-root': { py: 1.5, typography: 'body2' },
+              '& .MuiTableRow-root:last-of-type .MuiTableCell-root': { borderBottom: 0 },
+              '& .MuiTableRow-root:hover': { bgcolor: subtleSurface },
+            }}
+          >
             {items.map((row) => (
-              <TableRow key={getRowId(row)} hover>
+              <TableRow key={getRowId(row)}>
                 {columns.map((column) => (
                   <TableCell key={column.id} align={column.align}>
                     {column.render(row)}
                   </TableCell>
                 ))}
                 {rowActions ? (
-                  <TableCell align="right">
-                    <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                    <Stack
+                      direction="row"
+                      spacing={0.25}
+                      justifyContent="flex-end"
+                      sx={{ color: 'text.secondary' }}
+                    >
                       {rowActions(row)}
                     </Stack>
                   </TableCell>
@@ -227,38 +311,135 @@ export function DataTable<TRow>({
   }
 
   return (
-    <Card>
+    <Box>
       <Box sx={{ visibility: isFetching && hasRows ? 'visible' : 'hidden' }}>
         <LinearProgress aria-hidden />
       </Box>
       {body}
       {!errorMessage && hasRows ? (
-        <TablePagination
-          component="div"
-          count={totalItems}
-          page={Math.max(page - 1, 0)}
-          rowsPerPage={pageSize}
-          rowsPerPageOptions={[...pageSizeOptions]}
-          onPageChange={(_, zeroBasedPage) => onPageChange(zeroBasedPage + 1)}
-          onRowsPerPageChange={(event) => onPageSizeChange(Number(event.target.value))}
-          labelRowsPerPage="Filas por página"
-          labelDisplayedRows={({ from, to, count }) => `${from}–${to} de ${count}`}
-          getItemAriaLabel={(type) => PAGINATION_LABELS[type]}
+        <TablePager
+          totalItems={totalItems}
+          page={page}
+          pageSize={pageSize}
+          pageSizeOptions={pageSizeOptions}
+          onPageChange={onPageChange}
+          onPageSizeChange={onPageSizeChange}
         />
       ) : null}
-    </Card>
+    </Box>
   );
 }
 
-interface DataCardListProps<TRow>
-  extends Pick<DataTableProps<TRow>, 'label' | 'columns' | 'getRowId' | 'rowActions' | 'sort' | 'onSortChange'> {
+interface TablePagerProps {
+  totalItems: number;
+  page: number;
+  pageSize: number;
+  pageSizeOptions: readonly number[];
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+}
+
+/** Pie de la tabla (`pager-x`): "Mostrando X–Y de Z" y páginas en píldora, con tamaño de página. */
+function TablePager({
+  totalItems,
+  page,
+  pageSize,
+  pageSizeOptions,
+  onPageChange,
+  onPageSizeChange,
+}: TablePagerProps) {
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const from = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, totalItems);
+
+  return (
+    <Stack
+      direction={{ xs: 'column', md: 'row' }}
+      spacing={1}
+      alignItems="center"
+      justifyContent="space-between"
+      sx={{ px: { xs: 2, md: 2.5 }, py: 1.5, borderTop: 1, borderColor: 'divider' }}
+    >
+      <Stack direction="row" spacing={1.5} alignItems="center">
+        <Typography variant="caption" color="text.secondary">
+          {`Mostrando ${from.toLocaleString('es-MX')}–${to.toLocaleString('es-MX')} de ${totalItems.toLocaleString('es-MX')}`}
+        </Typography>
+        <Select
+          size="small"
+          variant="standard"
+          disableUnderline
+          value={pageSize}
+          onChange={(event) => onPageSizeChange(Number(event.target.value))}
+          inputProps={{ 'aria-label': 'Filas por página' }}
+          sx={{
+            typography: 'caption',
+            color: 'text.secondary',
+            '& .MuiSelect-select': { py: 0.5 },
+          }}
+        >
+          {pageSizeOptions.map((option) => (
+            <MenuItem key={option} value={option}>
+              {option}
+            </MenuItem>
+          ))}
+        </Select>
+      </Stack>
+      <Pagination
+        count={totalPages}
+        page={Math.min(page, totalPages)}
+        onChange={(_, next) => onPageChange(next)}
+        color="primary"
+        shape="rounded"
+        siblingCount={1}
+        getItemAriaLabel={(type, itemPage, selected) => {
+          if (type === 'page') {
+            return selected ? `Página ${itemPage}, actual` : `Ir a la página ${itemPage}`;
+          }
+          return type in PAGINATION_LABELS
+            ? PAGINATION_LABELS[type as keyof typeof PAGINATION_LABELS]
+            : '';
+        }}
+        sx={{
+          '& .MuiPaginationItem-root': {
+            minWidth: (theme) => theme.spacing(5),
+            height: (theme) => theme.spacing(5),
+            borderRadius: (theme) => `${theme.shape.borderRadius}px`,
+            fontWeight: 600,
+            color: 'text.secondary',
+          },
+          '& .MuiPaginationItem-root.Mui-selected': { color: 'primary.contrastText' },
+        }}
+      />
+    </Stack>
+  );
+}
+
+interface DataCardListProps<TRow> extends Pick<
+  DataTableProps<TRow>,
+  'label' | 'columns' | 'getRowId' | 'rowActions' | 'sort' | 'onSortChange'
+> {
   rows: readonly TRow[];
 }
 
-/** Vista móvil: una tarjeta por fila, con selector de orden si hay columnas ordenables. */
-function DataCardList<TRow>({ label, columns, rows, getRowId, rowActions, sort, onSortChange }: DataCardListProps<TRow>) {
+/**
+ * Vista móvil (`table-x` por debajo de 768 px en el prototipo): una tarjeta por
+ * fila con pares etiqueta/valor; la etiqueta en mayúsculas a la izquierda y el
+ * valor a la derecha. Con columnas ordenables, un selector de orden encima.
+ */
+function DataCardList<TRow>({
+  label,
+  columns,
+  rows,
+  getRowId,
+  rowActions,
+  sort,
+  onSortChange,
+}: DataCardListProps<TRow>) {
   const primary = columns.find((column) => column.primary) ?? columns[0];
-  const details = columns.filter((column) => column !== primary && !column.hideOnMobile);
+  const visible = [
+    primary,
+    ...columns.filter((column) => column !== primary && !column.hideOnMobile),
+  ].filter((column): column is DataTableColumn<TRow> => column !== undefined);
   const sortable = onSortChange ? columns.filter((column) => column.sortable) : [];
   const sortValue = sort ? `${sort.field}:${sort.direction}` : '';
 
@@ -291,34 +472,70 @@ function DataCardList<TRow>({ label, columns, rows, getRowId, rowActions, sort, 
 
       <Stack component="ul" aria-label={label} spacing={1.5} sx={{ listStyle: 'none', m: 0, p: 0 }}>
         {rows.map((row) => (
-          <Card key={getRowId(row)} component="li" variant="outlined">
-            <CardContent>
-              {primary ? (
-                <Typography variant="subtitle1" component="div" sx={{ mb: 1 }}>
-                  {primary.render(row)}
-                </Typography>
-              ) : null}
-              <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 2, rowGap: 0.5 }}>
-                {details.map((column) => (
-                  <Box key={column.id} sx={{ display: 'contents' }}>
-                    <Typography component="dt" variant="caption" color="text.secondary">
-                      {column.header}
-                    </Typography>
-                    <Typography component="dd" variant="body2" sx={{ m: 0, minWidth: 0, overflowWrap: 'anywhere' }}>
-                      {column.render(row)}
-                    </Typography>
-                  </Box>
-                ))}
-              </Box>
+          <Paper
+            key={getRowId(row)}
+            component="li"
+            sx={{ px: 0.5, py: 0.75, boxShadow: 1, borderRadius: 1 }}
+          >
+            <Box component="dl" sx={{ m: 0 }}>
+              {visible.map((column) => (
+                <CardRow key={column.id} label={column.header} strong={column === primary}>
+                  {column.render(row)}
+                </CardRow>
+              ))}
               {rowActions ? (
-                <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 1 }}>
-                  {rowActions(row)}
-                </Stack>
+                <CardRow label={ACTIONS_HEADER}>
+                  <Stack
+                    direction="row"
+                    spacing={0.25}
+                    justifyContent="flex-end"
+                    sx={{ color: 'text.secondary' }}
+                  >
+                    {rowActions(row)}
+                  </Stack>
+                </CardRow>
               ) : null}
-            </CardContent>
-          </Card>
+            </Box>
+          </Paper>
         ))}
       </Stack>
     </Box>
+  );
+}
+
+function CardRow({
+  label,
+  strong = false,
+  children,
+}: {
+  label: string;
+  strong?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Stack
+      direction="row"
+      spacing={2}
+      alignItems="center"
+      justifyContent="space-between"
+      sx={{ px: 1.5, py: 0.75 }}
+    >
+      <Typography component="dt" sx={(theme) => ({ ...columnLabelSx(theme), flexShrink: 0 })}>
+        {label}
+      </Typography>
+      <Typography
+        component="dd"
+        variant="body2"
+        sx={{
+          m: 0,
+          minWidth: 0,
+          textAlign: 'right',
+          overflowWrap: 'anywhere',
+          fontWeight: strong ? 600 : undefined,
+        }}
+      >
+        {children}
+      </Typography>
+    </Stack>
   );
 }

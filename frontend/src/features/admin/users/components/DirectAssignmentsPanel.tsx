@@ -6,10 +6,6 @@ import {
   Autocomplete,
   Button,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   FormControlLabel,
   IconButton,
   List,
@@ -20,13 +16,19 @@ import {
   Stack,
   TextField,
   Typography,
-  useMediaQuery,
-  type Theme,
 } from '@mui/material';
-import { useEffect, useId, useState, type FormEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 
-import { ConfirmDialog, EmptyState, REASON_MIN_LENGTH } from '@/features/admin/common';
+import {
+  AdminDialog,
+  ConfirmDialog,
+  DialogFooter,
+  EmptyState,
+  FormSection,
+  FullRow,
+  REASON_MIN_LENGTH,
+} from '@/features/admin/common';
 
 import { EFFECT_LABEL, formatDate } from '../users-format';
 import type { AssignmentEffect, DirectAssignmentRequest } from '../users.api';
@@ -65,7 +67,10 @@ function isExpired(item: AssignmentItem): boolean {
 }
 
 /** Las vigentes, listas para reenviar: una caducada ya no tiene efecto y el backend no admite caducidades pasadas. */
-function currentRequests(items: AssignmentItem[], exceptTargetId?: string): DirectAssignmentRequest[] {
+function currentRequests(
+  items: AssignmentItem[],
+  exceptTargetId?: string,
+): DirectAssignmentRequest[] {
   return items
     .filter((item) => !isExpired(item) && item.targetId !== exceptTargetId)
     .map((item) => ({
@@ -76,7 +81,12 @@ function currentRequests(items: AssignmentItem[], exceptTargetId?: string): Dire
     }));
 }
 
-const EMPTY_FORM: DirectAssignmentFormValues = { targetId: '', effect: 'GRANT', reason: '', expiresAt: '' };
+const EMPTY_FORM: DirectAssignmentFormValues = {
+  targetId: '',
+  effect: 'GRANT',
+  reason: '',
+  expiresAt: '',
+};
 
 /**
  * Excepciones directas sobre el modelo de roles (ADR-018 §4, PLAN-ADMIN D5):
@@ -117,7 +127,10 @@ export function DirectAssignmentsPanel({
       </Stack>
 
       {items.length === 0 ? (
-        <EmptyState title="Sin excepciones" description={`No tiene ningún ${noun} asignado directamente.`} />
+        <EmptyState
+          title="Sin excepciones"
+          description={`No tiene ningún ${noun} asignado directamente.`}
+        />
       ) : (
         <List aria-label={`Excepciones de ${noun}`} disablePadding>
           {items.map((item) => (
@@ -143,8 +156,14 @@ export function DirectAssignmentsPanel({
                 primary={
                   <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                     <span>{item.label}</span>
-                    <Chip size="small" color={item.effect === 'DENY' ? 'error' : 'success'} label={EFFECT_LABEL[item.effect]} />
-                    {isExpired(item) ? <Chip size="small" variant="outlined" label="Caducada" /> : null}
+                    <Chip
+                      size="small"
+                      color={item.effect === 'DENY' ? 'error' : 'success'}
+                      label={EFFECT_LABEL[item.effect]}
+                    />
+                    {isExpired(item) ? (
+                      <Chip size="small" variant="outlined" label="Caducada" />
+                    ) : null}
                   </Stack>
                 }
                 secondary={`${item.secondary} · ${item.reason} · ${item.expiresAt ? `Hasta ${formatDate(item.expiresAt)}` : 'Sin caducidad'}`}
@@ -169,7 +188,9 @@ export function DirectAssignmentsPanel({
                 targetId: values.targetId,
                 effect: values.effect,
                 reason: values.reason.trim(),
-                ...(values.expiresAt ? { expiresAt: new Date(values.expiresAt).toISOString() } : {}),
+                ...(values.expiresAt
+                  ? { expiresAt: new Date(values.expiresAt).toISOString() }
+                  : {}),
               },
             ],
             () => setAdding(false),
@@ -180,7 +201,11 @@ export function DirectAssignmentsPanel({
       <ConfirmDialog
         open={toRemove !== null}
         title={`Quitar ${noun}`}
-        description={toRemove ? `Se retirará la excepción sobre «${toRemove.label}». El cambio queda en la bitácora.` : undefined}
+        description={
+          toRemove
+            ? `Se retirará la excepción sobre «${toRemove.label}». El cambio queda en la bitácora.`
+            : undefined
+        }
         confirmLabel="Quitar"
         destructive
         isPending={isPending}
@@ -206,16 +231,25 @@ interface AssignmentFormDialogProps {
   onSubmit: (values: DirectAssignmentFormValues) => void;
 }
 
-function AssignmentFormDialog({ open, noun, targets, isPending, errorMessage, onClose, onSubmit }: AssignmentFormDialogProps) {
-  const titleId = useId();
-  const fullScreen = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
+function AssignmentFormDialog({
+  open,
+  noun,
+  targets,
+  isPending,
+  errorMessage,
+  onClose,
+  onSubmit,
+}: AssignmentFormDialogProps) {
   const {
     control,
     register,
     handleSubmit,
     reset,
     formState: { errors },
-  } = useForm<DirectAssignmentFormValues>({ resolver: zodResolver(directAssignmentSchema), defaultValues: EMPTY_FORM });
+  } = useForm<DirectAssignmentFormValues>({
+    resolver: zodResolver(directAssignmentSchema),
+    defaultValues: EMPTY_FORM,
+  });
 
   useEffect(() => {
     if (open) {
@@ -226,24 +260,20 @@ function AssignmentFormDialog({ open, noun, targets, isPending, errorMessage, on
   const submit = handleSubmit(onSubmit);
 
   return (
-    <Dialog
+    <AdminDialog
       open={open}
       onClose={isPending ? undefined : onClose}
-      aria-labelledby={titleId}
-      fullScreen={fullScreen}
-      fullWidth
+      title={`Nueva excepción de ${noun}`}
+      subtitle="Usuarios · Excepciones"
       maxWidth="sm"
-      PaperProps={{
-        component: 'form',
-        noValidate: true,
-        onSubmit: (event: FormEvent<HTMLFormElement>) => {
-          void submit(event);
-        },
+      requiredNote
+      onSubmit={(event) => {
+        void submit(event);
       }}
+      actions={<DialogFooter onCancel={onClose} submitLabel="Añadir" pending={isPending} />}
     >
-      <DialogTitle id={titleId}>Nueva excepción de {noun}</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2} sx={{ pt: 1 }}>
+      <FormSection number={1} title="Excepción">
+        <FullRow>
           <Controller
             control={control}
             name="targetId"
@@ -267,16 +297,35 @@ function AssignmentFormDialog({ open, noun, targets, isPending, errorMessage, on
               />
             )}
           />
+        </FullRow>
+        <FullRow>
           <Controller
             control={control}
             name="effect"
             render={({ field }) => (
-              <RadioGroup row aria-label="Efecto" value={field.value} onChange={(event) => field.onChange(event.target.value)}>
-                <FormControlLabel value="GRANT" control={<Radio />} label="Conceder" disabled={isPending} />
-                <FormControlLabel value="DENY" control={<Radio />} label="Denegar" disabled={isPending} />
+              <RadioGroup
+                row
+                aria-label="Efecto"
+                value={field.value}
+                onChange={(event) => field.onChange(event.target.value)}
+              >
+                <FormControlLabel
+                  value="GRANT"
+                  control={<Radio />}
+                  label="Conceder"
+                  disabled={isPending}
+                />
+                <FormControlLabel
+                  value="DENY"
+                  control={<Radio />}
+                  label="Denegar"
+                  disabled={isPending}
+                />
               </RadioGroup>
             )}
           />
+        </FullRow>
+        <FullRow>
           <TextField
             {...register('reason')}
             label="Razón"
@@ -285,28 +334,27 @@ function AssignmentFormDialog({ open, noun, targets, isPending, errorMessage, on
             minRows={2}
             disabled={isPending}
             error={Boolean(errors.reason)}
-            helperText={errors.reason?.message ?? `Obligatoria, mínimo ${REASON_MIN_LENGTH} caracteres. Queda en la bitácora.`}
+            helperText={
+              errors.reason?.message ??
+              `Obligatoria, mínimo ${REASON_MIN_LENGTH} caracteres. Queda en la bitácora.`
+            }
           />
-          <TextField
-            {...register('expiresAt')}
-            label="Caduca el"
-            type="date"
-            disabled={isPending}
-            InputLabelProps={{ shrink: true }}
-            error={Boolean(errors.expiresAt)}
-            helperText={errors.expiresAt?.message ?? 'Opcional. Vacío = sin caducidad.'}
-          />
-          {errorMessage ? <Alert severity="error">{errorMessage}</Alert> : null}
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button variant="text" onClick={onClose} disabled={isPending}>
-          Cancelar
-        </Button>
-        <Button type="submit" disabled={isPending}>
-          Añadir
-        </Button>
-      </DialogActions>
-    </Dialog>
+        </FullRow>
+        <TextField
+          {...register('expiresAt')}
+          label="Caduca el"
+          type="date"
+          disabled={isPending}
+          InputLabelProps={{ shrink: true }}
+          error={Boolean(errors.expiresAt)}
+          helperText={errors.expiresAt?.message ?? 'Opcional. Vacío = sin caducidad.'}
+        />
+      </FormSection>
+      {errorMessage ? (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          {errorMessage}
+        </Alert>
+      ) : null}
+    </AdminDialog>
   );
 }

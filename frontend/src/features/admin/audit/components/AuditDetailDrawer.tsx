@@ -1,8 +1,5 @@
-import CloseIcon from '@mui/icons-material/Close';
 import {
   Box,
-  Drawer,
-  IconButton,
   Stack,
   Table,
   TableBody,
@@ -12,7 +9,7 @@ import {
   TableRow,
   Typography,
 } from '@mui/material';
-import { useId, type ReactNode } from 'react';
+import { AdminDrawer, DetailList, DetailSection } from '@/features/admin/common';
 
 import type { AuditLogEntry } from '../audit.api';
 import { describeActor, formatDateTime, toChangeRows, toMetadataRows } from '../audit-format';
@@ -22,25 +19,19 @@ export interface AuditDetailDrawerProps {
   onClose: () => void;
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <Box sx={{ display: 'contents' }}>
-      <Typography component="dt" variant="caption" color="text.secondary">
-        {label}
-      </Typography>
-      <Typography component="dd" variant="body2" sx={{ m: 0, minWidth: 0, overflowWrap: 'anywhere' }}>
-        {children}
-      </Typography>
-    </Box>
-  );
-}
-
 function RawJson({ value }: { value: unknown }) {
   return (
     <Box
       component="pre"
       className="scroll-x"
-      sx={{ m: 0, p: 1.5, bgcolor: 'action.hover', borderRadius: 1, typography: 'body2', fontFamily: 'monospace' }}
+      sx={{
+        m: 0,
+        p: 1.5,
+        bgcolor: 'action.hover',
+        borderRadius: 1,
+        typography: 'body2',
+        fontFamily: 'monospace',
+      }}
     >
       {JSON.stringify(value, null, 2)}
     </Box>
@@ -49,46 +40,34 @@ function RawJson({ value }: { value: unknown }) {
 
 /** Detalle de un registro: datos del evento, diferencia antes → después y metadatos. */
 export function AuditDetailDrawer({ entry, onClose }: AuditDetailDrawerProps) {
-  const titleId = useId();
   const changeRows = entry ? toChangeRows(entry.changes) : null;
   const metadataRows = entry ? toMetadataRows(entry.metadata) : null;
 
   return (
-    <Drawer
-      anchor="right"
+    <AdminDrawer
       open={Boolean(entry)}
       onClose={onClose}
-      slotProps={{ paper: { 'aria-labelledby': titleId, sx: { width: { xs: '100%', sm: (theme) => theme.spacing(70) } } } }}
+      title={entry?.event ?? 'Registro de auditoría'}
+      subtitle={entry ? `Auditoría · ${formatDateTime(entry.occurredAt)}` : 'Auditoría'}
     >
       {entry ? (
-        <Stack spacing={3} sx={{ p: 3 }}>
-          <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1}>
-            <Box sx={{ minWidth: 0 }}>
-              <Typography id={titleId} variant="h6" component="h2" sx={{ overflowWrap: 'anywhere' }}>
-                {entry.event}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {formatDateTime(entry.occurredAt)}
-              </Typography>
-            </Box>
-            <IconButton aria-label="Cerrar detalle" onClick={onClose}>
-              <CloseIcon />
-            </IconButton>
-          </Stack>
+        <Stack spacing={3}>
+          <DetailSection number={1} title="Evento">
+            <DetailList
+              items={[
+                { label: 'Actor', value: describeActor(entry) },
+                ...(entry.subjectEmail && entry.subjectId
+                  ? [{ label: 'Id del actor', value: entry.subjectId }]
+                  : []),
+                { label: 'Recurso', value: entry.resourceType ?? '—' },
+                { label: 'Id del recurso', value: entry.resourceId ?? '—' },
+                { label: 'IP', value: entry.ipAddress ?? '—' },
+                { label: 'Correlación', value: entry.correlationId, wide: true },
+              ]}
+            />
+          </DetailSection>
 
-          <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 2, rowGap: 1 }}>
-            <Field label="Actor">{describeActor(entry)}</Field>
-            {entry.subjectEmail && entry.subjectId ? <Field label="Id del actor">{entry.subjectId}</Field> : null}
-            <Field label="Recurso">{entry.resourceType ?? '—'}</Field>
-            <Field label="Id del recurso">{entry.resourceId ?? '—'}</Field>
-            <Field label="IP">{entry.ipAddress ?? '—'}</Field>
-            <Field label="Correlación">{entry.correlationId}</Field>
-          </Box>
-
-          <Box component="section" aria-label="Cambios">
-            <Typography variant="subtitle2" component="h3" sx={{ mb: 1 }}>
-              Cambios
-            </Typography>
+          <DetailSection number={2} title="Cambios">
             {changeRows && changeRows.length > 0 ? (
               <TableContainer className="scroll-x">
                 <Table size="small" aria-label="Cambios">
@@ -103,7 +82,9 @@ export function AuditDetailDrawer({ entry, onClose }: AuditDetailDrawerProps) {
                     {changeRows.map((row) => (
                       <TableRow key={row.field}>
                         <TableCell sx={{ fontFamily: 'monospace' }}>{row.field}</TableCell>
-                        <TableCell sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }}>{row.before}</TableCell>
+                        <TableCell sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }}>
+                          {row.before}
+                        </TableCell>
                         <TableCell sx={{ overflowWrap: 'anywhere' }}>{row.after}</TableCell>
                       </TableRow>
                     ))}
@@ -117,20 +98,13 @@ export function AuditDetailDrawer({ entry, onClose }: AuditDetailDrawerProps) {
                 Este evento no registra cambios de datos.
               </Typography>
             )}
-          </Box>
+          </DetailSection>
 
-          <Box component="section" aria-label="Metadatos">
-            <Typography variant="subtitle2" component="h3" sx={{ mb: 1 }}>
-              Metadatos
-            </Typography>
+          <DetailSection number={3} title="Metadatos">
             {metadataRows ? (
-              <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 2, rowGap: 0.5 }}>
-                {metadataRows.map((row) => (
-                  <Field key={row.key} label={row.key}>
-                    {row.value}
-                  </Field>
-                ))}
-              </Box>
+              <DetailList
+                items={metadataRows.map((row) => ({ label: row.key, value: row.value }))}
+              />
             ) : entry.metadata !== null ? (
               <RawJson value={entry.metadata} />
             ) : (
@@ -138,9 +112,9 @@ export function AuditDetailDrawer({ entry, onClose }: AuditDetailDrawerProps) {
                 Sin metadatos.
               </Typography>
             )}
-          </Box>
+          </DetailSection>
         </Stack>
       ) : null}
-    </Drawer>
+    </AdminDrawer>
   );
 }

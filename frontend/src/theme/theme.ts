@@ -53,7 +53,12 @@ function createAppTheme(mode: 'light' | 'dark'): Theme {
  */
 function buildShadows(isDark: boolean): Theme['shadows'] {
   const set = isDark ? shadows.dark : shadows.light;
-  const list = ['none', ...Array.from({ length: 24 }, (_, index) => (index < 4 ? set.sm : index < 12 ? set.md : set.lg))];
+  const list = [
+    'none',
+    ...Array.from({ length: 24 }, (_, index) =>
+      index < 4 ? set.sm : index < 12 ? set.md : set.lg,
+    ),
+  ];
   return list as unknown as Theme['shadows'];
 }
 
