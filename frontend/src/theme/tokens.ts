@@ -96,6 +96,8 @@ export const gradients = {
   cta: `linear-gradient(120deg, ${brand[700]}, ${brand[500]})`,
   /** Brillo diagonal que barre un botón sólido al pasar el ratón (`.btn-x::before`). */
   sheen: 'linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.26) 50%, transparent 70%)',
+  /** Reflejo diagonal que barre una tarjeta de indicador (`.stat-card::after`). */
+  statSheen: 'linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.16) 50%, transparent 65%)',
   /** Cabecera de tarjeta: del gris sutil a transparente (`.card-x-header`). */
   cardHeaderLight: 'linear-gradient(180deg, #F6F8FA, transparent)',
   cardHeaderDark: 'linear-gradient(180deg, #172440, transparent)',
@@ -167,6 +169,10 @@ export const duration = {
   progress: 400,
   /** Brillo que barre el botón principal al pasar el ratón (`.btn-x::before`). */
   sheen: 520,
+  /** Brillo que barre una tarjeta de indicador al pasar el ratón (`.stat-card::after`). */
+  statSheen: 700,
+  /** Reacción del icono y del valor de una tarjeta de indicador. */
+  statReact: 200,
   /** Vuelta del anillo de carga de un botón (`.spinner-ring`). */
   spin: 600,
   /** Fundido del texto del botón al entrar en carga (`.btn-label`). */
@@ -175,6 +181,14 @@ export const duration = {
 
 /** Escala de un botón de icono al pulsarlo (`.input-trailing-btn:active`). */
 export const pressScale = 0.92;
+
+/** Reacción de una tarjeta de indicador al pasar el ratón (`.stat-card:hover`). */
+export const statHover = {
+  /** Elevación (px), sólo desde `lg` como en el prototipo. */
+  lift: 2,
+  iconTransform: 'scale(1.08) rotate(-4deg)',
+  valueLetterSpacing: '-0.015em',
+} as const;
 
 /** Escalonado de listas, kanban y rejillas de tarjetas (ms entre elementos). */
 export const stagger = { min: 30, max: 80 } as const;

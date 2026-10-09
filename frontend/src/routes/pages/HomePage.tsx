@@ -16,7 +16,20 @@ import { useHealth } from '@/hooks/use-health';
 import { useMenu } from '@/hooks/use-menu';
 import { useProfile } from '@/hooks/use-profile';
 import type { MenuModule, MenuOptionNode, Profile } from '@/services/access';
-import { fonts, fontSizes, gradients, layout, onBrand, soft, softDark } from '@/theme/tokens';
+import {
+  breakpoints,
+  duration,
+  easing,
+  fonts,
+  fontSizes,
+  gradients,
+  layout,
+  onBrand,
+  shadows,
+  soft,
+  softDark,
+  statHover,
+} from '@/theme/tokens';
 import { sectionLabelSx } from '@/theme/typography';
 
 const DATA_SCOPE_LABELS: Record<Profile['dataScope'], string> = {
@@ -71,7 +84,16 @@ interface StatCardProps {
   foot: ReactNode;
 }
 
-/** `.stat-card` del prototipo: ficha de icono, etiqueta en versalitas, valor grande y pie. */
+/** Sólo con ratón y sin movimiento reducido: el `@media (hover: hover)` del prototipo. */
+const HOVER_MOTION = '@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)';
+
+/**
+ * `.stat-card` del prototipo: ficha de icono, etiqueta en versalitas, valor grande y pie.
+ *
+ * Al pasar el ratón, igual que allí: un reflejo diagonal barre la tarjeta, el
+ * icono crece y gira un poco, el valor se compacta y, desde `lg`, la tarjeta se
+ * eleva con más sombra. Con movimiento reducido o en táctil no hay nada de eso.
+ */
 function StatCard({ tone, icon, label, value, foot }: StatCardProps) {
   const onGradient = tone !== 'plain';
 
@@ -79,9 +101,36 @@ function StatCard({ tone, icon, label, value, foot }: StatCardProps) {
     <Card
       component="section"
       aria-label={label}
-      sx={{
+      sx={(theme) => ({
         p: 2.25,
         height: '100%',
+        position: 'relative',
+        overflow: 'hidden',
+        transition: `transform ${duration.hover}ms ease, box-shadow ${duration.hover}ms ease`,
+        '&::after': {
+          content: '""',
+          position: 'absolute',
+          inset: 0,
+          backgroundImage: gradients.statSheen,
+          transform: 'translateX(-130%)',
+          transition: `transform ${duration.statSheen}ms ${easing.out}`,
+          pointerEvents: 'none',
+        },
+        '& [data-stat-icon]': {
+          transition: `transform ${duration.statReact}ms ${easing.out}, box-shadow ${duration.statReact}ms ease`,
+        },
+        '& [data-stat-value]': { transition: `letter-spacing ${duration.statReact}ms ${easing.out}` },
+        [HOVER_MOTION]: {
+          '&:hover::after': { transform: 'translateX(130%)' },
+          '&:hover [data-stat-icon]': { transform: statHover.iconTransform },
+          '&:hover [data-stat-value]': { letterSpacing: statHover.valueLetterSpacing },
+          [`@media (min-width: ${breakpoints.lg}px)`]: {
+            '&:hover': {
+              transform: `translateY(-${statHover.lift}px)`,
+              boxShadow: shadows[theme.palette.mode].md,
+            },
+          },
+        },
         ...(onGradient
           ? {
               border: 0,
@@ -89,10 +138,11 @@ function StatCard({ tone, icon, label, value, foot }: StatCardProps) {
               backgroundImage: tone === 'brand' ? gradients.brand : gradients.brandSoft,
             }
           : {}),
-      }}
+      })}
     >
       <Box
         aria-hidden="true"
+        data-stat-icon=""
         sx={(theme) => ({
           width: layout.statIconSize,
           height: layout.statIconSize,
@@ -116,6 +166,7 @@ function StatCard({ tone, icon, label, value, foot }: StatCardProps) {
         {label}
       </Typography>
       <Typography
+        data-stat-value=""
         sx={{
           fontFamily: fonts.heading,
           fontWeight: 700,
