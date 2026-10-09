@@ -1,29 +1,58 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { Suspense } from 'react';
+import { createBrowserRouter, type RouteObject } from 'react-router-dom';
 
 import { ErrorBoundary } from '@/components/feedback/error-boundary';
+import { FullPageLoader } from '@/components/feedback/full-page-loader';
 import { AppShell } from '@/components/layout/AppShell';
 import { PasswordChangeGate } from '@/components/layout/PasswordChangeGate';
 import { RequireAuth } from '@/components/layout/RequireAuth';
+import { RequirePermission } from '@/components/layout/RequirePermission';
+import { ADMIN_ROUTES } from '@/features/admin/admin-routes';
 import { ChangePasswordPage } from '@/routes/pages/ChangePasswordPage';
 import { HomePage } from '@/routes/pages/HomePage';
 import { LoginPage } from '@/routes/pages/LoginPage';
 import { NotFoundPage } from '@/routes/pages/NotFoundPage';
 import { ROUTE_PATHS } from '@/routes/route-paths';
+import { collectNavigablePaths } from '@/routes/route-tree';
+
+/**
+ * Rutas que viven dentro del shell (menú lateral, topbar).
+ *
+ * Toda ruta de funcionalidad se añade aquí, protegida con `RequirePermission`
+ * y el MISMO permiso que el `requiredPermission` de su opción de menú en la
+ * base de datos; si no coinciden, el menú mostrará una entrada que lleva a una
+ * pantalla que el backend va a rechazar. Además, la ruta se añade a
+ * `backend/src/modules/access/app-routes.registry.json` (PLAN-ADMIN D6):
+ * `route-registry.spec.ts` compara ambos y falla si divergen.
+ */
+export const shellRoutes: RouteObject[] = [
+  { index: true, element: <HomePage /> },
+  ...ADMIN_ROUTES.map(({ path, permission, Page }) => ({
+    path,
+    element: (
+      <RequirePermission permission={permission}>
+        <Suspense fallback={<FullPageLoader />}>
+          <Page />
+        </Suspense>
+      </RequirePermission>
+    ),
+  })),
+  { path: '*', element: <NotFoundPage /> },
+];
+
+/** Rutas navegables del shell; deben ser exactamente las del registro del backend. */
+export function getShellNavigablePaths(): string[] {
+  return collectNavigablePaths(shellRoutes, ROUTE_PATHS.home);
+}
 
 /**
  * Tabla de rutas.
- *
- * Las rutas de funcionalidad se añaden como hijas del shell y su acceso se
- * protege con `RequireAuth` (y, cuando aplique, comprobando el permiso de la
- * opción correspondiente). La ruta y el permiso deben coincidir con los de la
- * opción registrada en la base de datos; si no, el menú mostrará una entrada
- * que lleva a una pantalla que el backend va a rechazar.
  *
  * El shell va detrás de `PasswordChangeGate`: con un cambio de contraseña
  * pendiente (D13) toda ruta lleva a `/cambiar-contrasena`, que vive fuera del
  * shell porque el menú aún no está disponible para esa sesión.
  */
-export const appRouter = createBrowserRouter([
+export const appRoutes: RouteObject[] = [
   {
     path: ROUTE_PATHS.login,
     element: <LoginPage />,
@@ -48,9 +77,8 @@ export const appRouter = createBrowserRouter([
         <NotFoundPage />
       </ErrorBoundary>
     ),
-    children: [
-      { index: true, element: <HomePage /> },
-      { path: '*', element: <NotFoundPage /> },
-    ],
+    children: shellRoutes,
   },
-]);
+];
+
+export const appRouter = createBrowserRouter(appRoutes);

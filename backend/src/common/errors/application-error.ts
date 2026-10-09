@@ -31,11 +31,17 @@ export class BusinessRuleViolationError extends ApplicationError {
   }
 }
 
+/** 409. `code` permite distinguir el conflicto (`ROLE_IN_USE`, `LAST_ADMIN`…). */
 export class ResourceConflictError extends ApplicationError {
-  readonly code = 'RESOURCE_CONFLICT';
+  readonly code: string;
 
-  constructor(message: string, details: ReadonlyArray<Record<string, unknown>> = []) {
+  constructor(
+    message: string,
+    details: ReadonlyArray<Record<string, unknown>> = [],
+    code = 'RESOURCE_CONFLICT',
+  ) {
     super(message, details);
+    this.code = code;
   }
 }
 

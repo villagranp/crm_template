@@ -1,3 +1,5 @@
+import { useCallback } from 'react';
+
 import { hasPermission } from '@/services/auth';
 import { useAuthStore } from '@/stores/auth.store';
 
@@ -9,4 +11,17 @@ import { useAuthStore } from '@/stores/auth.store';
  */
 export function usePermission(permission: string): boolean {
   return useAuthStore((state) => hasPermission(state.user, permission));
+}
+
+/**
+ * Devuelve un comprobador `can('recurso.accion')` para decidir varias acciones
+ * a la vez (p. ej. las acciones de cada fila de una tabla) sin un hook por
+ * permiso.
+ *
+ * Igual que `usePermission`, sólo oculta controles: el backend vuelve a exigir
+ * el permiso en cada petición y es quien decide.
+ */
+export function useCan(): (permission: string) => boolean {
+  const user = useAuthStore((state) => state.user);
+  return useCallback((permission: string) => hasPermission(user, permission), [user]);
 }

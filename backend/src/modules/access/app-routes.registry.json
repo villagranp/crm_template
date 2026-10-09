@@ -1,0 +1,14 @@
+{
+  "$comment": "Rutas del frontend a las que puede apuntar una opcion de menu (PLAN-ADMIN, D6). Al anadir una pantalla navegable, se registra aqui y en frontend/src/routes/app-routes.tsx: una prueba del frontend falla si divergen.",
+  "routes": [
+    { "path": "/", "label": "Panel de control" },
+    { "path": "/administracion/usuarios", "label": "Usuarios" },
+    { "path": "/administracion/roles", "label": "Roles y permisos" },
+    { "path": "/administracion/opciones", "label": "Opciones de menú" },
+    { "path": "/administracion/equipos", "label": "Equipos" },
+    { "path": "/administracion/catalogos", "label": "Catálogos" },
+    { "path": "/administracion/parametros", "label": "Parámetros" },
+    { "path": "/administracion/aprobaciones", "label": "Aprobaciones" },
+    { "path": "/administracion/auditoria", "label": "Auditoría" }
+  ]
+}

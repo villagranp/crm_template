@@ -5,7 +5,13 @@ import { resolve } from 'node:path';
  * de la base configurada. Así nunca tocan los datos de desarrollo y no hace
  * falta un usuario con permiso para crear bases: basta con ser dueño de la base.
  */
-export const INTEGRATION_SCHEMA = 'integration_test';
+// Sobrescribible para ejecutar varias suites a la vez sin que una borre el
+// esquema de otra. Solo letras minúsculas, dígitos y guion bajo: el nombre se
+// interpola en DROP SCHEMA.
+export const INTEGRATION_SCHEMA = process.env.INTEGRATION_SCHEMA ?? 'integration_test';
+if (!/^integration_[a-z0-9_]+$/.test(INTEGRATION_SCHEMA)) {
+  throw new Error('INTEGRATION_SCHEMA debe empezar por integration_ y contener solo [a-z0-9_].');
+}
 
 export function integrationDatabaseUrl(): string {
   if (!process.env.DATABASE_URL) {
