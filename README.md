@@ -1,8 +1,6 @@
-# Enterprise Project Template
+# Mi cliente AG
 
-Plantilla empresarial reutilizable para desarrollo asistido por IA (Vibe Coding controlado).
-**No es una aplicación de negocio**: es el sistema de desarrollo sobre el que se construyen
-aplicaciones de negocio.
+CRM de Proyecto Landmark
 
 ```text
 React + TypeScript + Vite + MUI   ⟷   NGINX   ⟷   NestJS + TypeScript + REST/OpenAPI
