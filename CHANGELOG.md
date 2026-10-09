@@ -21,6 +21,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 - Registro de rutas navegables (`app-routes.registry.json`) que valida las
   opciones de menú creadas desde la interfaz.
 
+- Skills de pulido de UI y movimiento de emilkowalski/skills (10, MIT), con
+  precedencia de las reglas del proyecto (CLAUDE.md §4).
+
 ### Changed
 - **Contrato:** `GET /roles` pasa a ser paginado (`{ data, pagination }`).
 - **Contrato:** `PATCH /users/{id}` ya no acepta `status`; el estado cambia con

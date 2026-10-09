@@ -98,6 +98,31 @@ Los Skills viven en `.claude/skills/<nombre>/SKILL.md` y contienen instrucciones
 
 **Regla de selección:** ante la duda, incluye el Skill. Un Skill de más cuesta lectura; uno de menos cuesta un defecto.
 
+### Skills de terceros: pulido de UI y movimiento
+
+Copiados sin modificar de [emilkowalski/skills](https://github.com/emilkowalski/skills)
+(MIT, ver `.claude/skills/THIRD_PARTY_NOTICES.md`). Complementan a `design-system`
+y `frontend-react`; no los sustituyen.
+
+| Skill | Se activa cuando… |
+|---|---|
+| `emil-design-eng` | Se pule un componente o se decide si algo debe animarse |
+| `animate` | Se construye una animación o transición |
+| `review-animations` | Se revisa el movimiento de un cambio (solo invocación explícita) |
+| `improve-animations` | Se audita el movimiento de toda la app (solo lectura) |
+| `find-animation-opportunities` | Se buscan sitios que ganarían con movimiento (solo lectura) |
+| `animation-vocabulary` | Hay que nombrar un efecto de movimiento |
+| `apple-design` | Gestos, hojas, arrastre, profundidad y movimiento físico |
+| `mobile-native` | La app debe sentirse nativa en el teléfono |
+| `break-ui` | Se prueba una pantalla con datos extremos |
+| `prototype` | Se comparan variantes de una pieza de UI (solo invocación explícita) |
+
+**Precedencia:** las reglas de este proyecto ganan siempre. Duraciones, curvas,
+colores y espaciados salen de `frontend/src/theme/tokens.ts` (§8.12, ADR-017): si un
+Skill de terceros propone un valor, se añade como token y no se escribe a mano.
+Ninguna librería que mencionen (Sonner, Vaul, Motion, Tailwind…) se instala sin
+ADR (§8.6).
+
 ---
 
 ## 5. Agentes: cuándo se invocan
