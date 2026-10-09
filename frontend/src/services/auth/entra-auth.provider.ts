@@ -1,6 +1,6 @@
 import { env } from '@/config/env';
 
-import type { AuthProvider, AuthenticatedUser } from './auth-provider';
+import type { AuthProvider, AuthSession } from './auth-provider';
 
 /**
  * Microsoft Entra ID adapter (MSAL) — architectural placeholder.
@@ -40,12 +40,13 @@ const NOT_CONFIGURED_MESSAGE =
 export class EntraAuthProvider implements AuthProvider {
   readonly name = 'entra' as const;
 
-  initialize(): Promise<AuthenticatedUser | null> {
+  initialize(): Promise<AuthSession | null> {
     // Never throws: the shell must render so the error can be shown in the UI.
     return Promise.resolve(null);
   }
 
-  signIn(): Promise<AuthenticatedUser | null> {
+  /** Entra ID never receives credentials: the sign-in happens on Microsoft's page. */
+  signIn(): Promise<AuthSession | null> {
     return Promise.reject(new Error(NOT_CONFIGURED_MESSAGE));
   }
 
@@ -55,5 +56,10 @@ export class EntraAuthProvider implements AuthProvider {
 
   getAccessToken(): Promise<string | null> {
     return Promise.resolve(null);
+  }
+
+  subscribe(): () => void {
+    // MSAL raises its own events; until the adapter exists there is nothing to notify.
+    return () => undefined;
   }
 }

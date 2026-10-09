@@ -1,4 +1,4 @@
-export { httpClient, configureHttpClient } from './http-client';
+export { httpClient, configureHttpClient, PASSWORD_CHANGE_REQUIRED_CODE } from './http-client';
 export type { RequestOptions } from './http-client';
 export { ApiError, NETWORK_ERROR_CODE } from './api-error';
 export { queryClient } from './query-client';

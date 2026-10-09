@@ -4,6 +4,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { FullPageLoader } from '@/components/feedback/full-page-loader';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermission } from '@/hooks/use-permission';
+import { ROUTE_PATHS } from '@/routes/route-paths';
 
 interface RequireAuthProps {
   children: ReactNode;
@@ -29,11 +30,11 @@ export function RequireAuth({ children, permission }: RequireAuthProps) {
   }
 
   if (status !== 'authenticated') {
-    return <Navigate to="/acceso" replace state={{ from: location.pathname }} />;
+    return <Navigate to={ROUTE_PATHS.login} replace state={{ from: location.pathname }} />;
   }
 
   if (permission && !hasRoutePermission) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={ROUTE_PATHS.home} replace />;
   }
 
   return <>{children}</>;

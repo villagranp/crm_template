@@ -47,7 +47,11 @@ export class UsersController {
 
   @Post()
   @RequirePermission('usuarios.crear')
-  @ApiOperation({ summary: 'Alta de usuario. Nace INVITED y sin credencial utilizable' })
+  @ApiOperation({
+    summary: 'Alta de usuario',
+    description:
+      'Nace INVITED. Si AUTH_DEFAULT_PASSWORD está configurada, recibe esa contraseña con cambio obligatorio en el primer acceso; si no, nace sin credencial.',
+  })
   async create(
     @Body() dto: CreateUserDto,
     @CurrentUser() principal: AuthenticatedPrincipal | undefined,

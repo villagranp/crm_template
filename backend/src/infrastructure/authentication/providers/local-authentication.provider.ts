@@ -10,9 +10,9 @@ import type { AuthenticatedPrincipal, AuthProviderName } from '../ports/authenti
 /**
  * Autenticacion local con JWT propio (AUTHENTICATION.md seccion 3).
  *
- * SKELETON: verifica tokens ya emitidos. La emision (login, refresh con rotacion,
- * hashing Argon2id y revocacion) se implementa en el primer proyecto que use
- * AUTH_PROVIDER=local, siguiendo el Skill `authentication`.
+ * Verifica los access tokens que emite `TokenService` (modules/auth). La
+ * emision, el refresh con rotacion y la revocacion viven en ese modulo
+ * (PLAN-AUTH-LOCAL).
  */
 @Injectable()
 export class LocalAuthenticationProvider implements AuthenticationProvider {
@@ -47,6 +47,7 @@ export class LocalAuthenticationProvider implements AuthenticationProvider {
           ? (payload['roles'] as unknown[]).filter((role): role is string => typeof role === 'string')
           : [],
         issuedBy: this.name,
+        passwordChangeRequired: payload['pcr'] === true,
       };
     } catch (error) {
       throw new InvalidTokenError(

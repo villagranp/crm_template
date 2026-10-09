@@ -29,10 +29,15 @@ Los trae la plantilla; los de negocio los añade cada proyecto.
 |---|---|---|---|
 | GET | `/api/v1/health` | público | Liveness, sin tocar dependencias |
 | GET | `/api/v1/ready` | público | Readiness, verifica la base de datos |
+| POST | `/api/v1/auth/login` | público | Inicia sesión; fija la cookie de refresco |
+| POST | `/api/v1/auth/refresh` | público (cookie) | Renueva el access token y rota la cookie |
+| POST | `/api/v1/auth/logout` | público (cookie) | Revoca la sesión de la cookie. Siempre `204` |
+| POST | `/api/v1/auth/password/change` | sesión | Cambia la propia contraseña; cierra las demás sesiones |
+| POST | `/api/v1/users/:id/password/reset` | `usuarios.editar` | Vuelve a la contraseña inicial con cambio obligatorio |
 | GET | `/api/v1/me` | sesión | Perfil y permisos efectivos |
 | GET | `/api/v1/me/menu` | sesión | Opciones de menú concedidas |
 | GET | `/api/v1/users` | `usuarios.ver` | Lista paginada con filtros |
-| POST | `/api/v1/users` | `usuarios.crear` | Alta (nace `INVITED`) |
+| POST | `/api/v1/users` | `usuarios.crear` | Alta (nace `INVITED`, con `AUTH_DEFAULT_PASSWORD` si está configurada) |
 | PATCH | `/api/v1/users/:id` | `usuarios.editar` | Actualiza datos |
 | GET | `/api/v1/users/:id/access` | `usuarios.ver` | Acceso efectivo de un usuario |
 | GET | `/api/v1/users/:id/menu` | `usuarios.ver` | Menú que verá ese usuario |
@@ -48,6 +53,15 @@ Los trae la plantilla; los de negocio los añade cada proyecto.
 
 Las asignaciones se reemplazan en bloque con `PUT`: es idempotente y evita el
 estado intermedio de un "quitar" y un "poner" separados.
+
+Los endpoints de `/auth` son públicos por diseño: o no hay sesión todavía
+(`login`) o la credencial es la cookie y no el access token (`refresh`,
+`logout`). Cada uno lleva su razón en `@Public(...)`. Códigos de error y
+detalles del flujo: [`AUTHENTICATION.md`](../../AUTHENTICATION.md) y
+[`PLAN-AUTH-LOCAL`](../implementation-plans/PLAN-AUTH-LOCAL.md) §3.
+
+Con una contraseña inicial pendiente de cambiar, todo endpoint salvo
+`/auth/password/change` responde `403 PASSWORD_CHANGE_REQUIRED`.
 
 `/me` y `/me/menu` usan `@AuthenticatedOnly`: exigen sesión pero no un permiso,
 porque el recurso es el propio usuario. Es la única excepción admitida a la

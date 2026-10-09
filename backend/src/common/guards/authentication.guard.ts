@@ -1,11 +1,13 @@
 import {
   type CanActivate,
   type ExecutionContext,
+  ForbiddenException,
   Inject,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { ALLOW_PENDING_PASSWORD_CHANGE_KEY } from '@/common/decorators/allow-pending-password-change.decorator';
 import { IS_PUBLIC_KEY } from '@/common/decorators/public.decorator';
 import {
   AUTHENTICATION_PROVIDER,
@@ -46,7 +48,6 @@ export class AuthenticationGuard implements CanActivate {
 
     try {
       request.principal = await this.authenticationProvider.verifyAccessToken(token);
-      return true;
     } catch {
       // El detalle del fallo se registra, pero nunca se devuelve al cliente.
       this.logger.warn('authentication_failed', {
@@ -55,6 +56,25 @@ export class AuthenticationGuard implements CanActivate {
       });
       throw new UnauthorizedException('Invalid or expired access token');
     }
+
+    // D13: con una contraseña asignada por otro, la sesión solo sirve para cambiarla.
+    if (request.principal.passwordChangeRequired && !this.allowsPendingPasswordChange(context)) {
+      throw new ForbiddenException({
+        code: 'PASSWORD_CHANGE_REQUIRED',
+        message: 'You must set a new password before continuing',
+      });
+    }
+
+    return true;
+  }
+
+  private allowsPendingPasswordChange(context: ExecutionContext): boolean {
+    return Boolean(
+      this.reflector.getAllAndOverride<boolean | undefined>(ALLOW_PENDING_PASSWORD_CHANGE_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ]),
+    );
   }
 
   private extractBearerToken(header: string | undefined): string | undefined {

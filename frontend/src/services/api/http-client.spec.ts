@@ -104,4 +104,107 @@ describe('httpClient', () => {
 
     await expect(httpClient.delete('/items/1')).resolves.toBeUndefined();
   });
+
+  describe('sesión caducada', () => {
+    function unauthorized(): Response {
+      return jsonResponse({ statusCode: 401, code: 'UNAUTHORIZED', message: 'expired' }, 401);
+    }
+
+    function authorizationOf(callIndex: number): string | null {
+      const [, init] = fetchMock.mock.calls[callIndex] as [string, RequestInit];
+      return (init.headers as Headers).get('Authorization');
+    }
+
+    it('ante un 401 renueva el token una vez y repite la petición', async () => {
+      let currentToken = 'expired-token';
+      const getAccessToken = vi.fn((options?: { forceRefresh?: boolean }) => {
+        if (options?.forceRefresh) {
+          currentToken = 'fresh-token';
+        }
+        return Promise.resolve(currentToken);
+      });
+      const onUnauthorized = vi.fn();
+      configureHttpClient({ getAccessToken, onUnauthorized });
+      fetchMock.mockResolvedValueOnce(unauthorized()).mockResolvedValueOnce(jsonResponse({ status: 'ok' }));
+
+      await expect(httpClient.get('/items')).resolves.toEqual({ status: 'ok' });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(authorizationOf(0)).toBe('Bearer expired-token');
+      expect(authorizationOf(1)).toBe('Bearer fresh-token');
+      expect(getAccessToken).toHaveBeenCalledWith({ forceRefresh: true });
+      expect(onUnauthorized).not.toHaveBeenCalled();
+    });
+
+    it('sólo reintenta una vez: si vuelve a fallar, avisa de la sesión perdida', async () => {
+      const onUnauthorized = vi.fn();
+      configureHttpClient({ getAccessToken: () => Promise.resolve('token'), onUnauthorized });
+      fetchMock.mockImplementation(() => Promise.resolve(unauthorized()));
+
+      await expect(httpClient.get('/items')).rejects.toMatchObject({ statusCode: 401 });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(onUnauthorized).toHaveBeenCalledOnce();
+    });
+
+    it('si no se puede renovar, no repite y avisa de la sesión perdida', async () => {
+      const onUnauthorized = vi.fn();
+      configureHttpClient({
+        getAccessToken: (options) => Promise.resolve(options?.forceRefresh ? null : 'expired-token'),
+        onUnauthorized,
+      });
+      fetchMock.mockResolvedValueOnce(unauthorized());
+
+      await expect(httpClient.get('/items')).rejects.toMatchObject({ statusCode: 401 });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(onUnauthorized).toHaveBeenCalledOnce();
+    });
+
+    it('reutiliza el token que otra petición ya renovó en lugar de renovar otra vez', async () => {
+      const tokens = ['old-token', 'already-renewed-token'];
+      const getAccessToken = vi.fn(() => Promise.resolve(tokens.shift() ?? 'unexpected'));
+      configureHttpClient({ getAccessToken });
+      fetchMock.mockResolvedValueOnce(unauthorized()).mockResolvedValueOnce(jsonResponse({ status: 'ok' }));
+
+      await httpClient.get('/items');
+
+      expect(authorizationOf(1)).toBe('Bearer already-renewed-token');
+      expect(getAccessToken).not.toHaveBeenCalledWith({ forceRefresh: true });
+    });
+
+    it('no reintenta cuando la petición lo desactiva', async () => {
+      fetchMock.mockResolvedValueOnce(unauthorized());
+
+      await expect(httpClient.post('/auth/password/change', { skipSessionRefresh: true })).rejects.toMatchObject({
+        statusCode: 401,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('un 401 de un endpoint público no cierra la sesión', async () => {
+      const onUnauthorized = vi.fn();
+      configureHttpClient({ onUnauthorized });
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ statusCode: 401, code: 'INVALID_CREDENTIALS', message: 'nope' }, 401),
+      );
+
+      await expect(httpClient.post('/auth/login', { isPublic: true })).rejects.toMatchObject({
+        code: 'INVALID_CREDENTIALS',
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(onUnauthorized).not.toHaveBeenCalled();
+    });
+  });
+
+  it('avisa cuando la API exige cambiar la contraseña', async () => {
+    const onPasswordChangeRequired = vi.fn();
+    configureHttpClient({ onPasswordChangeRequired });
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ statusCode: 403, code: 'PASSWORD_CHANGE_REQUIRED', message: 'change it' }, 403),
+    );
+
+    await expect(httpClient.get('/me/menu')).rejects.toMatchObject({ code: 'PASSWORD_CHANGE_REQUIRED' });
+    expect(onPasswordChangeRequired).toHaveBeenCalledOnce();
+  });
 });

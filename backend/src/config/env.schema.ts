@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { DURATION_PATTERN } from './duration';
+
 /**
  * Esquema unico de configuracion del backend.
  * La aplicacion falla al arrancar si falta o es invalida una variable obligatoria (fail fast).
@@ -27,9 +29,19 @@ export const envSchema = z
     JWT_ISSUER: z.string().default('enterprise-app'),
     JWT_AUDIENCE: z.string().default('enterprise-api'),
     JWT_ACCESS_TOKEN_SECRET: z.string().optional(),
-    JWT_ACCESS_TOKEN_TTL: z.string().default('15m'),
+    // Formato estrecho (entero + s|m|h|d): lo consumen jose y la caducidad de la
+    // sesión, y ambos deben leer lo mismo. Ver PLAN-AUTH-LOCAL, D1 y D2.
+    JWT_ACCESS_TOKEN_TTL: z.string().regex(DURATION_PATTERN, 'Usa un entero y s, m, h o d').default('15m'),
     JWT_REFRESH_TOKEN_SECRET: z.string().optional(),
-    JWT_REFRESH_TOKEN_TTL: z.string().default('7d'),
+    // Vida absoluta de la sesión, sin deslizamiento: rotar no la alarga.
+    JWT_REFRESH_TOKEN_TTL: z.string().regex(DURATION_PATTERN, 'Usa un entero y s, m, h o d').default('8h'),
+    // Contrasena inicial de los usuarios que da de alta o restablece un
+    // administrador (PLAN-AUTH-LOCAL, D12). Siempre con cambio obligatorio.
+    // Vacia = las altas nacen sin credencial y el restablecimiento no esta disponible.
+    AUTH_DEFAULT_PASSWORD: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().min(12, 'Debe tener al menos 12 caracteres').max(128).optional(),
+    ),
 
     // ENTRA ID
     ENTRA_TENANT_ID: z.string().optional(),

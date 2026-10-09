@@ -1,7 +1,14 @@
 import { create } from 'zustand';
 
+import { ApiError } from '@/services/api/api-error';
 import { configureHttpClient } from '@/services/api/http-client';
-import type { AuthProvider, AuthenticatedUser } from '@/services/auth';
+import type {
+  AuthProvider,
+  AuthSession,
+  AuthenticatedUser,
+  PasswordChangeInput,
+  SignInCredentials,
+} from '@/services/auth';
 import { createAuthProvider } from '@/services/auth';
 
 /**
@@ -17,56 +24,106 @@ export type AuthStatus = 'initializing' | 'authenticated' | 'anonymous' | 'error
 interface AuthState {
   status: AuthStatus;
   user: AuthenticatedUser | null;
+  /**
+   * The user signed in with an initial or reset password and must set their
+   * own before using anything else (PLAN-AUTH-LOCAL D13). UX only: the API
+   * rejects every other call with `403 PASSWORD_CHANGE_REQUIRED` regardless.
+   */
+  passwordChangeRequired: boolean;
   errorMessage: string | null;
   initialize: () => Promise<void>;
-  signIn: () => Promise<void>;
+  /** Rejects with the provider error so the form can explain it. */
+  signIn: (credentials?: SignInCredentials) => Promise<void>;
   signOut: () => Promise<void>;
+  /** Rejects with the provider error (e.g. `422 INVALID_CURRENT_PASSWORD`). */
+  changePassword: (input: PasswordChangeInput) => Promise<void>;
 }
 
+const SIGN_IN_FAILED_MESSAGE = 'Sign-in failed';
+const PASSWORD_CHANGE_UNSUPPORTED_MESSAGE = 'The configured authentication provider does not manage passwords.';
+
 let provider: AuthProvider | null = null;
+let unsubscribeFromProvider: (() => void) | null = null;
 
 function getProvider(): AuthProvider {
   provider ??= createAuthProvider();
   return provider;
 }
 
+function sessionState(
+  session: AuthSession | null,
+): Pick<AuthState, 'status' | 'user' | 'passwordChangeRequired' | 'errorMessage'> {
+  if (!session) {
+    return { status: 'anonymous', user: null, passwordChangeRequired: false, errorMessage: null };
+  }
+  return {
+    status: 'authenticated',
+    user: session.user,
+    passwordChangeRequired: session.passwordChangeRequired,
+    errorMessage: null,
+  };
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
   status: 'initializing',
   user: null,
+  passwordChangeRequired: false,
   errorMessage: null,
 
   initialize: async () => {
     const authProvider = getProvider();
 
     configureHttpClient({
-      getAccessToken: () => authProvider.getAccessToken(),
-      onUnauthorized: () => set({ status: 'anonymous', user: null }),
+      getAccessToken: (options) => authProvider.getAccessToken(options),
+      onUnauthorized: () => set(sessionState(null)),
+      onPasswordChangeRequired: () => set({ passwordChangeRequired: true }),
     });
 
-    const user = await authProvider.initialize();
-    set({ status: user ? 'authenticated' : 'anonymous', user, errorMessage: null });
+    // StrictMode runs the effect twice: never keep two subscriptions.
+    unsubscribeFromProvider?.();
+    unsubscribeFromProvider = authProvider.subscribe((session) => set(sessionState(session)));
+
+    const session = await authProvider.initialize();
+    set(sessionState(session));
   },
 
-  signIn: async () => {
+  signIn: async (credentials) => {
     try {
-      const user = await getProvider().signIn();
-      set({ status: user ? 'authenticated' : 'anonymous', user, errorMessage: null });
+      const session = await getProvider().signIn(credentials);
+      set(sessionState(session));
     } catch (error) {
-      set({
-        status: 'error',
-        user: null,
-        errorMessage: error instanceof Error ? error.message : 'Sign-in failed',
-      });
+      // API errors are expected answers (wrong password, disabled account) and
+      // the form explains them; anything else is a provider failure.
+      if (!(error instanceof ApiError)) {
+        set({
+          status: 'error',
+          user: null,
+          passwordChangeRequired: false,
+          errorMessage: error instanceof Error ? error.message : SIGN_IN_FAILED_MESSAGE,
+        });
+      }
+      throw error;
     }
   },
 
   signOut: async () => {
     await getProvider().signOut();
-    set({ status: 'anonymous', user: null, errorMessage: null });
+    set(sessionState(null));
+  },
+
+  changePassword: async (input) => {
+    const authProvider = getProvider();
+    if (!authProvider.changePassword) {
+      throw new Error(PASSWORD_CHANGE_UNSUPPORTED_MESSAGE);
+    }
+    const session = await authProvider.changePassword(input);
+    set(sessionState(session));
   },
 }));
 
 /** Test-only seam: resets the memoised provider between test cases. */
 export function resetAuthProviderForTests(): void {
+  unsubscribeFromProvider?.();
+  unsubscribeFromProvider = null;
   provider = null;
 }

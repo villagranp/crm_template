@@ -39,6 +39,26 @@ export class ResourceConflictError extends ApplicationError {
   }
 }
 
+/** 401: la credencial presentada no autentica. El código lo decide quien lanza. */
+export class AuthenticationFailedError extends ApplicationError {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+/** 403 con un código propio, cuando no se trata de un permiso `recurso.accion`. */
+export class AccessDeniedError extends ApplicationError {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
 export class PermissionDeniedError extends ApplicationError {
   readonly code = 'PERMISSION_DENIED';
 

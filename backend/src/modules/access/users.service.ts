@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 
 import { ResourceConflictError } from '@/common/errors/application-error';
+import { InitialCredentialService } from '@/modules/auth/initial-credential.service';
 
 import type { CreateUserDto, ListUsersQueryDto, UpdateUserDto } from './dto/user.dto';
 import type { DirectAssignmentDto } from './dto/assignment.dto';
@@ -23,7 +24,10 @@ import {
  */
 @Injectable()
 export class UsersService {
-  constructor(@Inject(ACCESS_REPOSITORY) private readonly repository: AccessRepository) {}
+  constructor(
+    @Inject(ACCESS_REPOSITORY) private readonly repository: AccessRepository,
+    private readonly initialCredentials: InitialCredentialService,
+  ) {}
 
   async list(query: ListUsersQueryDto): Promise<Paginated<AccessUserRecord & { roles: string[] }>> {
     return this.repository.listUsers({
@@ -46,7 +50,7 @@ export class UsersService {
       throw new ResourceConflictError('Ya existe un usuario con ese correo');
     }
 
-    return this.repository.createUser({
+    const user = await this.repository.createUser({
       email: dto.email.trim(),
       firstName: dto.firstName.trim(),
       lastName: dto.lastName.trim(),
@@ -56,6 +60,13 @@ export class UsersService {
       teamIds: dto.teamIds ?? [],
       createdById: actorId,
     });
+
+    // D12: nace INVITED con la contraseña inicial y cambio obligatorio. Si no
+    // está configurada, nace sin credencial; un administrador puede asignarla
+    // después con el restablecimiento.
+    await this.initialCredentials.assignDefaultPassword(user.id);
+
+    return user;
   }
 
   async update(userId: string, dto: UpdateUserDto, actorId: string | null): Promise<AccessUserRecord> {

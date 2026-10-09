@@ -124,6 +124,19 @@ export const layout = {
   contentMaxWidth: 1800,
 } as const;
 
+/**
+ * Pantallas de acceso (inicio de sesión y cambio de contraseña): panel de marca
+ * a la izquierda y tarjeta con el formulario a la derecha.
+ */
+export const authLayout = {
+  brandPanelMaxWidth: 460,
+  formCardMaxWidth: 420,
+  logoHeightPanel: 36,
+  logoHeightMobile: 32,
+  /** Velo sobre la foto de fondo: `brand[900]` al 90 % y `brand[700]` al 80 %. */
+  backgroundOverlay: 'linear-gradient(120deg, rgba(16, 28, 56, 0.9), rgba(30, 53, 105, 0.8))',
+} as const;
+
 export const shadows = {
   light: {
     sm: '0 1px 2px rgba(19, 21, 23, .07), 0 1px 3px rgba(19, 21, 23, .06)',

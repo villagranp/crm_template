@@ -7,6 +7,7 @@ import { LoggingModule } from './infrastructure/logging/logging.module';
 import { PrismaModule } from './infrastructure/database/prisma/prisma.module';
 import { AuthenticationModule } from './infrastructure/authentication/authentication.module';
 import { AccessModule } from './modules/access/access.module';
+import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -35,6 +36,7 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     PrismaModule,
     AuthenticationModule,
     AccessModule,
+    AuthModule,
     HealthModule,
   ],
   providers: [

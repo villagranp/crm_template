@@ -1,83 +1,152 @@
-import { Alert, Box, Button, Card, CardContent, Stack, Typography } from '@mui/material';
-import { Navigate } from 'react-router-dom';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { Alert, Box, Button, Stack, TextField, Typography } from '@mui/material';
+import { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { Navigate, useLocation } from 'react-router-dom';
 
-import { BrandLogo } from '@/components/layout/BrandLogo';
+import { env } from '@/config/env';
+import { AuthLayout } from '@/features/auth/AuthLayout';
+import { getLoginErrorMessage } from '@/features/auth/auth-error-messages';
+import { PasswordField } from '@/features/auth/PasswordField';
 import { useAuth } from '@/hooks/use-auth';
-import { brandAssets, brand as brandScale } from '@/theme/tokens';
+import { ROUTE_PATHS } from '@/routes/route-paths';
+import { loginSchema, type LoginFormValues } from '@/schemas/auth.schema';
+
+const PANEL_TITLE = 'Acceso a la plataforma';
+const PANEL_DESCRIPTION =
+  'Tu menú y tus permisos se resuelven en el servidor a partir de los roles y las opciones asignadas a tu cuenta.';
+const FORGOT_PASSWORD_HINT = '¿Olvidaste tu contraseña? Pide al administrador que la restablezca.';
+const PROVIDER_ERROR_MESSAGE = 'No se pudo iniciar sesión. Contacta al administrador del sistema.';
+
+/** Rutas a las que no tiene sentido volver tras entrar. */
+const NON_RETURNABLE_PATHS: readonly string[] = [ROUTE_PATHS.login, ROUTE_PATHS.changePassword];
+
+/** Sólo rutas internas: un `from` manipulado no puede sacar al usuario del sitio. */
+function getReturnPath(state: unknown): string {
+  const from = (state as { from?: unknown } | null)?.from;
+  if (typeof from === 'string' && from.startsWith('/') && !from.startsWith('//') && !NON_RETURNABLE_PATHS.includes(from)) {
+    return from;
+  }
+  return ROUTE_PATHS.home;
+}
+
+function LocalSignInForm() {
+  const { signIn } = useAuth();
+  const [serverError, setServerError] = useState<string | null>(null);
+  const {
+    register,
+    handleSubmit,
+    resetField,
+    setFocus,
+    formState: { errors, isSubmitting },
+  } = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: { email: '', password: '' },
+  });
+
+  const onSubmit = async (values: LoginFormValues): Promise<void> => {
+    setServerError(null);
+    try {
+      // Al tener éxito el store pasa a `authenticated` y la página redirige.
+      await signIn({ email: values.email, password: values.password });
+    } catch (error) {
+      setServerError(getLoginErrorMessage(error));
+      resetField('password');
+      setFocus('password');
+    }
+  };
+
+  return (
+    <Box component="form" noValidate onSubmit={(event) => void handleSubmit(onSubmit)(event)}>
+      <Stack spacing={2.5}>
+        {serverError ? (
+          <Alert severity="error" role="alert">
+            {serverError}
+          </Alert>
+        ) : null}
+
+        <TextField
+          {...register('email')}
+          id="login-email"
+          label="Correo electrónico"
+          type="email"
+          autoComplete="username"
+          inputMode="email"
+          required
+          fullWidth
+          autoFocus
+          error={Boolean(errors.email)}
+          helperText={errors.email?.message}
+        />
+
+        <PasswordField
+          {...register('password')}
+          id="login-password"
+          label="Contraseña"
+          autoComplete="current-password"
+          required
+          fullWidth
+          error={Boolean(errors.password)}
+          helperText={errors.password?.message}
+        />
+
+        <Button type="submit" size="large" fullWidth disabled={isSubmitting}>
+          {isSubmitting ? 'Entrando…' : 'Iniciar sesión'}
+        </Button>
+
+        <Typography variant="caption" color="text.secondary">
+          {FORGOT_PASSWORD_HINT}
+        </Typography>
+      </Stack>
+    </Box>
+  );
+}
+
+/** Proveedores de redirección (Entra ID): no hay credenciales que pedir aquí. */
+function RedirectSignIn() {
+  const { signIn, status } = useAuth();
+
+  return (
+    <Stack spacing={3}>
+      {status === 'error' ? <Alert severity="error">{PROVIDER_ERROR_MESSAGE}</Alert> : null}
+
+      <Button size="large" fullWidth onClick={() => void signIn().catch(() => undefined)}>
+        Continuar
+      </Button>
+
+      <Typography variant="caption" color="text.secondary">
+        ¿Problemas para entrar? Contacta al administrador del sistema.
+      </Typography>
+    </Stack>
+  );
+}
 
 /**
  * Pantalla de acceso.
  *
- * Reproduce el planteamiento visual del spec: panel de marca a la izquierda
- * sobre el fondo corporativo y formulario a la derecha. El formulario de
- * credenciales **no** se incluye porque la plantilla no trae almacén de
- * usuarios ni endpoint de login: el botón delega en el proveedor configurado
- * (local o Entra ID). Al implementar el login local, este es el lugar donde
- * entra el formulario con React Hook Form + Zod.
+ * Con el proveedor local pide correo y contraseña (PLAN-AUTH-LOCAL paso 8);
+ * con Entra ID delega en la redirección del proveedor. Si la sesión exige
+ * cambiar la contraseña, lleva a esa pantalla en lugar de al destino.
  */
 export function LoginPage() {
-  const { isAuthenticated, signIn, errorMessage } = useAuth();
+  const { isAuthenticated, passwordChangeRequired } = useAuth();
+  const location = useLocation();
 
   if (isAuthenticated) {
-    return <Navigate to="/" replace />;
+    const target = passwordChangeRequired ? ROUTE_PATHS.changePassword : getReturnPath(location.state);
+    return <Navigate to={target} replace />;
   }
 
+  const isLocalProvider = env.VITE_AUTH_PROVIDER === 'local';
+
   return (
-    <Box sx={{ minHeight: '100dvh', display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.1fr 1fr' } }}>
-      <Box
-        sx={{
-          display: { xs: 'none', md: 'grid' },
-          alignContent: 'center',
-          p: 8,
-          color: 'common.white',
-          position: 'relative',
-          backgroundImage: `linear-gradient(120deg, ${brandScale[900]}E6, ${brandScale[700]}CC), url(${brandAssets.authBackground})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-        }}
-      >
-        <Stack spacing={3} sx={{ maxWidth: 460 }}>
-          <BrandLogo onDark height={36} />
-          <Typography variant="h1" sx={{ color: 'inherit' }}>
-            Acceso a la plataforma
-          </Typography>
-          <Typography variant="body1" sx={{ color: 'inherit', opacity: 0.85 }}>
-            Tu menú y tus permisos se resuelven en el servidor a partir de los roles y las opciones asignadas a tu
-            cuenta.
-          </Typography>
-        </Stack>
-      </Box>
-
-      <Box sx={{ display: 'grid', placeItems: 'center', p: { xs: 3, md: 6 }, bgcolor: 'background.default' }}>
-        <Card sx={{ width: '100%', maxWidth: 420 }}>
-          <CardContent sx={{ p: 4 }}>
-            <Stack spacing={3}>
-              <Box sx={{ display: { xs: 'block', md: 'none' } }}>
-                <BrandLogo height={32} />
-              </Box>
-
-              <Box>
-                <Typography variant="h3" gutterBottom>
-                  Iniciar sesión
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Usa la cuenta corporativa que te asignó el administrador del sistema.
-                </Typography>
-              </Box>
-
-              {errorMessage ? <Alert severity="error">{errorMessage}</Alert> : null}
-
-              <Button size="large" fullWidth onClick={() => void signIn()}>
-                Continuar
-              </Button>
-
-              <Typography variant="caption" color="text.secondary">
-                ¿Problemas para entrar? Contacta al administrador del sistema.
-              </Typography>
-            </Stack>
-          </CardContent>
-        </Card>
-      </Box>
-    </Box>
+    <AuthLayout
+      panelTitle={PANEL_TITLE}
+      panelDescription={PANEL_DESCRIPTION}
+      title="Iniciar sesión"
+      subtitle="Usa la cuenta corporativa que te asignó el administrador del sistema."
+    >
+      {isLocalProvider ? <LocalSignInForm /> : <RedirectSignIn />}
+    </AuthLayout>
   );
 }

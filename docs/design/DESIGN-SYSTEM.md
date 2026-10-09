@@ -177,6 +177,21 @@ opciones que el backend concede al usuario. Para añadir una entrada al menú se
 da de alta una `MenuOption` y se asigna a un rol o a una persona; el frontend
 sólo tiene que tener una ruta que coincida con la de la opción.
 
+### 8b. Pantallas de acceso
+
+Inicio de sesión (`/acceso`) y cambio de contraseña (`/cambiar-contrasena`)
+viven **fuera** del shell: no hay menú hasta que la sesión es plena. Comparten
+`features/auth/AuthLayout.tsx` (panel de marca a la izquierda desde `md`,
+tarjeta con el formulario a la derecha) y sus medidas salen de
+`tokens.ts → authLayout`:
+
+| Token | Valor | Uso |
+|---|---|---|
+| `brandPanelMaxWidth` | 460 | Ancho máximo del texto del panel de marca |
+| `formCardMaxWidth` | 420 | Ancho máximo de la tarjeta del formulario |
+| `logoHeightPanel` / `logoHeightMobile` | 36 / 32 | Altura del logotipo en el panel y en móvil |
+| `backgroundOverlay` | `brand[900]` 90 % → `brand[700]` 80 % | Velo azul sobre `grupo-ag-login-bg.webp` |
+
 ---
 
 ## 9b. Iconos

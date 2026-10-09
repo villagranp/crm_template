@@ -1,4 +1,5 @@
 import DarkModeIcon from '@mui/icons-material/DarkMode';
+import KeyIcon from '@mui/icons-material/Key';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MenuIcon from '@mui/icons-material/Menu';
@@ -26,7 +27,9 @@ import { useState, type MouseEvent } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 
 import { BrandLogo } from '@/components/layout/BrandLogo';
+import { env } from '@/config/env';
 import { useAuth } from '@/hooks/use-auth';
+import { ROUTE_PATHS } from '@/routes/route-paths';
 import { useUiStore } from '@/stores/ui.store';
 import { layout } from '@/theme/tokens';
 
@@ -162,6 +165,15 @@ export function Topbar({ notificationCount = 0 }: TopbarProps) {
                 </ListItemIcon>
                 <ListItemText>Mi perfil</ListItemText>
               </MenuItem>
+              {/* Sólo con credencial local: con Entra ID la contraseña se cambia en Microsoft. */}
+              {env.VITE_AUTH_PROVIDER === 'local' ? (
+                <MenuItem component={RouterLink} to={ROUTE_PATHS.changePassword} onClick={closeUserMenu}>
+                  <ListItemIcon>
+                    <KeyIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText>Cambiar contraseña</ListItemText>
+                </MenuItem>
+              ) : null}
               <MenuItem onClick={handleSignOut}>
                 <ListItemIcon>
                   <LogoutIcon fontSize="small" />
