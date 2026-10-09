@@ -23,6 +23,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 
 - Skills de pulido de UI y movimiento de emilkowalski/skills (10, MIT), con
   precedencia de las reglas del proyecto (CLAUDE.md §4).
+- Skill `ui-ux-pro-max` (MIT) como consulta de recomendaciones de UX; sin
+  generación de sistemas de diseño propios (ADR-017).
 
 ### Changed
 - **Contrato:** `GET /roles` pasa a ser paginado (`{ data, pagination }`).

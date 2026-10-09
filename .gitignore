@@ -40,3 +40,7 @@ backend/prisma/*.db-journal
 *.pfx
 *.p12
 secrets/
+
+# Cache de Python (scripts de skills de terceros)
+__pycache__/
+*.pyc

@@ -117,6 +117,25 @@ y `frontend-react`; no los sustituyen.
 | `break-ui` | Se prueba una pantalla con datos extremos |
 | `prototype` | Se comparan variantes de una pieza de UI (solo invocación explícita) |
 
+#### `ui-ux-pro-max` (nextlevelbuilder/ui-ux-pro-max-skill)
+
+Base de datos local de recomendaciones de UX (accesibilidad, formularios,
+navegación, gráficas, rendimiento de React) que se consulta con un script de
+Python sin dependencias ni acceso a red. Úsalo **solo como consulta**:
+
+```bash
+python .claude/skills/ui-ux-pro-max/scripts/search.py "<consulta>" --domain ux
+python .claude/skills/ui-ux-pro-max/scripts/search.py "<consulta>" --stack react
+```
+
+- La ruta es relativa a la raíz del repo: `${CLAUDE_PLUGIN_ROOT}` de su SKILL.md
+  no existe en un skill de proyecto.
+- **Prohibido** `--design-system` y `--persist`: generan paletas, tipografías y un
+  `design-system/MASTER.md` propios. El sistema de diseño es el de Grupo AG
+  (ADR-017) y no se sustituye ni se duplica.
+- Dominios útiles aquí: `ux`, `chart`, `icons`, `react`, `web`. Su catálogo no
+  tiene Material UI: usa `--stack react`.
+
 **Precedencia:** las reglas de este proyecto ganan siempre. Duraciones, curvas,
 colores y espaciados salen de `frontend/src/theme/tokens.ts` (§8.12, ADR-017): si un
 Skill de terceros propone un valor, se añade como token y no se escribe a mano.
