@@ -1,0 +1,917 @@
+# 05 — Módulo 5: Reportes
+
+- **Fuente del alcance:** [`ALCANCE-CRM.md`](../../requirements/crm/ALCANCE-CRM.md) §7 (7.1–7.8), con §3.2 (indicadores de Inicio que deben coincidir), §5.7–§5.11, §6.2, §6.5, §6.6, §9.2 y §10–§13
+- **Contrato de datos:** [`00-modelo-de-datos.md`](00-modelo-de-datos.md). Este módulo **solo lee**: no crea tablas, no escribe en entidades comerciales
+- **Funcionalidades de la matriz:** F-34 a F-41 ([`matriz-trazabilidad.md`](matriz-trazabilidad.md))
+- **Decisiones que lo enmarcan:** [ADR-004](../../adr/ADR-004-data-access-abstraction.md), [ADR-005](../../adr/ADR-005-rest-api-standard.md), [ADR-008](../../adr/ADR-008-authorization.md), [ADR-009](../../adr/ADR-009-material-ui.md), [ADR-015](../../adr/ADR-015-snowflake-analytical-source.md), [ADR-017](../../adr/ADR-017-design-system-grupo-ag.md), [ADR-018](../../adr/ADR-018-identity-access-model.md), [ADR-020](../../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md); PLAN-ADMIN D13/D14 (exportación y tablas)
+- **Estado:** especificación. No se ha tocado código, esquema, migraciones ni dependencias.
+- **Skills aplicados:** `requirements-analysis`, `user-story`, `api-design`, `architecture`, `adr`, `authorization`, `security`, `database`, `frontend-react`, `design-system`, `testing`, `documentation`
+- **Orden de implementación:** sexto (alcance §11): después de Clientes, Proyectos, Actividad comercial e Inicio.
+
+> **Bloqueantes antes de escribir código de este módulo:** dos dependencias
+> nuevas sin ADR (librería XLSX, D-05.1; librería de gráficas, D-05.2) — CLAUDE.md
+> §8.6 — y la confirmación de las fórmulas compartidas con Inicio (DM-15, DM-16,
+> D-05.5, D-05.6, D-05.7). Las pantallas de tablas (F-34…F-38) pueden avanzar sin las
+> dos librerías; la exportación (F-39) y las visualizaciones (F-40, F-41) no.
+
+---
+
+## A. Objetivo funcional
+
+Dar a asesores, managers, responsables de país y administradores una lectura
+**fiable, filtrable y exportable** de la operación comercial registrada en el CRM:
+cartera de proyectos, pipeline de oportunidades y sus resultados, forecast M+6,
+visitas y actividades, más un tablero analítico y un embudo comercial.
+
+Responsabilidades:
+
+1. Calcular cada indicador con **una única definición**, la misma que usa Inicio
+   (§3.2 "los criterios de cálculo deben ser consistentes con el Módulo de Reportes";
+   §7 "las fórmulas e indicadores deben ser consistentes con Inicio").
+2. Aplicar en **cada** consulta, agregado y exportación el alcance de visibilidad
+   del usuario (OWN, TEAM, COUNTRY, ORGANIZATION) y sus permisos.
+3. Exportar a Excel el **conjunto completo** filtrado y autorizado, con formatos
+   de fecha, número y unidades reales.
+4. No modificar ninguna entidad comercial ni duplicar sus datos: Reportes no es
+   dueño de ningún registro.
+
+Fuera de responsabilidad: Power BI u otro BI externo (§7), Snowflake (ver D.4),
+metas y su mantenimiento (DM-9, Inicio), alertas (Inicio), edición de cualquier dato.
+
+---
+
+## B. Alcance completo
+
+| Funcionalidad | Alcance | Qué se entrega |
+|---|---|---|
+| **F-34** Reporte de proyectos | §7.1 | Listado con código, nombre, cliente, país, ubicación, asesor, tipo, fase, % de avance, estado comercial, fecha estimada de decisión y última actualización. Filtros, ordenamiento, paginación y navegación a la ficha del proyecto |
+| **F-35** Reporte de oportunidades | §7.2 | Listado con proyecto, cliente, asesor, etapa, resultado, estimación, fecha de decisión y fecha de actualización. Conteos de abiertas, ganadas, perdidas y parciales; distribución por etapa y por asesor. Filtros por período, asesor, cliente y estado. Criterio explícito de abierta/cerrada. Sin duplicar oportunidades al consultar productos |
+| **F-36** Reporte de forecast | §7.3 | Detalle por línea (proyecto, cliente, producto, familia, año, mes, cantidad, unidad, tonelaje, asesor, fecha de actualización). Consolidación por mes, producto, familia, proyecto, cliente y asesor. Totales mensuales y acumulados respetando unidades. Última actualización de las proyecciones |
+| **F-37** Reporte de visitas | §7.4 | Listado con cliente, proyecto, asesor, fecha planificada, fecha real, estado, resultado y fecha de confirmación. Filtros por período, asesor, estado, cliente y país. Diferencia programadas, realizadas, confirmadas y canceladas. Visitas reprogramadas contadas una vez |
+| **F-38** Reporte de actividades | §7.5 | Listado con tipo, asunto, cliente, proyecto, responsable, fecha, vencimiento, prioridad, estado y resultado. Filtros por período, asesor, estado, cliente y tipo. Conteos de pendientes, realizadas y vencidas |
+| **F-39** Exportación a Excel | §7.6 | `.xlsx` real de cada uno de los cinco reportes, con los mismos filtros y permisos, encabezados, fechas y números con formato, unidades junto a cada cantidad y el conjunto completo de registros filtrados y autorizados |
+| **F-40** Dashboard comercial | §7.7 | Tablero analítico con proyectos activos, oportunidades por etapa, ganadas vs. perdidas, forecast por mes, distribución por asesor, actividades y visitas, y tendencias de los indicadores disponibles. Filtros por período, país y asesor. Diferenciado del Inicio |
+| **F-41** Embudo comercial | §7.8 | Embudo visual con las etapas del pipeline; filtros por etapa, cliente, tipo de cliente, asesor y período; cantidad por etapa y porcentajes solo cuando sean calculables |
+
+Operaciones transversales: opciones de filtro autorizadas (asesores, países y
+valores de catálogo visibles para el usuario), navegación al registro de origen
+sujeta a permisos y auditoría de cada exportación.
+
+No se excluye nada del §7. Lo que el alcance deja abierto se resuelve con un valor
+por defecto en **Decisiones pendientes** sin recortar alcance.
+
+---
+
+## C. Reglas de negocio
+
+### C.1 Reglas generales
+
+| ID | Regla |
+|---|---|
+| RN-05.1 | **Solo lectura.** Ningún endpoint del módulo escribe en tablas comerciales. La única escritura es el registro de auditoría de la exportación (RN-05.43) |
+| RN-05.2 | **Fuente única:** PostgreSQL del CRM vía el puerto `ReportingRepository` (00 §11). Sin Snowflake, sin BI externo, sin copias ni tablas de agregados |
+| RN-05.3 | **Visibilidad en toda consulta:** filas, conteos, distribuciones, totales, series del dashboard, embudo y exportación se calculan **después** de aplicar el `VisibilityScope` del usuario según la tabla de 00 §4.2 (incluidas las herencias de DM-13). Un registro fuera de alcance no aparece ni suma en ningún número |
+| RN-05.4 | **Filtros ∩ alcance:** un filtro nunca amplía el alcance. Filtrar por un asesor o país fuera del alcance devuelve un conjunto vacío (no `403`, para no revelar a quién se puede consultar; las opciones de filtro ya solo ofrecen lo visible) |
+| RN-05.5 | **Eliminados lógicos excluidos:** no cuentan clientes, proyectos, oportunidades, productos asociados ni actividades con `deleted_at` no nulo, ni hijos de un proyecto eliminado (D-05.12). Las visitas no tienen borrado (00 §2.10) |
+| RN-05.6 | **Semántica por catálogo, nunca por etiqueta ni por UUID** (00 §3.3): abierta/cerrada = `metadata.isClosed`; fase final = `metadata.isFinal`; estados de actividad = `isOpen/isCompleted/isCancelled`; estados de visita = `isPending/isDone/isConfirmed/isCancelled`; embudo = `metadata.inFunnel` + `metadata.order`. Añadir una etapa o estado en el catálogo no requiere desplegar |
+| RN-05.7 | **Zona horaria de negocio:** "hoy", límites de día y de mes de los períodos y de las series se calculan en `crm.zona_horaria_negocio` (00 §8.2). "Ahora" para vencimientos es el instante del servidor (las columnas son `timestamptz`) |
+| RN-05.8 | **Período:** `from` y `to` son fechas de calendario (`YYYY-MM-DD`) **inclusivas**. Sobre columnas `date` se comparan tal cual; sobre `timestamptz` se traducen a `[from 00:00, to+1 00:00)` en la zona de negocio. `from > to` → `400`. Rango máximo por reporte en RN-05.10 |
+| RN-05.9 | **Base de fecha explícita:** cada reporte filtra el período por una columna documentada y seleccionable (`dateBasis`); la tabla de RN-05.10 es el contrato. Todos los números de una pantalla usan el **mismo** conjunto filtrado |
+| RN-05.10 | Bases de fecha, valor por defecto y rango máximo (D-05.4): ver tabla C.2 |
+| RN-05.11 | **Sin valores inventados:** un indicador sin datos muestra `0` cuando el conteo es real y cero; una tasa o porcentaje sin denominador válido se devuelve `null` con motivo, nunca `0 %` ni `100 %` |
+| RN-05.12 | **Unidades nunca mezcladas** (00 §2.3 punto 5): las toneladas se suman solo sobre `tonnage` no nulo; las cantidades se totalizan **agrupadas por unidad**; las líneas sin regla de conversión se informan aparte como "sin conversión" y no entran en el total de toneladas |
+| RN-05.13 | **Dinero por moneda** (DM-1): las estimaciones se totalizan agrupadas por `currency_code`; no hay conversión de monedas |
+| RN-05.14 | **Orden determinista:** toda lista se ordena por el campo pedido (lista blanca por reporte) y, como desempate, por `id`. La exportación usa el mismo orden que la pantalla |
+
+### C.2 Bases de fecha por reporte (contrato de `dateBasis`)
+
+| Reporte | `dateBasis` permitidos (columna) | Por defecto | Período por defecto | Rango máximo |
+|---|---|---|---|---|
+| Proyectos | `DECISION_ESTIMATED` (`projects.estimated_decision_date`), `UPDATED` (`projects.last_activity_at`), `CREATED` (`projects.created_at`) | — (sin período) | Ninguno: cartera completa | 5 años |
+| Oportunidades | `IDENTIFIED` (`opportunities.opportunity_date`, DM-35), `DECIDED` (`opportunity_results.decision_date`), `UPDATED` (`opportunities.updated_at`) | `IDENTIFIED` | Ninguno | 5 años |
+| Forecast | Período absoluto de la línea (`year`, `month`) con `fromMonth`/`toMonth` = `YYYY-MM` | — | M+1…M+6 (ventana móvil, `crm.forecast.horizonte_meses`) | 24 meses |
+| Visitas | `SCHEDULED` (`visits.scheduled_start_at`, la vigente), `ACTUAL` (`visits.actual_start_at`), `CONFIRMED` (`visits.confirmed_at`) | `SCHEDULED` | Mes en curso | 5 años |
+| Actividades | `ACTIVITY_DATE` (`COALESCE(scheduled_at, due_at)`), `DUE` (`due_at`), `COMPLETED` (`completed_at`) | `ACTIVITY_DATE` | Mes en curso | 5 años |
+| Dashboard | Cada sección declara la suya (E.7) | — | Últimos 12 meses cerrados + mes en curso | 24 meses |
+| Embudo | `IDENTIFIED` (cohorte por fecha de identificación) | — | Ninguno ("cuando aplique", §7.8) | 5 años |
+
+Con `dateBasis = DECIDED` solo entran oportunidades con resultado; con `ACTUAL` o
+`CONFIRMED` solo visitas con ese dato; con `COMPLETED` solo actividades completadas.
+Es consecuencia de la definición, no un filtro oculto, y la pantalla lo indica.
+
+### C.3 Definiciones de métricas (glosario compartido con Inicio)
+
+Todas las definiciones se implementan **una sola vez** en el servicio compartido
+de métricas (G.3). Las fórmulas son predicados sobre el universo visible (RN-05.3,
+RN-05.5).
+
+**Proyectos**
+
+| ID | Métrica | Definición exacta |
+|---|---|---|
+| RN-05.15 | Proyecto **activo** | `deleted_at IS NULL` **y** fase con `metadata.isFinal = false` (DM-16). Es independiente de sus oportunidades (§5.7) |
+| RN-05.16 | Proyecto **finalizado** | `deleted_at IS NULL` y fase con `metadata.isFinal = true` |
+| RN-05.17 | **Estado comercial** del proyecto (columna de F-34) | Derivado (DM-16): si tiene oportunidades abiertas → la etapa abierta de mayor `metadata.order` entre ellas; si no tiene abiertas y alguna tiene resultado `WON` o `PARTIAL` → "Ganado"; si no tiene abiertas y todas las cerradas son `LOST` → "Perdido"; sin oportunidades vigentes → "Sin oportunidades". Se calcula con una subconsulta agregada por proyecto (nunca un `JOIN` que multiplique filas) |
+| RN-05.18 | **Última actualización** | `projects.last_activity_at` (00 §2.6, DM-16). La misma columna que usa la alerta de Inicio y Proyectos del equipo |
+
+**Oportunidades**
+
+| ID | Métrica | Definición exacta |
+|---|---|---|
+| RN-05.19 | Universo | `opportunities.deleted_at IS NULL` y proyecto no eliminado. **Se cuenta sobre `opportunities`** (una fila por oportunidad), nunca sobre el `JOIN` con `project_products`, `opportunity_stage_history` ni `activities` (00 §2.7) |
+| RN-05.20 | **Abierta** | Etapa vigente con `metadata.isClosed = false` |
+| RN-05.21 | **Cerrada** | Etapa vigente con `metadata.isClosed = true` |
+| RN-05.22 | **Ganada** | Cerrada **y** `opportunity_results.outcome ∈ {WON, PARTIAL}` (DM-15: un parcial es una adjudicación, cuenta como ganada) |
+| RN-05.23 | **Parcial** | `outcome = PARTIAL`. Subconjunto de las ganadas; se muestra desglosado ("de las cuales parciales") y como conteo propio "Resultados parciales" (§7.2) |
+| RN-05.24 | **Ganada total** | `outcome = WON` (implícito 100 %, DM-15) |
+| RN-05.25 | **Perdida** | Cerrada y `outcome = LOST` |
+| RN-05.26 | **Cerrada sin resultado** | Cerrada y sin fila en `opportunity_results`. Con la regla de DM-15 no debería existir; si existe (dato heredado) se cuenta aquí y **no** como ganada ni perdida, para que cuadre el total |
+| RN-05.27 | Invariante de conteos | `abiertas + ganadas + perdidas + cerradas sin resultado = total` (los parciales están dentro de las ganadas). Prueba obligatoria |
+| RN-05.28 | **Fecha de decisión** (columna) | `opportunity_results.decision_date` si hay resultado (`decisionDateKind = ACTUAL`); si no, `projects.estimated_decision_date` marcada como estimada (`ESTIMATED`) (00 C7) |
+| RN-05.29 | **Estimación** | `estimated_amount` + `currency_code` y `estimated_tonnage` (DM-1). Totales por moneda y suma de toneladas estimadas no nulas |
+| RN-05.30 | Distribución por etapa | Conteo por etapa vigente, todas las etapas activas del catálogo en `metadata.order` (las de conteo 0 incluidas, para no ocultar huecos) |
+| RN-05.31 | Distribución por asesor | Por `opportunities.owner_id`: total, abiertas, ganadas (y parciales), perdidas |
+| RN-05.32 | Filtro de **estado** | `status` multivalor ∈ `OPEN`, `CLOSED`, `WON`, `PARTIAL`, `LOST`, `CLOSED_NO_RESULT` con las definiciones anteriores; además `stageId` multivalor |
+
+**Forecast**
+
+| ID | Métrica | Definición exacta |
+|---|---|---|
+| RN-05.33 | Universo | `forecast_lines` de proyectos no eliminados, visibles según 00 §4.2 (dueño = `forecast_lines.owner_id`, país = `projects.country_id`, herencia del proyecto; DM-25/C11). Las líneas con `quantity = 0` son proyecciones retiradas (00 §2.9) y **no** se listan ni cuentan |
+| RN-05.34 | Total mensual | Por (año, mes): suma de `tonnage` de las líneas con conversión + lista de `{unidad, suma de quantity}` + número de líneas sin conversión |
+| RN-05.35 | Total acumulado | Suma corrida del total mensual de toneladas en orden cronológico dentro del rango filtrado (M+1, M+1..M+2, …). Las cantidades por unidad también se acumulan por unidad |
+| RN-05.36 | Consolidación | `groupBy` ∈ `MONTH`, `PRODUCT`, `FAMILY`, `PROJECT`, `CUSTOMER`, `OWNER` (uno o dos niveles, el segundo opcional). Cada grupo devuelve toneladas por mes del rango, total del grupo, cantidades por unidad y líneas sin conversión |
+| RN-05.37 | Última actualización | Por línea: `forecast_lines.updated_at`. Del conjunto: `MAX(updated_at)` de las líneas filtradas y visibles |
+
+**Visitas** (una fila por visita, 00 §2.10)
+
+| ID | Métrica | Definición exacta |
+|---|---|---|
+| RN-05.38 | Categorías de estado (disjuntas, por el estado vigente `visits.status_id`) | **Programada** = `isPending` (incluye el estado REPROGRAMADA); **Realizada** = `isDone` (realizada sin confirmar); **Confirmada** = `isConfirmed`; **Cancelada** = `isCancelled`. `programadas + realizadas + confirmadas + canceladas = total`. "Realizadas en total" = realizadas + confirmadas |
+| RN-05.39 | **Reprogramadas sin duplicar** | Una visita reprogramada es **una fila**; se cuenta una vez, en el período de su `scheduled_start_at` **vigente**. `visit_events` nunca entra en el `FROM` de un conteo. Indicador informativo (no aditivo): visitas con `reschedule_count > 0` y total de reprogramaciones |
+| RN-05.40 | **Pendientes / próximas** (compartido con Inicio §3.2) | Pendiente = `isPending`. Próxima = pendiente con `scheduled_start_at` entre ahora y ahora + horizonte (D-05.6). Pendiente atrasada = pendiente con `scheduled_start_at < ahora` (se muestra, no es un estado) |
+
+**Actividades**
+
+| ID | Métrica | Definición exacta |
+|---|---|---|
+| RN-05.41 | Categorías (disjuntas, D-05.5) | **Pendiente** = estado `isOpen` y (`due_at IS NULL` o `due_at ≥ ahora`); **Vencida** = `isOpen` y `due_at < ahora` (derivada, 00 C8); **Realizada** = `isCompleted`; **Cancelada** = `isCancelled`. Suma = total. "Abiertas" = pendientes + vencidas. Universo: `deleted_at IS NULL` |
+| RN-05.42 | Próximas a vencer (informativo) | Pendiente con `due_at` en `[ahora, ahora + crm.alertas.actividad_por_vencer_horas)` (mismo parámetro que §6.2) |
+
+### C.4 Exportación
+
+| ID | Regla |
+|---|---|
+| RN-05.43 | Exportar exige `reportes.exportar` **y** `reportes.ver`. Cada exportación correcta deja un registro `crm.report.exported` en `audit_logs` con: reporte, formato, filtros descritos (ids y fechas, sin texto libre de búsqueda más allá de 100 caracteres), alcance aplicado, filas exportadas y duración. Nunca se registran los datos exportados |
+| RN-05.44 | La exportación reutiliza **exactamente** la consulta de la pantalla (mismo DTO de filtros, mismo `VisibilityScope`, mismo orden), sin paginación |
+| RN-05.45 | **Conjunto completo, sin truncar** (§7.6): antes de escribir el archivo se cuenta el conjunto. Si supera el tope `crm.reportes.max_filas_exportacion` (propuesto 100 000, D-05.3) responde `422 EXPORT_TOO_LARGE` con el conteo y el tope; **no** entrega un archivo parcial. Es una desviación consciente del patrón de PLAN-ADMIN (corte en 10 000 con `X-Export-Truncated`), porque aquí el alcance exige el conjunto completo |
+| RN-05.46 | Instantánea coherente: conteo y volcado se ejecutan en una transacción `REPEATABLE READ READ ONLY`, leyendo por lotes con *keyset* (orden + `id`), de modo que el archivo contiene exactamente las filas contadas |
+| RN-05.47 | Formato: celdas tipadas. Fechas como fecha de Excel (`dd/mm/yyyy`; con hora `dd/mm/yyyy hh:mm`, convertidas a la zona de negocio, indicada en la hoja "Filtros"); cantidades `#,##0.0000`; toneladas `#,##0.000` con encabezado "Tonelaje (t)"; porcentajes como fracción con formato `0.00 %`; montos `#,##0.00` con columna de moneda contigua; **cada cantidad lleva su columna de unidad al lado**. Encabezados en negrita, fila congelada y autofiltro |
+| RN-05.48 | Hojas: 1) datos del reporte; 2) "Resumen" con los mismos conteos y totales de la pantalla (oportunidades, forecast, visitas, actividades); 3) "Filtros" con nombre del reporte, fecha y hora de generación, zona horaria, filtros aplicados en texto legible, alcance (Propios / Equipo / País / Organización) y número de filas |
+| RN-05.49 | **Sin fórmulas:** ninguna celda se escribe como fórmula; todo texto se escribe como cadena (un cliente llamado `=HYPERLINK(...)` queda como texto). Valores con más de 15 dígitos significativos (límite de precisión de Excel) se escriben como texto y se marcan en la hoja "Filtros" |
+| RN-05.50 | La exportación no incluye columnas que la pantalla no muestra ni datos personales de contactos (00 §4.5): los reportes del §7 no los tienen |
+
+### C.5 Dashboard y embudo
+
+| ID | Regla |
+|---|---|
+| RN-05.51 | El dashboard comercial es **analítico** (tendencias, distribuciones, comparación entre asesores y meses, filtros de período/país/asesor). No muestra alertas, accesos rápidos, actividad reciente ni pendientes personales, que son del Inicio operativo (§3), y vive en su propia ruta `/reportes/dashboard` |
+| RN-05.52 | **Tendencias** solo de indicadores con fecha histórica fiable, en cubos mensuales: oportunidades identificadas (`opportunity_date`), ganadas y perdidas (`decision_date`), actividades realizadas (`completed_at`), visitas realizadas (`actual_start_at`), forecast por mes (año/mes). "Proyectos activos" se muestra como valor actual y distribución por fase, **sin tendencia** (no hay instantáneas históricas; D-05.13) |
+| RN-05.53 | Embudo: etapas activas con `metadata.inFunnel = true` ordenadas por `metadata.order`. Cantidad por etapa = oportunidades del conjunto filtrado cuya etapa **vigente** es esa |
+| RN-05.54 | **Porcentaje de participación** de una etapa = cantidad de la etapa / total de oportunidades en etapas del embudo × 100. Se devuelve solo si el total > 0; si no, `null` con motivo `NO_DATA` |
+| RN-05.55 | **Conversión acumulada** (alcance) de la etapa k = oportunidades que alcanzaron k / oportunidades que alcanzaron la primera etapa del embudo × 100, donde "alcanzó k" = el mayor `metadata.order` entre las etapas `inFunnel` presentes en su `opportunity_stage_history` (incluida la vigente) es ≥ el `order` de k. Se calcula **solo** si todas las oportunidades del conjunto tienen historial de etapas (el alta crea la primera fila, 00 §2.7) y el denominador ≥ `MIN_FUNNEL_SAMPLE` (D-05.9); si no, `null` con motivo `INSUFFICIENT_HISTORY` o `INSUFFICIENT_SAMPLE` |
+| RN-05.56 | El filtro por **etapa** del embudo limita las barras que se muestran, pero los porcentajes se calculan siempre sobre el embudo completo del resto de filtros (si no, dejarían de ser correctos) |
+| RN-05.57 | **Tipo de cliente** = `customers.company_type_id` (catálogo `crm.tipo_empresa`) (D-05.8) |
+
+---
+
+## D. Modelo de datos utilizado
+
+### D.1 Entidades propias
+
+**Ninguna.** El módulo no crea tablas, columnas ni vistas en la propuesta por
+defecto. Solo añade una fila de parámetro (D.5) y filas de menú (H.3), que son datos.
+
+### D.2 Entidades consumidas (solo lectura)
+
+| Entidad (00) | Uso en Reportes | Columnas clave |
+|---|---|---|
+| `customers` | Cliente de cada fila, país (visitas/actividades), tipo de cliente (embudo) | `id`, `crm_code`, `legal_name`, `country_id`, `company_type_id`, `sales_owner_id`, `deleted_at` |
+| `projects` | F-34; contexto de oportunidades, forecast, visitas y actividades | `code`, `name`, `customer_id`, `country_id`, `city`, `owner_id`, `project_type_id`, `phase_id`, `phase_progress`, `estimated_decision_date`, `last_activity_at`, `created_at`, `deleted_at` |
+| `opportunities` | F-35, F-40, F-41 | `code`, `project_id`, `stage_id`, `opportunity_date`, `owner_id`, `estimated_amount`, `currency_code`, `estimated_tonnage`, `closed_at`, `updated_at`, `deleted_at` |
+| `opportunity_results` | Resultado, motivo, % adjudicado, fecha de decisión | `opportunity_id` (único), `outcome`, `reason_id`, `awarded_percent`, `decision_date` |
+| `opportunity_stage_history` | Conversión acumulada del embudo (RN-05.55) | `opportunity_id`, `to_stage_id`, `changed_at` |
+| `project_products` | Solo en el filtro opcional por producto/familia del reporte de oportunidades, con `EXISTS` (D-05.10) | `opportunity_id`, `product_id`, `deleted_at` |
+| `forecast_lines` | F-36, forecast del dashboard | `project_id`, `product_id`, `year`, `month`, `quantity`, `unit_id`, `tonnage`, `owner_id`, `updated_at` |
+| `products`, `product_families`, `units_of_measure` | Etiquetas, consolidación por producto/familia, unidades | `sku`, `description`, `family_id`, `code`, `symbol`, `dimension` |
+| `visits` | F-37, dashboard | `code`, `customer_id`, `project_id`, `owner_id`, `status_id`, `scheduled_start_at`, `original_scheduled_at`, `reschedule_count`, `actual_start_at`, `result_id`, `result_summary`, `confirmed_at` |
+| `activities` | F-38, dashboard | `code`, `type_id`, `subject`, `customer_id`, `project_id`, `owner_id`, `status_id`, `priority_id`, `scheduled_at`, `due_at`, `result_id`, `result_notes`, `completed_at`, `deleted_at` |
+| `catalog_items` / `catalogs` | Etiquetas y semántica (`metadata`) de etapas, fases, tipos, estados, prioridades, resultados | `crm.etapa_oportunidad`, `crm.fase_cliente`, `crm.tipo_proyecto`, `crm.tipo_empresa`, `crm.resultado_oportunidad`, `crm.motivo_resultado`, `crm.estado_visita`, `crm.resultado_interaccion`, `crm.tipo_actividad`, `crm.estado_actividad`, `crm.prioridad` |
+| `users`, `team_members`, `teams`, `countries` | Nombre del asesor, resolución del alcance, filtros por país/asesor | vía `VisibilityScopeResolver` (00 §11) |
+| `system_parameters` | Zona horaria, horizonte del forecast, umbral de "por vencer", tope de exportación | `crm.zona_horaria_negocio`, `crm.forecast.horizonte_meses`, `crm.forecast.unidad_tonelaje`, `crm.alertas.actividad_por_vencer_horas`, `crm.reportes.max_filas_exportacion` (nuevo, D.5) |
+| `audit_logs` | **Escritura** de `crm.report.exported` (único insert del módulo) | `event`, `resource_type = crm.report`, `metadata` |
+
+No se usan: `contacts`, `interaction_participants`, `attachments`, `customer_imports`,
+`sales_targets` (las metas son de Inicio, DM-9), `crm_interactions_v` (los reportes
+leen visitas y actividades por separado para no mezclar sus columnas).
+
+### D.3 Modelo de lectura
+
+- Puerto `ReportingRepository` (00 §11) para filas paginadas y volcados de exportación;
+  puerto `CommercialMetricsReadModel` (G.3) para conteos y agregados compartidos con Inicio.
+  Ambos devuelven tipos del módulo, nunca tipos de Prisma (ADR-004).
+- Adaptadores en `infrastructure/database/prisma/repositories/`. Listas con el
+  cliente de Prisma y `select` explícito; agregados (estado comercial del proyecto,
+  distribuciones, embudo, series mensuales) con `$queryRaw` **parametrizado con
+  plantilla** (nunca `$queryRawUnsafe`, nunca concatenación), igual que la vista de
+  interacciones (00 §2.12).
+- Anti-duplicación: todo agregado por oportunidad o visita se hace en una
+  subconsulta con `GROUP BY` del padre antes de unirse, o con `EXISTS`; nunca
+  `COUNT(*)` sobre un `JOIN` uno-a-muchos (RN-05.19, RN-05.39).
+- Tiempo máximo de consulta: `SET LOCAL statement_timeout` de 10 s en pantallas y
+  60 s en exportación, dentro de la transacción de lectura.
+- **Vistas SQL:** no se proponen. Si el estado comercial del proyecto (RN-05.17)
+  resultara costoso o divergente entre Proyectos (§5.4 "filtro por etapa de
+  oportunidad") y Reportes, se propondría una vista `crm_project_commercial_status_v`
+  **en 00**, no aquí (D-05.15).
+
+### D.4 Snowflake (ADR-015)
+
+**No aplica.** El alcance exige que los reportes se generen con los datos del CRM y
+prohíbe BI externo (§7); 00 §11 ya fija `ReportingRepository` sobre PostgreSQL. El
+puerto existente `AnalyticsDataProvider` no se usa. Si en el futuro se publicaran
+estos datos a Snowflake, sería una integración nueva con su ADR.
+
+### D.5 Parámetros
+
+| `key` | Tipo | Valor propuesto | Estado |
+|---|---|---|---|
+| `crm.reportes.max_filas_exportacion` | NUMBER | `100000` | **Nuevo**: añadir a 00 §8.2 (D-05.3) |
+| `crm.metricas.dias_visitas_proximas` | NUMBER | `7` | **Nuevo, compartido con Inicio**; solo si 01 no define ya uno equivalente (D-05.6) |
+
+Ambos se siembran con la semilla esencial (`seed/crm-parameters.ts`) sin pisar valores.
+
+### D.6 Índices
+
+Los índices de 00 cubren los filtros principales (`idx_opportunities_owner_id_stage_id`,
+`idx_opportunity_results_outcome_decision_date`, `idx_forecast_lines_year_month`,
+`idx_visits_owner_id_scheduled_start_at`, `idx_activities_owner_id_status_id_due_at`,
+`idx_projects_last_activity_at`, `idx_opportunity_stage_history_opportunity_id_changed_at`).
+Posibles faltantes, a confirmar con `EXPLAIN` sobre la semilla de demostración ampliada:
+`opportunities(opportunity_date)`, `visits(confirmed_at)`, `activities(completed_at)`.
+Si hacen falta, se añaden **en 00** como migración aditiva.
+
+---
+
+## E. Pantallas y componentes
+
+### E.1 Comunes a las siete pantallas
+
+- Ubicación: `frontend/src/features/reports/` (estructura por área como
+  `features/admin/README.md`). Rutas de 00 §5.3, cargadas con `React.lazy` para que
+  las librerías de gráficas y la lógica de reportes no pesen en la carga inicial.
+- `PageHeader` con migas "Reportes / <Pantalla>". Nada de hex, píxeles ni duraciones
+  a mano (CLAUDE.md §8.12; colores de series desde `chartSeries` de `tokens.ts`).
+- **Barra de filtros** (`ReportFilterBar`): período (selector de rango con atajos
+  "Mes en curso", "Trimestre", "Año en curso", "Últimos 12 meses"), base de fecha
+  cuando aplica, asesor, país, cliente (autocompletar) y filtros propios. Los
+  filtros viven en la URL (se puede compartir y recargar una vista) con los nombres
+  de parámetro de la API. Chips de filtros activos con "Limpiar".
+- Las opciones de asesor, país y catálogos salen de `GET /reports/filter-options`
+  (nunca listas fijas, alcance §1 regla 8).
+- **Tabla:** el `DataTable` existente (PLAN-ADMIN D14, sin librería nueva), con
+  paginación, orden y filtros en el servidor y vista de tarjetas por debajo de `sm`.
+- **Resumen:** tarjetas de conteo encima de la tabla (oportunidades, visitas,
+  actividades, forecast). Cada tarjeta es un botón que aplica el filtro de estado
+  correspondiente a la tabla.
+- **Exportar a Excel:** botón visible solo con `reportes.exportar`; muestra
+  progreso, descarga con `saveFile`; ante `422 EXPORT_TOO_LARGE` muestra
+  "El resultado tiene N filas y el máximo exportable es M. Acota los filtros."
+- **Estados de cada pantalla:** cargando (esqueletos), vacío ("No hay registros
+  para los filtros seleccionados" + "Limpiar filtros"), error (mensaje de
+  `describeApiError` + "Reintentar", con `correlationId`), sin permiso (ruta
+  protegida por `reportes.ver`; `AccessDeniedPage`), y "datos sin conversión"
+  (aviso en forecast cuando hay líneas sin tonelaje).
+- **Navegación al origen:** el código del registro es enlace a su ficha
+  (`/proyectos/:id`, `/clientes/:id`, `/actividad/visitas/:id`,
+  `/actividad/actividades/:id`) solo si el usuario tiene el permiso `.ver` de esa
+  entidad **y** la ruta existe en el router; si no, se muestra como texto.
+- Accesibilidad: tablas con encabezados reales, filtros con etiqueta, foco visible,
+  objetivos táctiles de 44 px en móvil, cifras con `Intl.NumberFormat('es-GT')`.
+
+### E.2 Reporte de proyectos — `/reportes/proyectos` (F-34)
+
+| Elemento | Detalle |
+|---|---|
+| Columnas | Código (enlace), Nombre, Cliente, País, Ubicación (ciudad), Asesor, Tipo, Fase, % avance (barra + número), Estado comercial (chip con texto), Fecha estimada de decisión, Última actualización |
+| Filtros | Búsqueda (código, nombre, cliente), país, ciudad (texto), asesor, cliente, tipo de proyecto, fase, estado comercial (`OPEN_STAGE:<stageId>`, `WON`, `LOST`, `NO_OPPORTUNITIES`), situación (`ACTIVE`, `FINISHED`, `ALL` por defecto), período opcional con base de fecha |
+| Orden | `code`, `name`, `customerName`, `countryName`, `ownerName`, `phaseOrder`, `phaseProgress`, `estimatedDecisionDate`, `lastActivityAt` (defecto `lastActivityAt desc`) |
+| Exportar | Mismas columnas |
+
+### E.3 Reporte de oportunidades — `/reportes/oportunidades` (F-35)
+
+| Elemento | Detalle |
+|---|---|
+| Resumen | Total, Abiertas, Ganadas (con "de las cuales parciales: n"), Perdidas, Resultados parciales, Cerradas sin resultado (solo si > 0); estimación total por moneda y toneladas estimadas |
+| Distribuciones | Por etapa (barras horizontales + tabla) y por asesor (tabla: total, abiertas, ganadas, parciales, perdidas). Usan la librería de D-05.2; mientras no esté aprobada se muestran solo como tabla |
+| Columnas | Código (enlace), Proyecto, Cliente, Asesor, Etapa, Resultado (con % adjudicado si es parcial y motivo si es perdida), Estimación (monto + moneda; toneladas), Fecha de decisión (con marca "estimada" si aplica), Fecha de actualización |
+| Filtros | Período + base de fecha, asesor, cliente, estado (RN-05.32), etapa, país, producto y familia (D-05.10) |
+| Orden | `code`, `projectName`, `customerName`, `ownerName`, `stageOrder`, `estimatedAmount`, `decisionDate`, `updatedAt` (defecto `updatedAt desc`) |
+
+### E.4 Reporte de forecast — `/reportes/forecast` (F-36)
+
+| Elemento | Detalle |
+|---|---|
+| Vistas | Pestañas "Detalle" (una fila por línea) y "Consolidado" (matriz: filas = grupo, columnas = meses del rango + Total) |
+| Resumen | Fila de totales mensuales en toneladas, fila de acumulado, cantidades por unidad (una línea por unidad), número de líneas sin conversión, "Última actualización: <fecha y hora>" |
+| Columnas (detalle) | Proyecto, Cliente, Producto (SKU + descripción), Familia, Año, Mes, Cantidad, Unidad, Tonelaje (t) ("sin conversión" cuando es nulo), Asesor, Fecha de actualización |
+| Consolidación | Selector `Agrupar por` (Mes, Producto, Familia, Proyecto, Cliente, Asesor) y segundo nivel opcional |
+| Filtros | Rango de meses (`fromMonth`, `toMonth`, por defecto M+1…M+6), proyecto, cliente, producto, familia, asesor, país |
+| Orden (detalle) | `year,month` (defecto asc), `projectName`, `productSku`, `familyName`, `ownerName`, `tonnage`, `updatedAt` |
+
+### E.5 Reporte de visitas — `/reportes/visitas` (F-37)
+
+| Elemento | Detalle |
+|---|---|
+| Resumen | Programadas, Realizadas (sin confirmar), Confirmadas, Canceladas, Total; informativos: "Reprogramadas: n visitas (m reprogramaciones)", "Pendientes atrasadas: n" |
+| Columnas | Código (enlace), Cliente, Proyecto, Asesor, Fecha planificada (vigente; icono con tooltip "Reprogramada n veces, original: <fecha>" si `rescheduleCount > 0`), Fecha real, Estado (chip con texto), Resultado, Fecha de confirmación |
+| Filtros | Período + base de fecha, asesor, categoría de estado y/o estado de catálogo, cliente, país, proyecto |
+| Orden | `scheduledStartAt` (defecto desc), `actualStartAt`, `confirmedAt`, `customerName`, `ownerName`, `statusOrder` |
+
+### E.6 Reporte de actividades — `/reportes/actividades` (F-38)
+
+| Elemento | Detalle |
+|---|---|
+| Resumen | Pendientes, Vencidas, Realizadas, Canceladas, Total; informativo "Próximas a vencer: n" |
+| Columnas | Código (enlace), Tipo, Asunto, Cliente, Proyecto, Responsable, Fecha, Vencimiento (resaltado con texto "Vencida" si aplica), Prioridad, Estado, Resultado |
+| Filtros | Período + base de fecha, asesor, categoría de estado (`PENDING`, `OVERDUE`, `COMPLETED`, `CANCELLED`) y/o estado de catálogo, cliente, tipo de actividad, prioridad, país |
+| Orden | `activityDate` (defecto desc), `dueAt`, `priorityWeight`, `customerName`, `ownerName`, `typeName` |
+
+### E.7 Dashboard comercial — `/reportes/dashboard` (F-40)
+
+Filtros: período (defecto últimos 12 meses cerrados + mes en curso, máximo 24),
+país y asesor. Cuadrícula responsive (una columna en móvil, dos en `md`, tres en `lg`).
+
+| Panel | Visualización | Base de fecha / definición |
+|---|---|---|
+| Proyectos activos | Cifra + barras por fase | Estado actual (RN-05.15); el período no aplica (se indica) |
+| Oportunidades por etapa | Barras horizontales en orden de etapa | Etapa vigente de oportunidades identificadas en el período (`IDENTIFIED`) |
+| Ganadas vs. perdidas | Barras agrupadas por mes (ganadas con parciales apilados, perdidas) | `decision_date` |
+| Forecast por mes | Barras de toneladas por mes + línea de acumulado | Año/mes de la línea; meses del período ∪ M+1…M+6 |
+| Distribución por asesor | Barras horizontales: oportunidades abiertas, ganadas y toneladas de forecast por asesor (top 10 + "Otros") | Mismo conjunto que los paneles anteriores |
+| Actividades y visitas | Barras agrupadas por mes: actividades realizadas, visitas realizadas (realizadas + confirmadas), visitas canceladas | `completed_at`, `actual_start_at`, `cancelled_at` |
+| Tendencias | Líneas mensuales de: oportunidades identificadas, ganadas, perdidas, actividades realizadas, visitas realizadas | RN-05.52 |
+
+Cada gráfica tiene título, leyenda con texto (el color nunca es el único
+indicador), tooltip, y un conmutador **"Ver como tabla"** con los mismos datos
+(accesibilidad y lectores de pantalla). Cada panel carga y falla por separado
+(estado de error por panel). Clic en una barra navega al reporte correspondiente
+con el filtro aplicado (p. ej. etapa → reporte de oportunidades filtrado por etapa).
+
+### E.8 Embudo comercial — `/reportes/embudo` (F-41)
+
+- Barras horizontales centradas y decrecientes por etapa del embudo (orden de
+  catálogo), con la cantidad dentro de la barra, el % de participación y, si es
+  calculable, la conversión acumulada. Cuando un porcentaje es `null` se muestra
+  "—" con tooltip del motivo ("Sin datos", "Historial insuficiente", "Muestra
+  insuficiente (n < M)").
+- Filtros: etapa (multivalor), cliente, tipo de cliente, asesor, país y período
+  opcional.
+- Tabla equivalente debajo (Etapa, Cantidad, % del embudo, Conversión acumulada).
+- Clic en una etapa → reporte de oportunidades filtrado por esa etapa y los mismos filtros.
+
+---
+
+## F. Servicios y contratos
+
+Todos bajo `/api/v1`, autenticados (JWT), con el formato de error de
+`API-STANDARDS.md` §8 y `X-Correlation-ID`. Colecciones con `page` (base 1),
+`pageSize` (defecto 20, máximo 100), `sortBy` (lista blanca por reporte, E.2–E.6) y
+`sortOrder`. Los resúmenes van en endpoints `…/summary` separados para no alterar
+la forma estándar `{ data, pagination }`.
+
+### F.1 Operaciones propias
+
+| Método | Ruta | Permiso | Respuesta |
+|---|---|---|---|
+| GET | `/reports/filter-options` | `reportes.ver` | `ReportFilterOptionsDto` |
+| GET | `/reports/projects` | `reportes.ver` | `Paginated<ProjectReportRowDto>` |
+| GET | `/reports/projects/export` | `reportes.exportar` + `reportes.ver` | `.xlsx` |
+| GET | `/reports/opportunities` | `reportes.ver` | `Paginated<OpportunityReportRowDto>` |
+| GET | `/reports/opportunities/summary` | `reportes.ver` | `OpportunityReportSummaryDto` |
+| GET | `/reports/opportunities/export` | `reportes.exportar` + `reportes.ver` | `.xlsx` |
+| GET | `/reports/forecast` | `reportes.ver` | `Paginated<ForecastReportRowDto>` |
+| GET | `/reports/forecast/consolidated` | `reportes.ver` | `Paginated<ForecastGroupDto>` + meses en cada grupo |
+| GET | `/reports/forecast/summary` | `reportes.ver` | `ForecastReportSummaryDto` |
+| GET | `/reports/forecast/export` | `reportes.exportar` + `reportes.ver` | `.xlsx` (detalle; con `groupBy`, añade hoja "Consolidado") |
+| GET | `/reports/visits` | `reportes.ver` | `Paginated<VisitReportRowDto>` |
+| GET | `/reports/visits/summary` | `reportes.ver` | `VisitReportSummaryDto` |
+| GET | `/reports/visits/export` | `reportes.exportar` + `reportes.ver` | `.xlsx` |
+| GET | `/reports/activities` | `reportes.ver` | `Paginated<ActivityReportRowDto>` |
+| GET | `/reports/activities/summary` | `reportes.ver` | `ActivityReportSummaryDto` |
+| GET | `/reports/activities/export` | `reportes.exportar` + `reportes.ver` | `.xlsx` |
+| GET | `/reports/dashboard` | `reportes.ver` | `CommercialDashboardDto` (paneles de estado y distribuciones) |
+| GET | `/reports/dashboard/trends` | `reportes.ver` | `CommercialTrendsDto` (series mensuales) |
+| GET | `/reports/funnel` | `reportes.ver` | `SalesFunnelDto` |
+
+Las rutas `/export`, `/summary`, `/consolidated` y `/trends` se declaran antes de
+cualquier ruta con parámetro (patrón de `users.controller.ts`). Todo es `GET`: no
+hay mutaciones (la auditoría de exportación es efecto interno, igual que en
+`/users/export` y `/audit-logs/export`).
+
+### F.2 DTOs de consulta (entrada)
+
+Validados con `class-validator` (`whitelist`, `forbidNonWhitelisted`). UUIDs con
+`@IsUUID`; multivalores como parámetros repetidos (`ownerId=a&ownerId=b`, máximo 50).
+
+```text
+ReportPeriodQueryDto            from?: date (YYYY-MM-DD), to?: date, dateBasis?: enum por reporte
+ProjectReportQueryDto           extends PaginationQueryDto + ReportPeriodQueryDto
+                                search?, countryId[]?, city?, ownerId[]?, customerId[]?, projectTypeId[]?,
+                                phaseId[]?, commercialStatus[]?, situation?: ACTIVE|FINISHED|ALL
+OpportunityReportQueryDto       + ReportPeriodQueryDto: ownerId[]?, customerId[]?, countryId[]?,
+                                status[]?: OPEN|CLOSED|WON|PARTIAL|LOST|CLOSED_NO_RESULT, stageId[]?,
+                                productId[]?, productFamilyId[]?
+ForecastReportQueryDto          fromMonth?: YYYY-MM, toMonth?: YYYY-MM, projectId[]?, customerId[]?,
+                                productId[]?, productFamilyId[]?, ownerId[]?, countryId[]?
+ForecastConsolidatedQueryDto    + groupBy: MONTH|PRODUCT|FAMILY|PROJECT|CUSTOMER|OWNER, thenBy?: (ídem, ≠ groupBy)
+VisitReportQueryDto             + ReportPeriodQueryDto: ownerId[]?, customerId[]?, countryId[]?, projectId[]?,
+                                statusCategory[]?: SCHEDULED|COMPLETED|CONFIRMED|CANCELLED, statusId[]?
+ActivityReportQueryDto          + ReportPeriodQueryDto: ownerId[]?, customerId[]?, countryId[]?, typeId[]?,
+                                statusCategory[]?: PENDING|OVERDUE|COMPLETED|CANCELLED, statusId[]?, priorityId[]?
+ReportExportQueryDto<T>         = filtros de T SIN page/pageSize + format: 'xlsx' (único valor en v1)
+DashboardQueryDto               from?, to?, countryId[]?, ownerId[]?
+FunnelQueryDto                  from?, to?, stageId[]?, customerId[]?, companyTypeId[]?, ownerId[]?, countryId[]?
+```
+
+### F.3 DTOs de respuesta (selección)
+
+```text
+ProjectReportRowDto        id, code, name, customer{id, name}, country{id, name}, city, owner{id, displayName},
+                           projectType{id, label}|null, phase{id, label, isFinal}, phaseProgress: "45.00",
+                           commercialStatus{kind: OPEN_STAGE|WON|LOST|NO_OPPORTUNITIES, stage{id,label}|null},
+                           estimatedDecisionDate: "2026-11-30"|null, lastActivityAt: ISO-8601 UTC
+OpportunityReportRowDto    id, code, project{id, code, name}, customer{id, name}, owner{id, displayName},
+                           stage{id, label, isClosed}, result{outcome: WON|LOST|PARTIAL, reason{id,label}|null,
+                           awardedPercent|null}|null, estimate{amount: {amount:"1500.25", currency:"USD"}|null,
+                           tonnage:"12.5000"|null}, decisionDate|null, decisionDateKind: ACTUAL|ESTIMATED|null, updatedAt
+OpportunityReportSummaryDto total, open, won, wonFull, partial, lost, closedWithoutResult,
+                           byStage[{stage{id,label,order,isClosed}, count}],
+                           byOwner[{owner{id,displayName}, total, open, won, partial, lost}],
+                           estimateTotals{amounts[{currency, amount}], tonnage}
+ForecastReportRowDto       id, project{id,code,name}, customer{id,name}, product{id,sku,description},
+                           family{id,name}, year, month, quantity:"10.0000", unit{id,code,symbol},
+                           tonnage:"3.3600"|null, owner{id,displayName}, updatedAt
+ForecastGroupDto           key{type, id|null, label}, subgroups?[…], months[{year, month, tonnage, quantities[{unit, quantity}],
+                           linesWithoutConversion}], total{tonnage, quantities[], linesWithoutConversion}
+ForecastReportSummaryDto   months[{year, month, tonnage, cumulativeTonnage, quantities[{unit, quantity, cumulative}],
+                           linesWithoutConversion}], totals{tonnage, quantities[]}, tonnageUnit:"TON",
+                           lastUpdatedAt|null, lineCount
+VisitReportRowDto          id, code, customer, project|null, owner, scheduledStartAt, originalScheduledAt,
+                           rescheduleCount, actualStartAt|null, status{id,label,category}, result{id,label}|null,
+                           resultSummary|null, confirmedAt|null
+VisitReportSummaryDto      total, scheduled, completed, confirmed, cancelled, completedTotal,
+                           rescheduledVisits, rescheduleEvents, overduePending
+ActivityReportRowDto       id, code, type{id,label}, subject, customer, project|null, owner, activityDate|null,
+                           dueAt|null, priority{id,label,weight}, status{id,label,category}, isOverdue,
+                           result{id,label}|null, resultNotes|null
+ActivityReportSummaryDto   total, pending, overdue, completed, cancelled, dueSoon
+CommercialDashboardDto     period{from,to}, activeProjects{count, byPhase[]}, opportunitiesByStage[],
+                           wonLostByMonth[{year,month,won,partial,lost}], forecastByMonth[{year,month,tonnage,cumulative}],
+                           byOwner[{owner, openOpportunities, won, forecastTonnage}], activityVisitByMonth[…]
+CommercialTrendsDto        series[{metric: OPPORTUNITIES_IDENTIFIED|WON|LOST|ACTIVITIES_COMPLETED|VISITS_COMPLETED,
+                           points[{year, month, value}]}]
+SalesFunnelDto             stages[{stage{id,label,order}, count, shareOfTotal:"42.86"|null,
+                           cumulativeConversion:"60.00"|null, unavailableReason: NO_DATA|INSUFFICIENT_HISTORY|
+                           INSUFFICIENT_SAMPLE|null}], totalInFunnel, sampleMinimum
+ReportFilterOptionsDto     owners[{id, displayName}] (solo usuarios dentro del alcance con registros comerciales),
+                           countries[{id, name}] (dentro del alcance), catalogs{<key>: [{id, code, label, metadata relevante}]},
+                           productFamilies[{id, name}], scope: OWN|TEAM|COUNTRY|ORGANIZATION
+```
+
+Decimales como cadena (API-STANDARDS §10), porcentajes con dos decimales,
+instantes ISO-8601 UTC, fechas de calendario `YYYY-MM-DD`. Sin modelos de Prisma.
+
+### F.4 Exportación
+
+| Aspecto | Contrato |
+|---|---|
+| Respuesta | `200`, `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `Content-Disposition: attachment; filename="reporte-<oportunidades|proyectos|forecast|visitas|actividades>-YYYYMMDD-HHmm.xlsx"`, `X-Export-Rows: <n>`, `X-Export-Truncated: false` (se conserva la cabecera de la casa por compatibilidad; en este módulo nunca es `true`) |
+| Generación | En el servidor, en *streaming* (escritor por lotes de la librería de D-05.1) para memoria acotada, tras la comprobación de conteo de RN-05.45 |
+| Tope | `crm.reportes.max_filas_exportacion` (100 000 propuesto). Superado → `422 EXPORT_TOO_LARGE`, `details: [{ rows, maxRows }]` |
+| Concurrencia | `@Throttle` en las rutas `/export`: 5 por minuto por usuario (propuesta); exceso → `429 RATE_LIMIT_EXCEEDED` |
+| OpenAPI | `@ApiProduces(xlsx)`, `schema: { type: 'string', format: 'binary' }`, respuestas 400/401/403/422/429 documentadas |
+
+### F.5 Códigos de error
+
+| Status | `code` | Cuándo |
+|---|---|---|
+| 400 | `BAD_REQUEST` (validación) | Fecha mal formada, `from > to`, `fromMonth > toMonth`, `sortBy` fuera de lista blanca, `pageSize > 100`, enum inválido, `format ≠ xlsx`, `thenBy = groupBy`, paginación enviada a `/export` |
+| 401 | `UNAUTHENTICATED` | Sin token o token inválido |
+| 403 | `PERMISSION_DENIED` | Sin `reportes.ver`; o en `/export` sin `reportes.exportar` |
+| 422 | `PERIOD_TOO_LONG` | Rango mayor al máximo de C.2 |
+| 422 | `EXPORT_TOO_LARGE` | Conjunto mayor al tope de exportación |
+| 422 | `INVALID_CATALOG_SEMANTICS` | El catálogo de etapas/estados no cumple los invariantes de 00 §3.3 (p. ej. etapa `inFunnel` sin `order`); protege de resultados incorrectos |
+| 429 | `RATE_LIMIT_EXCEEDED` | Exceso de exportaciones |
+| 503 | `REPORT_TIMEOUT` | La consulta superó el `statement_timeout`; mensaje "Acota los filtros"; se registra en log con `correlationId` |
+
+Un id de filtro inexistente **no** es error: devuelve conjunto vacío (igual que
+fuera de alcance, RN-05.4).
+
+### F.6 Consultas a otros módulos
+
+Reportes **no** llama a los servicios de Clientes, Proyectos ni Actividad: lee las
+tablas compartidas por su propio puerto de lectura (00 §11), aplicando las mismas
+definiciones a través del servicio de métricas compartido. Sí consume:
+
+| Servicio | Dueño | Uso |
+|---|---|---|
+| `VisibilityScopeResolver` | Fase 0 | Alcance del usuario → `{ownerIds?, countryIds?}` |
+| `CommercialMetricsService` + `CommercialMetricsReadModel` | Compartido Inicio/Reportes (G.3) | Conteos y definiciones |
+| `ParametersService` (lectura) | Administración (existente) | Zona horaria, horizonte, tope, umbrales |
+| `AuditService.record` | Auditoría (existente) | `crm.report.exported` |
+| `AccessService.resolveActor` / guardas | Acceso (existente) | Permisos y actor |
+
+---
+
+## G. Relaciones e integraciones internas
+
+### G.1 Qué consume
+
+| Módulo | Información |
+|---|---|
+| Clientes (2) | Cliente, país, tipo de empresa, responsable |
+| Proyectos (3) | Proyectos, fase, clasificación, oportunidades, etapas, resultados, historial de etapas, productos asociados, forecast |
+| Actividad comercial (4) | Visitas (estado vigente, fechas, reprogramaciones, confirmación) y actividades |
+| Administración (7) | Permisos, alcance, catálogos con semántica, parámetros, auditoría |
+| Inicio (1) | Comparte el servicio de métricas (no consume pantallas) |
+
+### G.2 Qué proporciona
+
+- A Inicio: nada directo; ambos consumen el servicio de métricas compartido. Las
+  tarjetas de Inicio pueden enlazar al reporte filtrado (`/reportes/oportunidades?status=OPEN`)
+  como "consultar los registros relacionados" (§3.2) cuando el usuario tiene `reportes.ver`.
+- A Auditoría: eventos `crm.report.exported`.
+- Identificadores: siempre los UUID de 00 en filtros y enlaces; los códigos humanos
+  (`PRY-…`, `OPO-…`) solo para mostrar.
+
+### G.3 Servicio de métricas compartido (requisito de consistencia)
+
+Inicio (§3.2) y Reportes (§7) **no** pueden tener dos implementaciones de la misma
+fórmula. Se exige **un único** componente:
+
+| Pieza | Ubicación propuesta | Contenido |
+|---|---|---|
+| `CommercialMetricsModule` | `backend/src/modules/crm-metrics/` | Módulo Nest exportado; lo importan `inicio` y `reports` |
+| `metric-definitions.ts` | ídem | Definiciones de C.3 como funciones puras y tipadas sobre la semántica del catálogo (categorizar etapa, resultado, estado de visita y de actividad) — probadas unitariamente |
+| `CommercialMetricsService` | ídem | `countOpportunities(filter)`, `countProjects(filter)`, `countVisits(filter)`, `countActivities(filter)`, `forecastTotals(filter)`, `stageDistribution(filter)`, `ownerDistribution(filter)`, `funnel(filter)`, `monthlySeries(metric, filter)`. `filter` = `{ scope, period?, dateBasis?, countryIds?, ownerIds?, customerIds?, … }` |
+| `CommercialMetricsReadModel` (puerto) | `crm-metrics/ports/` | Consultas agregadas; adaptador `prisma-commercial-metrics.read-model.ts` |
+| `business-period.ts` | `crm-metrics/` | Conversión de períodos y meses a instantes en `crm.zona_horaria_negocio`; ventana M+1…M+6 |
+
+Reglas:
+
+- Las tarjetas de Inicio llaman al mismo método con el mismo filtro que un reporte
+  "sin filtros adicionales": **Inicio = Reportes con el alcance del usuario y sin
+  período** para abiertas, proyectos activos, pendientes, vencidas y visitas
+  pendientes/próximas; para ganadas/perdidas, Inicio usa el período de D-05.7 con
+  `dateBasis = DECIDED`, que el reporte reproduce con esos mismos filtros. PF-05.30
+  lo verifica.
+- Quien implemente primero (por el orden §11, Inicio) crea el módulo; si
+  `01-inicio-dashboard.md` le da otro nombre, prevalece ese nombre: el requisito es
+  la implementación única, no el nombre. Reportes no crea una segunda.
+- `00` lista `DashboardReadModel` (Inicio) y `ReportingRepository` (Reportes): se
+  mantienen para lo específico de cada uno (filas paginadas, actividad reciente,
+  alertas); los **conteos e indicadores** salen de `CommercialMetricsReadModel`.
+- Un cambio de fórmula se hace en `metric-definitions.ts` y cambia a la vez Inicio
+  y Reportes; las pruebas de ambos módulos lo detectan.
+
+### G.4 Comportamiento cuando otro módulo aún no está implementado
+
+| Situación | Comportamiento |
+|---|---|
+| Tablas sin datos (módulo de origen sin pantallas o sin uso) | Las tablas existen desde la Fase 0: las consultas devuelven vacío y la pantalla muestra el estado vacío; conteos en 0 reales, porcentajes `null` (`NO_DATA`) |
+| Ficha de destino no construida (ruta no registrada) | El código se muestra como texto, sin enlace (E.1) |
+| Inicio no implementado todavía | Reportes crea `CommercialMetricsModule` (G.3) y 01 lo reutiliza |
+| Catálogo con semántica incompleta (registro de 00 §3.3 no desplegado) | `422 INVALID_CATALOG_SEMANTICS` con el catálogo afectado, en lugar de cifras erróneas |
+| Librería de gráficas sin ADR aprobado | Dashboard y embudo se entregan con sus tablas equivalentes; las gráficas se añaden al aprobarse (F-40/F-41 quedan `bloqueada` en la matriz hasta entonces) |
+| Librería XLSX sin ADR aprobado | El botón de exportar no se muestra; F-39 `bloqueada` |
+| `VisibilityScopeResolver` de Fase 0 no disponible | El módulo no se habilita: ninguna consulta sin alcance (deny-by-default) |
+
+---
+
+## H. Seguridad
+
+### H.1 Autenticación y autorización
+
+| Operación | Permiso | Alcance | Notas |
+|---|---|---|---|
+| Ver cualquiera de los 5 reportes, dashboard, embudo, opciones de filtro | `reportes.ver` | Sí, en cada consulta | Por defecto no se exige además el `.ver` de la entidad de origen (D-05.11) |
+| Exportar | `reportes.exportar` **y** `reportes.ver` | Sí | Asesor sin exportar por defecto (00 §5.4, DM-11) |
+| Navegar a la ficha de origen | `.ver` de la entidad (p. ej. `proyectos.ver`) | Lo aplica el módulo dueño | El enlace solo se muestra con permiso; el backend del dueño vuelve a validar |
+
+- `@RequirePermission` en cada endpoint; los `/export` llevan ambos permisos.
+- **Deny-by-default:** sin `VisibilityScope` resuelto no se ejecuta consulta.
+- **El alcance se aplica en el repositorio**, como predicado SQL, nunca filtrando
+  en memoria después de traer filas (rendimiento y para que los conteos sean correctos).
+- `OWN`/`TEAM`/`COUNTRY`/`ORGANIZATION` por entidad según 00 §4.2, incluidas las
+  herencias (DM-13): p. ej., una oportunidad de un proyecto visible es visible aunque
+  su `owner_id` sea otro; una visita con proyecto visible es visible.
+- Ocultar botones es experiencia de usuario; la autoridad es el backend (§9.2 "no
+  limitar la seguridad a ocultar botones").
+
+### H.2 Datos y exportación
+
+- Las exportaciones extraen datos en bloque: permiso propio, auditoría de cada una
+  (RN-05.43), tope y limitación de frecuencia (F.4).
+- Los reportes no contienen PII de contactos; contienen nombres de usuarios internos
+  (asesores) y datos de empresa. El log estructurado de la exportación registra
+  reporte, filtros (ids), filas y duración, **nunca** el contenido.
+- Inyección: filtros validados por DTO; `sortBy` por lista blanca; SQL agregado con
+  `$queryRaw` de plantilla (parámetros enlazados); celdas de Excel nunca como fórmula (RN-05.49).
+- Búsqueda libre limitada a 100 caracteres y escapada para `ILIKE` (`%`, `_`).
+- Dependencias nuevas (D-05.1, D-05.2) pasan por ADR, revisión de licencia y
+  `pnpm audit` en el pipeline.
+
+### H.3 Menú
+
+Siete opciones del módulo `reportes` (00 §5.3), todas con `requiredPermission =
+reportes.ver`, sembradas **con el módulo** (DM-32) y registradas en
+`app-routes.registry.json` y en el router. El menú sigue saliendo de `GET /me/menu`
+(ADR-018). Asignar `reportes.ver/exportar` a roles es exclusivo del administrador (ADR-020).
+
+---
+
+## I. Criterios de aceptación
+
+| ID | F | Criterio (Given / When / Then) |
+|---|---|---|
+| AC-05.1 | F-34 | Dado un usuario con `reportes.ver`, cuando abre `/reportes/proyectos`, entonces ve paginados los proyectos visibles con las 12 columnas de §7.1 y el orden por defecto `lastActivityAt desc` |
+| AC-05.2 | F-34 | Dado un proyecto con oportunidades en Contactado y Cotizando, cuando se lista, entonces su estado comercial es la etapa abierta de mayor orden (Cotizando) y el proyecto aparece **una** vez |
+| AC-05.3 | F-34 | Dado un filtro combinado (país + fase + asesor + situación ACTIVE), cuando se aplica, entonces solo aparecen proyectos que cumplen todos y no eliminados; con fase final excluidos de ACTIVE |
+| AC-05.4 | F-34 | Dado un usuario con `proyectos.ver`, cuando pulsa el código, entonces navega a `/proyectos/:id`; sin ese permiso el código es texto |
+| AC-05.5 | F-35 | Dado un conjunto de oportunidades, cuando se consulta el resumen, entonces `open + won + lost + closedWithoutResult = total` y `partial ≤ won` |
+| AC-05.6 | F-35 | Dada una oportunidad parcial (60 %), cuando se consulta, entonces cuenta en ganadas y en parciales, y la fila muestra "Parcial 60 %" |
+| AC-05.7 | F-35 | Dada una oportunidad con 3 productos asociados, cuando se filtra por una familia de dos de ellos, entonces la oportunidad aparece una vez y cuenta una vez |
+| AC-05.8 | F-35 | Dado `dateBasis=DECIDED` y un período, cuando se consulta, entonces solo entran oportunidades con fecha de decisión en el período, y lo indica la pantalla |
+| AC-05.9 | F-35 | Dada una oportunidad sin resultado, cuando se lista, entonces la fecha de decisión es la estimada del proyecto marcada "estimada" |
+| AC-05.10 | F-35 | Cuando se consulta el resumen, entonces la distribución por etapa incluye todas las etapas activas en orden (también con 0) y la distribución por asesor suma el total |
+| AC-05.11 | F-35 | Dadas estimaciones en USD y GTQ, cuando se consulta el resumen, entonces hay un total por moneda y ninguno mezclado |
+| AC-05.12 | F-36 | Dado el reporte de forecast sin filtros, cuando se abre, entonces muestra M+1…M+6 en la zona de negocio, totales mensuales y acumulados en toneladas y la última actualización |
+| AC-05.13 | F-36 | Dadas líneas en KG con regla y en VAR sin regla, cuando se totaliza, entonces el total en toneladas solo incluye las convertidas, las cantidades se muestran por unidad y se informa el número de líneas sin conversión |
+| AC-05.14 | F-36 | Cuando se consolida por cada uno de Mes, Producto, Familia, Proyecto, Cliente y Asesor, entonces la suma de los grupos coincide con el total del resumen |
+| AC-05.15 | F-36 | Dada una línea con cantidad 0, cuando se consulta, entonces no aparece ni cuenta |
+| AC-05.16 | F-36 | Dado un rango de meses pasados, cuando se consulta, entonces aparecen las líneas históricas (la ventana móvil no borra historia) |
+| AC-05.17 | F-37 | Dadas visitas en los cinco estados, cuando se consulta el resumen, entonces programadas + realizadas + confirmadas + canceladas = total, y REPROGRAMADA cuenta como programada |
+| AC-05.18 | F-37 | Dada una visita reprogramada dos veces, cuando se consulta, entonces aparece una vez, con su fecha planificada vigente, en el período de esa fecha y con "reprogramada 2 veces" |
+| AC-05.19 | F-37 | Cuando se filtra por país, entonces se usa el país del cliente de la visita |
+| AC-05.20 | F-38 | Dadas actividades abiertas con vencimiento pasado y futuro, completadas y canceladas, cuando se consulta el resumen, entonces vencidas y pendientes son disjuntas y la suma de las cuatro categorías es el total |
+| AC-05.21 | F-38 | Dada una actividad eliminada lógicamente, cuando se consulta, entonces no aparece ni cuenta |
+| AC-05.22 | F-38 | Cuando se filtra por período, asesor, estado, cliente y tipo a la vez, entonces la lista y los conteos usan el mismo conjunto |
+| AC-05.23 | F-39 | Dado un usuario con `reportes.exportar`, cuando exporta cualquiera de los cinco reportes con filtros, entonces recibe un `.xlsx` válido con las mismas filas (número, orden y contenido) que la pantalla sin paginar |
+| AC-05.24 | F-39 | Cuando abre el archivo, entonces las fechas son fechas de Excel, las cantidades y toneladas son números con formato, cada cantidad tiene su unidad al lado, hay encabezados y hojas "Resumen" y "Filtros" |
+| AC-05.25 | F-39 | Dado un usuario OWN, cuando exporta, entonces el archivo contiene solo sus registros (y heredados visibles) |
+| AC-05.26 | F-39 | Dado un conjunto mayor que el tope, cuando exporta, entonces recibe `422 EXPORT_TOO_LARGE` con el conteo, sin archivo parcial |
+| AC-05.27 | F-39 | Cuando exporta con éxito, entonces existe un `audit_logs` `crm.report.exported` con reporte, filtros, alcance y filas |
+| AC-05.28 | F-39 | Dado un usuario con `reportes.ver` sin `reportes.exportar`, cuando llama a `/export`, entonces `403` y no ve el botón |
+| AC-05.29 | F-39 | Dado un texto que empieza por `=`, cuando se exporta, entonces la celda es texto y no fórmula |
+| AC-05.30 | F-40 | Cuando abre `/reportes/dashboard`, entonces ve los siete paneles de E.7 con los filtros período/país/asesor, sin alertas ni accesos rápidos del Inicio |
+| AC-05.31 | F-40 | Dado un filtro de asesor, cuando se aplica, entonces todos los paneles se recalculan con ese asesor y dentro del alcance |
+| AC-05.32 | F-40 | Cuando un panel falla, entonces solo ese panel muestra error y "Reintentar" |
+| AC-05.33 | F-40 | Cada gráfica tiene "Ver como tabla" con los mismos valores y leyenda con texto |
+| AC-05.34 | F-40 | El panel de proyectos activos no muestra tendencia y lo indica |
+| AC-05.35 | F-41 | Cuando abre el embudo, entonces ve las etapas `inFunnel` en orden con su cantidad |
+| AC-05.36 | F-41 | Dado un conjunto vacío, entonces los porcentajes son "—" con motivo "Sin datos", nunca 0 % |
+| AC-05.37 | F-41 | Dada una oportunidad sin historial de etapas en el conjunto, entonces la conversión acumulada es `null` con motivo `INSUFFICIENT_HISTORY` y la participación sí se calcula |
+| AC-05.38 | F-41 | Cuando filtra por una etapa, entonces se muestra solo esa barra con el porcentaje del embudo completo |
+| AC-05.39 | F-41 | Cuando filtra por tipo de cliente, entonces se usa `crm.tipo_empresa` del cliente del proyecto |
+| AC-05.40 | Todas | Dado un usuario sin `reportes.ver`, cuando llama a cualquier endpoint, entonces `403`; sin token, `401` |
+| AC-05.41 | Todas | Dados usuarios OWN, TEAM, COUNTRY y ORGANIZATION, cuando consultan el mismo reporte, entonces cada uno ve y cuenta solo lo de su alcance, y la suma de los OWN de un equipo coincide con el TEAM de su manager (sin herencias cruzadas) |
+| AC-05.42 | Todas | Dados los mismos filtros, las cifras de Inicio (proyectos activos, abiertas, ganadas, perdidas, forecast M+6, visitas pendientes/próximas, actividades pendientes/vencidas) coinciden con las del reporte correspondiente |
+| AC-05.43 | Todas | Ninguna operación del módulo modifica filas de tablas comerciales (verificado comparando conteos y `updated_at` antes/después) |
+
+---
+
+## J. Pruebas funcionales
+
+Unitarias (Jest/Vitest), integración contra base efímera (`backend/test/support/integration-database.ts`),
+E2E Nest (`backend/test/*.e2e.spec.ts`) y E2E de navegador (Playwright).
+Datos: semilla de demostración + *fixtures* por prueba.
+
+| ID | Tipo | Caso | Resultado esperado | AC |
+|---|---|---|---|---|
+| PF-05.1 | Unit | `metric-definitions`: categorizar etapas abiertas/cerradas y resultados, incluida etapa nueva `NEGOCIANDO` (`isClosed=false`) añadida al catálogo | Categoría correcta sin cambiar código | AC-05.5 |
+| PF-05.2 | Unit | Invariante de conteos con combinaciones de WON/PARTIAL/LOST/sin resultado | Se cumple RN-05.27 | AC-05.5 |
+| PF-05.3 | Unit | `business-period`: límites de mes y M+1…M+6 en `America/Guatemala` el último día del mes a las 23:30 local | Ventana del mes local, no UTC | AC-05.12 |
+| PF-05.4 | Unit | Estado comercial (RN-05.17) en los 4 casos | Valor correcto en cada caso | AC-05.2 |
+| PF-05.5 | Unit | Embudo: participación, conversión acumulada, `NO_DATA`, `INSUFFICIENT_HISTORY`, `INSUFFICIENT_SAMPLE` | Valores y motivos correctos; nunca `0 %` sin denominador | AC-05.36, AC-05.37 |
+| PF-05.6 | Unit | Escritor XLSX: tipos de celda, formatos, texto `=1+1`, número de 16 dígitos | Fecha tipada, número con `numFmt`, `=1+1` como texto, número largo como texto | AC-05.24, AC-05.29 |
+| PF-05.7 | Integración | Proyecto con 2 oportunidades y 4 productos: reporte de proyectos | Una fila por proyecto | AC-05.2 |
+| PF-05.8 | Integración | **No duplicar al unir productos:** oportunidad con 3 productos, filtro por familia | Lista y conteo = 1 | AC-05.7 |
+| PF-05.9 | Integración | Oportunidad PARTIAL 60 % | Cuenta en `won` y `partial`, no en `lost` | AC-05.6 |
+| PF-05.10 | Integración | Cada `dateBasis` de oportunidades con fechas en el borde del período | Inclusividad de `from` y `to` correcta | AC-05.8 |
+| PF-05.11 | Integración | Distribuciones por etapa y asesor | Suman el total; etapas con 0 presentes | AC-05.10 |
+| PF-05.12 | Integración | Totales por moneda USD/GTQ | Dos totales, sin mezcla | AC-05.11 |
+| PF-05.13 | Integración | Forecast con KG (regla), TON (identidad) y VAR (sin regla) | Toneladas = KG×factor + TON; VAR en "sin conversión"; cantidades por unidad | AC-05.13 |
+| PF-05.14 | Integración | Consolidaciones (6 `groupBy` + `thenBy`) | Suma de grupos = total del resumen; acumulado correcto | AC-05.14 |
+| PF-05.15 | Integración | Línea con cantidad 0 y líneas de meses pasados | 0 excluida; pasadas visibles con rango pasado | AC-05.15, AC-05.16 |
+| PF-05.16 | Integración | **Visita reprogramada contada una vez:** 2 eventos `RESCHEDULED`, original en el mes anterior | Una fila, en el mes de la fecha vigente; `rescheduledVisits=1`, `rescheduleEvents=2` | AC-05.18 |
+| PF-05.17 | Integración | Visitas en los 5 estados | Suma de categorías = total; REPROGRAMADA en programadas | AC-05.17 |
+| PF-05.18 | Integración | Filtro por país en visitas y actividades | Usa `customers.country_id` | AC-05.19 |
+| PF-05.19 | Integración | Actividades: vencida (ayer), pendiente (mañana), sin vencimiento, completada, cancelada, eliminada | Categorías disjuntas; eliminada fuera | AC-05.20, AC-05.21 |
+| PF-05.20 | E2E Nest | Cada endpoint: `401` sin token, `403` sin `reportes.ver`, `200` con permiso | Según contrato | AC-05.40 |
+| PF-05.21 | E2E Nest | `/export` con `reportes.ver` sin `reportes.exportar` | `403` | AC-05.28 |
+| PF-05.22 | E2E Nest | **Visibilidad:** asesor A (OWN), asesor B (OWN, mismo equipo), manager (TEAM), responsable de país (COUNTRY de GT), administrador, sobre lista, resumen, dashboard, embudo y exportación | Cada uno solo su alcance; A + B = manager en proyectos propios; COUNTRY no ve SV; herencia DM-13 respetada | AC-05.25, AC-05.41 |
+| PF-05.23 | E2E Nest | Filtro por asesor fuera del alcance | `200` con conjunto vacío | AC-05.41 |
+| PF-05.24 | E2E Nest | Exportación de los cinco reportes: abrir el `.xlsx` con la propia librería en la prueba | Filas = conteo de la pantalla, mismo orden, formatos y hojas Resumen/Filtros | AC-05.23, AC-05.24 |
+| PF-05.25 | E2E Nest | Exportación con tope bajado por parámetro (p. ej. 5) y 6 filas | `422 EXPORT_TOO_LARGE`, `details.rows=6`; sin auditoría de éxito | AC-05.26 |
+| PF-05.26 | E2E Nest | Exportación correcta | `audit_logs` con `crm.report.exported`, filtros, alcance, filas | AC-05.27 |
+| PF-05.27 | E2E Nest | Validación: `from > to`, rango > máximo, `sortBy` no permitido, `pageSize=101`, `format=csv`, `page` en `/export` | `400` o `422 PERIOD_TOO_LONG` según F.5 | — |
+| PF-05.28 | E2E Nest | Sexta exportación en un minuto | `429` | — |
+| PF-05.29 | E2E Nest | Solo lectura: snapshot de conteos y `max(updated_at)` de tablas comerciales antes y después de llamar a todos los endpoints | Sin cambios (salvo `audit_logs`) | AC-05.43 |
+| PF-05.30 | Integración | **Consistencia Inicio vs Reportes:** para cada usuario de PF-05.22, comparar cada tarjeta de Inicio con el reporte equivalente (mismos filtros y período de D-05.7) | Valores idénticos | AC-05.42 |
+| PF-05.31 | Integración | Cambiar el catálogo (desactivar una etapa, añadir una `inFunnel`) | Reportes e Inicio cambian a la vez | AC-05.42 |
+| PF-05.32 | Integración | Catálogo de etapas con `inFunnel` sin `order` | `422 INVALID_CATALOG_SEMANTICS` | — |
+| PF-05.33 | Integración | Proyecto eliminado lógicamente con oportunidad cerrada, forecast y actividad | Nada de ese proyecto aparece ni cuenta | AC-05.21 |
+| PF-05.34 | Front (RTL) | Barra de filtros: estado en URL, recarga conserva filtros, "Limpiar" | Filtros persistidos y limpiados | AC-05.22 |
+| PF-05.35 | Front (RTL) | Botón Exportar oculto sin permiso; mensaje de `EXPORT_TOO_LARGE` | Oculto; mensaje en español con N y M | AC-05.26, AC-05.28 |
+| PF-05.36 | Front (RTL) | Cuatro estados (cargando, vacío, error con reintento, sin permiso) en las siete pantallas | Presentes | AC-05.32 |
+| PF-05.37 | Front (RTL) | Enlaces al origen según permiso y ruta existente | Enlace o texto según corresponda | AC-05.4 |
+| PF-05.38 | Front (RTL) | Gráficas: "Ver como tabla" con los mismos valores; porcentaje `null` → "—" con motivo | Coincidencia exacta | AC-05.33, AC-05.36 |
+| PF-05.39 | Playwright | Manager filtra el reporte de oportunidades, abre el embudo desde el dashboard y exporta | Navegación con filtros aplicados; descarga `.xlsx` | AC-05.23, AC-05.30, AC-05.35 |
+| PF-05.40 | Playwright | Asesor: menú muestra Reportes sin botón Exportar; móvil 400 px sin scroll horizontal | Correcto | AC-05.28 |
+| PF-05.41 | Rendimiento (integración) | Semilla ampliada (50 000 oportunidades, 200 000 líneas de forecast): reporte y exportación de 100 000 filas | Pantallas < 2 s p95; exportación < 60 s con memoria acotada (streaming) | AC-05.23 |
+
+---
+
+## K. Dependencias y orden
+
+### K.1 Necesita para funcionar
+
+1. **Fase 0** (00): esquema CRM migrado, catálogos con semántica y registro de
+   invariantes (00 §3.3), parámetros, permisos `reportes.ver/exportar`,
+   `VisibilityScopeResolver`, `DataScope.COUNTRY` (DM-10).
+2. **Decisiones:** DM-15, DM-16 (fórmulas), DM-13 (herencias), DM-12 (alcance TEAM),
+   DM-25 (visibilidad del forecast), D-05.4 a D-05.7 (compartidas con Inicio).
+3. **ADR** de la librería XLSX (D-05.1) antes de F-39 y de la librería de gráficas
+   (D-05.2) antes de las visualizaciones de F-35, F-40 y F-41.
+4. Datos de los módulos 2, 3 y 4 (por el orden §11 ya implementados) y el servicio
+   de métricas compartido de Inicio (G.3).
+
+### K.2 Orden interno propuesto
+
+1. `crm-metrics` (si Inicio no lo dejó creado) + `business-period` + pruebas de definiciones.
+2. `ReportingRepository` + reportes de oportunidades y proyectos (F-35, F-34).
+3. Forecast (F-36), visitas (F-37), actividades (F-38).
+4. Opciones de filtro y pantallas de tablas.
+5. Exportación XLSX (F-39) tras el ADR.
+6. Dashboard (F-40) y embudo (F-41) tras el ADR de gráficas.
+7. Menú/rutas, E2E, OpenAPI, documentación.
+
+### K.3 Dependencias futuras
+
+- Integraciones (6): los clientes importados aparecen sin cambios.
+- Administración (7): cambios de catálogos/parámetros se reflejan sin despliegue;
+  si se crea la pantalla de metas (DM-9), el dashboard podría añadir cumplimiento
+  (fuera del §7.7 actual).
+- Exportación asíncrona para conjuntos mayores que el tope (D-05.14).
+
+---
+
+## L. Archivos de código a implementar
+
+### L.1 Backend
+
+| Archivo | Acción |
+|---|---|
+| `backend/src/modules/crm-metrics/crm-metrics.module.ts` | Crear (o reutilizar el de Inicio, G.3) |
+| `backend/src/modules/crm-metrics/metric-definitions.ts` + `.spec.ts` | Crear |
+| `backend/src/modules/crm-metrics/commercial-metrics.service.ts` + `.spec.ts` | Crear |
+| `backend/src/modules/crm-metrics/business-period.ts` + `.spec.ts` | Crear |
+| `backend/src/modules/crm-metrics/ports/commercial-metrics.read-model.port.ts` | Crear |
+| `backend/src/modules/reports/reports.module.ts` | Crear; registrar en `backend/src/app.module.ts` |
+| `backend/src/modules/reports/ports/reporting.repository.port.ts` | Crear (`ReportingRepository`, 00 §11) |
+| `backend/src/modules/reports/project-report.controller.ts` / `.service.ts` (+ `.spec.ts`) | Crear |
+| `backend/src/modules/reports/opportunity-report.controller.ts` / `.service.ts` (+ `.spec.ts`) | Crear |
+| `backend/src/modules/reports/forecast-report.controller.ts` / `.service.ts` (+ `.spec.ts`) | Crear |
+| `backend/src/modules/reports/visit-report.controller.ts` / `.service.ts` (+ `.spec.ts`) | Crear |
+| `backend/src/modules/reports/activity-report.controller.ts` / `.service.ts` (+ `.spec.ts`) | Crear |
+| `backend/src/modules/reports/dashboard.controller.ts` / `dashboard.service.ts` (+ `.spec.ts`) | Crear |
+| `backend/src/modules/reports/funnel.controller.ts` / `funnel.service.ts` (+ `.spec.ts`) | Crear |
+| `backend/src/modules/reports/filter-options.controller.ts` / `.service.ts` | Crear |
+| `backend/src/modules/reports/report-export.service.ts` (+ `.spec.ts`) | Crear: conteo, tope, transacción de lectura, auditoría |
+| `backend/src/modules/reports/report-columns.ts` | Crear: columnas de cada reporte (encabezado, tipo, formato), compartidas por pantalla y exportación |
+| `backend/src/modules/reports/dto/*.dto.ts` | Crear (F.2, F.3) |
+| `backend/src/common/xlsx.ts` + `xlsx.spec.ts` | Crear: envoltorio sobre la librería de D-05.1 (tipos de celda, formatos, sin fórmulas), análogo a `common/csv.ts`; ninguna otra pieza importa la librería directamente |
+| `backend/src/infrastructure/database/prisma/repositories/prisma-reporting.repository.ts` | Crear |
+| `backend/src/infrastructure/database/prisma/repositories/prisma-commercial-metrics.read-model.ts` | Crear (o reutilizar) |
+| `backend/src/modules/access/app-routes.registry.json` | Modificar: 7 rutas `/reportes/*` |
+| `backend/prisma/seed/access-catalog.ts` | Modificar: módulo `reportes` y sus 7 opciones (DM-32); permisos ya sembrados en Fase 0 |
+| `backend/prisma/seed/crm-parameters.ts` | Modificar: `crm.reportes.max_filas_exportacion` (y D-05.6 si aplica) |
+| `backend/package.json` | Modificar: dependencia de D-05.1, tras su ADR |
+
+### L.2 Frontend
+
+| Archivo | Acción |
+|---|---|
+| `frontend/src/features/reports/README.md` | Crear: convenciones del área (como `features/admin/README.md`) |
+| `frontend/src/features/reports/reports-routes.ts` | Crear: rutas + `reportes.ver` + páginas lazy |
+| `frontend/src/features/reports/reports.permissions.ts` | Crear: `reportes.ver`, `reportes.exportar` |
+| `frontend/src/features/reports/common/ReportFilterBar.tsx`, `PeriodPicker.tsx`, `SummaryCards.tsx`, `ExportButton.tsx`, `ChartPanel.tsx` (con "Ver como tabla"), `report-format.ts`, `use-report-query-state.ts` (+ `.spec.tsx`) | Crear |
+| `frontend/src/features/reports/filter-options.api.ts` / `.queries.ts` | Crear |
+| `frontend/src/features/reports/projects/ProjectsReportPage.tsx`, `projects-report.api.ts`, `.queries.ts` (+ spec) | Crear |
+| `frontend/src/features/reports/opportunities/OpportunitiesReportPage.tsx`, `…api.ts`, `…queries.ts` (+ spec) | Crear |
+| `frontend/src/features/reports/forecast/ForecastReportPage.tsx`, `ForecastConsolidatedTable.tsx`, `…api.ts`, `…queries.ts` (+ spec) | Crear |
+| `frontend/src/features/reports/visits/VisitsReportPage.tsx`, `…api.ts`, `…queries.ts` (+ spec) | Crear |
+| `frontend/src/features/reports/activities/ActivitiesReportPage.tsx`, `…api.ts`, `…queries.ts` (+ spec) | Crear |
+| `frontend/src/features/reports/dashboard/CommercialDashboardPage.tsx`, paneles, `…api.ts`, `…queries.ts` (+ spec) | Crear |
+| `frontend/src/features/reports/funnel/SalesFunnelPage.tsx`, `FunnelChart.tsx`, `…api.ts`, `…queries.ts` (+ spec) | Crear |
+| `frontend/src/routes/route-paths.ts` | Modificar: `ROUTE_PATHS.reports.*` |
+| `frontend/src/routes/app-routes.tsx` | Modificar: incorporar `reports-routes` |
+| `frontend/src/components/layout/MaterialSymbol.tsx` | Modificar si falta `bar_chart` |
+| `DataTable`, `use-table-query-state`, `EmptyState`, `ListToolbar`, `save-file` | **Reutilizar.** Hoy viven en `features/admin/common`; si al llegar aquí los módulos 2–4 ya los promovieron a una ubicación compartida (p. ej. `frontend/src/components/data/`), se importan de ahí; si no, se promueven en un cambio previo sin alterar su comportamiento. No se duplican |
+| `frontend/package.json` | Modificar: dependencia de D-05.2, tras su ADR |
+
+### L.3 Pruebas
+
+| Archivo | Contenido |
+|---|---|
+| `backend/test/reports-projects.e2e.spec.ts` | PF-05.7, PF-05.20, PF-05.33 |
+| `backend/test/reports-opportunities.e2e.spec.ts` | PF-05.8 a PF-05.12 |
+| `backend/test/reports-forecast.e2e.spec.ts` | PF-05.13 a PF-05.15 |
+| `backend/test/reports-visits-activities.e2e.spec.ts` | PF-05.16 a PF-05.19 |
+| `backend/test/reports-visibility.e2e.spec.ts` | PF-05.22, PF-05.23 |
+| `backend/test/reports-export.e2e.spec.ts` | PF-05.21, PF-05.24 a PF-05.28 |
+| `backend/test/reports-read-only.e2e.spec.ts` | PF-05.29 |
+| `backend/test/crm-metrics-consistency.e2e.spec.ts` | PF-05.30, PF-05.31 (compartida con Inicio) |
+| `backend/test/support/` | *Fixtures* de reportes (usuarios por alcance, oportunidades con productos, visitas reprogramadas) |
+| `frontend/tests/e2e/reports.e2e.spec.ts` | PF-05.39, PF-05.40 |
+
+### L.4 Documentación
+
+| Archivo | Acción |
+|---|---|
+| `docs/adr/ADR-0NN-generacion-xlsx.md` | Crear (D-05.1) |
+| `docs/adr/ADR-0NN-libreria-de-graficas.md` | Crear (D-05.2) |
+| `docs/design/DESIGN-SYSTEM.md` | Añadir sección de gráficas (series, leyendas, tabla equivalente, movimiento reducido) |
+| `docs/api/README.md` | Añadir los endpoints de reportes |
+| `docs/implementation-plans/crm/00-modelo-de-datos.md` | Añadir el parámetro de D.5 (lo hace el responsable de 00) |
+| `CHANGELOG.md` | Entrada del módulo |
+
+---
+
+## Decisiones pendientes del módulo
+
+### Reutilizadas de 00
+
+| # | Efecto en Reportes |
+|---|---|
+| DM-1 | Estimación = monto + moneda y toneladas; totales por moneda (RN-05.13) |
+| DM-10 | Alcance `COUNTRY` en todas las consultas |
+| DM-11 | Asesor sin `reportes.exportar` |
+| DM-12 / DM-13 | Resolución de TEAM y herencias de visibilidad en cada consulta |
+| DM-15 | Ganadas = WON + PARTIAL, con parciales desglosados (RN-05.22, RN-05.23) |
+| DM-16 | Proyecto activo, estado comercial, última actualización (RN-05.15 a RN-05.18) |
+| DM-20 | Categorías de visita sobre los cinco estados (RN-05.38) |
+| DM-24 | Líneas sin regla = "sin conversión", fuera del total de toneladas |
+| DM-25 | Visibilidad del forecast sigue al proyecto (RN-05.33) |
+| DM-32 | Menú de Reportes sembrado con el módulo |
+| DM-35 | Base `IDENTIFIED` = `opportunity_date` |
+
+### Nuevas
+
+| # | Pregunta | Recomendación por defecto | Impacto si cambia |
+|---|---|---|---|
+| **D-05.1** | Librería para generar `.xlsx` real (no existe ninguna; requiere **ADR**, CLAUDE.md §8.6) | **`exceljs`** (MIT) en el backend, detrás de `common/xlsx.ts`, usando su escritor en *streaming* (`stream.xlsx.WorkbookWriter`). Comparación: **exceljs** — MIT, publicada en npm, formatos numéricos y de fecha, negrita, panel congelado, autofiltro, *streaming* real a la respuesta; contra: mantenimiento lento (pocas versiones recientes) y más dependencias transitivas, aceptable en backend (no afecta al *bundle*). **SheetJS (xlsx)** — la versión del registro npm (0.18.x) está abandonada y con vulnerabilidades conocidas (contaminación de prototipo, ReDoS); las versiones corregidas se distribuyen solo desde el CDN propio (riesgo de cadena de suministro y fuera de `pnpm audit`); la edición comunitaria (Apache-2.0) no aplica estilos de celda (son de la edición Pro) y la escritura es en memoria. **write-excel-file** — MIT y ligera, pero sin *streaming*. **Escritor OOXML propio** + zip — sin dependencia pesada, pero código de formato que mantener. Versión exacta y revisión de licencia en el ADR | Con SheetJS: perder estilos y *streaming* (tope menor, D-05.3) y gestionar la dependencia fuera de npm. Sin librería: F-39 no se entrega (`bloqueada`) |
+| **D-05.2** | Librería de gráficas (no existe ninguna; requiere **ADR**) | **`@mui/x-charts` (edición Community, MIT)**, versión compatible con `@mui/material` v6 y React 18 a fijar en el ADR. Toma el tema MUI (colores de `chartSeries`, tipografía, modo oscuro) sin capa de traducción (ADR-009/ADR-017), es tree-shakeable y se carga solo en las rutas de reportes (lazy). **El embudo no usa el `FunnelChart` de la edición Pro** (licencia comercial): se dibuja como barras horizontales (`BarChart` en `layout="horizontal"`) o con `Box` del tema + tabla equivalente. Comparación: **Recharts** — MIT, maduro, trae embudo y mejoró la accesibilidad (capa de teclado), pero estilo propio que hay que mapear a tokens a mano y *bundle* similar o mayor; **Chart.js / react-chartjs-2** — *canvas*, accesibilidad más pobre (sin DOM por serie) y sin integración con el tema; **Nivo / ECharts** — muy completos pero pesados. En todos los casos cada gráfica lleva "Ver como tabla" (accesibilidad garantizada por la tabla, no por la librería) | Con Recharts: añadir un adaptador de tema y usar su embudo. Sin librería: dashboard y embudo solo en tablas (F-40/F-41 `bloqueada` en su parte visual) |
+| **D-05.3** | Tope de exportación XLSX frente a "el conjunto completo" (§7.6) y frente al tope de la casa (10 000 filas, PLAN-ADMIN D13) | Parámetro nuevo `crm.reportes.max_filas_exportacion` = **100 000**; por encima, `422 EXPORT_TOO_LARGE` y **nunca** archivo truncado; *streaming* + transacción `REPEATABLE READ READ ONLY` + lotes *keyset*. El tope de 10 000 de la casa se mantiene para usuarios y auditoría (datos personales en bloque); aquí no hay PII de contactos y el alcance exige completitud | Tope menor: más `422`. Si se exige exportar cualquier tamaño: exportación asíncrona (D-05.14). Añadir el parámetro a 00 §8.2 |
+| **D-05.4** | Columna por la que filtra el período cada reporte y período por defecto | Tabla C.2 (oportunidades por `opportunity_date`; visitas por `scheduled_start_at` vigente; actividades por `COALESCE(scheduled_at, due_at)`; forecast por año/mes M+1…M+6; proyectos sin período por defecto), seleccionable con `dateBasis` | Cambian los resultados por defecto, no el contrato |
+| **D-05.5** | ¿"Pendientes" incluye las vencidas? (compartida con Inicio §3.2 y Actividad §6.2) | **Disjuntas:** pendientes = abiertas no vencidas; vencidas aparte; abiertas = suma | Si son inclusivas, cambia `metric-definitions.ts` y a la vez Inicio y Reportes |
+| **D-05.6** | Horizonte de "visitas próximas" (compartida con Inicio) | 7 días; parámetro `crm.metricas.dias_visitas_proximas` salvo que 01 ya defina uno equivalente (prevalece el de 01) | Solo parámetro |
+| **D-05.7** | Período de "ganadas" y "perdidas" en la tarjeta de Inicio, para que el reporte lo reproduzca | Año en curso por `decision_date` (`dateBasis = DECIDED`), en la zona de negocio. Lo confirma 01; el reporte acepta cualquier período | Cambia el valor por defecto de la tarjeta; PF-05.30 sigue garantizando la igualdad |
+| **D-05.8** | "Tipo de cliente" del embudo (§7.8): ¿tipo de empresa o estado del cliente (prospecto/activo)? | `crm.tipo_empresa` | Cambiar a `crm.estado_cliente` es cambiar una columna del filtro |
+| **D-05.9** | Cómo calcular los porcentajes del embudo "cuando exista información suficiente" | Participación siempre que el total > 0; conversión acumulada por historial (RN-05.55) solo con historial completo y denominador ≥ `MIN_FUNNEL_SAMPLE` = 5 (constante; parámetro si el negocio lo pide) | Otra fórmula de conversión cambia solo `funnel()` |
+| **D-05.10** | ¿Filtro por producto/familia en el reporte de oportunidades? (el alcance pide "evitar duplicar al consultar sus productos asociados" sin listar el filtro) | Incluido, implementado con `EXISTS` | Si se descarta, se quita el filtro; la regla anti-duplicación sigue aplicando a cualquier consulta futura |
+| **D-05.11** | ¿Basta `reportes.ver` o se exige también el `.ver` de cada entidad de origen? | Basta `reportes.ver` (00 §5.2); la navegación a la ficha sí exige el permiso de origen | Exigir permisos de origen: un reporte devolvería `403` aunque el menú lo muestre; habría que ajustar el menú |
+| **D-05.12** | ¿Cuentan oportunidades, forecast, visitas o actividades de un proyecto eliminado lógicamente? | No (RN-05.5), igual en Inicio | Si cuentan, cambia el universo en `metric-definitions.ts` |
+| **D-05.13** | ¿Tendencia de "proyectos activos"? (no hay instantáneas históricas) | Sin tendencia; valor actual y distribución por fase. Reconstruirla desde `project_phase_history` es posible pero costoso y aproximado (eliminaciones no fechadas) | Si se exige: reconstrucción desde el historial de fases o tabla de instantáneas mensuales (cambio en 00, ADR si implica planificador) |
+| **D-05.14** | ¿Exportaciones mayores que el tope? | Fuera de v1: `422` y acotar filtros | Exportación asíncrona (`202` + descarga posterior) necesita almacenamiento de archivos (DM-8) y planificador: ADR |
+| **D-05.15** | ¿Vista SQL para el estado comercial del proyecto, compartida con Proyectos §5.4? | No en v1: subconsulta en el adaptador de métricas compartido | Si se crea, se define en 00 (migración aditiva) |
+
+---
+
+## Filas para la matriz
+
+| ID | Módulo | Funcionalidad | Alcance | Especificación | Entidades | Dependencias | Criterios | Pruebas | Estado | Decisión pendiente |
+|---|---|---|---|---|---|---|---|---|---|---|
+| F-34 | 5 Reportes | Reporte de proyectos | §7.1 | [05](05-reportes.md) | projects, customers, countries, users, opportunities, opportunity_results, catalog_items | Fase 0; Proyectos; `crm-metrics` | AC-05.1–AC-05.4, AC-05.40–AC-05.43 | PF-05.4, PF-05.7, PF-05.20, PF-05.22, PF-05.33, PF-05.37 | especificada | DM-16, D-05.4, D-05.12, D-05.15 |
+| F-35 | 5 Reportes | Reporte de oportunidades | §7.2 | [05](05-reportes.md) | opportunities, opportunity_results, projects, customers, project_products, users, catalog_items | Fase 0; Proyectos; `crm-metrics` | AC-05.5–AC-05.11, AC-05.40–AC-05.43 | PF-05.1, PF-05.2, PF-05.8–PF-05.12, PF-05.22, PF-05.30 | especificada | DM-1, DM-15, DM-35, D-05.4, D-05.10 |
+| F-36 | 5 Reportes | Reporte de forecast | §7.3 | [05](05-reportes.md) | forecast_lines, projects, customers, products, product_families, units_of_measure, users | Fase 0; Proyectos (forecast); `crm-metrics` | AC-05.12–AC-05.16, AC-05.40–AC-05.43 | PF-05.3, PF-05.13–PF-05.15, PF-05.22 | especificada | DM-24, DM-25, D-05.4 |
+| F-37 | 5 Reportes | Reporte de visitas | §7.4 | [05](05-reportes.md) | visits, customers, projects, users, catalog_items | Fase 0; Actividad comercial; `crm-metrics` | AC-05.17–AC-05.19, AC-05.40–AC-05.43 | PF-05.16–PF-05.18, PF-05.22 | especificada | DM-20, D-05.4, D-05.6 |
+| F-38 | 5 Reportes | Reporte de actividades | §7.5 | [05](05-reportes.md) | activities, customers, projects, users, catalog_items | Fase 0; Actividad comercial; `crm-metrics` | AC-05.20–AC-05.22, AC-05.40–AC-05.43 | PF-05.19, PF-05.22, PF-05.30 | especificada | D-05.4, D-05.5 |
+| F-39 | 5 Reportes | Exportación a Excel | §7.6 | [05](05-reportes.md) | las de F-34…F-38; audit_logs (escritura); system_parameters | F-34…F-38; ADR de librería XLSX | AC-05.23–AC-05.29 | PF-05.6, PF-05.21, PF-05.24–PF-05.28, PF-05.35 | bloqueada | D-05.1 (ADR), D-05.3, D-05.14 |
+| F-40 | 5 Reportes | Dashboard comercial | §7.7 | [05](05-reportes.md) | projects, opportunities, opportunity_results, forecast_lines, visits, activities, catalog_items, users | `crm-metrics`; ADR de gráficas | AC-05.30–AC-05.34, AC-05.41, AC-05.42 | PF-05.22, PF-05.30, PF-05.36, PF-05.38, PF-05.39 | bloqueada | D-05.2 (ADR), D-05.13 |
+| F-41 | 5 Reportes | Embudo comercial | §7.8 | [05](05-reportes.md) | opportunities, opportunity_stage_history, projects, customers, catalog_items | `crm-metrics`; ADR de gráficas | AC-05.35–AC-05.39 | PF-05.5, PF-05.32, PF-05.38, PF-05.39 | bloqueada | D-05.2 (ADR), D-05.8, D-05.9 |
+
+> F-39, F-40 y F-41 quedan `bloqueada` solo en lo que depende de las dos librerías
+> nuevas (CLAUDE.md §8.6); su alcance se conserva entero y sus tablas equivalentes
+> pueden construirse antes.
