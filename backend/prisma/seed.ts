@@ -8,13 +8,15 @@
  *
  * Ejecutar:  pnpm --filter @app/backend run prisma:seed
  *
- * El usuario administrador inicial se crea SIN contraseña utilizable: la
- * plantilla no implementa login local (no hay endpoint ni hashing). Al
- * implementarlo, se establece la contraseña con Argon2id y
- * `mustChangePassword = true`. Con Entra ID, basta con que exista la cuenta y
- * su `UserIdentity`.
+ * Administrador inicial (PLAN-AUTH-LOCAL, D11): si `SEED_ADMIN_PASSWORD` tiene
+ * valor y el administrador aún no tiene credencial, se le asigna con Argon2id y
+ * `mustChangePassword = true`. Nunca sobrescribe una credencial existente:
+ * volver a sembrar no restablece la contraseña de nadie. Con Entra ID basta con
+ * que exista la cuenta.
  */
 import { PrismaClient, type Prisma } from '@prisma/client';
+
+import { PasswordService } from '../src/modules/auth/password.service';
 
 import {
   ACTION_LABELS,
@@ -26,12 +28,30 @@ import {
   type ActionKey,
 } from './seed/access-catalog';
 
+loadEnvFiles(['.env', '../.env']);
+
 const prisma = new PrismaClient();
+
+/**
+ * Carga los `.env` sin pisar lo que ya trae el entorno (CI, despliegue).
+ * `process.loadEnvFile` es nativo de Node 22: no añade dependencias.
+ */
+function loadEnvFiles(paths: string[]): void {
+  for (const path of paths) {
+    try {
+      process.loadEnvFile(path);
+    } catch {
+      // El archivo no existe: es normal en CI y en despliegue.
+    }
+  }
+}
 
 /** Correo del administrador inicial. Se puede fijar por entorno al desplegar. */
 const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL ?? 'admin@example.com';
 const ADMIN_FIRST_NAME = process.env.SEED_ADMIN_FIRST_NAME ?? 'Administrador';
 const ADMIN_LAST_NAME = process.env.SEED_ADMIN_LAST_NAME ?? 'del sistema';
+/** Contraseña inicial del administrador (D11). Exenta de la política D6/D7 por decisión del responsable. */
+const ADMIN_INITIAL_PASSWORD = process.env.SEED_ADMIN_PASSWORD || undefined;
 
 function log(message: string): void {
   process.stdout.write(`  ${message}\n`);
@@ -221,7 +241,31 @@ async function seedAdminUser(roleIds: Map<string, string>): Promise<void> {
     create: { userId: user.id, roleId: administradorRoleId },
   });
 
-  log(`usuario administrador: ${user.email} (estado ${user.status}, sin credencial)`);
+  const credential = await seedAdminCredential(user.id);
+  log(`usuario administrador: ${user.email} (estado ${user.status}, ${credential})`);
+}
+
+/** Devuelve una descripción del resultado para el log. Nunca incluye la contraseña. */
+async function seedAdminCredential(userId: string): Promise<string> {
+  const existing = await prisma.userCredential.findUnique({ where: { userId }, select: { id: true } });
+  if (existing) {
+    return 'credencial existente, sin cambios';
+  }
+  if (process.env.AUTH_PROVIDER === 'entra') {
+    return 'sin credencial local: AUTH_PROVIDER=entra';
+  }
+  if (!ADMIN_INITIAL_PASSWORD) {
+    return 'sin credencial: define SEED_ADMIN_PASSWORD para asignarle una';
+  }
+
+  await prisma.userCredential.create({
+    data: {
+      userId,
+      passwordHash: await new PasswordService().hash(ADMIN_INITIAL_PASSWORD),
+      mustChangePassword: true,
+    },
+  });
+  return 'credencial inicial asignada, cambio obligatorio en el primer acceso';
 }
 
 async function main(): Promise<void> {

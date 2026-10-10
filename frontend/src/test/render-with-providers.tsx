@@ -6,11 +6,17 @@ import { MemoryRouter } from 'react-router-dom';
 
 import { lightTheme } from '@/theme';
 
+interface RenderWithProvidersOptions extends Omit<RenderOptions, 'wrapper'> {
+  /** Historial inicial del enrutador en memoria (por defecto, `/`). */
+  initialEntries?: string[];
+}
+
 /**
  * Arnés de pruebas: renderiza con el tema real, un cliente de consultas nuevo
  * (para que no se filtre caché entre casos) y un enrutador en memoria.
  */
-export function renderWithProviders(ui: ReactElement, options?: Omit<RenderOptions, 'wrapper'>): RenderResult {
+export function renderWithProviders(ui: ReactElement, options: RenderWithProvidersOptions = {}): RenderResult {
+  const { initialEntries, ...renderOptions } = options;
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
@@ -19,11 +25,11 @@ export function renderWithProviders(ui: ReactElement, options?: Omit<RenderOptio
     return (
       <ThemeProvider theme={lightTheme}>
         <QueryClientProvider client={queryClient}>
-          <MemoryRouter>{children}</MemoryRouter>
+          <MemoryRouter initialEntries={initialEntries}>{children}</MemoryRouter>
         </QueryClientProvider>
       </ThemeProvider>
     );
   }
 
-  return render(ui, { wrapper: Wrapper, ...options });
+  return render(ui, { wrapper: Wrapper, ...renderOptions });
 }

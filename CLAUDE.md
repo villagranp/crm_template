@@ -98,6 +98,50 @@ Los Skills viven en `.claude/skills/<nombre>/SKILL.md` y contienen instrucciones
 
 **Regla de selección:** ante la duda, incluye el Skill. Un Skill de más cuesta lectura; uno de menos cuesta un defecto.
 
+### Skills de terceros: pulido de UI y movimiento
+
+Copiados sin modificar de [emilkowalski/skills](https://github.com/emilkowalski/skills)
+(MIT, ver `.claude/skills/THIRD_PARTY_NOTICES.md`). Complementan a `design-system`
+y `frontend-react`; no los sustituyen.
+
+| Skill | Se activa cuando… |
+|---|---|
+| `emil-design-eng` | Se pule un componente o se decide si algo debe animarse |
+| `animate` | Se construye una animación o transición |
+| `review-animations` | Se revisa el movimiento de un cambio (solo invocación explícita) |
+| `improve-animations` | Se audita el movimiento de toda la app (solo lectura) |
+| `find-animation-opportunities` | Se buscan sitios que ganarían con movimiento (solo lectura) |
+| `animation-vocabulary` | Hay que nombrar un efecto de movimiento |
+| `apple-design` | Gestos, hojas, arrastre, profundidad y movimiento físico |
+| `mobile-native` | La app debe sentirse nativa en el teléfono |
+| `break-ui` | Se prueba una pantalla con datos extremos |
+| `prototype` | Se comparan variantes de una pieza de UI (solo invocación explícita) |
+
+#### `ui-ux-pro-max` (nextlevelbuilder/ui-ux-pro-max-skill)
+
+Base de datos local de recomendaciones de UX (accesibilidad, formularios,
+navegación, gráficas, rendimiento de React) que se consulta con un script de
+Python sin dependencias ni acceso a red. Úsalo **solo como consulta**:
+
+```bash
+python .claude/skills/ui-ux-pro-max/scripts/search.py "<consulta>" --domain ux
+python .claude/skills/ui-ux-pro-max/scripts/search.py "<consulta>" --stack react
+```
+
+- La ruta es relativa a la raíz del repo: `${CLAUDE_PLUGIN_ROOT}` de su SKILL.md
+  no existe en un skill de proyecto.
+- **Prohibido** `--design-system` y `--persist`: generan paletas, tipografías y un
+  `design-system/MASTER.md` propios. El sistema de diseño es el de Grupo AG
+  (ADR-017) y no se sustituye ni se duplica.
+- Dominios útiles aquí: `ux`, `chart`, `icons`, `react`, `web`. Su catálogo no
+  tiene Material UI: usa `--stack react`.
+
+**Precedencia:** las reglas de este proyecto ganan siempre. Duraciones, curvas,
+colores y espaciados salen de `frontend/src/theme/tokens.ts` (§8.12, ADR-017): si un
+Skill de terceros propone un valor, se añade como token y no se escribe a mano.
+Ninguna librería que mencionen (Sonner, Vaul, Motion, Tailwind…) se instala sin
+ADR (§8.6).
+
 ---
 
 ## 5. Agentes: cuándo se invocan

@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="es" data-theme="light" data-bs-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mi Cliente AG</title>
+<meta name="description" content="Administración de catálogos, ventas, servicio, marketing y analítica de Mi Cliente AG.">
+<link rel="icon" type="image/webp" href="../assets/favico.webp">
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Sharp:opsz,wght,FILL,GRAD@24,400,0,0&display=swap">
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<!-- Página única de módulos: el contenido lo arma assets/js/crud.js a partir de ?e=<entidad> -->
+<body data-page="modulo">
+
+<!-- ============================ TOPBAR ============================ -->
+<header class="topbar">
+  <div class="brand">
+    <a href="../index.html" class="brand-logo" role="img" aria-label="Mi Cliente AG — ir al inicio"></a>
+  </div>
+
+  <button class="icon-btn" id="sidebarToggle" aria-label="Contraer o expandir el menú lateral">
+    <span class="material-symbols-sharp icon-md" aria-hidden="true">menu</span>
+  </button>
+
+  <nav class="topbar-nav" aria-label="Navegación principal" data-topnav></nav>
+
+  <div class="ms-auto d-flex align-items-center gap-1">
+
+    <!-- Extras: sólo ≥992px -->
+    <div class="topbar-extras">
+      <div class="position-relative">
+        <button class="icon-btn" data-dropdown="langMenu" aria-haspopup="true" aria-label="Cambiar idioma">
+          <span class="material-symbols-sharp icon-md" aria-hidden="true">language</span>
+        </button>
+        <div class="dropdown-x" id="langMenu">
+          <div class="dropdown-item-x"><span class="material-symbols-sharp icon-md" aria-hidden="true">flag</span><div class="di-title">Español (MX)</div></div>
+          <div class="dropdown-item-x"><span class="material-symbols-sharp icon-md" aria-hidden="true">flag</span><div class="di-title">English (US)</div></div>
+          <div class="dropdown-item-x"><span class="material-symbols-sharp icon-md" aria-hidden="true">flag</span><div class="di-title">Português (BR)</div></div>
+        </div>
+      </div>
+
+      <div class="position-relative">
+        <button class="icon-btn" data-dropdown="appsMenu" aria-haspopup="true" aria-label="Módulos">
+          <span class="material-symbols-sharp icon-md" aria-hidden="true">apps</span>
+        </button>
+        <div class="dropdown-x" id="appsMenu">
+          <div class="dropdown-head"><h6>Módulos</h6></div>
+          <div class="app-grid" data-apps></div>
+        </div>
+      </div>
+
+      <button class="icon-btn" onclick="document.documentElement.requestFullscreen?.()" aria-label="Pantalla completa">
+        <span class="material-symbols-sharp icon-md" aria-hidden="true">fullscreen</span>
+      </button>
+    </div>
+
+    <button class="icon-btn" id="themeToggle" aria-label="Alternar modo claro y oscuro">
+      <span class="material-symbols-sharp icon-md" aria-hidden="true">dark_mode</span>
+    </button>
+
+    <button class="icon-btn" id="searchTrigger" aria-label="Abrir búsqueda global (Control K)">
+      <span class="material-symbols-sharp icon-md" aria-hidden="true">search</span>
+    </button>
+
+    <!-- Notificaciones -->
+    <div class="position-relative">
+      <button class="icon-btn" data-dropdown="notifyMenu" aria-haspopup="true" aria-label="Notificaciones, 8 sin leer">
+        <span class="material-symbols-sharp icon-md" aria-hidden="true">notifications</span>
+        <span class="dot-badge">8</span>
+      </button>
+      <div class="dropdown-x" id="notifyMenu">
+        <div class="dropdown-head">
+          <h6>Notificaciones</h6>
+          <span class="badge-x badge-danger">8 nuevas</span>
+        </div>
+        <div class="dropdown-item-x">
+          <span class="toast-icon badge-success"><span class="material-symbols-sharp icon-sm" aria-hidden="true">check_circle</span></span>
+          <div><div class="di-title">Oportunidad ganada — Grupo Lerma</div><div class="di-meta">$182,400 MXN · hace 12 min</div></div>
+        </div>
+        <div class="dropdown-item-x">
+          <span class="toast-icon badge-warning"><span class="material-symbols-sharp icon-sm" aria-hidden="true">schedule</span></span>
+          <div><div class="di-title">SLA por vencer en ticket #SRV-2481</div><div class="di-meta">Quedan 42 min · Prioridad alta</div></div>
+        </div>
+        <div class="dropdown-item-x">
+          <span class="toast-icon badge-info"><span class="material-symbols-sharp icon-sm" aria-hidden="true">person_add</span></span>
+          <div><div class="di-title">Nuevo lead desde formulario web</div><div class="di-meta">Mariana Ortiz · hace 38 min</div></div>
+        </div>
+        <div class="dropdown-item-x">
+          <span class="toast-icon badge-brand"><span class="material-symbols-sharp icon-sm" aria-hidden="true">task_alt</span></span>
+          <div><div class="di-title">Cotización COT-1043 aprobada</div><div class="di-meta">Industrias Vega · hace 1 h</div></div>
+        </div>
+        <div class="dropdown-foot"><a href="#" id="notifyDemo">Ver todas las notificaciones</a></div>
+      </div>
+    </div>
+
+
+    <!-- Usuario -->
+    <div class="position-relative">
+      <button class="avatar-btn" data-dropdown="userMenu" aria-haspopup="true" aria-label="Menú de usuario">
+        <span class="avatar-fallback" style="width:100%;height:100%;border-radius:0">JR</span>
+        <span class="status-dot" aria-hidden="true"></span>
+      </button>
+      <div class="dropdown-x" id="userMenu" style="min-width:250px">
+        <div class="dropdown-head">
+          <div>
+            <h6>Javier Rosas</h6>
+            <div class="di-meta">Director Comercial</div>
+          </div>
+        </div>
+        <div class="dropdown-item-x"><span class="material-symbols-sharp icon-md" aria-hidden="true">person</span><div class="di-title">Mi perfil</div></div>
+        <div class="dropdown-item-x"><span class="material-symbols-sharp icon-md" aria-hidden="true">tune</span><div class="di-title">Preferencias</div></div>
+        <div class="dropdown-item-x"><span class="material-symbols-sharp icon-md" aria-hidden="true">workspace_premium</span><div class="di-title">Mis metas</div></div>
+        <div class="dropdown-item-x"><span class="material-symbols-sharp icon-md" aria-hidden="true">help</span><div class="di-title">Centro de ayuda</div></div>
+        <hr class="divider-x">
+        <div class="dropdown-item-x" style="color:var(--danger)"><span class="material-symbols-sharp icon-md" aria-hidden="true">logout</span><div class="di-title">Cerrar sesión</div></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="sidebar-scrim d-md-none"></div>
+
+  <!-- ============================ SIDEBAR ============================ -->
+  <aside class="sidebar" aria-label="Menú lateral">
+    <!-- Menú generado por assets/js/modules.js (fuente única de módulos) -->
+    <div class="sidebar-scroll" data-nav></div>
+
+    <div class="sidebar-footer">
+      <span class="avatar-fallback">JR</span>
+      <div class="sidebar-user-meta">
+        <strong>Javier Rosas</strong>
+        <span>javier@miclienteag.mx</span>
+      </div>
+      <span class="material-symbols-sharp icon-sm ms-auto sidebar-user-meta" aria-hidden="true">unfold_more</span>
+    </div>
+  </aside>
+
+  <!-- ============================ MAIN ============================ -->
+  <main class="main">
+
+    <div class="page-header">
+      <div>
+        <h1 class="page-title" id="pageTitle">Cargando…</h1>
+        <nav class="breadcrumb-x" id="pageBreadcrumb" aria-label="Ruta de navegación"></nav>
+      </div>
+      <div class="kpi-strip" id="kpiStrip" aria-label="Resumen"></div>
+    </div>
+
+    <div class="page-body">
+
+      <!-- Gráficas (sólo entidades de Analítica; las arma crud.js) -->
+      <section class="row g-3 mb-3" id="chartGrid" aria-label="Gráficas" hidden></section>
+
+      <!-- Listado -->
+      <section class="card-x" id="crudCard" aria-labelledby="listTitle">
+        <div class="card-x-header">
+          <div class="d-flex align-items-center gap-2 min-w-0">
+            <span class="list-icon" aria-hidden="true"><span class="material-symbols-sharp" id="listIcon">table_rows</span></span>
+            <div class="min-w-0">
+              <h2 class="card-x-title" id="listTitle"></h2>
+              <p class="card-x-sub"><span id="listCount"></span><span class="from-md"> · <span id="listDesc"></span></span></p>
+            </div>
+          </div>
+          <div class="card-x-tools">
+            <button type="button" class="icon-btn" id="btnExport" aria-label="Exportar a CSV"><span class="material-symbols-sharp" aria-hidden="true">file_download</span></button>
+            <button type="button" class="icon-btn" id="btnReset" aria-label="Restablecer datos de demostración"><span class="material-symbols-sharp" aria-hidden="true">restart_alt</span></button>
+          </div>
+        </div>
+
+        <div class="table-toolbar">
+          <div class="filter-scroll" id="filterChips" aria-label="Filtrar"></div>
+          <div class="toolbar-actions">
+            <div class="input-icon-wrap">
+              <span class="material-symbols-sharp" aria-hidden="true">search</span>
+              <label for="tableSearch" class="sr-only">Buscar</label>
+              <input type="search" id="tableSearch" class="input-x" placeholder="Buscar…" autocomplete="off">
+            </div>
+            <button type="button" class="btn-x btn-primary-x" id="btnNew">
+              <span class="btn-label"><span class="material-symbols-sharp icon-sm" aria-hidden="true">add</span><span class="btn-label-text">Nuevo</span></span>
+            </button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="table-x table-crud" id="crudTable"></table>
+        </div>
+
+        <div class="empty-x" id="emptyState" hidden>
+          <span class="empty-ico" aria-hidden="true"><span class="material-symbols-sharp">search_off</span></span>
+          <h3 id="emptyTitle">Sin resultados</h3>
+          <p id="emptyText"></p>
+          <div class="d-flex gap-2 justify-content-center flex-wrap">
+            <button type="button" class="btn-x btn-ghost-x" id="emptyClear"><span class="btn-label">Limpiar filtros</span></button>
+            <button type="button" class="btn-x btn-primary-x" id="emptyNew"><span class="btn-label"><span class="material-symbols-sharp icon-sm" aria-hidden="true">add</span><span class="btn-label-text">Nuevo</span></span></button>
+          </div>
+        </div>
+
+        <div class="pager-x" id="pager"></div>
+      </section>
+
+      <!-- Entidad inexistente -->
+      <section class="card-x empty-x" id="notFound" hidden>
+        <span class="empty-ico" aria-hidden="true"><span class="material-symbols-sharp">explore_off</span></span>
+        <h3>Este módulo no existe</h3>
+        <p>Revisa el enlace o elige una opción del menú lateral.</p>
+        <a class="btn-x btn-primary-x" href="../index.html"><span class="btn-label">Ir al panel de control</span></a>
+      </section>
+    </div>
+
+    <footer class="footer-x">
+      <nav aria-label="Enlaces del pie de página">
+        <a href="../index.html">Inicio</a>
+        <a href="#">Documentación</a>
+        <a href="#">Soporte</a>
+        <a href="#">Términos</a>
+        <a href="#">Privacidad</a>
+      </nav>
+      <span>© 2026 Mi Cliente AG · Ventas &amp; Servicio</span>
+    </footer>
+  </main>
+</div>
+
+<!-- ============================ MODAL: FORMULARIO (alta / edición) ============================ -->
+<div class="modal fade" id="formModal" tabindex="-1" aria-labelledby="formTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-fullscreen-sm-down modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="min-w-0">
+          <h5 class="modal-title" id="formTitle">Nuevo registro</h5>
+          <div class="card-x-sub text-truncate" id="formSub"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="form-note"><span class="req" aria-hidden="true">*</span> Campo obligatorio</p>
+        <form id="crudForm" novalidate></form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-x btn-ghost-x" data-bs-dismiss="modal"><span class="btn-label">Cancelar</span></button>
+        <button type="button" class="btn-x btn-primary-x" id="btnSave">
+          <span class="btn-label" id="btnSaveLabel">Guardar</span>
+          <span class="btn-spinner" aria-hidden="true"><span class="spinner-ring"></span></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ MODAL: FICHA DE DETALLE ============================ -->
+<div class="modal fade" id="viewModal" tabindex="-1" aria-labelledby="viewTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-fullscreen-sm-down modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="min-w-0">
+          <h5 class="modal-title" id="viewTitle">Detalle</h5>
+          <div class="d-flex gap-2 mt-1 flex-wrap" id="viewBadges"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body" id="viewBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn-x btn-ghost-x btn-danger-ghost-x" id="viewDelete"><span class="btn-label"><span class="material-symbols-sharp icon-sm" aria-hidden="true">delete</span> Eliminar</span></button>
+        <button type="button" class="btn-x btn-ghost-x" data-bs-dismiss="modal"><span class="btn-label">Cerrar</span></button>
+        <button type="button" class="btn-x btn-primary-x" id="viewEdit"><span class="btn-label"><span class="material-symbols-sharp icon-sm" aria-hidden="true">edit</span> Editar</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ COMMAND PALETTE ============================ -->
+<div class="cmdk-backdrop" id="cmdkBackdrop"></div>
+<div class="cmdk" id="cmdk" role="dialog" aria-label="Búsqueda global">
+  <label for="cmdkInput" class="sr-only">Buscar en el CRM</label>
+  <input class="cmdk-input" id="cmdkInput" placeholder="Buscar módulos, clientes o acciones…" autocomplete="off">
+  <div class="cmdk-list" data-cmdk-nav></div>
+</div>
+
+<!-- ============================ BOTTOM NAV (móvil) ============================ -->
+<nav class="bottom-nav" aria-label="Navegación inferior">
+  <a href="../index.html">
+    <span class="material-symbols-sharp" aria-hidden="true">dashboard</span>
+    Inicio
+  </a>
+  <a href="modulo.html?e=oportunidades">
+    <span class="material-symbols-sharp" aria-hidden="true">handshake</span>
+    Ventas
+  </a>
+  <a href="#" class="fab" id="fabNew" aria-label="Nuevo registro">
+    <span class="material-symbols-sharp icon-lg" aria-hidden="true">add</span>
+  </a>
+  <a href="modulo.html?e=tickets">
+    <span class="material-symbols-sharp" aria-hidden="true">support_agent</span>
+    Servicio
+  </a>
+  <a href="#" id="bottomMenu" aria-label="Abrir menú de módulos">
+    <span class="material-symbols-sharp" aria-hidden="true">menu</span>
+    Menú
+  </a>
+</nav>
+
+<!-- Toasts -->
+<div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.12.0/dist/sweetalert2.all.min.js"></script>
+<script src="../assets/js/modules.js"></script>
+<script src="../assets/js/main.js"></script>
+<script src="../assets/js/crud.js"></script>
+<script>
+  document.getElementById('bottomMenu')?.addEventListener('click', function (ev) {
+    ev.preventDefault();
+    document.getElementById('sidebarToggle').click();
+  });
+</script>
+</body>
+</html>

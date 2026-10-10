@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayUnique, IsArray, IsDate, IsEnum, IsOptional, IsString, IsUUID, Length, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayUnique, IsArray, IsDate, IsEnum, IsOptional, IsString, IsUUID, Length, ValidateNested } from 'class-validator';
 
 export const ASSIGNMENT_EFFECTS = ['GRANT', 'DENY'] as const;
 
@@ -32,9 +32,21 @@ export class DirectAssignmentDto {
   expiresAt?: Date;
 }
 
+/** Tope de asignaciones directas por petición: muy por encima del uso real, acota el coste de validar. */
+export const MAX_DIRECT_ASSIGNMENTS = 200;
+
 export class ReplaceAssignmentsDto {
-  @ApiProperty({ type: [DirectAssignmentDto] })
+  @ApiProperty({
+    type: [DirectAssignmentDto],
+    maxItems: MAX_DIRECT_ASSIGNMENTS,
+    description:
+      'Conjunto completo de asignaciones directas. Cada `targetId` aparece una sola vez (un mismo permiso u opción no puede ser GRANT y DENY a la vez): un duplicado responde 400.',
+  })
   @IsArray()
+  @ArrayMaxSize(MAX_DIRECT_ASSIGNMENTS)
+  @ArrayUnique((assignment: DirectAssignmentDto) => assignment?.targetId, {
+    message: 'assignments no puede repetir targetId',
+  })
   @ValidateNested({ each: true })
   @Type(() => DirectAssignmentDto)
   assignments!: DirectAssignmentDto[];

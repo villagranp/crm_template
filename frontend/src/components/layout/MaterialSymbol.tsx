@@ -1,14 +1,14 @@
-import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import DashboardIcon from '@mui/icons-material/Dashboard';
-import FactCheckIcon from '@mui/icons-material/FactCheck';
-import GroupsIcon from '@mui/icons-material/Groups';
-import HistoryIcon from '@mui/icons-material/History';
-import Inventory2Icon from '@mui/icons-material/Inventory2';
-import ListAltIcon from '@mui/icons-material/ListAlt';
-import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
-import SettingsIcon from '@mui/icons-material/Settings';
-import TuneIcon from '@mui/icons-material/Tune';
+import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
+import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
+import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
+import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
+import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
+import ListAltOutlinedIcon from '@mui/icons-material/ListAltOutlined';
+import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
+import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
 import type { SvgIconComponent } from '@mui/icons-material';
 
 interface MaterialSymbolProps {
@@ -31,20 +31,23 @@ interface MaterialSymbolProps {
  * defecto. Los nombres son los de Material Symbols en snake_case, para que la
  * base de datos siga siendo legible y portable.
  *
+ * Se usa la variante con contorno (`Outlined`), igual que el prototipo
+ * (`material-symbols-sharp` con `FILL 0`).
+ *
  * El icono es decorativo (`aria-hidden`): la etiqueta accesible la pone siempre
  * el control que lo contiene.
  */
 const ICON_REGISTRY: Record<string, SvgIconComponent> = {
-  dashboard: DashboardIcon,
-  settings: SettingsIcon,
-  manage_accounts: ManageAccountsIcon,
-  admin_panel_settings: AdminPanelSettingsIcon,
-  list_alt: ListAltIcon,
-  groups: GroupsIcon,
-  inventory_2: Inventory2Icon,
-  tune: TuneIcon,
-  fact_check: FactCheckIcon,
-  history: HistoryIcon,
+  dashboard: DashboardOutlinedIcon,
+  settings: SettingsOutlinedIcon,
+  manage_accounts: ManageAccountsOutlinedIcon,
+  admin_panel_settings: AdminPanelSettingsOutlinedIcon,
+  list_alt: ListAltOutlinedIcon,
+  groups: GroupsOutlinedIcon,
+  inventory_2: Inventory2OutlinedIcon,
+  tune: TuneOutlinedIcon,
+  fact_check: FactCheckOutlinedIcon,
+  history: HistoryOutlinedIcon,
   chevron_right: ChevronRightIcon,
 };
 

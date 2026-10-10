@@ -1,0 +1,82 @@
+import type { ListQuery, Paginated } from '@/features/admin/common';
+import { httpClient } from '@/services/api';
+
+export type CatalogItemMetadata = Record<string, unknown>;
+
+/** `CatalogResponseDto`. */
+export interface Catalog {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  isSystem: boolean;
+  itemCount: number;
+  activeItemCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** `CatalogItemResponseDto`. */
+export interface CatalogItem {
+  id: string;
+  catalogId: string;
+  code: string;
+  label: string;
+  metadata: CatalogItemMetadata | null;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** `GET /catalogs/{id}`: el catálogo con todos sus elementos, por `sortOrder`. */
+export interface CatalogDetail extends Catalog {
+  items: CatalogItem[];
+}
+
+export interface CreateCatalogRequest {
+  key: string;
+  name: string;
+  description: string | null;
+}
+
+export type UpdateCatalogRequest = Partial<CreateCatalogRequest>;
+
+export interface CreateCatalogItemRequest {
+  code: string;
+  label: string;
+  metadata?: CatalogItemMetadata | null;
+  sortOrder?: number;
+  isActive?: boolean;
+}
+
+/** `code` no viaja: es inmutable. */
+export type UpdateCatalogItemRequest = Partial<Omit<CreateCatalogItemRequest, 'code'>>;
+
+export function listCatalogs(query: ListQuery): Promise<Paginated<Catalog>> {
+  return httpClient.get<Paginated<Catalog>>('/catalogs', { query });
+}
+
+export function getCatalog(catalogId: string): Promise<CatalogDetail> {
+  return httpClient.get<CatalogDetail>(`/catalogs/${catalogId}`);
+}
+
+export function createCatalog(body: CreateCatalogRequest): Promise<CatalogDetail> {
+  return httpClient.post<CatalogDetail>('/catalogs', { body });
+}
+
+export function updateCatalog(catalogId: string, body: UpdateCatalogRequest): Promise<CatalogDetail> {
+  return httpClient.patch<CatalogDetail>(`/catalogs/${catalogId}`, { body });
+}
+
+export function deleteCatalog(catalogId: string): Promise<void> {
+  return httpClient.delete<void>(`/catalogs/${catalogId}`);
+}
+
+export function createCatalogItem(catalogId: string, body: CreateCatalogItemRequest): Promise<CatalogItem> {
+  return httpClient.post<CatalogItem>(`/catalogs/${catalogId}/items`, { body });
+}
+
+export function updateCatalogItem(catalogId: string, itemId: string, body: UpdateCatalogItemRequest): Promise<CatalogItem> {
+  return httpClient.patch<CatalogItem>(`/catalogs/${catalogId}/items/${itemId}`, { body });
+}

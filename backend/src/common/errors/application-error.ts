@@ -31,11 +31,37 @@ export class BusinessRuleViolationError extends ApplicationError {
   }
 }
 
+/** 409. `code` permite distinguir el conflicto (`ROLE_IN_USE`, `LAST_ADMIN`…). */
 export class ResourceConflictError extends ApplicationError {
-  readonly code = 'RESOURCE_CONFLICT';
+  readonly code: string;
 
-  constructor(message: string, details: ReadonlyArray<Record<string, unknown>> = []) {
+  constructor(
+    message: string,
+    details: ReadonlyArray<Record<string, unknown>> = [],
+    code = 'RESOURCE_CONFLICT',
+  ) {
     super(message, details);
+    this.code = code;
+  }
+}
+
+/** 401: la credencial presentada no autentica. El código lo decide quien lanza. */
+export class AuthenticationFailedError extends ApplicationError {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+/** 403 con un código propio, cuando no se trata de un permiso `recurso.accion`. */
+export class AccessDeniedError extends ApplicationError {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
   }
 }
 

@@ -238,7 +238,11 @@ export const ROLES: RoleSeed[] = [
   {
     code: 'gestor-accesos',
     name: 'Gestor de accesos',
-    description: 'Administra usuarios, roles y asignaciones, sin tocar parámetros del sistema.',
+    // ADR-020: gestiona datos, no accesos. Conserva `roles.editar` y
+    // `opciones.configurar` sin efecto práctico (las operaciones que cambian
+    // accesos exigen además ser administrador).
+    description:
+      'Administra los datos de usuarios y equipos. La asignación de roles y permisos es exclusiva del administrador.',
     dataScope: 'ORGANIZATION',
     permissions: [
       'usuarios.ver',
@@ -251,7 +255,9 @@ export const ROLES: RoleSeed[] = [
       'opciones.ver',
       'opciones.configurar',
       'equipos.ver',
+      'equipos.crear',
       'equipos.editar',
+      'equipos.eliminar',
       'auditoria.ver',
     ],
     menuOptions: ['inicio', 'admin-usuarios', 'admin-roles', 'admin-opciones', 'admin-equipos', 'admin-auditoria'],

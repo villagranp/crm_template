@@ -12,6 +12,11 @@ export interface AuthenticatedPrincipal {
   /** Roles tal como llegan del proveedor, antes de mapearse a permisos. */
   readonly providerRoles: readonly string[];
   readonly issuedBy: AuthProviderName;
+  /**
+   * Solo autenticación local: la cuenta tiene una contraseña asignada por otro
+   * y debe cambiarla antes de usar la API (PLAN-AUTH-LOCAL, D13).
+   */
+  readonly passwordChangeRequired?: boolean;
 }
 
 export type AuthProviderName = 'local' | 'entra' | 'service';

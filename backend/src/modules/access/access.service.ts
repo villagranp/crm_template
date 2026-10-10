@@ -1,7 +1,11 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 
+import type { AppRequest } from '@/common/types/request-context';
 import type { AuthenticatedPrincipal } from '@/infrastructure/authentication/ports/authenticated-principal';
+import { auditContextFrom } from '@/modules/audit/audit.service';
 
+import type { ActorContext } from './access-rules';
+import { adminOnlyError, holdsAdministradorRole, isActingAdministrador } from './admin-only';
 import {
   ACCESS_REPOSITORY,
   type AccessRepository,
@@ -16,6 +20,8 @@ export interface MenuModuleView {
   label: string;
   icon: string | null;
   order: number;
+  /** Módulo de sistema: el menú lo muestra en la sección "Sistema". */
+  isSystem: boolean;
   options: MenuOptionView[];
 }
 
@@ -38,6 +44,21 @@ export interface EffectiveAccess {
   permissions: string[];
   teams: { id: string; name: string }[];
   dataScope: DataScope;
+}
+
+/** Origen de un permiso (PLAN-ADMIN D5): qué roles lo traen y qué excepción directa lo toca. */
+export interface PermissionOrigin {
+  code: string;
+  /** Concedido tras aplicar las denegaciones. */
+  effective: boolean;
+  /** Códigos de los roles vigentes que lo conceden. */
+  roles: string[];
+  grant: { reason: string; expiresAt: Date | null } | null;
+  deny: { reason: string; expiresAt: Date | null } | null;
+}
+
+export interface EffectiveAccessWithOrigins extends EffectiveAccess {
+  origins: PermissionOrigin[];
 }
 
 const SCOPE_RANK: Record<DataScope, number> = { OWN: 0, TEAM: 1, TERRITORY: 2, ORGANIZATION: 3 };
@@ -93,6 +114,39 @@ export class AccessService {
     return byEmail.status === 'ACTIVE' || byEmail.status === 'INVITED' ? byEmail.id : null;
   }
 
+  /** Quién ejecuta una mutación de administración: usuario local + contexto de auditoría. */
+  async resolveActor(request: AppRequest): Promise<ActorContext> {
+    const userId = request.principal ? await this.findUserIdForPrincipal(request.principal) : null;
+    return { userId, audit: auditContextFrom(request) };
+  }
+
+  /** ADR-020: el usuario local puede ejercer como administrador (ACTIVE + rol `administrador` vigente). */
+  async isAdministrador(userId: string | null): Promise<boolean> {
+    return userId ? isActingAdministrador(await this.repository.getUserAccessSnapshot(userId)) : false;
+  }
+
+  /**
+   * ADR-020: único punto que exige ser administrador. Lanza `403 ADMIN_ONLY`.
+   * `actorId` es el usuario local resuelto en la base (`resolveActor`), no el token.
+   */
+  async assertActorIsAdministrador(actorId: string | null): Promise<void> {
+    if (!(await this.isAdministrador(actorId))) {
+      throw adminOnlyError();
+    }
+  }
+
+  /**
+   * ADR-020: actuar sobre la cuenta de un administrador (editar, suspender,
+   * reactivar, restablecer su contraseña) también es exclusivo del
+   * administrador. Si el objetivo no existe no hace nada: el caso de uso
+   * responde 404.
+   */
+  async assertActorMayActOn(actorId: string | null, targetUserId: string): Promise<void> {
+    if (holdsAdministradorRole(await this.repository.getUserAccessSnapshot(targetUserId))) {
+      await this.assertActorIsAdministrador(actorId);
+    }
+  }
+
   /** Permisos efectivos por identificador de usuario. */
   async getEffectivePermissions(userId: string): Promise<ReadonlySet<string>> {
     const snapshot = await this.repository.getUserAccessSnapshot(userId);
@@ -106,15 +160,18 @@ export class AccessService {
       throw new NotFoundException('El usuario no existe');
     }
 
-    return {
-      userId: snapshot.user.id,
-      displayName: snapshot.user.displayName,
-      email: snapshot.user.email,
-      roles: snapshot.roles.map((role) => role.code),
-      permissions: [...resolvePermissions(snapshot)].sort(),
-      teams: snapshot.user.teams.map((team) => ({ id: team.id, name: team.name })),
-      dataScope: widestScope(snapshot.roles.map((role) => role.dataScope)),
-    };
+    return toEffectiveAccess(snapshot);
+  }
+
+  /** Acceso efectivo más el origen de cada permiso, para la pantalla de administración (D5). */
+  async getEffectiveAccessWithOrigins(userId: string): Promise<EffectiveAccessWithOrigins> {
+    const snapshot = await this.repository.getUserAccessSnapshot(userId);
+
+    if (!snapshot) {
+      throw new NotFoundException('El usuario no existe');
+    }
+
+    return { ...toEffectiveAccess(snapshot), origins: resolvePermissionOrigins(snapshot) };
   }
 
   /** Menú del usuario, listo para pintar: sólo lo que tiene concedido. */
@@ -131,6 +188,18 @@ export class AccessService {
 
     return buildMenu(options, allowedOptionIds, permissions);
   }
+}
+
+function toEffectiveAccess(snapshot: UserAccessSnapshot): EffectiveAccess {
+  return {
+    userId: snapshot.user.id,
+    displayName: snapshot.user.displayName,
+    email: snapshot.user.email,
+    roles: snapshot.roles.map((role) => role.code),
+    permissions: [...resolvePermissions(snapshot)].sort(),
+    teams: snapshot.user.teams.map((team) => ({ id: team.id, name: team.name })),
+    dataScope: widestScope(snapshot.roles.map((role) => role.dataScope)),
+  };
 }
 
 /** Permisos efectivos a partir de una instantánea. Función pura: se prueba sin base de datos. */
@@ -151,6 +220,39 @@ export function resolvePermissions(snapshot: UserAccessSnapshot): ReadonlySet<st
   }
 
   return granted;
+}
+
+/**
+ * Origen de cada permiso que aparece en la instantánea, con o sin efecto.
+ * Función pura: misma precedencia que `resolvePermissions` (DENY gana).
+ */
+export function resolvePermissionOrigins(snapshot: UserAccessSnapshot): PermissionOrigin[] {
+  const effective = resolvePermissions(snapshot);
+  const origins = new Map<string, PermissionOrigin>();
+  const originFor = (code: string): PermissionOrigin => {
+    let origin = origins.get(code);
+    if (!origin) {
+      origin = { code, effective: effective.has(code), roles: [], grant: null, deny: null };
+      origins.set(code, origin);
+    }
+    return origin;
+  };
+
+  for (const role of snapshot.roles) {
+    for (const code of role.permissionCodes) {
+      originFor(code).roles.push(role.code);
+    }
+  }
+  for (const assignment of snapshot.directPermissions) {
+    const detail = { reason: assignment.reason, expiresAt: assignment.expiresAt };
+    if (assignment.effect === 'GRANT') {
+      originFor(assignment.code).grant = detail;
+    } else {
+      originFor(assignment.code).deny = detail;
+    }
+  }
+
+  return [...origins.values()].sort((a, b) => a.code.localeCompare(b.code));
 }
 
 /** Opciones de menú concedidas, con la misma precedencia que los permisos. */
@@ -244,6 +346,7 @@ export function buildMenu(
       label: option.module.name,
       icon: option.module.icon,
       order: option.module.sortOrder,
+      isSystem: option.module.isSystem,
       options: [view],
     });
   }

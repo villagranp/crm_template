@@ -7,16 +7,20 @@ import { useAuthStore } from '@/stores/auth.store';
 export function useAuth() {
   const status = useAuthStore((state) => state.status);
   const user = useAuthStore((state) => state.user);
+  const passwordChangeRequired = useAuthStore((state) => state.passwordChangeRequired);
   const errorMessage = useAuthStore((state) => state.errorMessage);
   const signIn = useAuthStore((state) => state.signIn);
   const signOut = useAuthStore((state) => state.signOut);
+  const changePassword = useAuthStore((state) => state.changePassword);
 
   return {
     status,
     user,
+    passwordChangeRequired,
     errorMessage,
     isAuthenticated: status === 'authenticated',
     signIn,
     signOut,
+    changePassword,
   };
 }

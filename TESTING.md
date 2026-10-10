@@ -65,7 +65,10 @@ Un porcentaje alto con pruebas triviales es peor que uno moderado con pruebas si
 
 - Builders/factories por entidad, sin fixtures gigantes compartidos.
 - Nunca datos reales de producción ni PII en fixtures.
-- Base de datos de integración: contenedor efímero, migraciones aplicadas, limpieza por test.
+- Base de datos de integración: esquema `integration_test` dentro de la base de
+  `DATABASE_URL`. `backend/test/global-setup.ts` lo borra, lo migra y lo siembra
+  en cada ejecución; el esquema de desarrollo (`public`) nunca se toca. Cada
+  prueba crea sus propios usuarios con correo único.
 
 ## 8. Comandos
 
@@ -76,6 +79,39 @@ pnpm --filter backend test:e2e
 pnpm --filter frontend test
 pnpm --filter frontend test:e2e
 ```
+
+### E2E del acceso local
+
+`frontend/tests/e2e/auth-local.e2e.spec.ts` cambia la contraseña del
+administrador, así que **no se ejecuta contra la base de desarrollo** y se
+salta si faltan sus variables. Recorrido aislado:
+
+1. `pnpm --filter @app/backend test:e2e`: deja `integration_test` recién
+   sembrado (admin `admin@integration.test` con contraseña inicial pendiente).
+2. Backend contra ese esquema en otro puerto: `DATABASE_URL` con
+   `?schema=integration_test`, `API_PORT=3100`, `NODE_ENV=development`,
+   `JWT_ACCESS_TOKEN_SECRET` (≥ 32 bytes); `node backend/dist/src/main.js`.
+3. Frontend: `DEV_API_PROXY_TARGET=http://localhost:3100 pnpm exec vite --port 5180`.
+4. `E2E_BASE_URL=http://localhost:5180 E2E_ADMIN_EMAIL=admin@integration.test
+   E2E_ADMIN_PASSWORD=<SEED_ADMIN_PASSWORD de backend/test/support/integration-env.ts>
+   E2E_ADMIN_NEW_PASSWORD=<12+ caracteres> pnpm --filter @app/frontend test:e2e`.
+
+Para repetirlo, vuelve al paso 1.
+
+### E2E de administración
+
+`frontend/tests/e2e/admin-access.e2e.spec.ts` crea un rol propio, da de alta un
+usuario con ese rol, comprueba que solo ve su menú y que suspendido ya no
+entra. Usa el mismo stack aislado, con dos diferencias:
+
+- El backend necesita `AUTH_DEFAULT_PASSWORD` (12+ caracteres).
+- El administrador ya **no** debe tener el cambio de contraseña pendiente:
+  ejecuta antes `auth-local.e2e.spec.ts`, que lo cambia.
+
+Variables: `E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD` (la contraseña ya cambiada),
+`E2E_DEFAULT_PASSWORD` (= `AUTH_DEFAULT_PASSWORD`) y `E2E_NEW_USER_PASSWORD`
+(12+). Cada ejecución deja un rol y un usuario nuevos con sufijo único; vuelve
+al paso 1 de vez en cuando para empezar de una base limpia.
 
 ## 9. En el pipeline
 

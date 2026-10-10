@@ -7,7 +7,9 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
+  AccessDeniedError,
   ApplicationError,
+  AuthenticationFailedError,
   BusinessRuleViolationError,
   PermissionDeniedError,
   ResourceConflictError,
@@ -111,7 +113,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
   private statusForApplicationError(error: ApplicationError): number {
     if (error instanceof ResourceNotFoundError) return HttpStatus.NOT_FOUND;
     if (error instanceof ResourceConflictError) return HttpStatus.CONFLICT;
-    if (error instanceof PermissionDeniedError) return HttpStatus.FORBIDDEN;
+    if (error instanceof AuthenticationFailedError) return HttpStatus.UNAUTHORIZED;
+    if (error instanceof PermissionDeniedError || error instanceof AccessDeniedError) return HttpStatus.FORBIDDEN;
     if (error instanceof BusinessRuleViolationError) return HttpStatus.UNPROCESSABLE_ENTITY;
     return HttpStatus.BAD_REQUEST;
   }

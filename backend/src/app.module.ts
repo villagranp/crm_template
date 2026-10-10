@@ -7,6 +7,12 @@ import { LoggingModule } from './infrastructure/logging/logging.module';
 import { PrismaModule } from './infrastructure/database/prisma/prisma.module';
 import { AuthenticationModule } from './infrastructure/authentication/authentication.module';
 import { AccessModule } from './modules/access/access.module';
+import { ApprovalsModule } from './modules/approvals/approvals.module';
+import { AuditModule } from './modules/audit/audit.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { CatalogsModule } from './modules/catalogs/catalogs.module';
+import { ParametersModule } from './modules/parameters/parameters.module';
+import { TeamsModule } from './modules/teams/teams.module';
 import { HealthModule } from './modules/health/health.module';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -35,6 +41,12 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     PrismaModule,
     AuthenticationModule,
     AccessModule,
+    AuthModule,
+    AuditModule,
+    TeamsModule,
+    CatalogsModule,
+    ParametersModule,
+    ApprovalsModule,
     HealthModule,
   ],
   providers: [

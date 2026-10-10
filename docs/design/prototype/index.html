@@ -1,0 +1,1233 @@
+<!doctype html>
+<html lang="es" data-theme="light" data-bs-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mi Cliente AG — Ventas &amp; Servicio</title>
+<meta name="description" content="Panel de control CRM de ventas y servicio: pipeline, tickets, SLA, facturación y actividad del equipo.">
+<link rel="icon" type="image/webp" href="assets/favico.webp">
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Sharp:opsz,wght,FILL,GRAD@24,400,0,0&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/simple-line-icons/2.5.5/css/simple-line-icons.min.css">
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body data-page="dashboard">
+
+<!-- ============================ TOPBAR ============================ -->
+<header class="topbar">
+  <div class="brand">
+    <a href="index.html" class="brand-logo" role="img" aria-label="Mi Cliente AG — ir al inicio"></a>
+  </div>
+
+  <button class="icon-btn" id="sidebarToggle" aria-label="Contraer o expandir el menú lateral">
+    <span class="material-symbols-sharp icon-md" aria-hidden="true">menu</span>
+  </button>
+
+  <nav class="topbar-nav" aria-label="Navegación principal" data-topnav></nav>
+
+  <div class="ms-auto d-flex align-items-center gap-1">
+
+    <!-- Extras: sólo ≥992px -->
+    <div class="topbar-extras">
+      <div class="position-relative">
+        <button class="icon-btn" data-dropdown="langMenu" aria-haspopup="true" aria-label="Cambiar idioma">
+          <span class="material-symbols-sharp icon-md" aria-hidden="true">language</span>
+        </button>
+        <div class="dropdown-x" id="langMenu">
+          <div class="dropdown-item-x"><span class="material-symbols-sharp icon-md" aria-hidden="true">flag</span><div class="di-title">Español (MX)</div></div>
+          <div class="dropdown-item-x"><span class="material-symbols-sharp icon-md" aria-hidden="true">flag</span><div class="di-title">English (US)</div></div>
+          <div class="dropdown-item-x"><span class="material-symbols-sharp icon-md" aria-hidden="true">flag</span><div class="di-title">Português (BR)</div></div>
+        </div>
+      </div>
+
+      <div class="position-relative">
+        <button class="icon-btn" data-dropdown="appsMenu" aria-haspopup="true" aria-label="Módulos">
+          <span class="material-symbols-sharp icon-md" aria-hidden="true">apps</span>
+        </button>
+        <div class="dropdown-x" id="appsMenu">
+          <div class="dropdown-head"><h6>Módulos</h6></div>
+          <div class="app-grid" data-apps></div>
+        </div>
+      </div>
+
+      <button class="icon-btn" onclick="document.documentElement.requestFullscreen?.()" aria-label="Pantalla completa">
+        <span class="material-symbols-sharp icon-md" aria-hidden="true">fullscreen</span>
+      </button>
+    </div>
+
+    <button class="icon-btn" id="themeToggle" aria-label="Alternar modo claro y oscuro">
+      <span class="material-symbols-sharp icon-md" aria-hidden="true">dark_mode</span>
+    </button>
+
+    <button class="icon-btn" id="searchTrigger" aria-label="Abrir búsqueda global (Control K)">
+      <span class="material-symbols-sharp icon-md" aria-hidden="true">search</span>
+    </button>
+
+    <!-- Notificaciones -->
+    <div class="position-relative">
+      <button class="icon-btn" data-dropdown="notifyMenu" aria-haspopup="true" aria-label="Notificaciones, 8 sin leer">
+        <span class="material-symbols-sharp icon-md" aria-hidden="true">notifications</span>
+        <span class="dot-badge">8</span>
+      </button>
+      <div class="dropdown-x" id="notifyMenu">
+        <div class="dropdown-head">
+          <h6>Notificaciones</h6>
+          <span class="badge-x badge-danger">8 nuevas</span>
+        </div>
+        <div class="dropdown-item-x">
+          <span class="toast-icon badge-success"><span class="material-symbols-sharp icon-sm" aria-hidden="true">check_circle</span></span>
+          <div><div class="di-title">Oportunidad ganada — Grupo Lerma</div><div class="di-meta">$182,400 MXN · hace 12 min</div></div>
+        </div>
+        <div class="dropdown-item-x">
+          <span class="toast-icon badge-warning"><span class="material-symbols-sharp icon-sm" aria-hidden="true">schedule</span></span>
+          <div><div class="di-title">SLA por vencer en ticket #SRV-2481</div><div class="di-meta">Quedan 42 min · Prioridad alta</div></div>
+        </div>
+        <div class="dropdown-item-x">
+          <span class="toast-icon badge-info"><span class="material-symbols-sharp icon-sm" aria-hidden="true">person_add</span></span>
+          <div><div class="di-title">Nuevo lead desde formulario web</div><div class="di-meta">Mariana Ortiz · hace 38 min</div></div>
+        </div>
+        <div class="dropdown-item-x">
+          <span class="toast-icon badge-brand"><span class="material-symbols-sharp icon-sm" aria-hidden="true">task_alt</span></span>
+          <div><div class="di-title">Cotización COT-1043 aprobada</div><div class="di-meta">Industrias Vega · hace 1 h</div></div>
+        </div>
+        <div class="dropdown-foot"><a href="#" id="notifyDemo">Ver todas las notificaciones</a></div>
+      </div>
+    </div>
+
+    <button class="icon-btn from-md" data-chat-open="chatWin1" aria-label="Abrir mensajes del equipo">
+      <span class="material-symbols-sharp icon-md" aria-hidden="true">chat</span>
+      <span class="dot-badge" style="background:var(--success)">3</span>
+    </button>
+
+    <!-- Usuario -->
+    <div class="position-relative">
+      <button class="avatar-btn" data-dropdown="userMenu" aria-haspopup="true" aria-label="Menú de usuario">
+        <span class="avatar-fallback" style="width:100%;height:100%;border-radius:0">JR</span>
+        <span class="status-dot" aria-hidden="true"></span>
+      </button>
+      <div class="dropdown-x" id="userMenu" style="min-width:250px">
+        <div class="dropdown-head">
+          <div>
+            <h6>Javier Rosas</h6>
+            <div class="di-meta">Director Comercial</div>
+          </div>
+        </div>
+        <div class="dropdown-item-x"><span class="material-symbols-sharp icon-md" aria-hidden="true">person</span><div class="di-title">Mi perfil</div></div>
+        <div class="dropdown-item-x"><span class="material-symbols-sharp icon-md" aria-hidden="true">tune</span><div class="di-title">Preferencias</div></div>
+        <div class="dropdown-item-x"><span class="material-symbols-sharp icon-md" aria-hidden="true">workspace_premium</span><div class="di-title">Mis metas</div></div>
+        <div class="dropdown-item-x"><span class="material-symbols-sharp icon-md" aria-hidden="true">help</span><div class="di-title">Centro de ayuda</div></div>
+        <hr class="divider-x">
+        <div class="dropdown-item-x" style="color:var(--danger)"><span class="material-symbols-sharp icon-md" aria-hidden="true">logout</span><div class="di-title">Cerrar sesión</div></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="sidebar-scrim d-md-none"></div>
+
+  <!-- ============================ SIDEBAR ============================ -->
+  <aside class="sidebar" aria-label="Menú lateral">
+    <!-- Menú generado por assets/js/modules.js (fuente única de módulos) -->
+    <div class="sidebar-scroll" data-nav></div>
+
+    <div class="sidebar-footer">
+      <span class="avatar-fallback">JR</span>
+      <div class="sidebar-user-meta">
+        <strong>Javier Rosas</strong>
+        <span>javier@miclienteag.mx</span>
+      </div>
+      <span class="material-symbols-sharp icon-sm ms-auto sidebar-user-meta" aria-hidden="true">unfold_more</span>
+    </div>
+  </aside>
+
+  <!-- ============================ MAIN ============================ -->
+  <main class="main">
+
+    <!-- Page header -->
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Panel de control <span>— Ventas &amp; Servicio</span></h1>
+        <nav class="breadcrumb-x" aria-label="Ruta de navegación">
+          <a href="index.html">Inicio</a><span class="sep">/</span>
+          <a href="pages/modulo.html?e=dashboards">Analítica</a><span class="sep">/</span>
+          <span>Ventas &amp; Servicio</span>
+        </nav>
+      </div>
+
+      <div class="kpi-strip">
+        <div class="kpi-mini">
+          <div>
+            <div class="kpi-mini-label">Oportunidades</div>
+            <div class="kpi-mini-value">214</div>
+          </div>
+          <div class="sparkbars accent" data-values="30,45,38,62,55,70,64,82,74,90,86,98" aria-hidden="true"></div>
+        </div>
+        <div class="kpi-mini">
+          <div>
+            <div class="kpi-mini-label">Tickets</div>
+            <div class="kpi-mini-value">86</div>
+          </div>
+          <div class="sparkbars" data-values="60,42,55,38,64,48,70,52,44,58,40,36" aria-hidden="true"></div>
+        </div>
+        <div class="kpi-mini">
+          <div>
+            <div class="kpi-mini-label">Ingresos</div>
+            <div class="kpi-mini-value up">$1.28M</div>
+          </div>
+          <div class="sparkbars success" data-values="40,55,48,66,72,60,84,78,92,88,96,100" aria-hidden="true"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="page-body" id="inicio">
+
+      <!-- ---------- Fila 1: hero + accesos rápidos ---------- -->
+      <div class="row g-3 mb-3">
+        <div class="col-lg-5">
+          <div class="hero-card h-100">
+            <span class="badge-x" style="background:rgba(255,255,255,.2);color:#fff;width:max-content">
+              <span class="material-symbols-sharp icon-sm" aria-hidden="true">bolt</span> Martes, 22 de septiembre
+            </span>
+            <h2>Buenos días, Javier.</h2>
+            <p>Llevas <strong>68%</strong> de la meta trimestral. 7 oportunidades cierran esta semana.</p>
+            <div class="hero-cta">
+              <button class="btn-x btn-cta-x" data-bs-toggle="modal" data-bs-target="#dealModal">
+                <span class="material-symbols-sharp icon-sm" aria-hidden="true">add</span>
+                <span class="btn-label">Nueva oportunidad</span>
+              </button>
+              <button class="btn-x" style="background:rgba(255,255,255,.16);color:#fff" data-bs-toggle="modal" data-bs-target="#ticketModal">
+                <span class="material-symbols-sharp icon-sm" aria-hidden="true">confirmation_number</span>
+                <span class="btn-label">Abrir ticket</span>
+              </button>
+            </div>
+            <span class="material-symbols-sharp hero-illustration" style="font-size:150px" aria-hidden="true">insights</span>
+          </div>
+        </div>
+
+        <div class="col-lg-7">
+          <div class="row g-3 stagger-in h-100">
+            <div class="col-sm-6">
+              <div class="stat-card gradient grad-brand h-100">
+                <div class="stat-icon"><span class="material-symbols-sharp icon-md" aria-hidden="true">payments</span></div>
+                <div class="stat-label">Ingresos del mes</div>
+                <div class="stat-value" data-count="1284500" data-prefix="$">$0</div>
+                <span class="stat-delta"><i class="fa-solid fa-arrow-trend-up" aria-hidden="true"></i> +18.4%</span>
+                <div class="stat-foot mt-2">Meta mensual: $1.5M MXN</div>
+              </div>
+            </div>
+            <div class="col-sm-6">
+              <div class="stat-card gradient grad-brand-soft h-100">
+                <div class="stat-icon"><span class="material-symbols-sharp icon-md" aria-hidden="true">handshake</span></div>
+                <div class="stat-label">Oportunidades abiertas</div>
+                <div class="stat-value" data-count="214">0</div>
+                <span class="stat-delta"><i class="fa-solid fa-arrow-trend-up" aria-hidden="true"></i> +12 vs. semana previa</span>
+                <div class="stat-foot mt-2">Valor total: $4.6M MXN</div>
+              </div>
+            </div>
+            <div class="col-sm-6">
+              <div class="stat-card h-100">
+                <div class="stat-icon" style="background:var(--warning-soft);color:var(--warning)">
+                  <span class="material-symbols-sharp icon-md" aria-hidden="true">support_agent</span>
+                </div>
+                <div class="stat-label">Tickets abiertos</div>
+                <div class="stat-value" data-count="86">0</div>
+                <span class="stat-delta down"><span class="material-symbols-sharp icon-sm" aria-hidden="true">south_east</span> -9.1%</span>
+                <div class="stat-foot mt-2">7 con SLA en riesgo</div>
+              </div>
+            </div>
+            <div class="col-sm-6">
+              <div class="stat-card h-100">
+                <div class="stat-icon" style="background:var(--success-soft);color:var(--success)">
+                  <span class="material-symbols-sharp icon-md" aria-hidden="true">sentiment_satisfied</span>
+                </div>
+                <div class="stat-label">CSAT promedio</div>
+                <div class="stat-value" data-count="94" data-suffix="%">0%</div>
+                <span class="stat-delta up"><span class="material-symbols-sharp icon-sm" aria-hidden="true">north_east</span> +2.3 pts</span>
+                <div class="stat-foot mt-2">Basado en 2,847 encuestas</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------- Fila 2: tendencia + origen de leads ---------- -->
+      <div class="row g-3 mb-3">
+        <div class="col-xl-8">
+          <div class="card-x h-100">
+            <div class="card-x-header">
+              <div>
+                <h3 class="card-x-title">Tendencia de ingresos</h3>
+                <p class="card-x-sub">Ventas cerradas vs. servicios facturados (miles MXN)</p>
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <div class="d-none d-sm-flex gap-1">
+                  <button class="filter-chip">30d</button>
+                  <button class="filter-chip active">9M</button>
+                  <button class="filter-chip">Año</button>
+                </div>
+                <div class="card-x-tools">
+                  <button class="icon-btn" aria-label="Actualizar gráfico"><span class="material-symbols-sharp" aria-hidden="true">refresh</span></button>
+                  <button class="icon-btn" aria-label="Exportar gráfico"><span class="material-symbols-sharp" aria-hidden="true">download</span></button>
+                </div>
+              </div>
+            </div>
+            <div class="card-x-body">
+              <div class="chart-box"><canvas id="revenueChart" aria-label="Gráfico de tendencia de ingresos" role="img"></canvas></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-xl-4">
+          <div class="card-x h-100">
+            <div class="card-x-header">
+              <div>
+                <h3 class="card-x-title">Origen de leads</h3>
+                <p class="card-x-sub">Últimos 90 días</p>
+              </div>
+              <button class="icon-btn" aria-label="Opciones"><span class="material-symbols-sharp" aria-hidden="true">more_vert</span></button>
+            </div>
+            <div class="card-x-body">
+              <div class="chart-box"><canvas id="sourceChart" aria-label="Distribución de origen de leads" role="img"></canvas></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------- Fila 3: pipeline kanban ---------- -->
+      <div class="card-x mb-3" id="pipeline">
+        <div class="card-x-header">
+          <div>
+            <h3 class="card-x-title">Pipeline de ventas</h3>
+            <p class="card-x-sub">Arrastra las tarjetas para cambiar de etapa</p>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <button class="btn-x btn-ghost-x btn-sm-x">
+              <span class="material-symbols-sharp icon-sm" aria-hidden="true">filter_list</span>
+              <span class="btn-label">Filtros</span>
+            </button>
+            <button class="btn-x btn-primary-x btn-sm-x" data-bs-toggle="modal" data-bs-target="#dealModal">
+              <span class="material-symbols-sharp icon-sm" aria-hidden="true">add</span>
+              <span class="btn-label">Oportunidad</span>
+            </button>
+          </div>
+        </div>
+        <div class="card-x-body">
+          <p class="kanban-hint">
+            <span class="material-symbols-sharp icon-sm" aria-hidden="true">swipe</span>
+            Desliza para ver las 5 etapas
+          </p>
+          <div class="kanban">
+
+            <div class="kanban-col" data-stage="Prospección">
+              <div class="kanban-col-head">
+                <span class="dot" style="background:var(--info)" aria-hidden="true"></span>
+                <h6>Prospección</h6>
+                <span class="count">0</span>
+              </div>
+              <div class="kanban-col-amount"></div>
+              <div class="kanban-list">
+                <article class="kanban-card" data-amount="145000">
+                  <h6>Implementación ERP — Grupo Lerma</h6>
+                  <p>Migración de 120 usuarios, arranque Q4.</p>
+                  <div class="kanban-card-meta">
+                    <span class="kanban-card-amount">$145,000</span>
+                    <span class="badge-x badge-info">Nuevo</span>
+                  </div>
+                  <div class="kanban-card-meta mt-2">
+                    <div class="avatar-stack"><span class="avatar-fallback">AR</span><span class="avatar-fallback">LM</span></div>
+                    <span><span class="material-symbols-sharp icon-sm" aria-hidden="true">event</span> 12 oct</span>
+                  </div>
+                </article>
+                <article class="kanban-card kc-b-steel" data-amount="64000">
+                  <h6>Renovación licencias — Vega S.A.</h6>
+                  <p>32 licencias Pro, renovación anual.</p>
+                  <div class="kanban-card-meta">
+                    <span class="kanban-card-amount">$64,000</span>
+                    <span class="badge-x badge-steel">Recurrente</span>
+                  </div>
+                  <div class="kanban-card-meta mt-2">
+                    <div class="avatar-stack"><span class="avatar-fallback">SM</span></div>
+                    <span><span class="material-symbols-sharp icon-sm" aria-hidden="true">event</span> 18 oct</span>
+                  </div>
+                </article>
+                <article class="kanban-card" data-amount="38000">
+                  <h6>Soporte premium — Clínica Dorel</h6>
+                  <p>Paquete 24/7 con SLA de 2 horas.</p>
+                  <div class="kanban-card-meta">
+                    <span class="kanban-card-amount">$38,000</span>
+                    <span class="badge-x badge-navy">Servicio</span>
+                  </div>
+                </article>
+              </div>
+            </div>
+
+            <div class="kanban-col" data-stage="Calificación">
+              <div class="kanban-col-head">
+                <span class="dot" style="background:var(--ag-blue)" aria-hidden="true"></span>
+                <h6>Calificación</h6>
+                <span class="count">0</span>
+              </div>
+              <div class="kanban-col-amount"></div>
+              <div class="kanban-list">
+                <article class="kanban-card kc-b-brand" data-amount="212000">
+                  <h6>Plataforma omnicanal — Retail Nova</h6>
+                  <p>Integración con POS y WhatsApp Business.</p>
+                  <div class="kanban-card-meta">
+                    <span class="kanban-card-amount">$212,000</span>
+                    <span class="badge-x badge-brand">Enterprise</span>
+                  </div>
+                  <div class="kanban-card-meta mt-2">
+                    <div class="avatar-stack"><span class="avatar-fallback">JR</span><span class="avatar-fallback">CP</span><span class="avatar-fallback">+2</span></div>
+                    <span><i class="fa-regular fa-comment" aria-hidden="true"></i> 14</span>
+                  </div>
+                </article>
+                <article class="kanban-card kc-b-brand" data-amount="97500">
+                  <h6>Mantenimiento anual — Transportes Río</h6>
+                  <p>48 equipos en 6 sucursales.</p>
+                  <div class="kanban-card-meta">
+                    <span class="kanban-card-amount">$97,500</span>
+                    <span class="badge-x badge-warning">Media</span>
+                  </div>
+                </article>
+              </div>
+            </div>
+
+            <div class="kanban-col" data-stage="Propuesta">
+              <div class="kanban-col-head">
+                <span class="dot" style="background:var(--warning)" aria-hidden="true"></span>
+                <h6>Propuesta</h6>
+                <span class="count">0</span>
+              </div>
+              <div class="kanban-col-amount"></div>
+              <div class="kanban-list">
+                <article class="kanban-card kc-b-warning" data-amount="318000">
+                  <h6>Suite completa — Industrias Vega</h6>
+                  <p>Cotización COT-1043 enviada, pendiente de firma.</p>
+                  <div class="kanban-card-meta">
+                    <span class="kanban-card-amount">$318,000</span>
+                    <span class="badge-x badge-warning">Alta</span>
+                  </div>
+                  <div class="kanban-card-meta mt-2">
+                    <div class="avatar-stack"><span class="avatar-fallback">MO</span><span class="avatar-fallback">JR</span></div>
+                    <span><i class="fa-solid fa-paperclip" aria-hidden="true"></i> 5</span>
+                  </div>
+                </article>
+                <article class="kanban-card kc-b-warning" data-amount="76000">
+                  <h6>Capacitación — Colegio Aurora</h6>
+                  <p>4 talleres presenciales + material digital.</p>
+                  <div class="kanban-card-meta">
+                    <span class="kanban-card-amount">$76,000</span>
+                    <span class="badge-x badge-info">Educación</span>
+                  </div>
+                </article>
+                <article class="kanban-card kc-b-warning" data-amount="154000">
+                  <h6>Módulo facturación — Alimentos Sur</h6>
+                  <p>CFDI 4.0 + timbrado ilimitado.</p>
+                  <div class="kanban-card-meta">
+                    <span class="kanban-card-amount">$154,000</span>
+                    <span class="badge-x badge-navy">Add-on</span>
+                  </div>
+                </article>
+              </div>
+            </div>
+
+            <div class="kanban-col" data-stage="Negociación">
+              <div class="kanban-col-head">
+                <span class="dot" style="background:var(--warning)" aria-hidden="true"></span>
+                <h6>Negociación</h6>
+                <span class="count">0</span>
+              </div>
+              <div class="kanban-col-amount"></div>
+              <div class="kanban-list">
+                <article class="kanban-card kc-b-danger" data-amount="428000">
+                  <h6>Contrato marco — Constructora Piedra</h6>
+                  <p>Descuento por volumen en revisión legal.</p>
+                  <div class="kanban-card-meta">
+                    <span class="kanban-card-amount">$428,000</span>
+                    <span class="badge-x badge-danger">Cierra en 3 d</span>
+                  </div>
+                  <div class="kanban-card-meta mt-2">
+                    <div class="avatar-stack"><span class="avatar-fallback">JR</span><span class="avatar-fallback">AR</span></div>
+                    <span><i class="fa-regular fa-comment" aria-hidden="true"></i> 22</span>
+                  </div>
+                </article>
+                <article class="kanban-card kc-b-danger" data-amount="189000">
+                  <h6>Expansión regional — Farmacias Luz</h6>
+                  <p>14 sucursales nuevas, pago diferido.</p>
+                  <div class="kanban-card-meta">
+                    <span class="kanban-card-amount">$189,000</span>
+                    <span class="badge-x badge-warning">Pendiente</span>
+                  </div>
+                </article>
+              </div>
+            </div>
+
+            <div class="kanban-col" data-stage="Ganado">
+              <div class="kanban-col-head">
+                <span class="dot" style="background:var(--success)" aria-hidden="true"></span>
+                <h6>Ganado</h6>
+                <span class="count">0</span>
+              </div>
+              <div class="kanban-col-amount"></div>
+              <div class="kanban-list">
+                <article class="kanban-card kc-b-success" data-amount="182400">
+                  <h6>Onboarding — Grupo Lerma</h6>
+                  <p>Contrato firmado, inicio de implementación.</p>
+                  <div class="kanban-card-meta">
+                    <span class="kanban-card-amount">$182,400</span>
+                    <span class="badge-x badge-success">Cerrado</span>
+                  </div>
+                  <div class="kanban-card-meta mt-2">
+                    <div class="avatar-stack"><span class="avatar-fallback">SM</span></div>
+                    <span><i class="fa-solid fa-check-double" aria-hidden="true"></i> 8/8</span>
+                  </div>
+                </article>
+                <article class="kanban-card kc-b-success" data-amount="93000">
+                  <h6>Soporte anual — Hotel Marea</h6>
+                  <p>Renovación automática activada.</p>
+                  <div class="kanban-card-meta">
+                    <span class="kanban-card-amount">$93,000</span>
+                    <span class="badge-x badge-success">Renovado</span>
+                  </div>
+                </article>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------- Fila 4: embudo + SLA ---------- -->
+      <div class="row g-3 mb-3">
+        <div class="col-lg-6">
+          <div class="card-x h-100">
+            <div class="card-x-header">
+              <div>
+                <h3 class="card-x-title">Embudo de conversión</h3>
+                <p class="card-x-sub">Tasa global de cierre: 11.6%</p>
+              </div>
+              <span class="badge-x badge-success"><span class="material-symbols-sharp icon-sm" aria-hidden="true">trending_up</span> +1.8 pts</span>
+            </div>
+            <div class="card-x-body">
+              <div class="chart-box-sm"><canvas id="funnelChart" aria-label="Embudo de conversión de ventas" role="img"></canvas></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-lg-6">
+          <div class="card-x h-100">
+            <div class="card-x-header">
+              <div>
+                <h3 class="card-x-title">Tickets por día</h3>
+                <p class="card-x-sub">Resueltos, en curso y escalados</p>
+              </div>
+              <button class="icon-btn" aria-label="Opciones"><span class="material-symbols-sharp" aria-hidden="true">more_vert</span></button>
+            </div>
+            <div class="card-x-body">
+              <div class="chart-box-sm"><canvas id="slaChart" aria-label="Tickets por día segmentados por estado" role="img"></canvas></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------- Fila 5: tickets + actividad ---------- -->
+      <div class="row g-3 mb-3">
+        <div class="col-xl-8">
+          <div class="card-x h-100" id="tickets">
+            <div class="card-x-header">
+              <div>
+                <h3 class="card-x-title">Tickets de servicio</h3>
+                <p class="card-x-sub"><span id="ticketsCount">8</span> registros visibles</p>
+              </div>
+              <div class="card-x-tools">
+                <button class="icon-btn" aria-label="Actualizar tabla"><span class="material-symbols-sharp" aria-hidden="true">refresh</span></button>
+                <button class="icon-btn" aria-label="Exportar a CSV"><span class="material-symbols-sharp" aria-hidden="true">file_download</span></button>
+              </div>
+            </div>
+
+            <div class="table-toolbar">
+              <div class="filter-scroll">
+                <button class="filter-chip active" data-filter="all">Todos</button>
+                <button class="filter-chip" data-filter="abierto">Abiertos</button>
+                <button class="filter-chip" data-filter="curso">En curso</button>
+                <button class="filter-chip" data-filter="espera">En espera</button>
+                <button class="filter-chip" data-filter="resuelto">Resueltos</button>
+              </div>
+              <div class="input-icon-wrap">
+                <span class="material-symbols-sharp" aria-hidden="true">search</span>
+                <label for="ticketSearch" class="sr-only">Buscar tickets</label>
+                <input type="search" id="ticketSearch" class="input-x" placeholder="Buscar por cliente o folio…">
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table-x table-tickets" id="ticketsTable">
+                <colgroup>
+                  <col class="col-folio">
+                  <col class="col-cliente">
+                  <col class="col-asunto">
+                  <col class="col-prioridad">
+                  <col class="col-sla">
+                  <col class="col-estado">
+                  <col class="col-acciones">
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th data-sort>Folio <span class="material-symbols-sharp sort-ind" aria-hidden="true">unfold_more</span></th>
+                    <th data-sort>Cliente <span class="material-symbols-sharp sort-ind" aria-hidden="true">unfold_more</span></th>
+                    <th data-sort>Asunto <span class="material-symbols-sharp sort-ind" aria-hidden="true">unfold_more</span></th>
+                    <th data-sort>Prioridad <span class="material-symbols-sharp sort-ind" aria-hidden="true">unfold_more</span></th>
+                    <th data-sort>SLA <span class="material-symbols-sharp sort-ind" aria-hidden="true">unfold_more</span></th>
+                    <th data-sort>Estado <span class="material-symbols-sharp sort-ind" aria-hidden="true">unfold_more</span></th>
+                    <th class="text-end">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr data-status="abierto">
+                    <td><strong>SRV-2481</strong></td>
+                    <td><div class="cell-user"><span class="avatar-fallback">GL</span><div><strong>Grupo Lerma</strong><span>Enterprise</span></div></div></td>
+                    <td>Error de sincronización en módulo de inventario</td>
+                    <td><span class="badge-x badge-danger">Alta</span></td>
+                    <td><div class="sla-cell"><div class="progress-x danger" data-value="88"><i></i></div><span class="text-muted-x" style="font-size:.72rem">42 min restantes</span></div></td>
+                    <td><span class="badge-x badge-info">Abierto</span></td>
+                    <td>
+                      <div class="row-actions">
+                        <button class="icon-btn" aria-label="Ver ticket SRV-2481" data-bs-toggle="modal" data-bs-target="#ticketModal"><span class="material-symbols-sharp icon-sm" aria-hidden="true">visibility</span></button>
+                        <button class="icon-btn" aria-label="Editar ticket SRV-2481"><span class="material-symbols-sharp icon-sm" aria-hidden="true">edit</span></button>
+                        <button class="icon-btn" aria-label="Eliminar ticket SRV-2481" data-confirm="¿Eliminar el ticket SRV-2481?"><span class="material-symbols-sharp icon-sm" aria-hidden="true">delete</span></button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr data-status="curso">
+                    <td><strong>SRV-2480</strong></td>
+                    <td><div class="cell-user"><span class="avatar-fallback">RN</span><div><strong>Retail Nova</strong><span>Corporativo</span></div></div></td>
+                    <td>Solicitud de integración con pasarela de pago</td>
+                    <td><span class="badge-x badge-warning">Media</span></td>
+                    <td><div class="sla-cell"><div class="progress-x warning" data-value="54"><i></i></div><span class="text-muted-x" style="font-size:.72rem">6 h restantes</span></div></td>
+                    <td><span class="badge-x badge-brand">En curso</span></td>
+                    <td>
+                      <div class="row-actions">
+                        <button class="icon-btn" aria-label="Ver ticket SRV-2480" data-bs-toggle="modal" data-bs-target="#ticketModal"><span class="material-symbols-sharp icon-sm" aria-hidden="true">visibility</span></button>
+                        <button class="icon-btn" aria-label="Editar ticket SRV-2480"><span class="material-symbols-sharp icon-sm" aria-hidden="true">edit</span></button>
+                        <button class="icon-btn" aria-label="Eliminar ticket SRV-2480" data-confirm="¿Eliminar el ticket SRV-2480?"><span class="material-symbols-sharp icon-sm" aria-hidden="true">delete</span></button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr data-status="espera">
+                    <td><strong>SRV-2478</strong></td>
+                    <td><div class="cell-user"><span class="avatar-fallback">CD</span><div><strong>Clínica Dorel</strong><span>PyME</span></div></div></td>
+                    <td>Capacitación adicional para personal nuevo</td>
+                    <td><span class="badge-x badge-navy">Baja</span></td>
+                    <td><div class="sla-cell"><div class="progress-x" data-value="26"><i></i></div><span class="text-muted-x" style="font-size:.72rem">3 d restantes</span></div></td>
+                    <td><span class="badge-x badge-warning">En espera</span></td>
+                    <td>
+                      <div class="row-actions">
+                        <button class="icon-btn" aria-label="Ver ticket SRV-2478" data-bs-toggle="modal" data-bs-target="#ticketModal"><span class="material-symbols-sharp icon-sm" aria-hidden="true">visibility</span></button>
+                        <button class="icon-btn" aria-label="Editar ticket SRV-2478"><span class="material-symbols-sharp icon-sm" aria-hidden="true">edit</span></button>
+                        <button class="icon-btn" aria-label="Eliminar ticket SRV-2478" data-confirm="¿Eliminar el ticket SRV-2478?"><span class="material-symbols-sharp icon-sm" aria-hidden="true">delete</span></button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr data-status="curso">
+                    <td><strong>SRV-2476</strong></td>
+                    <td><div class="cell-user"><span class="avatar-fallback">IV</span><div><strong>Industrias Vega</strong><span>Enterprise</span></div></div></td>
+                    <td>Ajuste de reportes de facturación CFDI 4.0</td>
+                    <td><span class="badge-x badge-danger">Alta</span></td>
+                    <td><div class="sla-cell"><div class="progress-x warning" data-value="61"><i></i></div><span class="text-muted-x" style="font-size:.72rem">4 h restantes</span></div></td>
+                    <td><span class="badge-x badge-brand">En curso</span></td>
+                    <td>
+                      <div class="row-actions">
+                        <button class="icon-btn" aria-label="Ver ticket SRV-2476" data-bs-toggle="modal" data-bs-target="#ticketModal"><span class="material-symbols-sharp icon-sm" aria-hidden="true">visibility</span></button>
+                        <button class="icon-btn" aria-label="Editar ticket SRV-2476"><span class="material-symbols-sharp icon-sm" aria-hidden="true">edit</span></button>
+                        <button class="icon-btn" aria-label="Eliminar ticket SRV-2476" data-confirm="¿Eliminar el ticket SRV-2476?"><span class="material-symbols-sharp icon-sm" aria-hidden="true">delete</span></button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr data-status="resuelto">
+                    <td><strong>SRV-2472</strong></td>
+                    <td><div class="cell-user"><span class="avatar-fallback">HM</span><div><strong>Hotel Marea</strong><span>PyME</span></div></div></td>
+                    <td>Restablecer accesos de administrador</td>
+                    <td><span class="badge-x badge-navy">Baja</span></td>
+                    <td><div class="sla-cell"><div class="progress-x success" data-value="100"><i></i></div><span class="text-muted-x" style="font-size:.72rem">Cumplido</span></div></td>
+                    <td><span class="badge-x badge-success">Resuelto</span></td>
+                    <td>
+                      <div class="row-actions">
+                        <button class="icon-btn" aria-label="Ver ticket SRV-2472" data-bs-toggle="modal" data-bs-target="#ticketModal"><span class="material-symbols-sharp icon-sm" aria-hidden="true">visibility</span></button>
+                        <button class="icon-btn" aria-label="Editar ticket SRV-2472"><span class="material-symbols-sharp icon-sm" aria-hidden="true">edit</span></button>
+                        <button class="icon-btn" aria-label="Eliminar ticket SRV-2472" data-confirm="¿Eliminar el ticket SRV-2472?"><span class="material-symbols-sharp icon-sm" aria-hidden="true">delete</span></button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr data-status="abierto">
+                    <td><strong>SRV-2470</strong></td>
+                    <td><div class="cell-user"><span class="avatar-fallback">FL</span><div><strong>Farmacias Luz</strong><span>Corporativo</span></div></div></td>
+                    <td>Lentitud en carga de catálogo de productos</td>
+                    <td><span class="badge-x badge-warning">Media</span></td>
+                    <td><div class="sla-cell"><div class="progress-x warning" data-value="47"><i></i></div><span class="text-muted-x" style="font-size:.72rem">9 h restantes</span></div></td>
+                    <td><span class="badge-x badge-info">Abierto</span></td>
+                    <td>
+                      <div class="row-actions">
+                        <button class="icon-btn" aria-label="Ver ticket SRV-2470" data-bs-toggle="modal" data-bs-target="#ticketModal"><span class="material-symbols-sharp icon-sm" aria-hidden="true">visibility</span></button>
+                        <button class="icon-btn" aria-label="Editar ticket SRV-2470"><span class="material-symbols-sharp icon-sm" aria-hidden="true">edit</span></button>
+                        <button class="icon-btn" aria-label="Eliminar ticket SRV-2470" data-confirm="¿Eliminar el ticket SRV-2470?"><span class="material-symbols-sharp icon-sm" aria-hidden="true">delete</span></button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr data-status="resuelto">
+                    <td><strong>SRV-2469</strong></td>
+                    <td><div class="cell-user"><span class="avatar-fallback">TR</span><div><strong>Transportes Río</strong><span>PyME</span></div></div></td>
+                    <td>Alta de 6 usuarios en sucursal norte</td>
+                    <td><span class="badge-x badge-navy">Baja</span></td>
+                    <td><div class="sla-cell"><div class="progress-x success" data-value="100"><i></i></div><span class="text-muted-x" style="font-size:.72rem">Cumplido</span></div></td>
+                    <td><span class="badge-x badge-success">Resuelto</span></td>
+                    <td>
+                      <div class="row-actions">
+                        <button class="icon-btn" aria-label="Ver ticket SRV-2469" data-bs-toggle="modal" data-bs-target="#ticketModal"><span class="material-symbols-sharp icon-sm" aria-hidden="true">visibility</span></button>
+                        <button class="icon-btn" aria-label="Editar ticket SRV-2469"><span class="material-symbols-sharp icon-sm" aria-hidden="true">edit</span></button>
+                        <button class="icon-btn" aria-label="Eliminar ticket SRV-2469" data-confirm="¿Eliminar el ticket SRV-2469?"><span class="material-symbols-sharp icon-sm" aria-hidden="true">delete</span></button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr data-status="espera">
+                    <td><strong>SRV-2465</strong></td>
+                    <td><div class="cell-user"><span class="avatar-fallback">CA</span><div><strong>Colegio Aurora</strong><span>Educación</span></div></div></td>
+                    <td>Revisión de contrato de mantenimiento</td>
+                    <td><span class="badge-x badge-warning">Media</span></td>
+                    <td><div class="sla-cell"><div class="progress-x" data-value="33"><i></i></div><span class="text-muted-x" style="font-size:.72rem">2 d restantes</span></div></td>
+                    <td><span class="badge-x badge-warning">En espera</span></td>
+                    <td>
+                      <div class="row-actions">
+                        <button class="icon-btn" aria-label="Ver ticket SRV-2465" data-bs-toggle="modal" data-bs-target="#ticketModal"><span class="material-symbols-sharp icon-sm" aria-hidden="true">visibility</span></button>
+                        <button class="icon-btn" aria-label="Editar ticket SRV-2465"><span class="material-symbols-sharp icon-sm" aria-hidden="true">edit</span></button>
+                        <button class="icon-btn" aria-label="Eliminar ticket SRV-2465" data-confirm="¿Eliminar el ticket SRV-2465?"><span class="material-symbols-sharp icon-sm" aria-hidden="true">delete</span></button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="p-4 text-center text-muted-x" id="ticketsEmpty" hidden>
+                <span class="material-symbols-sharp" style="font-size:42px;opacity:.4" aria-hidden="true">search_off</span>
+                <p class="mb-0 mt-2">No hay tickets que coincidan con el filtro.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-xl-4">
+          <div class="card-x h-100">
+            <div class="card-x-header">
+              <div>
+                <h3 class="card-x-title">Actividad de hoy</h3>
+                <p class="card-x-sub">22 de septiembre</p>
+              </div>
+              <span class="badge-x badge-navy">14 eventos</span>
+            </div>
+            <div class="card-x-body">
+              <div class="timeline">
+                <div class="timeline-item">
+                  <span class="timeline-dot success" aria-hidden="true"></span>
+                  <div class="timeline-time">12:12</div>
+                  <div class="timeline-title">Oportunidad ganada</div>
+                  <p class="timeline-desc">Grupo Lerma firmó por $182,400 MXN.</p>
+                </div>
+                <div class="timeline-item">
+                  <span class="timeline-dot" aria-hidden="true"></span>
+                  <div class="timeline-time">11:42</div>
+                  <div class="timeline-title">Cotización enviada</div>
+                  <p class="timeline-desc">COT-1043 a Industrias Vega, vigencia 15 días.</p>
+                </div>
+                <div class="timeline-item">
+                  <span class="timeline-dot warning" aria-hidden="true"></span>
+                  <div class="timeline-time">10:58</div>
+                  <div class="timeline-title">SLA en riesgo</div>
+                  <p class="timeline-desc">Ticket SRV-2481 escalado a soporte nivel 2.</p>
+                </div>
+                <div class="timeline-item">
+                  <span class="timeline-dot danger" aria-hidden="true"></span>
+                  <div class="timeline-time">10:12</div>
+                  <div class="timeline-title">Oportunidad perdida</div>
+                  <p class="timeline-desc">Textiles Ancla eligió a un competidor.</p>
+                </div>
+                <div class="timeline-item">
+                  <span class="timeline-dot success" aria-hidden="true"></span>
+                  <div class="timeline-time">09:42</div>
+                  <div class="timeline-title">Ticket resuelto</div>
+                  <p class="timeline-desc">SRV-2472 cerrado con CSAT de 5 estrellas.</p>
+                </div>
+                <div class="timeline-item">
+                  <span class="timeline-dot" aria-hidden="true"></span>
+                  <div class="timeline-time">08:30</div>
+                  <div class="timeline-title">Nuevo lead</div>
+                  <p class="timeline-desc">Mariana Ortiz solicitó una demo del plan Pro.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------- Fila 6: equipo, clientes, CSAT ---------- -->
+      <div class="row g-3 mb-3">
+        <div class="col-lg-4">
+          <div class="card-x h-100 hoverable">
+            <div class="card-x-header">
+              <div>
+                <h3 class="card-x-title">Top vendedores</h3>
+                <p class="card-x-sub">Cierres del mes</p>
+              </div>
+              <a href="#" style="font-size:.82rem">Ver todos</a>
+            </div>
+            <div class="list-x">
+              <div class="list-row">
+                <span class="avatar-fallback">SM</span>
+                <div><strong>Sofía Márquez</strong><span>32 cierres</span></div>
+                <div class="list-value"><b>$412K</b><br><span class="badge-x badge-success">+18%</span></div>
+              </div>
+              <div class="list-row">
+                <span class="avatar-fallback">AR</span>
+                <div><strong>Andrés Rivas</strong><span>27 cierres</span></div>
+                <div class="list-value"><b>$368K</b><br><span class="badge-x badge-success">+11%</span></div>
+              </div>
+              <div class="list-row">
+                <span class="avatar-fallback">CP</span>
+                <div><strong>Carla Peña</strong><span>24 cierres</span></div>
+                <div class="list-value"><b>$295K</b><br><span class="badge-x badge-warning">+3%</span></div>
+              </div>
+              <div class="list-row">
+                <span class="avatar-fallback">LM</span>
+                <div><strong>Luis Mendoza</strong><span>19 cierres</span></div>
+                <div class="list-value"><b>$208K</b><br><span class="badge-x badge-danger">-6%</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-lg-4">
+          <div class="card-x h-100 hoverable">
+            <div class="card-x-header">
+              <div>
+                <h3 class="card-x-title">Cuentas clave</h3>
+                <p class="card-x-sub">Por ingreso recurrente anual</p>
+              </div>
+              <a href="#" style="font-size:.82rem">Ver todas</a>
+            </div>
+            <div class="list-x">
+              <div class="list-row">
+                <span class="avatar-fallback">IV</span>
+                <div><strong>Industrias Vega</strong><span>Enterprise · 4 contratos</span></div>
+                <div class="list-value"><b>$1.2M</b></div>
+              </div>
+              <div class="list-row">
+                <span class="avatar-fallback">RN</span>
+                <div><strong>Retail Nova</strong><span>Corporativo · 3 contratos</span></div>
+                <div class="list-value"><b>$864K</b></div>
+              </div>
+              <div class="list-row">
+                <span class="avatar-fallback">GL</span>
+                <div><strong>Grupo Lerma</strong><span>Enterprise · 2 contratos</span></div>
+                <div class="list-value"><b>$712K</b></div>
+              </div>
+              <div class="list-row">
+                <span class="avatar-fallback">FL</span>
+                <div><strong>Farmacias Luz</strong><span>Corporativo · 6 contratos</span></div>
+                <div class="list-value"><b>$598K</b></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-lg-4">
+          <div class="card-x h-100">
+            <div class="card-x-header">
+              <div>
+                <h3 class="card-x-title">Satisfacción del cliente</h3>
+                <p class="card-x-sub">NPS trimestral</p>
+              </div>
+              <button class="icon-btn" aria-label="Opciones"><span class="material-symbols-sharp" aria-hidden="true">more_vert</span></button>
+            </div>
+            <div class="card-x-body text-center">
+              <div class="chart-gauge">
+                <canvas id="csatChart" aria-label="Distribución de promotores, pasivos y detractores" role="img"></canvas>
+                <div style="position:absolute;left:0;right:0;bottom:8px">
+                  <div class="font-heading" style="font-size:2rem;font-weight:700;line-height:1">+63</div>
+                  <div class="text-muted-x" style="font-size:.78rem">NPS global</div>
+                </div>
+              </div>
+              <div class="row g-2 mt-2">
+                <div class="col-4"><div class="badge-x badge-success w-100 justify-content-center">72% prom.</div></div>
+                <div class="col-4"><div class="badge-x badge-warning w-100 justify-content-center">19% pas.</div></div>
+                <div class="col-4"><div class="badge-x badge-danger w-100 justify-content-center">9% det.</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------- Fila 7: agenda + metas + demo de componentes ---------- -->
+      <div class="row g-3">
+        <div class="col-lg-4" id="agenda">
+          <div class="card-x h-100">
+            <div class="card-x-header">
+              <div>
+                <h3 class="card-x-title">Agenda</h3>
+                <p class="card-x-sub">Próximas actividades</p>
+              </div>
+              <button class="btn-x btn-soft-x btn-sm-x">
+                <span class="material-symbols-sharp icon-sm" aria-hidden="true">add</span>
+                <span class="btn-label">Evento</span>
+              </button>
+            </div>
+            <div class="list-x">
+              <div class="list-row">
+                <span class="stat-icon mb-0" style="width:38px;height:38px;background:var(--info-soft);color:var(--info)">
+                  <span class="material-symbols-sharp icon-sm" aria-hidden="true">videocam</span>
+                </span>
+                <div><strong>Demo — Retail Nova</strong><span>Hoy · 15:00 · Google Meet</span></div>
+              </div>
+              <div class="list-row">
+                <span class="stat-icon mb-0" style="width:38px;height:38px;background:var(--brand-soft);color:var(--ag-blue)">
+                  <span class="material-symbols-sharp icon-sm" aria-hidden="true">gavel</span>
+                </span>
+                <div><strong>Revisión legal — Piedra</strong><span>Mañana · 10:30</span></div>
+              </div>
+              <div class="list-row">
+                <span class="stat-icon mb-0" style="width:38px;height:38px;background:var(--warning-soft);color:var(--warning)">
+                  <span class="material-symbols-sharp icon-sm" aria-hidden="true">build</span>
+                </span>
+                <div><strong>Visita técnica — Vega</strong><span>Jue 25 · 09:00 · Planta 2</span></div>
+              </div>
+              <div class="list-row">
+                <span class="stat-icon mb-0" style="width:38px;height:38px;background:var(--success-soft);color:var(--success)">
+                  <span class="material-symbols-sharp icon-sm" aria-hidden="true">school</span>
+                </span>
+                <div><strong>Capacitación — Aurora</strong><span>Vie 26 · 11:00</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-lg-4">
+          <div class="card-x h-100">
+            <div class="card-x-header">
+              <div>
+                <h3 class="card-x-title">Metas del trimestre</h3>
+                <p class="card-x-sub">Q3 2026</p>
+              </div>
+              <span class="badge-x badge-brand">68% global</span>
+            </div>
+            <div class="card-x-body d-flex flex-column gap-3">
+              <div>
+                <div class="d-flex justify-content-between mb-1"><span style="font-size:.85rem">Ingresos nuevos</span><strong style="font-size:.85rem">74%</strong></div>
+                <div class="progress-x" data-value="74"><i></i></div>
+              </div>
+              <div>
+                <div class="d-flex justify-content-between mb-1"><span style="font-size:.85rem">Renovaciones</span><strong style="font-size:.85rem">88%</strong></div>
+                <div class="progress-x success" data-value="88"><i></i></div>
+              </div>
+              <div>
+                <div class="d-flex justify-content-between mb-1"><span style="font-size:.85rem">Upsell / cross-sell</span><strong style="font-size:.85rem">52%</strong></div>
+                <div class="progress-x warning" data-value="52"><i></i></div>
+              </div>
+              <div>
+                <div class="d-flex justify-content-between mb-1"><span style="font-size:.85rem">Cumplimiento de SLA</span><strong style="font-size:.85rem">96%</strong></div>
+                <div class="progress-x brand" data-value="96"><i></i></div>
+              </div>
+              <div>
+                <div class="d-flex justify-content-between mb-1"><span style="font-size:.85rem">Tickets reabiertos</span><strong style="font-size:.85rem">11%</strong></div>
+                <div class="progress-x danger" data-value="11"><i></i></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-lg-4">
+          <div class="card-x h-100">
+            <div class="card-x-header">
+              <div>
+                <h3 class="card-x-title">Acciones rápidas</h3>
+                <p class="card-x-sub">Componentes interactivos del sistema</p>
+              </div>
+            </div>
+            <div class="card-x-body d-flex flex-column gap-2">
+              <button class="btn-x btn-primary-x w-100" data-loading data-loading-msg="Se sincronizaron 214 registros con el ERP.">
+                <span class="btn-label"><span class="material-symbols-sharp icon-sm" aria-hidden="true">sync</span> Sincronizar con ERP</span>
+                <span class="btn-spinner" aria-hidden="true"><span class="spinner-ring"></span></span>
+              </button>
+              <button class="btn-x btn-cta-x w-100" onclick="toast('success','Reporte generado','El PDF se envió a tu correo.')">
+                <span class="btn-label"><span class="material-symbols-sharp icon-sm" aria-hidden="true">picture_as_pdf</span> Generar reporte</span>
+              </button>
+              <button class="btn-x btn-ghost-x w-100" onclick="toast('warning','Recordatorio programado','Se notificará al equipo 30 min antes.')">
+                <span class="btn-label"><span class="material-symbols-sharp icon-sm" aria-hidden="true">alarm</span> Programar recordatorio</span>
+              </button>
+              <button class="btn-x btn-soft-x w-100" id="cmdHint">
+                <span class="btn-label"><span class="material-symbols-sharp icon-sm" aria-hidden="true">keyboard_command_key</span> Búsqueda global <kbd class="kbd-hint">Ctrl</kbd><kbd class="kbd-hint">K</kbd></span>
+              </button>
+              <button class="btn-x btn-danger-x w-100" data-confirm="¿Archivar las oportunidades inactivas?" data-confirm-text="Se archivarán 12 oportunidades sin movimiento en 90 días.">
+                <span class="btn-label"><span class="material-symbols-sharp icon-sm" aria-hidden="true">archive</span> Archivar inactivas</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <footer class="footer-x">
+      <nav aria-label="Enlaces del pie de página">
+        <a href="index.html">Inicio</a>
+        <a href="#">Documentación</a>
+        <a href="#">Soporte</a>
+        <a href="#">Términos</a>
+        <a href="#">Privacidad</a>
+      </nav>
+      <span>© 2026 Mi Cliente AG · Ventas &amp; Servicio</span>
+    </footer>
+  </main>
+</div>
+
+<!-- ============================ MODAL: NUEVA OPORTUNIDAD ============================ -->
+<div class="modal fade" id="dealModal" tabindex="-1" aria-labelledby="dealModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-fullscreen-sm-down modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="dealModalTitle">Nueva oportunidad</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="tabs-x mb-3" data-tabs="deal" role="tablist">
+          <button class="tab-x active" role="tab" aria-selected="true" data-tab-panel="dealGeneral">General</button>
+          <button class="tab-x" role="tab" aria-selected="false" data-tab-panel="dealProducts">Productos</button>
+          <button class="tab-x" role="tab" aria-selected="false" data-tab-panel="dealNotes">Notas</button>
+        </div>
+
+        <div id="dealGeneral" data-tab-content="deal">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label" style="font-size:.82rem;font-weight:600" for="dealName">Nombre de la oportunidad *</label>
+              <input class="input-x" id="dealName" placeholder="Ej. Implementación ERP — Grupo Lerma">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" style="font-size:.82rem;font-weight:600" for="dealAccount">Cuenta *</label>
+              <select class="input-x" id="dealAccount">
+                <option>Grupo Lerma</option>
+                <option>Industrias Vega</option>
+                <option>Retail Nova</option>
+                <option>Farmacias Luz</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" style="font-size:.82rem;font-weight:600" for="dealAmount">Monto (MXN)</label>
+              <input class="input-x" id="dealAmount" type="number" placeholder="145000">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" style="font-size:.82rem;font-weight:600" for="dealStage">Etapa</label>
+              <select class="input-x" id="dealStage">
+                <option>Prospección</option>
+                <option>Calificación</option>
+                <option>Propuesta</option>
+                <option>Negociación</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" style="font-size:.82rem;font-weight:600" for="dealDate">Cierre estimado</label>
+              <input class="input-x" id="dealDate" type="date">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" style="font-size:.82rem;font-weight:600" for="dealOwner">Responsable</label>
+              <select class="input-x" id="dealOwner">
+                <option>Sofía Márquez</option>
+                <option>Andrés Rivas</option>
+                <option>Carla Peña</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" style="font-size:.82rem;font-weight:600" for="dealSource">Origen</label>
+              <select class="input-x" id="dealSource">
+                <option>Sitio web</option>
+                <option>Referido</option>
+                <option>Campaña</option>
+                <option>Partner</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div id="dealProducts" data-tab-content="deal" hidden>
+          <table class="table-x">
+            <thead><tr><th>Producto</th><th>Cant.</th><th>Precio</th><th class="text-end">Importe</th></tr></thead>
+            <tbody>
+              <tr><td>Licencia Pro (anual)</td><td>32</td><td>$2,000</td><td class="text-end"><strong>$64,000</strong></td></tr>
+              <tr><td>Implementación</td><td>1</td><td>$58,000</td><td class="text-end"><strong>$58,000</strong></td></tr>
+              <tr><td>Soporte premium 24/7</td><td>1</td><td>$23,000</td><td class="text-end"><strong>$23,000</strong></td></tr>
+            </tbody>
+          </table>
+          <div class="d-flex justify-content-end gap-4 mt-3 pe-2">
+            <span class="text-muted-x">Total</span>
+            <strong class="font-heading" style="font-size:1.15rem">$145,000 MXN</strong>
+          </div>
+        </div>
+
+        <div id="dealNotes" data-tab-content="deal" hidden>
+          <label class="form-label" style="font-size:.82rem;font-weight:600" for="dealNote">Nota interna</label>
+          <textarea class="input-x" id="dealNote" rows="5" placeholder="Contexto del cliente, objeciones, próximos pasos…"></textarea>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-x btn-ghost-x" data-bs-dismiss="modal"><span class="btn-label">Cancelar</span></button>
+        <button class="btn-x btn-primary-x" data-loading data-loading-msg="La oportunidad se agregó al pipeline.">
+          <span class="btn-label">Guardar oportunidad</span>
+          <span class="btn-spinner" aria-hidden="true"><span class="spinner-ring"></span></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ MODAL: TICKET ============================ -->
+<div class="modal fade" id="ticketModal" tabindex="-1" aria-labelledby="ticketModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-fullscreen-sm-down modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title" id="ticketModalTitle">SRV-2481 — Error de sincronización</h5>
+          <div class="d-flex gap-2 mt-1">
+            <span class="badge-x badge-danger">Alta</span>
+            <span class="badge-x badge-info">Abierto</span>
+            <span class="badge-x badge-navy">Grupo Lerma</span>
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="row g-3 mb-3">
+          <div class="col-sm-4"><div class="card-x-sub">Agente asignado</div><strong>Andrés Rivas</strong></div>
+          <div class="col-sm-4"><div class="card-x-sub">Canal</div><strong>Correo electrónico</strong></div>
+          <div class="col-sm-4"><div class="card-x-sub">SLA restante</div><strong style="color:var(--danger)">42 minutos</strong></div>
+        </div>
+
+        <div class="tabs-x mb-3" data-tabs="ticket" role="tablist">
+          <button class="tab-x active" role="tab" aria-selected="true" data-tab-panel="tkDesc">Descripción</button>
+          <button class="tab-x" role="tab" aria-selected="false" data-tab-panel="tkHistory">Historial</button>
+          <button class="tab-x" role="tab" aria-selected="false" data-tab-panel="tkFiles">Archivos</button>
+        </div>
+
+        <div id="tkDesc" data-tab-content="ticket">
+          <p class="mb-2">El módulo de inventario deja de sincronizar con el ERP después de las 18:00 h. Se reproduce en las sucursales Norte y Centro. El cliente reporta diferencias de stock de hasta 40 piezas.</p>
+          <p class="text-muted-x mb-0" style="font-size:.85rem">Reportado el 22/09/2026 08:14 por Ana Lerma (Coordinadora de operaciones).</p>
+        </div>
+
+        <div id="tkHistory" data-tab-content="ticket" hidden>
+          <div class="timeline">
+            <div class="timeline-item"><span class="timeline-dot warning" aria-hidden="true"></span><div class="timeline-time">10:58</div><div class="timeline-title">Escalado a nivel 2</div><p class="timeline-desc">Andrés Rivas asignó el caso al equipo de integraciones.</p></div>
+            <div class="timeline-item"><span class="timeline-dot" aria-hidden="true"></span><div class="timeline-time">09:30</div><div class="timeline-title">Primera respuesta</div><p class="timeline-desc">Se solicitaron logs del conector ERP.</p></div>
+            <div class="timeline-item"><span class="timeline-dot success" aria-hidden="true"></span><div class="timeline-time">08:14</div><div class="timeline-title">Ticket creado</div><p class="timeline-desc">Origen: correo electrónico.</p></div>
+          </div>
+        </div>
+
+        <div id="tkFiles" data-tab-content="ticket" hidden>
+          <div class="d-flex flex-column gap-2">
+            <div class="d-flex align-items-center gap-2 p-2 border rounded" style="border-color:var(--border)!important">
+              <i class="fa-regular fa-file-lines fa-lg" style="color:var(--danger)" aria-hidden="true"></i>
+              <div class="flex-grow-1"><strong style="font-size:.85rem">log-conector-erp.txt</strong><div class="card-x-sub">248 KB</div></div>
+              <button class="icon-btn" aria-label="Descargar log-conector-erp.txt"><span class="material-symbols-sharp icon-sm" aria-hidden="true">download</span></button>
+            </div>
+            <div class="d-flex align-items-center gap-2 p-2 border rounded" style="border-color:var(--border)!important">
+              <i class="fa-regular fa-image fa-lg" style="color:var(--info)" aria-hidden="true"></i>
+              <div class="flex-grow-1"><strong style="font-size:.85rem">captura-inventario.png</strong><div class="card-x-sub">1.2 MB</div></div>
+              <button class="icon-btn" aria-label="Descargar captura-inventario.png"><span class="material-symbols-sharp icon-sm" aria-hidden="true">download</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-x btn-ghost-x" data-bs-dismiss="modal"><span class="btn-label">Cerrar</span></button>
+        <button class="btn-x btn-soft-x" onclick="toast('info','Ticket reasignado','Ahora lo atiende el equipo de integraciones.')"><span class="btn-label">Reasignar</span></button>
+        <button class="btn-x btn-success-x" data-loading data-loading-msg="El ticket SRV-2481 se marcó como resuelto.">
+          <span class="btn-label">Marcar resuelto</span>
+          <span class="btn-spinner" aria-hidden="true"><span class="spinner-ring"></span></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ COMMAND PALETTE ============================ -->
+<div class="cmdk-backdrop" id="cmdkBackdrop"></div>
+<div class="cmdk" id="cmdk" role="dialog" aria-label="Búsqueda global">
+  <label for="cmdkInput" class="sr-only">Buscar en el CRM</label>
+  <input class="cmdk-input" id="cmdkInput" placeholder="Buscar clientes, oportunidades, tickets o acciones…" autocomplete="off">
+  <div class="cmdk-list" data-cmdk-nav></div>
+</div>
+
+<!-- ============================ BOTTOM NAV (móvil) ============================ -->
+<nav class="bottom-nav" aria-label="Navegación inferior">
+  <a href="#inicio" class="active">
+    <span class="material-symbols-sharp" aria-hidden="true">dashboard</span>
+    Inicio
+  </a>
+  <a href="#pipeline">
+    <span class="material-symbols-sharp" aria-hidden="true">view_kanban</span>
+    Pipeline
+  </a>
+  <a href="#" class="fab" data-bs-toggle="modal" data-bs-target="#dealModal" aria-label="Crear oportunidad">
+    <span class="material-symbols-sharp icon-lg" aria-hidden="true">add</span>
+  </a>
+  <a href="#tickets">
+    <span class="material-symbols-sharp" aria-hidden="true">support_agent</span>
+    Tickets
+  </a>
+  <a href="#" data-chat-open="chatWin1">
+    <span class="material-symbols-sharp" aria-hidden="true">chat</span>
+    Chat
+  </a>
+</nav>
+
+<!-- ============================ CHAT DOCK ============================ -->
+<div class="chat-dock">
+  <div class="chat-window" id="chatWin1">
+    <div class="chat-head">
+      <span class="avatar-fallback" style="width:28px;height:28px;font-size:.68rem">SM</span>
+      <strong>Sofía Márquez</strong>
+      <button class="icon-btn" style="width:28px;height:28px" aria-label="Llamar a Sofía Márquez"><span class="material-symbols-sharp icon-sm" aria-hidden="true">call</span></button>
+      <button class="icon-btn" style="width:28px;height:28px" data-chat-close aria-label="Cerrar conversación"><span class="material-symbols-sharp icon-sm" aria-hidden="true">close</span></button>
+    </div>
+    <div class="chat-body">
+      <div class="bubble in">¿Ya salió la propuesta de Industrias Vega?</div>
+      <div class="bubble out">Sí, COT-1043 enviada hace una hora.</div>
+      <div class="bubble in">Perfecto. ¿Incluiste el descuento por volumen?</div>
+      <div class="bubble out">Incluido, 12% sobre licencias.</div>
+      <div class="bubble in">Excelente, les doy seguimiento el jueves.</div>
+    </div>
+    <div class="chat-foot">
+      <label for="chatInput1" class="sr-only">Mensaje</label>
+      <input class="input-x" id="chatInput1" placeholder="Escribe un mensaje…">
+      <button class="btn-x btn-primary-x" style="min-width:42px;padding:.4rem" aria-label="Enviar mensaje">
+        <span class="material-symbols-sharp icon-sm" aria-hidden="true">send</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Toasts -->
+<div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.12.0/dist/sweetalert2.all.min.js"></script>
+<script src="assets/js/modules.js"></script>
+<script src="assets/js/main.js"></script>
+<script>
+  document.getElementById('cmdHint')?.addEventListener('click', function () {
+    document.getElementById('searchTrigger').click();
+  });
+</script>
+</body>
+</html>

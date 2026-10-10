@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AppConfigService } from './config/app-config.service';
@@ -9,10 +10,18 @@ import { AppLogger } from './infrastructure/logging/app-logger.service';
 
 async function bootstrap(): Promise<void> {
   // bufferLogs evita perder eventos de arranque antes de resolver el logger propio.
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
 
   const config = app.get(AppConfigService);
   const logger = app.get(AppLogger);
+
+  // Detras de NGINX `req.ip` seria siempre la IP del proxy y el rate limiting
+  // trataria a todos los usuarios como uno solo. Se confia en exactamente UN
+  // salto: la API solo es alcanzable a traves de NGINX (no publica puerto en
+  // Compose) y NGINX sobrescribe X-Forwarded-For con la IP real. Confiar por
+  // rango de red no sirve: en una red corporativa los clientes tambien tienen
+  // IP privada y podrian falsear la suya enviando la cabecera.
+  app.set('trust proxy', 1);
 
   app.use(helmet());
 
