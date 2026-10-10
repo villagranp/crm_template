@@ -5,6 +5,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-09
+
 ### Added
 - Proyecto creado a partir de project-template v1.0.1.
 - Autenticación local (PLAN-AUTH-LOCAL): login, refresh con rotación y
