@@ -104,13 +104,13 @@ o `DM-n`). Ninguna regla de negocio no escrita se aplica sin estar marcada.
 
 | # | Regla | Origen |
 |---|---|---|
-| RN-04.1 | Toda visita y toda actividad pertenecen a **un cliente** válido, no eliminado (`customers.deleted_at IS NULL`). El proyecto es opcional y, si se informa, debe ser **de ese cliente** (FK compuesta `(project_id, customer_id)`). La oportunidad (solo actividades) exige proyecto y debe ser **de ese proyecto** (FK compuesta + `ck_activities_opportunity_needs_project`). El caso de uso lo valida antes de escribir y devuelve `422` con código propio; la FK es la última barrera | ALCANCE §2, §6.6.1 "validar relaciones"; 00 §2.10 |
+| RN-04.1 | Toda visita y toda actividad pertenecen a **un cliente** válido, no eliminado (`customers.deleted_at IS NULL`). El proyecto es opcional y, si se informa, debe ser **de ese cliente** (FK compuesta `(project_id, customer_id)`). La oportunidad (solo actividades) exige proyecto y debe ser **de ese proyecto** (FK compuesta + `ck_activities_opportunity_needs_project`). El caso de uso lo valida antes de escribir y devuelve `422` con código propio; la FK es la última barrera. El cliente se valida con `CustomerReferenceGuard.assertUsableCustomer(customerId, actor, { requireActive })` del Módulo 2 (02 F.6.3): inexistente, eliminado o no visible → `404 RESOURCE_NOT_FOUND`; en altas, un cliente con estado inactivo → `422 CUSTOMER_INACTIVE` (D-02.16; en ediciones que no cambian el cliente no se exige `requireActive`) | ALCANCE §2, §6.6.1 "validar relaciones"; 00 §2.10 |
 | RN-04.2 | Un proyecto u oportunidad eliminados lógicamente no se pueden asociar a una visita o actividad **nueva**; los registros existentes conservan el vínculo | 00 P3 |
 | RN-04.3 | Tipos, estados, prioridades, motivos y resultados se leen de `catalog_items` (`crm.tipo_actividad`, `crm.estado_actividad`, `crm.estado_visita`, `crm.prioridad`, `crm.motivo_reprogramacion`, `crm.motivo_cancelacion`, `crm.resultado_interaccion`). Cada escritura de una columna `*_id` hacia catálogo pasa por `CatalogReferenceValidator.assertItem(key, id, { requireActive })` → `422 INVALID_CATALOG_VALUE`. En altas se exige elemento activo; en ediciones que no cambian el valor se conserva un elemento ya desactivado | ALCANCE §1 regla 8, §6.6; 00 §3.5 |
 | RN-04.4 | La lógica nunca compara etiquetas ni UUID: usa la semántica de `metadata` (`isOpen`, `isCompleted`, `isCancelled`, `isPending`, `isDone`, `isConfirmed`, `weight`, `isInteraction`, `fields`). La única referencia por `code` es la del estado `REPROGRAMADA` (D-04.3) | 00 §3.3 |
 | RN-04.5 | El **responsable** (`owner_id`) es por defecto el usuario autenticado. Asignar otro responsable exige `visitas.administrar` / `actividades.administrar`, que el usuario destino esté **activo** y **dentro del alcance** del actor (un asesor con alcance `OWN` solo puede asignarse a sí mismo) → `422 OWNER_NOT_ELIGIBLE` | 00 §4.3 (DM-34) |
-| RN-04.6 | Participantes (`interaction_participants`): exactamente uno de contacto, usuario o nombre externo (`ck_interaction_participants_subject`). Un contacto debe ser **del mismo cliente** (FK compuesta) → `422 CONTACT_CUSTOMER_MISMATCH`; al añadirlo, debe estar activo y no eliminado → `422 INACTIVE_REFERENCE`. Un usuario participante debe estar activo. Un contacto desactivado después sigue figurando en los registros históricos | ALCANCE §4.5 "proteger contactos con historia"; 00 §2.5, §2.10 |
-| RN-04.7 | Los campos obligatorios base son los de la base (`00` §2.10) más los que añada `crm.campos_obligatorios` (`visit`, `activity`). El parámetro solo **añade** obligatorios → `422 REQUIRED_FIELDS_MISSING` con la lista de campos | ALCANCE §6.5.1 "validar obligatorios", §9.4; 00 §8.2 |
+| RN-04.6 | Participantes (`interaction_participants`): exactamente uno de contacto, usuario o nombre externo (`ck_interaction_participants_subject`). Un contacto debe ser **del mismo cliente** (FK compuesta) → `422 INVALID_CONTACT`; al añadirlo, debe estar activo y no eliminado → `422 CONTACT_INACTIVE` / `422 INVALID_CONTACT` (códigos de `CustomerReferenceGuard.assertContactOfCustomer`, 02 F.6.3). Un usuario participante debe estar activo. Un contacto desactivado después sigue figurando en los registros históricos | ALCANCE §4.5 "proteger contactos con historia"; 00 §2.5, §2.10 |
+| RN-04.7 | Los campos obligatorios base son los de la base (`00` §2.10) más los que añada `crm.campos_obligatorios` (`visit`, `activity`). El parámetro solo **añade** obligatorios → `422 REQUIRED_FIELD_MISSING` con la lista de campos | ALCANCE §6.5.1 "validar obligatorios", §9.4; 00 §8.2 |
 | RN-04.8 | Valores por defecto desde `crm.valores_por_defecto` (p. ej. `activity.priorityId = MEDIA`). El estado inicial de una visita es el elemento activo de `crm.estado_visita` con `isPending` y menor `sortOrder`; el de una actividad, el de `crm.estado_actividad` con `isOpen` y menor `sortOrder` | 00 §3.3 punto 2, §8.2 |
 | RN-04.9 | Los instantes (`*_at`) se guardan en UTC (`timestamptz`) y se muestran en la zona del usuario. Las fechas de calendario (`next_action_date`) son `date`; "hoy" se calcula en `crm.zona_horaria_negocio` | 00 §2 (DM-31); D-04.17 |
 | RN-04.10 | Toda mutación de visita, evento, actividad, participante o adjunto escribe `audit_logs` con `resourceType` `crm.visit` / `crm.activity` / `crm.attachment` y la diferencia `{campo: {antes, despues}}`. Los nombres externos de participantes y datos de contacto se registran enmascarados (DM-29) | ALCANCE §9.5; 00 §1.1, §4.5 |
@@ -207,7 +207,7 @@ stateDiagram-v2
 |---|---|---|
 | FK compuesta `visits(project_id, customer_id) → projects(id, customer_id)` | Proyecto del mismo cliente | `422 PROJECT_CUSTOMER_MISMATCH` |
 | FK compuesta `activities(project_id, customer_id)` y `activities(opportunity_id, project_id)` + `ck_activities_opportunity_needs_project` | Proyecto del cliente, oportunidad del proyecto | `422 PROJECT_CUSTOMER_MISMATCH`, `422 OPPORTUNITY_PROJECT_MISMATCH`, `422 OPPORTUNITY_REQUIRES_PROJECT` |
-| FK compuestas de `interaction_participants` (padre y contacto con el mismo `customer_id`) + `ck_..._parent`, `ck_..._subject` | Participante del mismo cliente; un solo sujeto | `422 CONTACT_CUSTOMER_MISMATCH`, `400 VALIDATION_FAILED` |
+| FK compuestas de `interaction_participants` (padre y contacto con el mismo `customer_id`) + `ck_..._parent`, `ck_..._subject` | Participante del mismo cliente; un solo sujeto | `422 INVALID_CONTACT`, `400 VALIDATION_FAILED` |
 | `ck_visits_scheduled_range`, `ck_visits_actual_range` | Coherencia de fechas | `422 INVALID_DATE_RANGE` |
 | `ck_visits_confirm_requires` | Confirmación con realización y resumen | `409 INVALID_STATUS_TRANSITION`, `422 CONFIRMATION_SUMMARY_REQUIRED` |
 | `ck_visit_events_reschedule`, `ck_visit_events_reason` | Reprogramación con fechas; motivo en reprogramación y cancelación | `422 REASON_REQUIRED` |
@@ -409,7 +409,7 @@ documenta en OpenAPI (`@ApiTags('commercial-activity')`, respuestas `ErrorRespon
 
 No existe `DELETE /visits/{id}` (RN-04.20): la ruta no se declara; una petición recibe `404` del enrutador.
 
-**Query de `GET /visits`** (`VisitQueryDto extends PaginationQueryDto`): `from`, `to` (sobre la fecha de agenda RN-04.36), `statusId[]`, `ownerId[]`, `customerId`, `projectId`, `countryId`, `unregistered` (bool, RN-04.22), `pendingConfirmation` (bool), `search` (código, objetivo, razón social del cliente). `sortBy` ∈ `scheduledStartAt` (defecto), `code`, `customerName`, `ownerName`, `status`.
+**Query de `GET /visits`** (`VisitQueryDto extends PaginationQueryDto`): `from`, `to` (sobre la fecha de agenda RN-04.36), `statusId[]`, `ownerId[]`, `customerId`, `projectId`, `countryId`, `statusGroup[]` (grupos de RN-04.35 aplicables a visitas: `PENDING`, `DONE`, `CONFIRMED`, `CANCELLED`; destino de la tarjeta K6 de Inicio, 01 E.3), `unregistered` (bool, RN-04.22), `pendingConfirmation` (bool), `search` (código, objetivo, razón social del cliente). `sortBy` ∈ `scheduledStartAt` (defecto), `code`, `customerName`, `ownerName`, `status`.
 
 **`CreateVisitDto`**
 
@@ -458,7 +458,7 @@ No existe `DELETE /visits/{id}` (RN-04.20): la ruta no se declara; una petición
 
 **Query de `GET /activities`**: `typeId[]`, `statusId[]`, `priorityId[]`, `ownerId[]`, `customerId`, `projectId`, `opportunityId`, `countryId`, `scheduledFrom`, `scheduledTo`, `dueFrom`, `dueTo`, `overdue` (bool), `search` (código, asunto, razón social). `sortBy` ∈ `scheduledAt`, `dueAt` (defecto), `code`, `priority`, `customerName`, `ownerName`, `status`.
 
-**Query de `GET /activities/pending`**: `bucket` ∈ `ALL` (defecto) `| OVERDUE | DUE_SOON | PENDING`, `ownerId[]`, `typeId[]`, `priorityId[]`, `customerId`. `sortBy` ∈ `priority` (defecto, RN-04.32), `dueAt`. Respuesta: `{ data, pagination, counts: { overdue, dueSoon, pending, total } }` (los contadores ignoran `bucket` pero respetan los demás filtros y el alcance). `PendingActivityDto`: `id`, `code`, `type`, `subject`, `dueAt`, `bucket`, `priority {id,label,weight}`, `owner`, `customer`, `project`, `status`, `allowedActions`.
+**Query de `GET /activities/pending`**: `bucket` (repetible) ∈ `ALL` (defecto) `| OVERDUE | DUE_SOON | PENDING` (`bucket=DUE_SOON&bucket=PENDING` = "pendientes" de Inicio KPI-08, destino de la tarjeta K7, 01 E.3), `ownerId[]`, `typeId[]`, `priorityId[]`, `customerId`. `sortBy` ∈ `priority` (defecto, RN-04.32), `dueAt`. Respuesta: `{ data, pagination, counts: { overdue, dueSoon, pending, total } }` (los contadores ignoran `bucket` pero respetan los demás filtros y el alcance). `PendingActivityDto`: `id`, `code`, `type`, `subject`, `dueAt`, `bucket`, `priority {id,label,weight}`, `owner`, `customer`, `project`, `status`, `allowedActions`.
 
 **`CreateActivityDto`**
 
@@ -481,7 +481,7 @@ No existe `DELETE /visits/{id}` (RN-04.20): la ruta no se declara; una petición
 | `nextAction` (≤ 300), `nextActionDate` (date) | — | según tipo |
 | `completion` | `{ completedAt?, resultId?, resultNotes?, comment? }` \| null | RN-04.29 |
 
-`UpdateActivityDto` (PATCH): todos opcionales salvo `customerId` (si cambia, revalida proyecto, oportunidad y participantes; permitido solo si no hay participantes de contacto del cliente anterior → `422 CONTACT_CUSTOMER_MISMATCH`). `ActivityCompletionDto`: `completedAt?`, `resultId?`, `resultNotes?` (al menos uno de los dos), `comment?` (≤ 2000). `ActivityCancellationDto`: `comment?` (≤ 1000).
+`UpdateActivityDto` (PATCH): todos opcionales salvo `customerId` (si cambia, revalida proyecto, oportunidad y participantes; permitido solo si no hay participantes de contacto del cliente anterior → `422 INVALID_CONTACT`). `ActivityCompletionDto`: `completedAt?`, `resultId?`, `resultNotes?` (al menos uno de los dos), `comment?` (≤ 2000). `ActivityCancellationDto`: `comment?` (≤ 1000).
 
 **`ActivityDetailDto`**: `id`, `code`, `type {id, code, label, fields, isInteraction}`, `subject`, `description`, `customer`, `project`, `opportunity {id, code} | null`, `owner`, `status {id, code, label, group}`, `priority`, `scheduledAt`, `dueAt`, `dueBucket` (`OVERDUE | DUE_SOON | PENDING | null` si no está abierta), `durationMinutes`, `participants`, `summary`, `result`, `resultNotes`, `nextAction`, `nextActionDate`, `completion { completedAt, completedBy, comment } | null`, `cancelledAt`, `attachmentCount`, `allowedActions` (`EDIT`, `COMPLETE`, `CANCEL`, `DELETE`), `createdAt`, `createdBy`, `updatedAt`.
 
@@ -515,7 +515,7 @@ No existe `DELETE /visits/{id}` (RN-04.20): la ruta no se declara; una petición
 | GET | `/attachments/{attachmentId}/download` | Permiso de ver del dueño; respuesta según ADR (URL firmada o flujo) |
 | DELETE | `/attachments/{attachmentId}` | Editar el dueño; `409 RECORD_READ_ONLY` si el dueño es una visita confirmada/cancelada, un evento o una actividad completada (00 §2.11) |
 
-Validación de tamaño y tipo con `crm.adjuntos.max_mb` / `crm.adjuntos.tipos_permitidos` (`413 FILE_TOO_LARGE`, `422 FILE_TYPE_NOT_ALLOWED`); la subida usa el servicio transversal de adjuntos (D-04.10). Hasta el ADR, estas rutas **no se registran** (ninguna ruta a medias).
+Validación de tamaño y tipo con `crm.adjuntos.max_mb` / `crm.adjuntos.tipos_permitidos` (`ATTACHMENT_TOO_LARGE`, `422 ATTACHMENT_TYPE_NOT_ALLOWED`: códigos del `AttachmentsService` de 02 F.6.5; el status del exceso de tamaño, `413` o `422`, lo fija DC-4 / D-06.13); la subida usa el servicio transversal de adjuntos (D-04.10). Hasta el ADR, estas rutas **no se registran** (ninguna ruta a medias).
 
 ### F.5 Códigos de error del módulo
 
@@ -525,10 +525,12 @@ Validación de tamaño y tipo con `crm.adjuntos.max_mb` / `crm.adjuntos.tipos_pe
 | `RESOURCE_NOT_FOUND` | 404 | No existe **o** está fuera del alcance (ADR-008) |
 | `PERMISSION_DENIED` | 403 | Dentro del alcance sin el permiso, o editar un registro ajeno sin `administrar` |
 | `INVALID_CATALOG_VALUE` | 422 | 00 §3.5 |
-| `REQUIRED_FIELDS_MISSING` | 422 | RN-04.7 |
-| `UNKNOWN_REFERENCE` | 422 | Cliente, proyecto, oportunidad, contacto o usuario inexistente o no visible (código existente, PLAN-ADMIN §10) |
-| `INACTIVE_REFERENCE` | 422 | Contacto/usuario inactivo o proyecto/oportunidad eliminados en un alta |
-| `PROJECT_CUSTOMER_MISMATCH`, `OPPORTUNITY_PROJECT_MISMATCH`, `OPPORTUNITY_REQUIRES_PROJECT`, `CONTACT_CUSTOMER_MISMATCH` | 422 | RN-04.1, RN-04.6 |
+| `REQUIRED_FIELD_MISSING` | 422 | RN-04.7 |
+| `UNKNOWN_REFERENCE` | 422 | Proyecto, oportunidad o usuario inexistente o no visible (código existente, PLAN-ADMIN §10). El **cliente** no usa este código: lo valida `CustomerReferenceGuard` (02 F.6.3) y responde `404 RESOURCE_NOT_FOUND` |
+| `CUSTOMER_INACTIVE` | 422 | Cliente con estado inactivo en el alta de una visita o actividad (D-02.16, código del Módulo 2) |
+| `INVALID_CONTACT`, `CONTACT_INACTIVE` | 422 | Contacto de otro cliente o eliminado / contacto inactivo al añadirlo (códigos de `assertContactOfCustomer`, 02 F.6.3) |
+| `INACTIVE_REFERENCE` | 422 | Usuario inactivo o proyecto/oportunidad eliminados en un alta |
+| `PROJECT_CUSTOMER_MISMATCH`, `OPPORTUNITY_PROJECT_MISMATCH`, `OPPORTUNITY_REQUIRES_PROJECT` | 422 | RN-04.1 |
 | `OWNER_NOT_ELIGIBLE` | 422 | RN-04.5 |
 | `INVALID_DATE_RANGE`, `ACTUAL_DATE_IN_FUTURE`, `DATE_IN_PAST`, `RESCHEDULE_SAME_DATE` | 422 | RN-04.13, 16, 19, 28 |
 | `REASON_REQUIRED`, `CONFIRMATION_SUMMARY_REQUIRED`, `RESULT_REQUIRED` | 422 | RN-04.18–20, 28 |
@@ -538,7 +540,7 @@ Validación de tamaño y tipo con `crm.adjuntos.max_mb` / `crm.adjuntos.tipos_pe
 | `RECORD_READ_ONLY` | 409 | Editar terminal (RN-04.21, RN-04.27) |
 | `SCHEDULE_CONFLICT` | 409 | Solo con `BLOQUEAR` (RN-04.14) |
 | `RANGE_TOO_WIDE` | 400 | Calendario > 42 días |
-| `FILE_TOO_LARGE` / `FILE_TYPE_NOT_ALLOWED` | 413 / 422 | Adjuntos |
+| `ATTACHMENT_TOO_LARGE` / `ATTACHMENT_TYPE_NOT_ALLOWED` | 413 (o 422, DC-4) / 422 | Adjuntos (códigos de 02 F.6.5) |
 
 Los mensajes del frontend salen de `describeApiError` con *overrides* en español por código; nunca se muestra `message` del backend.
 
@@ -551,7 +553,7 @@ Los mensajes del frontend salen de `describeApiError` con *overrides* en españo
 | `InteractionReadModel` | `list(query, scope)`, `lastByCustomer/Project`, `followUps(query, scope, today)` | `prisma-interaction-read-model.ts` (`$queryRaw` con plantilla parametrizada, nunca `Unsafe`, con `LIMIT`) |
 | `AgendaReadModel` | `list(query, scope)`, `calendar(range, query, scope, cap)` | `prisma-agenda-read-model.ts` |
 | `CommercialActivityUsageQuery` (para 02/03) | `countOpenByCustomer(customerId)`, `countOpenByProject(projectId)`, `countByContact(contactId)` | `prisma-activity.repository.ts` |
-| Transversales (Fase 0) | `SequenceGenerator`, `CatalogReferenceValidator`, `VisibilityScopeResolver`, lector de parámetros, `AuditService`, unidad de trabajo / transacción | existentes o de Fase 0 |
+| Transversales (Fase 0) | `SequenceGenerator`, `CatalogReferenceValidator`, `VisibilityScopeResolver`, `ParameterReader` (02 F.6.5), `AuditService`, unidad de trabajo / transacción | existentes o de Fase 0 |
 
 Todas las escrituras de un caso de uso (fila + evento + participantes + `last_activity_at` + folio) van en **una transacción**. La auditoría sigue el patrón vigente (PLAN-ADMIN §10, "auditoría fuera de la transacción") hasta que exista la unidad de trabajo.
 
@@ -559,7 +561,7 @@ Todas las escrituras de un caso de uso (fila + evento + participantes + `last_ac
 
 | Necesidad | Contrato esperado | Dueño |
 |---|---|---|
-| Buscar cliente para el selector | `GET /customers?search=&pageSize=` (visibles) | 02 |
+| Buscar cliente para el selector | `GET /customers?search=&activeOnly=true&pageSize=` (visibles; `activeOnly` excluye clientes inactivos en altas, D-02.16) | 02 |
 | Contactos activos del cliente | `GET /customers/{id}/contacts?status=ACTIVE` (02 F9); validación en escritura con `assertContactOfCustomer` / `assertUsableCustomer` que expone 02 | 02 |
 | Proyectos del cliente | `GET /projects?customerId=` | 03 |
 | Oportunidades del proyecto | `GET /projects/{id}/opportunities` | 03 |
@@ -612,6 +614,7 @@ Las definiciones de C.4 son **la referencia única**: 01 y 05 las citan, no las 
 - Todos los endpoints exigen sesión (`401` sin token). Ninguno es público ni `@AuthenticatedOnly`.
 - Cada endpoint declara `@RequirePermission` (F.1–F.4). Donde la operación admite dos caminos (propio con `editar`, ajeno con `administrar`), el guard exige el mínimo (`editar`) y el caso de uso aplica la regla de propiedad → `403 PERMISSION_DENIED`.
 - Deny by default: un permiso no listado no se infiere.
+- Los endpoints que admiten **uno de varios** permisos (`/agenda`, `/agenda/calendar`, `/interactions`, `/follow-ups`, `/follow-ups/trace`, `/commercial-activity/owner-options`: `actividades.ver` **o** `visitas.ver`; `/visits/schedule-conflicts`: `visitas.crear` **o** `visitas.editar`) necesitan el decorador `@RequireAnyPermission` propuesto en D-01.1 (addendum a ADR-008). Como este módulo se implementa **antes** que Inicio, ese addendum debe estar aprobado antes del Módulo 4. Si no se aprueba, se aplica la alternativa de D-01.1: un endpoint por fuente (visitas / actividades) con `@RequirePermission` y fusión en el frontend; `schedule-conflicts` exige `visitas.crear` y la edición reutiliza la misma consulta.
 - El frontend protege rutas con el mismo permiso que su opción de menú y oculta acciones con `usePermission`/`useCan` y `allowedActions`, pero **la decisión es del backend** (ALCANCE §9.2 "no limitar la seguridad a ocultar botones").
 
 ### H.2 Matriz de permisos (00 §5.2, §5.4)
@@ -722,14 +725,14 @@ Formato Given/When/Then resumido. Cada uno es verificable por al menos una prueb
 | AC-04.20 | **Cuando** se abre el detalle, **entonces** se ven todos los campos generales (cliente, proyecto, fecha y hora, responsable, objetivo, participantes, ubicación, estado, resultado, comentarios, adjuntos) y el historial completo de eventos en orden cronológico. (F-25) |
 | AC-04.21 | **Entonces** cada visita tiene un código `VIS-AAAA-NNNNN` único e inmutable, es **una fila** toda su vida y no existe forma de eliminarla (no hay `DELETE`). (F-25, F-29) |
 | AC-04.22 | **Dada** una visita pendiente propia, **cuando** el asesor edita objetivo, ubicación, proyecto o participantes, **entonces** se guarda y se audita; **cuando** intenta cambiar la fecha de inicio por edición, **entonces** recibe `422 USE_RESCHEDULE`; **dada** una visita confirmada o cancelada, **entonces** la edición devuelve `409 RECORD_READ_ONLY`. (F-25) |
-| AC-04.23 | **Cuando** se asocia un proyecto de otro cliente o un contacto de otro cliente, **entonces** se rechaza con `422 PROJECT_CUSTOMER_MISMATCH` / `CONTACT_CUSTOMER_MISMATCH`. (F-25) |
+| AC-04.23 | **Cuando** se asocia un proyecto de otro cliente o un contacto de otro cliente, **entonces** se rechaza con `422 PROJECT_CUSTOMER_MISMATCH` / `INVALID_CONTACT`. (F-25) |
 
 ### F-26 Planificar visita
 
 | ID | Criterio |
 |---|---|
 | AC-04.24 | **Dado** un asesor con `visitas.crear`, **cuando** planifica con cliente, fecha y hora, objetivo (y opcionalmente proyecto, ubicación, recordatorio, participantes), **entonces** recibe `201` con `Location`, la visita queda en el estado pendiente inicial, responsable = él, y existe un evento `PLANNED` y un registro de auditoría. (F-26) |
-| AC-04.25 | **Cuando** falta un obligatorio base, **entonces** `400`/`422` con el campo; **dado** que `crm.campos_obligatorios.visit` añade `location`, **cuando** falta, **entonces** `422 REQUIRED_FIELDS_MISSING`. (F-26) |
+| AC-04.25 | **Cuando** falta un obligatorio base, **entonces** `400`/`422` con el campo; **dado** que `crm.campos_obligatorios.visit` añade `location`, **cuando** falta, **entonces** `422 REQUIRED_FIELD_MISSING`. (F-26) |
 | AC-04.26 | **Dado** `validar_conflicto_horario = AVISAR` y otra visita del mismo responsable que se solapa, **cuando** planifica, **entonces** la visita **se guarda** y la respuesta incluye `scheduleConflicts`; la interfaz muestra la advertencia antes y después de guardar sin impedir guardar. Con `NO` no se evalúa; con `BLOQUEAR`, `409 SCHEDULE_CONFLICT` (comportamiento disponible pero no activado). Una visita cancelada no cuenta como conflicto. (F-26) |
 | AC-04.27 | **Cuando** se informa un recordatorio de N minutos, **entonces** se guarda, se muestra en el detalle y en la agenda (`hasReminder`, `reminderAt`) y **no** se envía ninguna notificación. (F-26) |
 | AC-04.28 | **Dado** el ADR de almacenamiento aprobado, **cuando** se adjunta un archivo permitido a la visita, **entonces** queda vinculado a ella; **mientras** no exista, la interfaz no ofrece adjuntar y no hay rutas de subida. (F-26, F-25) |
@@ -822,8 +825,8 @@ Tipos: **U** unitaria (backend, Jest, sin base), **I** integración (backend, `b
 | PF-04.6 | U | `agenda-status`: grupo derivado y fecha de agenda (RN-04.35/36) | AC-04.1, 6 |
 | PF-04.7 | U | Seguimiento: selección de última interacción y próxima acción (fecha ≥ hoy en zona de negocio, sin fecha, ninguna) | AC-04.11 |
 | PF-04.8 | I + | `POST /visits` → 201, `Location`, folio, estado inicial, evento `PLANNED`, auditoría | AC-04.24, 60 |
-| PF-04.9 | I − | `POST /visits` sin objetivo → 400; con `crm.campos_obligatorios.visit` ampliado → 422 `REQUIRED_FIELDS_MISSING` | AC-04.25 |
-| PF-04.10 | I − | Proyecto de otro cliente → 422 `PROJECT_CUSTOMER_MISMATCH`; contacto de otro cliente → 422; contacto inactivo → 422 `INACTIVE_REFERENCE` | AC-04.23 |
+| PF-04.9 | I − | `POST /visits` sin objetivo → 400; con `crm.campos_obligatorios.visit` ampliado → 422 `REQUIRED_FIELD_MISSING` | AC-04.25 |
+| PF-04.10 | I − | Proyecto de otro cliente → 422 `PROJECT_CUSTOMER_MISMATCH`; contacto de otro cliente → 422; contacto inactivo → 422 `CONTACT_INACTIVE` | AC-04.23 |
 | PF-04.11 | I + | Conflicto con `AVISAR`: guarda y devuelve `scheduleConflicts`; con `NO`: sin lista; con `BLOQUEAR`: 409 y nada escrito | AC-04.26 |
 | PF-04.12 | I + | Recordatorio guardado y devuelto con `reminderAt`; ninguna fila en `notifications` | AC-04.27 |
 | PF-04.13 | I − | Asesor `OWN` planifica con `ownerId` ajeno sin `administrar` → 403/422 `OWNER_NOT_ELIGIBLE`; manager asigna a miembro de su equipo → 201 | AC-04.24, 59 |
@@ -875,7 +878,7 @@ Tipos: **U** unitaria (backend, Jest, sin base), **I** integración (backend, `b
 | PF-04.59 | E ↔ | Asesor planifica una visita (con aviso de conflicto), la reprograma y la registra realizada; manager la confirma; la agenda refleja cada paso y el historial muestra una sola entrada | AC-04.26, 37, 29, 33, 6, 17 |
 | PF-04.60 | E − | Asesor sin `visitas.cerrar` no ve "Confirmar"; usuario sin opciones del módulo no ve el menú de Actividad comercial | AC-04.35, 58 |
 | PF-04.61 | E + | Bandeja: completar una actividad vencida la retira de la bandeja y la agenda la muestra realizada | AC-04.10, 56 |
-| PF-04.62 | I (tras DM-8) | Adjuntos: subir a visita, a evento y a actividad; tipo no permitido 422; tamaño 413; eliminar en visita confirmada 409; descarga sin permiso 404 | AC-04.28, 41 |
+| PF-04.62 | I (tras DM-8) | Adjuntos: subir a visita, a evento y a actividad; tipo no permitido 422 `ATTACHMENT_TYPE_NOT_ALLOWED`; tamaño `ATTACHMENT_TOO_LARGE` (413, DC-4); eliminar en visita confirmada 409; descarga sin permiso 404 | AC-04.28, 41 |
 
 ---
 

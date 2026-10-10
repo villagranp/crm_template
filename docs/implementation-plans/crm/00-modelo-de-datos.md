@@ -1158,8 +1158,10 @@ model CustomerImport {
   code             String           @unique @db.VarChar(30)
   format           ImportFileFormat
   originalFileName String           @map("original_file_name") @db.VarChar(255)
+  /// Nulo mientras DM-8 no esté resuelto: el original se procesa en memoria (06 D-06.8).
   sourceFileId     String?          @map("source_file_id") @db.Uuid
-  /// Archivo de errores descargable (§8.1 punto 16).
+  /// Archivo de errores descargable (§8.1 punto 16). Nulo mientras DM-8 no esté resuelto:
+  /// el archivo de errores se genera al vuelo desde raw_data (06 D-06.8).
   errorFileId      String?          @map("error_file_id") @db.Uuid
   status           ImportStatus     @default(UPLOADED)
   templateVersion  String?          @map("template_version") @db.VarChar(20)
@@ -1196,7 +1198,9 @@ model CustomerImportRow {
   /// Valores leídos, tal cual. Contiene datos de contacto: se purga por retención (DM-28).
   rawData               Json            @map("raw_data")
   status                ImportRowStatus @default(PENDING)
-  /// [{ field, code, message }]
+  /// [{ field, code, message, severity: "ERROR" | "WARNING" }] (06 RN-06.18, D-06.6).
+  /// WARNING = duplicado blando ("avisar"): la fila queda VALID y solo se importa si la
+  /// confirmación lo pide expresamente. Sin cambio de esquema (es JSON).
   errors                Json?
   duplicateOfCustomerId String?         @map("duplicate_of_customer_id") @db.Uuid
   duplicateOfRowNumber  Int?            @map("duplicate_of_row_number")
@@ -1226,6 +1230,7 @@ ALTER TABLE customer_import_rows
 
 - "Mantener integridad ante errores parciales" (§8.1): cada fila válida se inserta en su propia transacción (o en lotes con *savepoint*); una fila fallida queda `REJECTED` con su error, sin deshacer las demás. Los contadores se recalculan al cerrar.
 - Los clientes importados son filas normales de `customers` (con `sourceImportId`) y pasan por el **mismo** caso de uso de alta (validaciones, folio, auditoría).
+- **Anotado en la consolidación (06 D-06.6, D-06.8):** cada incidencia de `errors` lleva `severity` (`ERROR` | `WARNING`); `source_file_id` y `error_file_id` quedan **nulos** mientras DM-8 no esté resuelto (no se guarda ningún binario de la carga). Las columnas y sus FK se conservan para cuando exista almacenamiento.
 
 ### 2.15 Metas comerciales — `SalesTarget` (`sales_targets`) — **PENDIENTE DE DECISIÓN (DM-9)**
 
@@ -1398,6 +1403,8 @@ ALCANCE §5.5: "un usuario autorizado para consultar proyectos del equipo no nec
 | Responsable de país (§5.5) | `responsable-pais` (nuevo) | `COUNTRY` | Propuesto; §9.2 no lo lista entre los iniciales (DM-11) |
 | Administrador | `administrador` (**existente**) | `ORGANIZATION` | Se reutiliza. Con `permissions: '*'` y `menuOptions: '*'` recibe automáticamente todo lo del CRM |
 | — | `gestor-accesos`, `auditor`, `usuario` (existentes) | — | **No se tocan ni se borran.** `usuario` sigue siendo el rol sin permisos que un no administrador puede asignar en el alta (ADR-020). Si el negocio no los quiere visibles, se desactivan, no se borran (DM-11) |
+
+> **Decisión abierta (consolidación):** 07 D-07.1 propone sembrar `asesor`, `manager` y `responsable-pais` con `isSystem = false` para que su matriz sea editable. Contradice esta tabla; **mientras no se decida rige esta tabla** (ver `decisiones-pendientes.md`).
 
 ADR-020 sigue rigiendo: solo el administrador asigna roles. **Bloqueante antes de Clientes:** la pregunta abierta de ADR-020 sobre si cambiar miembros de un equipo cuenta como "asignar acceso" (con alcance `TEAM` cambia lo que otro usuario ve). DM-12.
 
@@ -1670,7 +1677,11 @@ Parámetros (`group = 'crm'` salvo indicación; `isSystem = true`):
 | `crm.importaciones.dias_retencion_filas` | NUMBER | `90` | Purga de `raw_data` |
 | `crm.adjuntos.max_mb` | NUMBER | `10` | DM-8 |
 | `crm.adjuntos.tipos_permitidos` | JSON | `["application/pdf","image/jpeg","image/png","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/vnd.openxmlformats-officedocument.wordprocessingml.document"]` | DM-8 |
+| `crm.inicio.visitas_proximas_dias` | NUMBER | `7` (rango 1–60) | Horizonte de "visitas próximas" (KPI-07 de Inicio y reporte de visitas). **Propuesto por 01 (y reutilizado por 05), pendiente de D-01.5**; D-05.6 resuelta: no se crea otro |
+| `crm.reportes.max_filas_exportacion` | NUMBER | `100000` | Tope de filas de una exportación XLSX; por encima `422 EXPORT_TOO_LARGE`, nunca archivo truncado. **Propuesto por 05, pendiente de D-05.3** |
 | `sistema.permite_datos_demo` (group `sistema`) | BOOLEAN | `false` | Guardia de la demo (§8.1) |
+
+**Propuestas de los módulos que no son parámetros nuevos** (consolidación; se aplican solo si se aprueban, ver `decisiones-pendientes.md`): clave `visitCompletion` dentro de `crm.campos_obligatorios` (04 D-04.4; por defecto no se siembra) e indicador `isRescheduled` en el `metadata` de `crm.estado_visita` (04 D-04.3; cambia el registro de semántica de §3.3, no el esquema).
 
 ### 8.3 Semilla de demostración
 
@@ -1778,10 +1789,14 @@ Siguiendo ADR-004 (los casos de uso dependen del puerto; Prisma solo en `infrast
 | `ProjectRepository`, `OpportunityRepository`, `ProjectProductRepository`, `ForecastRepository` | Transaccional | Proyectos | |
 | `VisitRepository`, `ActivityRepository` | Transaccional | Actividad comercial | |
 | `InteractionReadModel` | Lectura (`$queryRaw` sobre la vista) | Actividad comercial | Usado también por Inicio |
-| `DashboardReadModel`, `AlertsReadModel` | Lectura | Inicio | Mismas fórmulas que Reportes (DM-15, DM-16) |
+| `DashboardReadModel`, `AlertsReadModel` | Lectura | Inicio | Actividad reciente y alertas; los **conteos** salen de `CommercialMetricsService` (abajo), igual que en Reportes (DM-15, DM-16) |
 | `ReportingRepository` | Lectura (PostgreSQL) | Reportes | ADR-004. **No** usa Snowflake: el alcance exige datos del CRM y nada de BI externo |
 | `CustomerImportRepository` | Transaccional | Integraciones | Reutiliza el caso de uso de alta de clientes |
 | `FileStorage` | Infraestructura | Pendiente de ADR (DM-8) | |
+| `ParameterReader` | Lectura, transversal | Fase 0 (`backend/src/modules/parameters/parameter-reader.ts`) | `get<T>(key)` tipado; lo define 02 F.6.5 y 07 F.9 le añade la validación del registro de parámetros. Añadido en la consolidación |
+| `CatalogLookupService` | Lectura, transversal | Fase 0 (`backend/src/modules/catalogs/catalog-lookup.service.ts`) | Elementos activos por `key` para los endpoints `form-options` de cada módulo (07 D-07.12, D-02.1). Añadido en la consolidación |
+| `AttachmentsService` | Transaccional, transversal | Módulo 2 (`backend/src/modules/attachments/`) | `owner = { type, id }` sobre `attachments` (§2.11); la autorización la decide el módulo dueño. Su `FileStorage` espera a DM-8 (02 F.6.5) |
+| `CommercialMetricsService` + `metric-definitions.ts` | Lectura, transversal | `backend/src/modules/commercial-metrics/`: el Módulo 3 crea `metric-definitions.ts` (DEF-A/B/C/G), el Módulo 1 crea el módulo y el servicio, Reportes lo amplía | Fuente única de los indicadores de Inicio y Reportes (01 F.2, 05 G.3). Resuelto en la consolidación (D-01.2) |
 
 ---
 

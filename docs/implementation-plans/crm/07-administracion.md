@@ -413,7 +413,7 @@ reutiliza su puerto.
 
 | Pieza | Tipo | Consumidor | Nota |
 |---|---|---|---|
-| `SystemParameterReader` | Puerto de lectura tipado (`get(key)` validado con la misma regla del registro, con valor por defecto) | Todos los módulos | Fase 0. Hoy cada lector consulta por su cuenta (`AuthRepository.getSecuritySettings`) |
+| `ParameterReader` (02 F.6.5) | Puerto de lectura tipado (`get<T>(key)`), ampliado aquí para validar con la misma regla del registro y caer al valor por defecto | Todos los módulos | Fase 0. Hoy cada lector consulta por su cuenta (`AuthRepository.getSecuritySettings`) |
 | `CatalogReferenceValidator` | Puerto transaccional | Todos los que escriben `*_id` a `catalog_items` | Fase 0 (00 §3.5) |
 | `CatalogLookupService` | Servicio de lectura de elementos activos por `key` | Los endpoints de opciones de formulario de cada módulo (D-07.12) | Fase 0 |
 | Registro de semántica de catálogos | Código (`catalog-semantics.registry.ts`) | Catálogos (validación) y módulos (consultan indicadores, no etiquetas) | Fase 0 |
@@ -643,7 +643,7 @@ mejoras de experiencia, al final* (D-07.6).
 | `DataScope.COUNTRY` (backend, DTO, `roles-format.ts`, `access.types.ts`, `HomePage.tsx`) | Fase 0 (migración 1) | Cambio de contrato y de etiquetas **en la Fase 0**, no en este módulo: el enum no puede quedar a medias |
 | `users.employee_code`/`country_id` con datos | Desde Clientes (alcance `COUNTRY`, responsable) | Semilla de demostración (`DEMO-E…`) en desarrollo; script versionado para usuarios reales. Si hay un **lanzamiento productivo antes del Módulo 7**, se adelanta la parte de usuarios de F.1/E.1 (es extensión de una pantalla existente) |
 | Catálogos `crm.*` y su registro de semántica con invariantes | Fase 0 | La pantalla genérica de catálogos **ya está en producción**: sin el registro, un administrador podría romper `crm.etapa_oportunidad` el día que se siembra. El registro se entrega con la semilla |
-| Parámetros `crm.*` y su registro de validación; `SystemParameterReader` | Fase 0 | Igual: la pantalla de parámetros ya los mostraría editables |
+| Parámetros `crm.*` y su registro de validación; `ParameterReader` | Fase 0 | Igual: la pantalla de parámetros ya los mostraría editables |
 | `CatalogReferenceValidator`, `CatalogLookupService` | Antes de Clientes | Fase 0 (00 §11) |
 | Pertenencia a equipos exclusiva del administrador | Antes de Clientes (bloqueante, DM-12) | Addendum ADR-020 + guarda en `teams.service.ts` |
 | Enmascarado de PII en auditoría | Antes de Clientes (contactos) | DM-29 en `audit-diff.ts`/`audit.service.ts` |
@@ -701,7 +701,7 @@ cambios y los parámetros de login local se indicarán como no aplicables.
 | `backend/src/modules/catalogs/catalog-semantics.registry.ts` (+ `.spec.ts`) | Esquemas e invariantes por `key` (00 §3.3) — Fase 0 |
 | `backend/src/modules/catalogs/catalog-lookup.service.ts` (+ `.spec.ts`) | Lectura de activos por `key` para los módulos — Fase 0 |
 | `backend/src/modules/parameters/parameter-rules.registry.ts` (+ `.spec.ts`) | Reglas por clave con `zod` (dependencia ya presente en `env.schema.ts`): rangos, valores, esquemas JSON, referencias, `requiresConfigure`, `editor` — Fase 0 |
-| `backend/src/modules/parameters/ports/system-parameter-reader.port.ts` + adaptador | Lector tipado con defecto — Fase 0 |
+| `backend/src/modules/parameters/parameter-reader.ts` (02 L.2) | Lector tipado con defecto; aquí se le añade la validación del registro — Fase 0 |
 | `backend/src/modules/access/crm-profile.ts` (+ `.spec.ts`) | Regla pura de perfil comercial (D-07.3) |
 | `backend/src/modules/teams/user-teams.controller.ts` | `PUT /users/{id}/teams` |
 | `backend/src/modules/crm-masters/` (`crm-masters.module.ts`, `product-families.controller.ts`, `products.controller.ts`, `units-of-measure.controller.ts`, `unit-conversion-rules.controller.ts`, servicios, `dto/`, `ports/`, specs) | F.7. Si 03 crea antes el puerto de lectura de productos, se reutiliza |
@@ -770,7 +770,7 @@ país, refinada por D-07.3), **DM-32** (menú), **DM-34** (`editar` vs `administ
 | **D-07.9** | ¿Dónde se mantienen conversiones, unidades, familias y productos? | Pantallas de Administración "Productos y unidades" y "Conversiones" sobre las tablas de 00 §2.3, con `productos.ver`/`productos.configurar` (reutiliza DM-23/DM-24). Destino fijo: unidad de tonelaje | Si se cargan solo por script, el alcance "conversiones y estimaciones comerciales" quedaría sin mantenimiento |
 | **D-07.10** | Vista de auditoría por campo | Presentación de `changes` + filtro `field` en `GET /audit-logs` y `layout=fields` en la exportación; sin tabla nueva | Una tabla por campo duplicaría la bitácora y su retención |
 | **D-07.11** | ¿Cómo se garantiza en la base que la auditoría no se modifica ni se borra? | Disparadores: `BEFORE UPDATE` y `BEFORE TRUNCATE` siempre rechazan; `BEFORE DELETE` rechaza filas con `occurred_at` dentro de `auditoria.dias_retencion` (la futura purga sigue siendo posible). Además `REVOKE UPDATE, DELETE` al rol de la aplicación como recomendación de despliegue | Sin ello, la restricción depende solo del código. Un `REVOKE` total sin disparador impediría la purga desde la aplicación |
-| **D-07.12** | ¿Cómo leen los formularios comerciales catálogos, países, usuarios y parámetros si `/catalogs`, `/users` y `/parameters` exigen permisos de administración? | Cada módulo expone sus opciones de formulario bajo su propio permiso (p. ej. `clientes.ver`), implementadas con `CatalogLookupService`/`SystemParameterReader` compartidos. Los endpoints de administración no se abren. Si la Fase 0 o el Módulo 2 ya fijan otro mecanismo, prevalece el suyo | Un endpoint genérico de consulta exigiría `@AuthenticatedOnly` (hoy reservado a `/me`) o un guard "cualquiera de" (addendum a ADR-008) |
+| **D-07.12** | ¿Cómo leen los formularios comerciales catálogos, países, usuarios y parámetros si `/catalogs`, `/users` y `/parameters` exigen permisos de administración? | Cada módulo expone sus opciones de formulario bajo su propio permiso (p. ej. `clientes.ver`), implementadas con `CatalogLookupService`/`ParameterReader` compartidos. Los endpoints de administración no se abren. Si la Fase 0 o el Módulo 2 ya fijan otro mecanismo, prevalece el suyo | Un endpoint genérico de consulta exigiría `@AuthenticatedOnly` (hoy reservado a `/me`) o un guard "cualquiera de" (addendum a ADR-008) |
 | **D-07.13** | ¿Mantenimiento de países? | No en este alcance: semilla esencial (DM-2); el usuario solo los selecciona | Añadir pantalla es aditivo (tabla ya existe) |
 | **D-07.14** | ¿Desactivar un asesor con registros abiertos se bloquea o reasigna? | No bloquea ni reasigna; los registros conservan al responsable y se reasignan en cada módulo con `administrar` | Bloquear exigiría que Administración consulte a todos los módulos |
 

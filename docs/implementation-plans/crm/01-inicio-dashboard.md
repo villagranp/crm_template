@@ -388,9 +388,9 @@ movimiento con `prefers-reduced-motion`), con: icono, etiqueta, valor, pie
 | K3 Ganadas | `oportunidades.ver` | KPI-03 | "{n} parciales" + período | `/proyectos/oportunidades?outcome=WON,PARTIAL&decisionFrom=…&decisionTo=…` |
 | K4 Perdidas | `oportunidades.ver` | KPI-04 | Período | `/proyectos/oportunidades?outcome=LOST&decisionFrom=…&decisionTo=…` |
 | K5 Forecast M+6 | `forecast.ver` | Total t (decimal con 2 decimales y símbolo) | Mini-serie de 6 meses (barras de texto accesibles) + "{n} líneas sin conversión" | `/proyectos/forecast` (ventana por defecto) |
-| K6 Visitas | `visitas.ver` | KPI-06 pendientes | "{n} próximas en {N} días · {m} atrasadas" | `/actividad/visitas?status=PENDING` (y `&from=…&to=…` desde el pie) |
-| K7 Actividades pendientes | `actividades.ver` | KPI-08 | "{n} por vencer en {h} h" | `/actividad/pendientes?state=PENDING` |
-| K8 Actividades vencidas | `actividades.ver` | KPI-09 | — | `/actividad/pendientes?state=OVERDUE` |
+| K6 Visitas | `visitas.ver` | KPI-06 pendientes | "{n} próximas en {N} días · {m} atrasadas" | `/actividad/visitas?statusGroup=PENDING` (y `&from=…&to=…` desde el pie) |
+| K7 Actividades pendientes | `actividades.ver` | KPI-08 | "{n} por vencer en {h} h" | `/actividad/pendientes?bucket=DUE_SOON&bucket=PENDING` |
+| K8 Actividades vencidas | `actividades.ver` | KPI-09 | — | `/actividad/pendientes?bucket=OVERDUE` |
 | K9 Metas y cumplimiento | `metas.ver` | Cumplimiento principal (%) | Objetivo / logrado por métrica | Sin destino (RN-01.19) |
 
 - **Filtro de período** (solo afecta K3, K4 y K9): `Mes en curso` (defecto), `Trimestre en curso`, `Año en curso` (D-01.3). Se guarda en la URL (`?period=MONTH`).
@@ -431,7 +431,7 @@ permitidos). Paginación "Cargar más" (servidor). Vacío: "No hay actividad en 
 | Desde | A | Condición |
 |---|---|---|
 | Tarjeta K1–K8 | Listado del módulo dueño con filtro | Ruta registrada en el router **y** permiso de la ruta |
-| Alerta / evento / próxima visita | Ficha del registro (`/actividad/actividades/:id`, `/actividad/visitas/:id`, `/proyectos/:id`, oportunidad dentro de la ficha del proyecto, `/clientes/:id`), según las rutas que definan 02–04 | Registro visible (ya filtrado por el backend) y ruta registrada |
+| Alerta / evento / próxima visita | Ficha del registro (`/actividad/actividades/:id`, `/actividad/visitas/:id`, `/proyectos/:id`, `/proyectos/oportunidades/:opportunityId` (03 E.1), `/clientes/:id`), según las rutas que definan 02–04 | Registro visible (ya filtrado por el backend) y ruta registrada |
 | Acceso rápido | `option.path` | Opción concedida por el servidor |
 
 La correspondencia `source.type → ruta` vive en un único archivo del feature
@@ -629,7 +629,7 @@ Sí consume:
 | `GET /me`, `GET /me/menu` | Acceso (existente) | Perfil y accesos (frontend) |
 | `GET /health` | Health (existente) | Aviso de servidor no disponible (frontend, como hoy) |
 | `VisibilityScopeResolver` | Fase 0 (transversal) | `DataScope` → `{ ownerIds?, countryIds? }` |
-| `ParametersRepository.findByKey` | Parámetros (existente) | `crm.alertas.*`, `crm.forecast.*`, zona horaria, D-01.5 |
+| `ParameterReader.get<T>(key)` (02 F.6.5) | Fase 0 / módulo `parameters` | `crm.alertas.*`, `crm.forecast.*`, zona horaria, D-01.5 |
 | Lectura de `catalog_items` por `key` | Catálogos (existente) | Semántica y etiquetas (a través del adaptador de lectura) |
 
 ---
@@ -992,10 +992,10 @@ pública) ya existe en `backend/prisma/seed/access-catalog.ts` (DM-32).
 | ID | Pregunta | Recomendación por defecto | Impacto |
 |---|---|---|---|
 | **D-01.1** | ¿Cómo se autorizan los endpoints que mezclan fuentes (actividad reciente, alertas, resumen)? `@RequirePermission` exige **todos** los permisos indicados | Nuevo decorador `@RequireAnyPermission(...)` en `backend/src/common/decorators` + soporte en `PermissionsGuard` (deny-by-default si no tiene ninguno) y filtro por fuente dentro del caso de uso. Es un patrón de autorización nuevo: **addendum a ADR-008** y escalado según CLAUDE.md §11 | Si no se aprueba: se parte en un endpoint por fuente/tipo (`/dashboard/alerts/activities`, `/visits`, `/projects`, `/opportunities` y equivalentes de actividad reciente), cada uno con `@RequirePermission`, y el frontend fusiona y ordena. El alcance funcional no cambia; aumentan peticiones y la paginación de la bandeja pasa a ser por tipo |
-| **D-01.2** | ¿Dónde viven las fórmulas compartidas con Reportes? 00 §11 nombra `DashboardReadModel` (Inicio) y `ReportingRepository` (Reportes) por separado | Módulo `backend/src/modules/commercial-metrics/` creado por Inicio y consumido por Reportes; `DashboardReadModel` queda para actividad reciente y `AlertsReadModel` para alertas. Precisa 00 §11 (sin cambio de esquema) | Si se prefiere que las fórmulas vivan en Reportes, Inicio no podría implementarse antes que Reportes sin duplicarlas |
+| **D-01.2** | ¿Dónde viven las fórmulas compartidas con Reportes? 00 §11 nombra `DashboardReadModel` (Inicio) y `ReportingRepository` (Reportes) por separado | **Resuelta en la consolidación:** módulo `backend/src/modules/commercial-metrics/`; el Módulo 3 crea primero `metric-definitions.ts` (DEF-A/B/C/G, RN-03.77), el Módulo 1 crea `CommercialMetricsModule`/`CommercialMetricsService` y completa los predicados, y Reportes lo consume (05 G.3); `DashboardReadModel` queda para actividad reciente y `AlertsReadModel` para alertas. Precisa 00 §11 (sin cambio de esquema) | Si se prefiere que las fórmulas vivan en Reportes, Inicio no podría implementarse antes que Reportes sin duplicarlas |
 | **D-01.3** | Período por defecto de ganadas/perdidas y metas en el panel | Mes en curso (zona de negocio), selector mes / trimestre / año en curso | Solo UI y valor por defecto de la query |
-| **D-01.4** | Nombres de los filtros de destino de las tarjetas (`active`, `status=OPEN`, `outcome`, `decisionFrom/To`, `state=PENDING/OVERDUE`) | Los de E.3, a confirmar con `03-proyectos.md` y `04-actividad-comercial.md`; esos listados deben aplicar la **misma** fórmula (servicio compartido) | Si 03/04 eligen otros nombres, solo cambia `source-routes.ts` |
-| **D-01.5** | Horizonte de "visitas próximas" | Parámetro nuevo `crm.inicio.visitas_proximas_dias` (NUMBER, 7, rango 1–60), añadido a 00 §8.2 y a la semilla esencial | Si no se aprueba un parámetro nuevo, constante de 7 días documentada en el código (no configurable) |
+| **D-01.4** | Nombres de los filtros de destino de las tarjetas (`active`, `status=OPEN`, `outcome`, `decisionFrom/To`, `state=PENDING/OVERDUE`) | Los de E.3. **Alineados en la consolidación** con los contratos de los dueños: 03 F.1/F.2 (`active`, `status`, `outcome`, `decisionFrom/To`) y 04 F.1/F.2 (`statusGroup` en `/visits`, `bucket` repetible en `/activities/pending`). Esos listados deben aplicar la **misma** fórmula (servicio compartido) | Si 03/04 eligen otros nombres, solo cambia `source-routes.ts` |
+| **D-01.5** | Horizonte de "visitas próximas" | Parámetro nuevo `crm.inicio.visitas_proximas_dias` (NUMBER, 7, rango 1–60), añadido a 00 §8.2 como **propuesto** y a la semilla esencial. Reportes lo reutiliza (D-05.6 resuelta en la consolidación) | Si no se aprueba un parámetro nuevo, constante de 7 días documentada en el código (no configurable) |
 | **D-01.6** | ¿"Actividades pendientes" incluye las vencidas? | Disjuntas: pendientes = abiertas no vencidas; vencidas aparte (RN-01.17). Módulo 4 (bandeja) y Módulo 5 (§7.5) usan la misma definición | Si se quieren inclusivas, cambia KPI-08 en el servicio compartido y los textos |
 | **D-01.7** | Metas sin configurar: ¿tarjeta oculta o visible con "Sin metas configuradas"? | Visible con el mensaje si el usuario tiene `metas.ver` (recomendación de 00 §2.15); oculta sin el permiso | Solo UI |
 | **D-01.8** | Fórmula del "logrado" por métrica y sujeto de la meta según el ámbito | KPI-10 de D.4. Sujeto: OWN → meta del usuario; TEAM → metas de los equipos donde es responsable o miembro principal; COUNTRY → meta de su país; ORGANIZATION → suma de metas de país. El logrado se calcula con el mismo ámbito | Depende de DM-9; si cambia la granularidad, cambia solo `targetCompliance` |

@@ -247,7 +247,7 @@ estos datos a Snowflake, sería una integración nueva con su ADR.
 | `key` | Tipo | Valor propuesto | Estado |
 |---|---|---|---|
 | `crm.reportes.max_filas_exportacion` | NUMBER | `100000` | **Nuevo**: añadir a 00 §8.2 (D-05.3) |
-| `crm.metricas.dias_visitas_proximas` | NUMBER | `7` | **Nuevo, compartido con Inicio**; solo si 01 no define ya uno equivalente (D-05.6) |
+| `crm.inicio.visitas_proximas_dias` | NUMBER | `7` | Definido por Inicio (D-01.5); Reportes lo reutiliza (D-05.6) |
 
 Ambos se siembran con la semilla esencial (`seed/crm-parameters.ts`) sin pisar valores.
 
@@ -267,8 +267,8 @@ Si hacen falta, se añaden **en 00** como migración aditiva.
 
 ### E.1 Comunes a las siete pantallas
 
-- Ubicación: `frontend/src/features/reports/` (estructura por área como
-  `features/admin/README.md`). Rutas de 00 §5.3, cargadas con `React.lazy` para que
+- Ubicación: `frontend/src/features/crm/reports/` (área CRM de D-02.11, estructura como
+  `features/admin/README.md`). Rutas de 00 §5.3, declaradas en `features/crm/crm-routes.ts`, cargadas con `React.lazy` para que
   las librerías de gráficas y la lógica de reportes no pesen en la carga inicial.
 - `PageHeader` con migas "Reportes / <Pantalla>". Nada de hex, píxeles ni duraciones
   a mano (CLAUDE.md §8.12; colores de series desde `chartSeries` de `tokens.ts`).
@@ -506,7 +506,7 @@ instantes ISO-8601 UTC, fechas de calendario `YYYY-MM-DD`. Sin modelos de Prisma
 
 | Status | `code` | Cuándo |
 |---|---|---|
-| 400 | `BAD_REQUEST` (validación) | Fecha mal formada, `from > to`, `fromMonth > toMonth`, `sortBy` fuera de lista blanca, `pageSize > 100`, enum inválido, `format ≠ xlsx`, `thenBy = groupBy`, paginación enviada a `/export` |
+| 400 | `VALIDATION_FAILED` (validación; mismo código que 02–04, ver DC-6) | Fecha mal formada, `from > to`, `fromMonth > toMonth`, `sortBy` fuera de lista blanca, `pageSize > 100`, enum inválido, `format ≠ xlsx`, `thenBy = groupBy`, paginación enviada a `/export` |
 | 401 | `UNAUTHENTICATED` | Sin token o token inválido |
 | 403 | `PERMISSION_DENIED` | Sin `reportes.ver`; o en `/export` sin `reportes.exportar` |
 | 422 | `PERIOD_TOO_LONG` | Rango mayor al máximo de C.2 |
@@ -528,7 +528,7 @@ definiciones a través del servicio de métricas compartido. Sí consume:
 |---|---|---|
 | `VisibilityScopeResolver` | Fase 0 | Alcance del usuario → `{ownerIds?, countryIds?}` |
 | `CommercialMetricsService` + `CommercialMetricsReadModel` | Compartido Inicio/Reportes (G.3) | Conteos y definiciones |
-| `ParametersService` (lectura) | Administración (existente) | Zona horaria, horizonte, tope, umbrales |
+| `ParameterReader.get<T>(key)` (02 F.6.5) | Fase 0 / módulo `parameters` | Zona horaria, horizonte, tope, umbrales |
 | `AuditService.record` | Auditoría (existente) | `crm.report.exported` |
 | `AccessService.resolveActor` / guardas | Acceso (existente) | Permisos y actor |
 
@@ -562,11 +562,11 @@ fórmula. Se exige **un único** componente:
 
 | Pieza | Ubicación propuesta | Contenido |
 |---|---|---|
-| `CommercialMetricsModule` | `backend/src/modules/crm-metrics/` | Módulo Nest exportado; lo importan `inicio` y `reports` |
+| `CommercialMetricsModule` | `backend/src/modules/commercial-metrics/` | Módulo Nest exportado; lo importan `inicio` y `reports` |
 | `metric-definitions.ts` | ídem | Definiciones de C.3 como funciones puras y tipadas sobre la semántica del catálogo (categorizar etapa, resultado, estado de visita y de actividad) — probadas unitariamente |
-| `CommercialMetricsService` | ídem | `countOpportunities(filter)`, `countProjects(filter)`, `countVisits(filter)`, `countActivities(filter)`, `forecastTotals(filter)`, `stageDistribution(filter)`, `ownerDistribution(filter)`, `funnel(filter)`, `monthlySeries(metric, filter)`. `filter` = `{ scope, period?, dateBasis?, countryIds?, ownerIds?, customerIds?, … }` |
-| `CommercialMetricsReadModel` (puerto) | `crm-metrics/ports/` | Consultas agregadas; adaptador `prisma-commercial-metrics.read-model.ts` |
-| `business-period.ts` | `crm-metrics/` | Conversión de períodos y meses a instantes en `crm.zona_horaria_negocio`; ventana M+1…M+6 |
+| `CommercialMetricsService` | ídem | Los métodos de indicadores con la **firma del dueño** (01 F.2: `countActiveProjects`, `countOpenOpportunities`, `countWonOpportunities`, `countLostOpportunities`, `forecastWindow`, `countVisits`, `countActivities`, `targetCompliance`, `resolvePeriod`, `forecastWindowMonths`). Reportes **añade** al mismo servicio sus agregaciones con filtros: `countOpportunities(filter)`, `countProjects(filter)`, `countVisits(filter)`, `countActivities(filter)`, `forecastTotals(filter)`, `stageDistribution(filter)`, `ownerDistribution(filter)`, `funnel(filter)`, `monthlySeries(metric, filter)`. `filter` = `{ scope, period?, dateBasis?, countryIds?, ownerIds?, customerIds?, … }` |
+| `CommercialMetricsReadModel` (puerto) | `commercial-metrics/ports/` | Puerto `ports/commercial-metrics-read-model.port.ts` (token `COMMERCIAL_METRICS_READ_MODEL`, 01 L.1); adaptador `prisma-commercial-metrics.repository.ts` |
+| `commercial-period.ts` (nombre de 01 L.1) | `commercial-metrics/` | Conversión de períodos y meses a instantes en `crm.zona_horaria_negocio`; ventana M+1…M+6 |
 
 Reglas:
 
@@ -576,8 +576,9 @@ Reglas:
   pendientes/próximas; para ganadas/perdidas, Inicio usa el período de D-05.7 con
   `dateBasis = DECIDED`, que el reporte reproduce con esos mismos filtros. PF-05.30
   lo verifica.
-- Quien implemente primero (por el orden §11, Inicio) crea el módulo; si
-  `01-inicio-dashboard.md` le da otro nombre, prevalece ese nombre: el requisito es
+- Lo crean los módulos anteriores (resuelto en la consolidación): el Módulo 3 crea
+  `metric-definitions.ts` con DEF-A/B/C/G y el Módulo 1 crea el módulo y el servicio y
+  completa los predicados; los nombres son los de `01-inicio-dashboard.md`: el requisito es
   la implementación única, no el nombre. Reportes no crea una segunda.
 - `00` lista `DashboardReadModel` (Inicio) y `ReportingRepository` (Reportes): se
   mantienen para lo específico de cada uno (filas paginadas, actividad reciente,
@@ -701,7 +702,7 @@ Datos: semilla de demostración + *fixtures* por prueba.
 |---|---|---|---|---|
 | PF-05.1 | Unit | `metric-definitions`: categorizar etapas abiertas/cerradas y resultados, incluida etapa nueva `NEGOCIANDO` (`isClosed=false`) añadida al catálogo | Categoría correcta sin cambiar código | AC-05.5 |
 | PF-05.2 | Unit | Invariante de conteos con combinaciones de WON/PARTIAL/LOST/sin resultado | Se cumple RN-05.27 | AC-05.5 |
-| PF-05.3 | Unit | `business-period`: límites de mes y M+1…M+6 en `America/Guatemala` el último día del mes a las 23:30 local | Ventana del mes local, no UTC | AC-05.12 |
+| PF-05.3 | Unit | `commercial-period`: límites de mes y M+1…M+6 en `America/Guatemala` el último día del mes a las 23:30 local | Ventana del mes local, no UTC | AC-05.12 |
 | PF-05.4 | Unit | Estado comercial (RN-05.17) en los 4 casos | Valor correcto en cada caso | AC-05.2 |
 | PF-05.5 | Unit | Embudo: participación, conversión acumulada, `NO_DATA`, `INSUFFICIENT_HISTORY`, `INSUFFICIENT_SAMPLE` | Valores y motivos correctos; nunca `0 %` sin denominador | AC-05.36, AC-05.37 |
 | PF-05.6 | Unit | Escritor XLSX: tipos de celda, formatos, texto `=1+1`, número de 16 dígitos | Fecha tipada, número con `numFmt`, `=1+1` como texto, número largo como texto | AC-05.24, AC-05.29 |
@@ -759,7 +760,7 @@ Datos: semilla de demostración + *fixtures* por prueba.
 
 ### K.2 Orden interno propuesto
 
-1. `crm-metrics` (si Inicio no lo dejó creado) + `business-period` + pruebas de definiciones.
+1. Ampliar `commercial-metrics` (creado por los módulos 3 y 1) con las agregaciones de Reportes + pruebas de definiciones.
 2. `ReportingRepository` + reportes de oportunidades y proyectos (F-35, F-34).
 3. Forecast (F-36), visitas (F-37), actividades (F-38).
 4. Opciones de filtro y pantallas de tablas.
@@ -783,11 +784,11 @@ Datos: semilla de demostración + *fixtures* por prueba.
 
 | Archivo | Acción |
 |---|---|
-| `backend/src/modules/crm-metrics/crm-metrics.module.ts` | Crear (o reutilizar el de Inicio, G.3) |
-| `backend/src/modules/crm-metrics/metric-definitions.ts` + `.spec.ts` | Crear |
-| `backend/src/modules/crm-metrics/commercial-metrics.service.ts` + `.spec.ts` | Crear |
-| `backend/src/modules/crm-metrics/business-period.ts` + `.spec.ts` | Crear |
-| `backend/src/modules/crm-metrics/ports/commercial-metrics.read-model.port.ts` | Crear |
+| `backend/src/modules/commercial-metrics/commercial-metrics.module.ts` | Crear (o reutilizar el de Inicio, G.3) |
+| `backend/src/modules/commercial-metrics/metric-definitions.ts` + `.spec.ts` | Crear |
+| `backend/src/modules/commercial-metrics/commercial-metrics.service.ts` + `.spec.ts` | Crear |
+| `backend/src/modules/commercial-metrics/commercial-period.ts` + `.spec.ts` | Reutilizar (creado por el Módulo 1) |
+| `backend/src/modules/commercial-metrics/ports/commercial-metrics-read-model.port.ts` | Modificar: añadir las consultas de agregación de Reportes |
 | `backend/src/modules/reports/reports.module.ts` | Crear; registrar en `backend/src/app.module.ts` |
 | `backend/src/modules/reports/ports/reporting.repository.port.ts` | Crear (`ReportingRepository`, 00 §11) |
 | `backend/src/modules/reports/project-report.controller.ts` / `.service.ts` (+ `.spec.ts`) | Crear |
@@ -803,7 +804,7 @@ Datos: semilla de demostración + *fixtures* por prueba.
 | `backend/src/modules/reports/dto/*.dto.ts` | Crear (F.2, F.3) |
 | `backend/src/common/xlsx.ts` + `xlsx.spec.ts` | Crear: envoltorio sobre la librería de D-05.1 (tipos de celda, formatos, sin fórmulas), análogo a `common/csv.ts`; ninguna otra pieza importa la librería directamente |
 | `backend/src/infrastructure/database/prisma/repositories/prisma-reporting.repository.ts` | Crear |
-| `backend/src/infrastructure/database/prisma/repositories/prisma-commercial-metrics.read-model.ts` | Crear (o reutilizar) |
+| `backend/src/infrastructure/database/prisma/repositories/prisma-commercial-metrics.repository.ts` | Modificar (creado por el Módulo 1) |
 | `backend/src/modules/access/app-routes.registry.json` | Modificar: 7 rutas `/reportes/*` |
 | `backend/prisma/seed/access-catalog.ts` | Modificar: módulo `reportes` y sus 7 opciones (DM-32); permisos ya sembrados en Fase 0 |
 | `backend/prisma/seed/crm-parameters.ts` | Modificar: `crm.reportes.max_filas_exportacion` (y D-05.6 si aplica) |
@@ -813,20 +814,20 @@ Datos: semilla de demostración + *fixtures* por prueba.
 
 | Archivo | Acción |
 |---|---|
-| `frontend/src/features/reports/README.md` | Crear: convenciones del área (como `features/admin/README.md`) |
-| `frontend/src/features/reports/reports-routes.ts` | Crear: rutas + `reportes.ver` + páginas lazy |
-| `frontend/src/features/reports/reports.permissions.ts` | Crear: `reportes.ver`, `reportes.exportar` |
-| `frontend/src/features/reports/common/ReportFilterBar.tsx`, `PeriodPicker.tsx`, `SummaryCards.tsx`, `ExportButton.tsx`, `ChartPanel.tsx` (con "Ver como tabla"), `report-format.ts`, `use-report-query-state.ts` (+ `.spec.tsx`) | Crear |
-| `frontend/src/features/reports/filter-options.api.ts` / `.queries.ts` | Crear |
-| `frontend/src/features/reports/projects/ProjectsReportPage.tsx`, `projects-report.api.ts`, `.queries.ts` (+ spec) | Crear |
-| `frontend/src/features/reports/opportunities/OpportunitiesReportPage.tsx`, `…api.ts`, `…queries.ts` (+ spec) | Crear |
-| `frontend/src/features/reports/forecast/ForecastReportPage.tsx`, `ForecastConsolidatedTable.tsx`, `…api.ts`, `…queries.ts` (+ spec) | Crear |
-| `frontend/src/features/reports/visits/VisitsReportPage.tsx`, `…api.ts`, `…queries.ts` (+ spec) | Crear |
-| `frontend/src/features/reports/activities/ActivitiesReportPage.tsx`, `…api.ts`, `…queries.ts` (+ spec) | Crear |
-| `frontend/src/features/reports/dashboard/CommercialDashboardPage.tsx`, paneles, `…api.ts`, `…queries.ts` (+ spec) | Crear |
-| `frontend/src/features/reports/funnel/SalesFunnelPage.tsx`, `FunnelChart.tsx`, `…api.ts`, `…queries.ts` (+ spec) | Crear |
+| `frontend/src/features/crm/reports/README.md` | Crear: convenciones del área (como `features/admin/README.md`) |
+| `frontend/src/features/crm/crm-routes.ts` | Modificar: rutas `/reportes/*` + `reportes.ver` + páginas lazy (D-02.11) |
+| `frontend/src/features/crm/reports/reports.permissions.ts` | Crear: `reportes.ver`, `reportes.exportar` |
+| `frontend/src/features/crm/reports/common/ReportFilterBar.tsx`, `PeriodPicker.tsx`, `SummaryCards.tsx`, `ExportButton.tsx`, `ChartPanel.tsx` (con "Ver como tabla"), `report-format.ts`, `use-report-query-state.ts` (+ `.spec.tsx`) | Crear |
+| `frontend/src/features/crm/reports/filter-options.api.ts` / `.queries.ts` | Crear |
+| `frontend/src/features/crm/reports/projects/ProjectsReportPage.tsx`, `projects-report.api.ts`, `.queries.ts` (+ spec) | Crear |
+| `frontend/src/features/crm/reports/opportunities/OpportunitiesReportPage.tsx`, `…api.ts`, `…queries.ts` (+ spec) | Crear |
+| `frontend/src/features/crm/reports/forecast/ForecastReportPage.tsx`, `ForecastConsolidatedTable.tsx`, `…api.ts`, `…queries.ts` (+ spec) | Crear |
+| `frontend/src/features/crm/reports/visits/VisitsReportPage.tsx`, `…api.ts`, `…queries.ts` (+ spec) | Crear |
+| `frontend/src/features/crm/reports/activities/ActivitiesReportPage.tsx`, `…api.ts`, `…queries.ts` (+ spec) | Crear |
+| `frontend/src/features/crm/reports/dashboard/CommercialDashboardPage.tsx`, paneles, `…api.ts`, `…queries.ts` (+ spec) | Crear |
+| `frontend/src/features/crm/reports/funnel/SalesFunnelPage.tsx`, `FunnelChart.tsx`, `…api.ts`, `…queries.ts` (+ spec) | Crear |
 | `frontend/src/routes/route-paths.ts` | Modificar: `ROUTE_PATHS.reports.*` |
-| `frontend/src/routes/app-routes.tsx` | Modificar: incorporar `reports-routes` |
+| `frontend/src/routes/app-routes.tsx` | Sin cambios si ya incorpora `crm-routes` (lo hace el Módulo 2) |
 | `frontend/src/components/layout/MaterialSymbol.tsx` | Modificar si falta `bar_chart` |
 | `DataTable`, `use-table-query-state`, `EmptyState`, `ListToolbar`, `save-file` | **Reutilizar.** Hoy viven en `features/admin/common`; si al llegar aquí los módulos 2–4 ya los promovieron a una ubicación compartida (p. ej. `frontend/src/components/data/`), se importan de ahí; si no, se promueven en un cambio previo sin alterar su comportamiento. No se duplican |
 | `frontend/package.json` | Modificar: dependencia de D-05.2, tras su ADR |
@@ -842,7 +843,7 @@ Datos: semilla de demostración + *fixtures* por prueba.
 | `backend/test/reports-visibility.e2e.spec.ts` | PF-05.22, PF-05.23 |
 | `backend/test/reports-export.e2e.spec.ts` | PF-05.21, PF-05.24 a PF-05.28 |
 | `backend/test/reports-read-only.e2e.spec.ts` | PF-05.29 |
-| `backend/test/crm-metrics-consistency.e2e.spec.ts` | PF-05.30, PF-05.31 (compartida con Inicio) |
+| `backend/test/commercial-metrics-consistency.e2e.spec.ts` | PF-05.30, PF-05.31 (compartida con Inicio) |
 | `backend/test/support/` | *Fixtures* de reportes (usuarios por alcance, oportunidades con productos, visitas reprogramadas) |
 | `frontend/tests/e2e/reports.e2e.spec.ts` | PF-05.39, PF-05.40 |
 
@@ -854,7 +855,7 @@ Datos: semilla de demostración + *fixtures* por prueba.
 | `docs/adr/ADR-0NN-libreria-de-graficas.md` | Crear (D-05.2) |
 | `docs/design/DESIGN-SYSTEM.md` | Añadir sección de gráficas (series, leyendas, tabla equivalente, movimiento reducido) |
 | `docs/api/README.md` | Añadir los endpoints de reportes |
-| `docs/implementation-plans/crm/00-modelo-de-datos.md` | Añadir el parámetro de D.5 (lo hace el responsable de 00) |
+| `docs/implementation-plans/crm/00-modelo-de-datos.md` | Parámetro de D.5 ya anotado en 00 §8.2 como propuesto (consolidación) |
 | `CHANGELOG.md` | Entrada del módulo |
 
 ---
@@ -886,8 +887,8 @@ Datos: semilla de demostración + *fixtures* por prueba.
 | **D-05.3** | Tope de exportación XLSX frente a "el conjunto completo" (§7.6) y frente al tope de la casa (10 000 filas, PLAN-ADMIN D13) | Parámetro nuevo `crm.reportes.max_filas_exportacion` = **100 000**; por encima, `422 EXPORT_TOO_LARGE` y **nunca** archivo truncado; *streaming* + transacción `REPEATABLE READ READ ONLY` + lotes *keyset*. El tope de 10 000 de la casa se mantiene para usuarios y auditoría (datos personales en bloque); aquí no hay PII de contactos y el alcance exige completitud | Tope menor: más `422`. Si se exige exportar cualquier tamaño: exportación asíncrona (D-05.14). Añadir el parámetro a 00 §8.2 |
 | **D-05.4** | Columna por la que filtra el período cada reporte y período por defecto | Tabla C.2 (oportunidades por `opportunity_date`; visitas por `scheduled_start_at` vigente; actividades por `COALESCE(scheduled_at, due_at)`; forecast por año/mes M+1…M+6; proyectos sin período por defecto), seleccionable con `dateBasis` | Cambian los resultados por defecto, no el contrato |
 | **D-05.5** | ¿"Pendientes" incluye las vencidas? (compartida con Inicio §3.2 y Actividad §6.2) | **Disjuntas:** pendientes = abiertas no vencidas; vencidas aparte; abiertas = suma | Si son inclusivas, cambia `metric-definitions.ts` y a la vez Inicio y Reportes |
-| **D-05.6** | Horizonte de "visitas próximas" (compartida con Inicio) | 7 días; parámetro `crm.metricas.dias_visitas_proximas` salvo que 01 ya defina uno equivalente (prevalece el de 01) | Solo parámetro |
-| **D-05.7** | Período de "ganadas" y "perdidas" en la tarjeta de Inicio, para que el reporte lo reproduzca | Año en curso por `decision_date` (`dateBasis = DECIDED`), en la zona de negocio. Lo confirma 01; el reporte acepta cualquier período | Cambia el valor por defecto de la tarjeta; PF-05.30 sigue garantizando la igualdad |
+| **D-05.6** | Horizonte de "visitas próximas" (compartida con Inicio) | **Resuelta en la consolidación:** se usa el parámetro de D-01.5, `crm.inicio.visitas_proximas_dias` (7 días). No se crea otro | Solo parámetro |
+| **D-05.7** | Período de "ganadas" y "perdidas" en la tarjeta de Inicio, para que el reporte lo reproduzca | **Resuelta en la consolidación:** lo fija Inicio (D-01.3: mes en curso por `decision_date`, con selector mes / trimestre / año). El enlace de la tarjeta lleva ese mismo período al reporte, que acepta cualquiera | PF-05.30 compara con el período que tenga la tarjeta |
 | **D-05.8** | "Tipo de cliente" del embudo (§7.8): ¿tipo de empresa o estado del cliente (prospecto/activo)? | `crm.tipo_empresa` | Cambiar a `crm.estado_cliente` es cambiar una columna del filtro |
 | **D-05.9** | Cómo calcular los porcentajes del embudo "cuando exista información suficiente" | Participación siempre que el total > 0; conversión acumulada por historial (RN-05.55) solo con historial completo y denominador ≥ `MIN_FUNNEL_SAMPLE` = 5 (constante; parámetro si el negocio lo pide) | Otra fórmula de conversión cambia solo `funnel()` |
 | **D-05.10** | ¿Filtro por producto/familia en el reporte de oportunidades? (el alcance pide "evitar duplicar al consultar sus productos asociados" sin listar el filtro) | Incluido, implementado con `EXISTS` | Si se descarta, se quita el filtro; la regla anti-duplicación sigue aplicando a cualquier consulta futura |
@@ -903,14 +904,14 @@ Datos: semilla de demostración + *fixtures* por prueba.
 
 | ID | Módulo | Funcionalidad | Alcance | Especificación | Entidades | Dependencias | Criterios | Pruebas | Estado | Decisión pendiente |
 |---|---|---|---|---|---|---|---|---|---|---|
-| F-34 | 5 Reportes | Reporte de proyectos | §7.1 | [05](05-reportes.md) | projects, customers, countries, users, opportunities, opportunity_results, catalog_items | Fase 0; Proyectos; `crm-metrics` | AC-05.1–AC-05.4, AC-05.40–AC-05.43 | PF-05.4, PF-05.7, PF-05.20, PF-05.22, PF-05.33, PF-05.37 | especificada | DM-16, D-05.4, D-05.12, D-05.15 |
-| F-35 | 5 Reportes | Reporte de oportunidades | §7.2 | [05](05-reportes.md) | opportunities, opportunity_results, projects, customers, project_products, users, catalog_items | Fase 0; Proyectos; `crm-metrics` | AC-05.5–AC-05.11, AC-05.40–AC-05.43 | PF-05.1, PF-05.2, PF-05.8–PF-05.12, PF-05.22, PF-05.30 | especificada | DM-1, DM-15, DM-35, D-05.4, D-05.10 |
-| F-36 | 5 Reportes | Reporte de forecast | §7.3 | [05](05-reportes.md) | forecast_lines, projects, customers, products, product_families, units_of_measure, users | Fase 0; Proyectos (forecast); `crm-metrics` | AC-05.12–AC-05.16, AC-05.40–AC-05.43 | PF-05.3, PF-05.13–PF-05.15, PF-05.22 | especificada | DM-24, DM-25, D-05.4 |
-| F-37 | 5 Reportes | Reporte de visitas | §7.4 | [05](05-reportes.md) | visits, customers, projects, users, catalog_items | Fase 0; Actividad comercial; `crm-metrics` | AC-05.17–AC-05.19, AC-05.40–AC-05.43 | PF-05.16–PF-05.18, PF-05.22 | especificada | DM-20, D-05.4, D-05.6 |
-| F-38 | 5 Reportes | Reporte de actividades | §7.5 | [05](05-reportes.md) | activities, customers, projects, users, catalog_items | Fase 0; Actividad comercial; `crm-metrics` | AC-05.20–AC-05.22, AC-05.40–AC-05.43 | PF-05.19, PF-05.22, PF-05.30 | especificada | D-05.4, D-05.5 |
+| F-34 | 5 Reportes | Reporte de proyectos | §7.1 | [05](05-reportes.md) | projects, customers, countries, users, opportunities, opportunity_results, catalog_items | Fase 0; Proyectos; `commercial-metrics` | AC-05.1–AC-05.4, AC-05.40–AC-05.43 | PF-05.4, PF-05.7, PF-05.20, PF-05.22, PF-05.33, PF-05.37 | especificada | DM-16, D-05.4, D-05.12, D-05.15 |
+| F-35 | 5 Reportes | Reporte de oportunidades | §7.2 | [05](05-reportes.md) | opportunities, opportunity_results, projects, customers, project_products, users, catalog_items | Fase 0; Proyectos; `commercial-metrics` | AC-05.5–AC-05.11, AC-05.40–AC-05.43 | PF-05.1, PF-05.2, PF-05.8–PF-05.12, PF-05.22, PF-05.30 | especificada | DM-1, DM-15, DM-35, D-05.4, D-05.10 |
+| F-36 | 5 Reportes | Reporte de forecast | §7.3 | [05](05-reportes.md) | forecast_lines, projects, customers, products, product_families, units_of_measure, users | Fase 0; Proyectos (forecast); `commercial-metrics` | AC-05.12–AC-05.16, AC-05.40–AC-05.43 | PF-05.3, PF-05.13–PF-05.15, PF-05.22 | especificada | DM-24, DM-25, D-05.4 |
+| F-37 | 5 Reportes | Reporte de visitas | §7.4 | [05](05-reportes.md) | visits, customers, projects, users, catalog_items | Fase 0; Actividad comercial; `commercial-metrics` | AC-05.17–AC-05.19, AC-05.40–AC-05.43 | PF-05.16–PF-05.18, PF-05.22 | especificada | DM-20, D-05.4, D-05.6 |
+| F-38 | 5 Reportes | Reporte de actividades | §7.5 | [05](05-reportes.md) | activities, customers, projects, users, catalog_items | Fase 0; Actividad comercial; `commercial-metrics` | AC-05.20–AC-05.22, AC-05.40–AC-05.43 | PF-05.19, PF-05.22, PF-05.30 | especificada | D-05.4, D-05.5 |
 | F-39 | 5 Reportes | Exportación a Excel | §7.6 | [05](05-reportes.md) | las de F-34…F-38; audit_logs (escritura); system_parameters | F-34…F-38; ADR de librería XLSX | AC-05.23–AC-05.29 | PF-05.6, PF-05.21, PF-05.24–PF-05.28, PF-05.35 | bloqueada | D-05.1 (ADR), D-05.3, D-05.14 |
-| F-40 | 5 Reportes | Dashboard comercial | §7.7 | [05](05-reportes.md) | projects, opportunities, opportunity_results, forecast_lines, visits, activities, catalog_items, users | `crm-metrics`; ADR de gráficas | AC-05.30–AC-05.34, AC-05.41, AC-05.42 | PF-05.22, PF-05.30, PF-05.36, PF-05.38, PF-05.39 | bloqueada | D-05.2 (ADR), D-05.13 |
-| F-41 | 5 Reportes | Embudo comercial | §7.8 | [05](05-reportes.md) | opportunities, opportunity_stage_history, projects, customers, catalog_items | `crm-metrics`; ADR de gráficas | AC-05.35–AC-05.39 | PF-05.5, PF-05.32, PF-05.38, PF-05.39 | bloqueada | D-05.2 (ADR), D-05.8, D-05.9 |
+| F-40 | 5 Reportes | Dashboard comercial | §7.7 | [05](05-reportes.md) | projects, opportunities, opportunity_results, forecast_lines, visits, activities, catalog_items, users | `commercial-metrics`; ADR de gráficas | AC-05.30–AC-05.34, AC-05.41, AC-05.42 | PF-05.22, PF-05.30, PF-05.36, PF-05.38, PF-05.39 | bloqueada | D-05.2 (ADR), D-05.13 |
+| F-41 | 5 Reportes | Embudo comercial | §7.8 | [05](05-reportes.md) | opportunities, opportunity_stage_history, projects, customers, catalog_items | `commercial-metrics`; ADR de gráficas | AC-05.35–AC-05.39 | PF-05.5, PF-05.32, PF-05.38, PF-05.39 | bloqueada | D-05.2 (ADR), D-05.8, D-05.9 |
 
 > F-39, F-40 y F-41 quedan `bloqueada` solo en lo que depende de las dos librerías
 > nuevas (CLAUDE.md §8.6); su alcance se conserva entero y sus tablas equivalentes

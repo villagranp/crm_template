@@ -705,9 +705,9 @@ ubicación transversal (sección L), **no** dentro de `customers/`.
 
 | Consulta | Dueño | Contrato requerido | Uso |
 |---|---|---|---|
-| Proyectos de un cliente (F-08) | Módulo 3 | `GET /api/v1/projects?customerId={id}&search&phaseId&ownerId&commercialStatus&page&pageSize&sortBy&sortOrder`, permiso `proyectos.ver`, filtrado por la visibilidad de proyectos, respuesta `{ data: [{ id, code, name, city, country { name }, phase { id, label, progress }, commercialStatus { code, label }, owner { id, displayName }, estimatedDecisionDate }], pagination }` | Lo llama **el frontend** directamente; el backend de Clientes no lo reexpone. El nombre exacto de los parámetros lo fija `03-proyectos.md`; si difiere, manda el de Proyectos y se ajusta este consumidor |
+| Proyectos de un cliente (F-08) | Módulo 3 | `GET /api/v1/projects?customerId={id}&search&phaseId&ownerId&commercialStatus&page&pageSize&sortBy&sortOrder`, permiso `proyectos.ver`, filtrado por la visibilidad de proyectos, respuesta `Paginated<ProjectListItemDto>` de 03 F.1 (se usan `id, code, name, city, country { name }, phase { id, code, label, progress }, commercialStatus { kind, label, stage }, owner { id, displayName }, estimatedDecisionDate`) | Lo llama **el frontend** directamente; el backend de Clientes no lo reexpone. Parámetros y forma **alineados en la consolidación** con el contrato del dueño (03 F.1, "Contrato para Clientes F-08") |
 | Ruta de detalle de proyecto | Módulo 3 | `/proyectos/:projectId` | Navegación desde E.6 |
-| Alta de actividad con cliente preseleccionado | Módulo 4 | Ruta del formulario de actividad con `?customerId={id}` (la fija `04-actividad-comercial.md`; propuesta `/actividad/actividades/nueva?customerId=`) | Botón "Nueva actividad" de la ficha |
+| Alta de actividad con cliente preseleccionado | Módulo 4 | Ruta `/actividad/actividades/nueva?customerId={id}` (fijada por 04 E.1). El Módulo 4 entrega los componentes `NewActivityButton`, `PlanVisitButton` y `CommercialActivitySection` (04 E.11), que la ficha monta cuando el módulo está disponible (D-02.10) | Botón "Nueva actividad" de la ficha |
 | Menú del usuario | Plantilla (ADR-018) | `GET /api/v1/me/menu` | Disponibilidad de Proyectos y Actividad (D-02.10) |
 
 Las lecturas de **conteos** (proyectos, actividades abiertas, visitas pendientes, participaciones
