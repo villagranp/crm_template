@@ -1,8 +1,14 @@
-import { BusinessRuleViolationError, PermissionDeniedError, ResourceNotFoundError } from '@/common/errors/application-error';
+import {
+  BusinessRuleViolationError,
+  PermissionDeniedError,
+  ResourceConflictError,
+  ResourceNotFoundError,
+} from '@/common/errors/application-error';
 import type { AuthenticatedPrincipal } from '@/infrastructure/authentication/ports/authenticated-principal';
 import type { PermissionResolver } from '@/infrastructure/authentication/ports/permission-resolver.port';
 import type { AccessService } from '@/modules/access/access.service';
 import type { AuditContext, AuditService } from '@/modules/audit/audit.service';
+import type { CatalogLookupService } from '@/modules/catalogs/catalog-lookup.service';
 
 import { ParametersService } from './parameters.service';
 import type { ParametersRepository, SystemParameterRecord } from './ports/parameters.repository.port';
@@ -27,6 +33,14 @@ function parameter(overrides: Partial<SystemParameterRecord> = {}): SystemParame
   };
 }
 
+/** Estado de los catálogos para las referencias: `catalogKey → (code → isActive)`. */
+const CATALOG_STATES: Record<string, Record<string, boolean>> = {
+  'crm.prioridad': { ALTA: true, MEDIA: true, BAJA: false },
+  'crm.estado_cliente': { PROSPECTO: true, ACTIVO: true },
+  'crm.fase_cliente': { DISENO: true, FINALIZADO: true },
+  'crm.etapa_oportunidad': { CONTACTADO: true, COTIZANDO: true, GANADO: true, PERDIDO: true },
+};
+
 function setup(existing: SystemParameterRecord | null, permissions: string[]) {
   const repository: jest.Mocked<ParametersRepository> = {
     listAll: jest.fn(async () => (existing ? [existing] : [])),
@@ -38,13 +52,20 @@ function setup(existing: SystemParameterRecord | null, permissions: string[]) {
   const resolver: PermissionResolver = { resolvePermissions: jest.fn(async () => new Set(permissions)) };
   const accessService = { findUserIdForPrincipal: jest.fn(async () => 'user-1') };
   const auditService = { record: jest.fn(async () => undefined) };
+  const catalogLookup = {
+    itemStates: jest.fn(async (catalogKey: string) => {
+      const states = CATALOG_STATES[catalogKey];
+      return states ? new Map(Object.entries(states)) : null;
+    }),
+  };
   const service = new ParametersService(
     repository,
     resolver,
     accessService as unknown as AccessService,
     auditService as unknown as AuditService,
+    catalogLookup as unknown as CatalogLookupService,
   );
-  return { service, repository, auditService };
+  return { service, repository, auditService, catalogLookup };
 }
 
 describe('ParametersService.updateValue', () => {
@@ -92,6 +113,123 @@ describe('ParametersService.updateValue', () => {
       BusinessRuleViolationError,
     );
     expect(repository.updateValue).not.toHaveBeenCalled();
+  });
+});
+
+describe('ParametersService.updateValue con el registro de reglas (D-07.7)', () => {
+  const EDITOR = ['parametros.editar'];
+
+  it('crm.moneda_base es de solo lectura: 409 SYSTEM_RESOURCE_READ_ONLY aunque tenga configurar', async () => {
+    const { service, repository } = setup(
+      parameter({ key: 'crm.moneda_base', type: 'STRING', group: 'crm', value: 'USD' }),
+      ['parametros.editar', 'parametros.configurar'],
+    );
+
+    const error = await service.updateValue('crm.moneda_base', 'USD', PRINCIPAL, CONTEXT).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ResourceConflictError);
+    expect(error).toMatchObject({ code: 'SYSTEM_RESOURCE_READ_ONLY' });
+    expect(repository.updateValue).not.toHaveBeenCalled();
+  });
+
+  it('un parámetro estructural sin parametros.configurar es 403', async () => {
+    const { service } = setup(
+      parameter({ key: 'crm.forecast.unidad_tonelaje', type: 'STRING', group: 'crm', value: 'TON' }),
+      EDITOR,
+    );
+
+    await expect(service.updateValue('crm.forecast.unidad_tonelaje', 'KG', PRINCIPAL, CONTEXT)).rejects.toBeInstanceOf(
+      PermissionDeniedError,
+    );
+  });
+
+  it('nit = BLOQUEAR es 422 con el campo; nit = NO se guarda compactado', async () => {
+    const existing = parameter({
+      key: 'crm.clientes.reglas_duplicidad',
+      type: 'JSON',
+      group: 'crm',
+      value: '{"razonSocialNormalizada":"AVISAR","nit":"AVISAR"}',
+    });
+    const { service, repository } = setup(existing, EDITOR);
+
+    await expect(
+      service.updateValue(
+        'crm.clientes.reglas_duplicidad',
+        '{"razonSocialNormalizada":"AVISAR","nit":"BLOQUEAR"}',
+        PRINCIPAL,
+        CONTEXT,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMETER_VALUE', details: [expect.objectContaining({ field: 'value.nit' })] });
+
+    await service.updateValue(
+      'crm.clientes.reglas_duplicidad',
+      '{ "razonSocialNormalizada": "AVISAR", "nit": "NO" }',
+      PRINCIPAL,
+      CONTEXT,
+    );
+    expect(repository.updateValue).toHaveBeenCalledWith(
+      'crm.clientes.reglas_duplicidad',
+      '{"razonSocialNormalizada":"AVISAR","nit":"NO"}',
+      'user-1',
+    );
+  });
+
+  it('crm.valores_por_defecto con un código inexistente o inactivo es 422 con el campo', async () => {
+    const existing = parameter({ key: 'crm.valores_por_defecto', type: 'JSON', group: 'crm', value: '{}' });
+    const { service, repository } = setup(existing, EDITOR);
+
+    await expect(
+      service.updateValue('crm.valores_por_defecto', '{"customer.statusId":"NO_EXISTE"}', PRINCIPAL, CONTEXT),
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMETER_VALUE',
+      details: [expect.objectContaining({ field: 'value.customer.statusId', code: 'NO_EXISTE' })],
+    });
+    await expect(
+      service.updateValue('crm.valores_por_defecto', '{"activity.priorityId":"BAJA"}', PRINCIPAL, CONTEXT),
+    ).rejects.toMatchObject({ details: [expect.objectContaining({ issue: expect.stringContaining('inactivo') })] });
+    expect(repository.updateValue).not.toHaveBeenCalled();
+
+    await service.updateValue('crm.valores_por_defecto', '{"customer.statusId":"PROSPECTO"}', PRINCIPAL, CONTEXT);
+    expect(repository.updateValue).toHaveBeenCalled();
+  });
+
+  it('las transiciones de etapa solo admiten etapas existentes', async () => {
+    const existing = parameter({ key: 'crm.oportunidades.transiciones_etapa', type: 'JSON', group: 'crm', value: '{}' });
+    const { service } = setup(existing, EDITOR);
+
+    await expect(
+      service.updateValue('crm.oportunidades.transiciones_etapa', '{"CONTACTADO":["NEGOCIANDO"]}', PRINCIPAL, CONTEXT),
+    ).rejects.toMatchObject({ details: [expect.objectContaining({ field: 'value.CONTACTADO.0' })] });
+  });
+
+  it('crm.campos_obligatorios conserva los obligatorios de base', async () => {
+    const existing = parameter({ key: 'crm.campos_obligatorios', type: 'JSON', group: 'crm', value: '{}' });
+    const { service, repository } = setup(existing, EDITOR);
+
+    await service.updateValue('crm.campos_obligatorios', '{"customer":["taxId"]}', PRINCIPAL, CONTEXT);
+
+    const stored = JSON.parse(String(repository.updateValue.mock.calls[0]?.[1])) as Record<string, string[]>;
+    expect(stored['customer']).toEqual(['legalName', 'countryId', 'statusId', 'salesOwnerId', 'taxId']);
+    expect(Object.keys(stored)).toEqual(['customer', 'project', 'visit', 'activity']);
+  });
+
+  it('dias_aviso_antiguedad: 0 y 367 son 422, 45 se guarda', async () => {
+    const existing = parameter({
+      key: 'crm.tipos_cambio.dias_aviso_antiguedad',
+      type: 'NUMBER',
+      group: 'crm',
+      value: '31',
+    });
+    const { service } = setup(existing, EDITOR);
+
+    for (const value of ['0', '367']) {
+      await expect(
+        service.updateValue('crm.tipos_cambio.dias_aviso_antiguedad', value, PRINCIPAL, CONTEXT),
+      ).rejects.toMatchObject({ code: 'INVALID_PARAMETER_VALUE' });
+    }
+    await expect(
+      service.updateValue('crm.tipos_cambio.dias_aviso_antiguedad', '45', PRINCIPAL, CONTEXT),
+    ).resolves.toMatchObject({ value: '45' });
   });
 });
 

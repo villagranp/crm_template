@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
-import { type INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
+import { type INestApplication, VersioningType } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 
 import { AppModule } from '@/app.module';
+import { createValidationPipe } from '@/common/filters/validation-exception.factory';
 import { PasswordService } from '@/modules/auth/password.service';
 
 /**
@@ -32,7 +33,7 @@ export async function createTestContext(): Promise<TestContext> {
   app.set('trust proxy', 1);
   app.setGlobalPrefix('api');
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+  app.useGlobalPipes(createValidationPipe());
   await app.init();
 
   return { app, prisma };

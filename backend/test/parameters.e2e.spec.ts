@@ -150,13 +150,26 @@ describe('PATCH /api/v1/parameters/{key}', () => {
     await api().patch(`/api/v1/parameters/${GENERAL_KEY}`).set('Authorization', `Bearer ${token}`).send({ value: 'x' }).expect(403);
   });
 
-  it('400 sin value o con campos no permitidos', async () => {
-    await api().patch(`/api/v1/parameters/${GENERAL_KEY}`).set('Authorization', `Bearer ${adminToken}`).send({}).expect(400);
-    await api()
+  it('400 VALIDATION_FAILED sin value o con campos no permitidos (DC-6)', async () => {
+    const missing = await api()
+      .patch(`/api/v1/parameters/${GENERAL_KEY}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({})
+      .expect(400);
+    expect(missing.body).toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_FAILED',
+      details: expect.arrayContaining([expect.objectContaining({ field: 'value' })]),
+    });
+    expect(typeof missing.body.correlationId).toBe('string');
+
+    const extra = await api()
       .patch(`/api/v1/parameters/${GENERAL_KEY}`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ value: 'x', type: 'JSON' })
       .expect(400);
+    expect(extra.body.code).toBe('VALIDATION_FAILED');
+    expect(extra.body.details).toEqual(expect.arrayContaining([expect.objectContaining({ field: 'type' })]));
   });
 
   it.each([
@@ -184,5 +197,97 @@ describe('PATCH /api/v1/parameters/{key}', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ value: '1' })
       .expect(404);
+  });
+});
+
+describe('PATCH /api/v1/parameters/{key}: registro de reglas del CRM (D-07.7)', () => {
+  function patch(key: string, value: string, token = adminToken) {
+    return api().patch(`/api/v1/parameters/${key}`).set('Authorization', `Bearer ${token}`).send({ value });
+  }
+
+  it('GET marca readOnly, requiresConfigure, range y allowedValues desde el registro', async () => {
+    const response = await api().get('/api/v1/parameters').set('Authorization', `Bearer ${adminToken}`).expect(200);
+    const all = (response.body.data as Array<{ parameters: Array<Record<string, unknown>> }>).flatMap((group) => group.parameters);
+    const byKey = new Map(all.map((parameter) => [parameter['key'], parameter]));
+
+    expect(byKey.get('crm.moneda_base')).toMatchObject({ readOnly: true, requiresConfigure: true });
+    expect(byKey.get('crm.tipos_cambio.dias_aviso_antiguedad')).toMatchObject({ readOnly: false, range: { min: 1, max: 366 } });
+    expect(byKey.get('crm.visitas.validar_conflicto_horario')).toMatchObject({ allowedValues: ['NO', 'AVISAR', 'BLOQUEAR'] });
+    expect(byKey.get(SECURITY_KEY)).toMatchObject({ requiresConfigure: true, requiresConfigurePermission: true });
+    expect(byKey.has('crm.moneda_por_defecto')).toBe(false);
+    expect(byKey.has('crm.clientes.unicidad_nit')).toBe(false);
+  });
+
+  it('409 SYSTEM_RESOURCE_READ_ONLY al editar crm.moneda_base (AC-07.42)', async () => {
+    const response = await patch('crm.moneda_base', 'USD').expect(409);
+    expect(response.body.code).toBe('SYSTEM_RESOURCE_READ_ONLY');
+  });
+
+  it('dias_aviso_antiguedad: 0 y 367 son 422; 45 se guarda (AC-07.42)', async () => {
+    const key = 'crm.tipos_cambio.dias_aviso_antiguedad';
+    const original = await currentValue(key);
+    try {
+      for (const value of ['0', '367']) {
+        const response = await patch(key, value).expect(422);
+        expect(response.body.code).toBe('INVALID_PARAMETER_VALUE');
+      }
+      await patch(key, '45').expect(200);
+      expect(await currentValue(key)).toBe('45');
+    } finally {
+      await restore(key, original);
+    }
+  });
+
+  it('reglas de duplicidad: nit BLOQUEAR es 422; NO se guarda y se audita (AC-07.27)', async () => {
+    const key = 'crm.clientes.reglas_duplicidad';
+    const original = await currentValue(key);
+    try {
+      const rejected = await patch(key, '{"razonSocialNormalizada":"AVISAR","nit":"BLOQUEAR"}').expect(422);
+      expect(rejected.body).toMatchObject({
+        code: 'INVALID_PARAMETER_VALUE',
+        details: [expect.objectContaining({ field: 'value.nit' })],
+      });
+
+      await patch(key, '{"razonSocialNormalizada":"AVISAR","nit":"NO"}').expect(200);
+      expect(await currentValue(key)).toBe('{"razonSocialNormalizada":"AVISAR","nit":"NO"}');
+      const audit = await ctx.prisma.auditLog.findFirst({
+        where: { event: 'parameter.updated', resourceId: key },
+        orderBy: { occurredAt: 'desc' },
+      });
+      expect(audit).not.toBeNull();
+    } finally {
+      await restore(key, original);
+    }
+  });
+
+  it('valores por defecto: un código inexistente es 422 con el campo (AC-07.29)', async () => {
+    const key = 'crm.valores_por_defecto';
+    const original = await currentValue(key);
+
+    const response = await patch(key, '{"customer.statusId":"NO_EXISTE"}').expect(422);
+
+    expect(response.body.details).toEqual([
+      expect.objectContaining({ field: 'value.customer.statusId', catalogKey: 'crm.estado_cliente', code: 'NO_EXISTE' }),
+    ]);
+    expect(await currentValue(key)).toBe(original);
+  });
+
+  it('campos obligatorios: campo desconocido 422; los de base se conservan (AC-07.28)', async () => {
+    const key = 'crm.campos_obligatorios';
+    const original = await currentValue(key);
+    try {
+      await patch(key, '{"customer":["noExiste"]}').expect(422);
+      await patch(key, '{"customer":["taxId"]}').expect(200);
+      const stored = JSON.parse(await currentValue(key)) as Record<string, string[]>;
+      expect(stored['customer']).toEqual(expect.arrayContaining(['legalName', 'countryId', 'statusId', 'salesOwnerId', 'taxId']));
+      expect(stored['project']).toEqual(['name', 'customerId', 'countryId', 'ownerId']);
+    } finally {
+      await restore(key, original);
+    }
+  });
+
+  it('403 en un parámetro estructural sin parametros.configurar (AC-07.30)', async () => {
+    const { token } = await tokenWithEditWithoutConfigure();
+    await patch('crm.forecast.unidad_tonelaje', 'TON', token).expect(403);
   });
 });

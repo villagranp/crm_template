@@ -6,6 +6,35 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 ## [Unreleased]
 
 ### Added
+- **CRM Fase 0 — semillas** (`00-modelo-de-datos.md` §8):
+  - Semilla esencial ampliada (`prisma/seed.ts`, `prisma/seed/crm-*.ts`): monedas
+    (USD, GTQ, HNL, CRC, VES), países GT, SV, HN, CR, VE y EC, 9 unidades de
+    medida, 4 reglas de conversión globales exactas, 6 secuencias `crm.*`, los 17
+    catálogos `crm.*` con su semántica en `metadata`, 41 permisos del CRM (nuevas
+    acciones `cerrar` y `administrar`), 5 módulos, roles de sistema `asesor`
+    (OWN), `manager` (TEAM) y `responsable-pais` (COUNTRY) con la matriz de §5.4,
+    y 28 parámetros (`crm.*` y `sistema.permite_datos_demo`). Las opciones de menú
+    del CRM se declaran pero solo se siembran cuando su ruta está registrada
+    (DM-32). Sin tipos de cambio reales hasta que el negocio los entregue.
+  - Semilla de demostración (`prisma/seed-demo.ts`, script `prisma:seed:demo`),
+    con guardia: se niega con `NODE_ENV=production`, sin `SEED_DEMO=true` o sin
+    `sistema.permite_datos_demo=true`. Datos ficticios marcados `DEMO-` que cubren
+    todos los estados de §8.3; idempotente y purgable (`--purge`).
+  - Variables `SEED_DEMO` y `SEED_DEMO_PASSWORD` en `.env.example` (vacías).
+  - Pruebas de integración de ambas semillas (`backend/test/seeds.e2e.spec.ts`).
+- **CRM Fase 0 — protecciones transversales**:
+  - Registro de semántica de catálogos (`catalog-semantics.registry.ts`) para los
+    17 catálogos `crm.*`: `422 INVALID_CATALOG_METADATA` y `409 CATALOG_INVARIANT`
+    (`invariant`, `closed_set`, `referenced_by_parameter`). Duplicados por código
+    o por etiqueta normalizada, incluidos inactivos (D-07.5). `GET /catalogs/{id}`
+    devuelve `metadataSchema` y `closedSet`.
+  - Registro de reglas de parámetros (`parameter-rules.registry.ts`) con rangos,
+    valores permitidos y referencias a catálogos (`422 INVALID_PARAMETER_VALUE`);
+    `crm.moneda_base` es de solo lectura (`409 SYSTEM_RESOURCE_READ_ONLY`).
+    `GET /parameters` añade `requiresConfigure`, `readOnly`, `allowedValues`,
+    `editor` y `range`.
+  - `ParameterReader`: lectura validada con caída al valor por defecto documentado.
+  - `413` y `415` en la tabla de estados de `API-STANDARDS.md`.
 - **CRM Fase 0 — esquema y migraciones** (`docs/implementation-plans/crm/00-modelo-de-datos.md`):
   monedas, tipos de cambio y países; unidades, familias, productos y reglas de
   conversión; clientes y contactos; proyectos, oportunidades (estimación en USD
@@ -20,6 +49,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 - Pruebas de integración del esquema CRM (`backend/test/crm-schema.e2e.spec.ts`).
 
 ### Changed
+- **Contrato:** los errores de validación de DTO responden `400` con código
+  `VALIDATION_FAILED` (antes `BAD_REQUEST`) y `details: [{field, issue}]`, sin
+  eco del valor recibido. Otros `400` (p. ej. UUID inválido en la ruta) siguen
+  como `BAD_REQUEST`.
 - **Contrato (rompe compatibilidad):** el alcance de datos `TERRITORY` pasa a
   llamarse `COUNTRY` (`dataScope` en `/me`, `/roles` y `/users`; addendum de
   2026-10-10 a ADR-018). Migración `20261010100000_crm_data_scope_country`

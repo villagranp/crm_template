@@ -55,7 +55,7 @@ describe('describeApiError', () => {
 
   it('expone los motivos de validación de details[].issue', () => {
     const view = describeApiError(
-      apiError(400, 'BAD_REQUEST', [
+      apiError(400, ADMIN_ERROR_CODES.validationFailed, [
         { issue: 'email must be an email' },
         { field: 'x' },
         { issue: '  ' },
@@ -65,6 +65,17 @@ describe('describeApiError', () => {
     expect(view.message).toBe('Revisa los datos del formulario.');
     expect(view.issues).toEqual(['email must be an email']);
     expect(view.correlationId).toBe('corr-1');
+  });
+
+  it('VALIDATION_FAILED y un 400 sin código conocido dan el mismo mensaje (DC-6)', () => {
+    expect(describeApiError(apiError(400, ADMIN_ERROR_CODES.validationFailed)).message).toBe(
+      describeApiError(apiError(400, 'BAD_REQUEST')).message,
+    );
+  });
+
+  it('traduce los errores de catálogos del CRM', () => {
+    expect(describeApiError(apiError(422, ADMIN_ERROR_CODES.invalidCatalogMetadata)).message).toMatch(/formato/);
+    expect(describeApiError(apiError(409, ADMIN_ERROR_CODES.catalogInvariant)).message).toMatch(/conjunto cerrado/);
   });
 
   it('los mensajes propios de la pantalla ganan sobre los comunes', () => {

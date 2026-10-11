@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Patch, Req } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -19,9 +20,12 @@ import { auditContextFrom } from '@/modules/audit/audit.service';
 
 import { ParameterListResponseDto, ParameterResponseDto, UpdateParameterDto } from './dto/parameter.dto';
 import type { SystemParameterRecord } from './ports/parameters.repository.port';
-import { ParametersService, SECURITY_PARAMETER_GROUP } from './parameters.service';
+import { ruleFor } from './parameter-rules.registry';
+import { isReadOnly, ParametersService, requiresConfigure } from './parameters.service';
 
 function toResponse(parameter: SystemParameterRecord): ParameterResponseDto {
+  const rule = ruleFor(parameter.key);
+  const configure = requiresConfigure(parameter);
   return {
     key: parameter.key,
     value: parameter.value,
@@ -31,7 +35,12 @@ function toResponse(parameter: SystemParameterRecord): ParameterResponseDto {
     description: parameter.description,
     isPublic: parameter.isPublic,
     isSystem: parameter.isSystem,
-    requiresConfigurePermission: parameter.group === SECURITY_PARAMETER_GROUP,
+    requiresConfigurePermission: configure,
+    requiresConfigure: configure,
+    readOnly: isReadOnly(parameter),
+    allowedValues: rule?.allowedValues ? [...rule.allowedValues] : null,
+    editor: rule?.editor ?? null,
+    range: rule?.range ? { ...rule.range } : null,
     updatedAt: parameter.updatedAt.toISOString(),
   };
 }
@@ -70,19 +79,25 @@ export class ParametersController {
       'Sólo el valor es editable. Se valida por tipo: NUMBER (entero si el valor actual es entero), BOOLEAN (true/false), JSON válido, DATE ISO 8601, STRING de 1 a 1000 caracteres.',
       'Rangos de las claves conocidas: seguridad.intentos_fallidos_maximos 1–20; seguridad.minutos_bloqueo 1–1440;',
       'seguridad.dias_caducidad_password 0–365; auditoria.dias_retencion 30–3650; ui.paginacion_default 1–100.',
-      'Los parámetros del grupo `seguridad` exigen además `parametros.configurar`. Deja el evento `parameter.updated` en auditoría.',
+      'Las claves `crm.*` y `sistema.*` se validan además con el registro de reglas (D-07.7): rangos, listas de valores, esquema JSON y códigos de catálogo que deben existir y estar activos (los rangos se publican en `range` de `GET /parameters`).',
+      'Los parámetros del grupo `seguridad` y los estructurales (`requiresConfigure`) exigen además `parametros.configurar`. Los de solo lectura (`readOnly`, p. ej. `crm.moneda_base`) responden 409 SYSTEM_RESOURCE_READ_ONLY.',
+      'Deja el evento `parameter.updated` en auditoría.',
     ].join(' '),
   })
   @ApiParam({ name: 'key', example: 'seguridad.minutos_bloqueo' })
   @ApiOkResponse({ type: ParameterResponseDto })
-  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'Cuerpo inválido (falta `value` o campos no permitidos)' })
+  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED: cuerpo inválido (falta `value` o campos no permitidos)' })
   @ApiUnauthorizedResponse({ type: ErrorResponseDto })
   @ApiForbiddenResponse({
     type: ErrorResponseDto,
-    description: 'Falta parametros.editar, o parametros.configurar en un parámetro del grupo seguridad',
+    description: 'Falta parametros.editar, o parametros.configurar en un parámetro del grupo seguridad o estructural',
   })
+  @ApiConflictResponse({ type: ErrorResponseDto, description: 'SYSTEM_RESOURCE_READ_ONLY: parámetro de solo lectura' })
   @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'No existe un parámetro con esa clave' })
-  @ApiUnprocessableEntityResponse({ type: ErrorResponseDto, description: 'INVALID_PARAMETER_VALUE' })
+  @ApiUnprocessableEntityResponse({
+    type: ErrorResponseDto,
+    description: 'INVALID_PARAMETER_VALUE: `details[]` con `field` (ruta dentro del valor) e `issue` legible',
+  })
   async update(
     @Param('key') key: string,
     @Body() dto: UpdateParameterDto,

@@ -1,7 +1,16 @@
 import { ResourceConflictError, ResourceNotFoundError } from '@/common/errors/application-error';
 import type { AuditContext, AuditService } from '@/modules/audit/audit.service';
+import type { ParametersRepository, SystemParameterRecord } from '@/modules/parameters/ports/parameters.repository.port';
 
-import { CATALOG_NOT_EMPTY, CatalogsService, SORT_ORDER_STEP, SYSTEM_RESOURCE_READ_ONLY } from './catalogs.service';
+import {
+  CATALOG_INVARIANT,
+  CATALOG_NOT_EMPTY,
+  CatalogsService,
+  INVALID_CATALOG_METADATA,
+  normalizeLabel,
+  SORT_ORDER_STEP,
+  SYSTEM_RESOURCE_READ_ONLY,
+} from './catalogs.service';
 import { isCatalogMetadata, MAX_METADATA_BYTES } from './dto/catalog.dto';
 import type { CatalogDetailRecord, CatalogItemRecord, CatalogsRepository } from './ports/catalogs.repository.port';
 
@@ -65,6 +74,7 @@ describe('isCatalogMetadata', () => {
 describe('CatalogsService', () => {
   let repository: jest.Mocked<CatalogsRepository>;
   let audit: { record: jest.Mock };
+  let parameters: jest.Mocked<ParametersRepository>;
   let service: CatalogsService;
 
   beforeEach(() => {
@@ -82,7 +92,8 @@ describe('CatalogsService', () => {
       updateItem: jest.fn(async (_id, input) => item(input)),
     };
     audit = { record: jest.fn() };
-    service = new CatalogsService(repository, audit as unknown as AuditService);
+    parameters = { listAll: jest.fn(), findByKey: jest.fn().mockResolvedValue(null), updateValue: jest.fn() };
+    service = new CatalogsService(repository, audit as unknown as AuditService, parameters);
   });
 
   it('rechaza crear con una clave existente', async () => {
@@ -172,5 +183,152 @@ describe('CatalogsService', () => {
       CONTEXT,
       expect.objectContaining({ before: expect.objectContaining({ isActive: true }), after: expect.objectContaining({ isActive: false }) }),
     );
+  });
+
+  describe('duplicados por etiqueta (D-07.5)', () => {
+    it('normaliza acentos, mayúsculas y espacios', () => {
+      expect(normalizeLabel('  Constructóra   Grande ')).toBe('constructora grande');
+    });
+
+    it('rechaza una etiqueta igual normalizada, también si el existente está inactivo', async () => {
+      repository.findById.mockResolvedValue(
+        catalog({ items: [item({ id: 'i-1', code: 'CONSTRUCTORA', label: 'Constructora', isActive: false })] }),
+      );
+
+      const error = await service
+        .createItem('cat-1', { code: 'NUEVO', label: 'constructóra ', metadata: null, isActive: true }, CONTEXT)
+        .catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(ResourceConflictError);
+      expect(error).toMatchObject({
+        code: 'RESOURCE_CONFLICT',
+        details: [expect.objectContaining({ field: 'label', existingItemId: 'i-1', existingIsActive: false })],
+      });
+      expect(repository.createItem).not.toHaveBeenCalled();
+    });
+
+    it('al editar, la propia etiqueta no cuenta como duplicada', async () => {
+      repository.findById.mockResolvedValue(catalog({ items: [item({ id: 'item-1', label: 'A' })] }));
+
+      await service.updateItem('cat-1', 'item-1', { label: ' a ' }, CONTEXT);
+
+      expect(repository.updateItem).toHaveBeenCalled();
+    });
+  });
+
+  describe('catálogos crm.* (registro de semántica, D-07.6)', () => {
+    const STAGE = 'crm.etapa_oportunidad';
+
+    function stage(code: string, metadata: Record<string, unknown>, isActive = true): CatalogItemRecord {
+      return item({ id: `id-${code}`, code, label: code, metadata, isActive });
+    }
+
+    const STAGES = [
+      stage('CONTACTADO', { order: 1, isClosed: false, outcome: null, inFunnel: true }),
+      stage('GANADO', { order: 2, isClosed: true, outcome: 'WON', inFunnel: false }),
+      stage('PERDIDO', { order: 3, isClosed: true, outcome: 'LOST', inFunnel: false }),
+    ];
+
+    beforeEach(() => {
+      repository.findById.mockResolvedValue(catalog({ key: STAGE, isSystem: true, items: STAGES }));
+    });
+
+    it('metadata con un tipo incorrecto es 422 INVALID_CATALOG_METADATA con el campo', async () => {
+      await expect(
+        service.createItem(
+          'cat-1',
+          { code: 'NEGOCIANDO', label: 'Negociando', metadata: { order: 4, isClosed: 'sí', inFunnel: true }, isActive: true },
+          CONTEXT,
+        ),
+      ).rejects.toMatchObject({ code: INVALID_CATALOG_METADATA, details: [expect.objectContaining({ field: 'metadata.isClosed' })] });
+    });
+
+    it('acepta una etapa abierta nueva válida', async () => {
+      await service.createItem(
+        'cat-1',
+        { code: 'NEGOCIANDO', label: 'Negociando', metadata: { order: 4, isClosed: false, inFunnel: true }, isActive: true },
+        CONTEXT,
+      );
+      expect(repository.createItem).toHaveBeenCalled();
+    });
+
+    it('outcome en una etapa abierta es 409 CATALOG_INVARIANT', async () => {
+      await expect(
+        service.createItem(
+          'cat-1',
+          { code: 'RARA', label: 'Rara', metadata: { order: 4, isClosed: false, outcome: 'WON', inFunnel: true }, isActive: true },
+          CONTEXT,
+        ),
+      ).rejects.toMatchObject({ code: CATALOG_INVARIANT, details: [expect.objectContaining({ reason: 'invariant' })] });
+    });
+
+    it('desactivar la única etapa WON es 409 CATALOG_INVARIANT', async () => {
+      repository.findItem.mockResolvedValue(STAGES[1]!);
+
+      await expect(service.updateItem('cat-1', 'id-GANADO', { isActive: false }, CONTEXT)).rejects.toMatchObject({
+        code: CATALOG_INVARIANT,
+      });
+      expect(repository.updateItem).not.toHaveBeenCalled();
+    });
+
+    it('no bloquea si el invariante ya estaba roto antes (catálogo en construcción)', async () => {
+      repository.findById.mockResolvedValue(catalog({ key: STAGE, isSystem: true, items: [] }));
+
+      await service.createItem(
+        'cat-1',
+        { code: 'CONTACTADO', label: 'Contactado', metadata: { order: 1, isClosed: false, inFunnel: true }, isActive: true },
+        CONTEXT,
+      );
+      expect(repository.createItem).toHaveBeenCalled();
+    });
+
+    it('desactivar un código usado por un parámetro es 409 referenced_by_parameter con las claves', async () => {
+      const extra = stage('COTIZANDO', { order: 2, isClosed: false, outcome: null, inFunnel: true });
+      repository.findById.mockResolvedValue(catalog({ key: STAGE, isSystem: true, items: [...STAGES, extra] }));
+      repository.findItem.mockResolvedValue(extra);
+      parameters.findByKey.mockImplementation(async (key: string) =>
+        key === 'crm.oportunidades.transiciones_etapa'
+          ? ({ key, type: 'JSON', value: '{"CONTACTADO":["COTIZANDO"]}' } as SystemParameterRecord)
+          : null,
+      );
+
+      await expect(service.updateItem('cat-1', 'id-COTIZANDO', { isActive: false }, CONTEXT)).rejects.toMatchObject({
+        code: CATALOG_INVARIANT,
+        details: [
+          expect.objectContaining({ reason: 'referenced_by_parameter', keys: ['crm.oportunidades.transiciones_etapa'] }),
+        ],
+      });
+    });
+
+    it('conjunto cerrado: no crea, no desactiva, no cambia metadata; sí cambia la etiqueta', async () => {
+      const won = item({
+        id: 'id-WON',
+        code: 'WON',
+        label: 'Ganado',
+        metadata: { requiresReason: false, requiresAwardedPercent: false, stageOutcome: 'WON' },
+      });
+      repository.findById.mockResolvedValue(catalog({ key: 'crm.resultado_oportunidad', isSystem: true, items: [won] }));
+      repository.findItem.mockResolvedValue(won);
+
+      await expect(
+        service.createItem('cat-1', { code: 'OTRO', label: 'Otro', metadata: null, isActive: true }, CONTEXT),
+      ).rejects.toMatchObject({ code: CATALOG_INVARIANT, details: [expect.objectContaining({ reason: 'closed_set' })] });
+      await expect(service.updateItem('cat-1', 'id-WON', { isActive: false }, CONTEXT)).rejects.toMatchObject({
+        details: [expect.objectContaining({ reason: 'closed_set' })],
+      });
+      await expect(
+        service.updateItem('cat-1', 'id-WON', { metadata: { requiresReason: true, requiresAwardedPercent: false, stageOutcome: 'WON' } }, CONTEXT),
+      ).rejects.toMatchObject({ details: [expect.objectContaining({ reason: 'closed_set' })] });
+
+      await service.updateItem('cat-1', 'id-WON', { label: 'Ganada', sortOrder: 5 }, CONTEXT);
+      expect(repository.updateItem).toHaveBeenCalledWith('id-WON', { label: 'Ganada', sortOrder: 5 });
+    });
+
+    it('un catálogo que no es crm.* conserva metadata libre (RN-07.28)', async () => {
+      repository.findById.mockResolvedValue(catalog({ key: 'tipos', items: [] }));
+
+      await service.createItem('cat-1', { code: 'X', label: 'X', metadata: { cualquier: 'cosa' }, isActive: true }, CONTEXT);
+      expect(repository.createItem).toHaveBeenCalled();
+    });
   });
 });

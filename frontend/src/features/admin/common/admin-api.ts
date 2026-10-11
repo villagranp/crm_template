@@ -60,6 +60,12 @@ export const ADMIN_ERROR_CODES = {
   invalidMenuStructure: 'INVALID_MENU_STRUCTURE',
   /** ADR-020: la operación cambia accesos y sólo la puede hacer un administrador. */
   adminOnly: 'ADMIN_ONLY',
+  /** DC-6: error del ValidationPipe (400), con `details[].field` e `issue`. */
+  validationFailed: 'VALIDATION_FAILED',
+  /** 07 RN-07.23: el metadata no cumple el esquema del catálogo crm.*. */
+  invalidCatalogMetadata: 'INVALID_CATALOG_METADATA',
+  /** 07 RN-07.24/25/26: invariante, conjunto cerrado o código usado por un parámetro. */
+  catalogInvariant: 'CATALOG_INVARIANT',
 } as const;
 
 /**
@@ -84,6 +90,10 @@ const MESSAGES_BY_CODE: Readonly<Record<string, string>> = {
   [ADMIN_ERROR_CODES.unknownReference]: 'Alguno de los elementos seleccionados ya no existe. Actualiza y vuelve a intentarlo.',
   [ADMIN_ERROR_CODES.invalidMenuStructure]: 'La estructura del menú no es válida: revisa el tipo, la ruta y el padre.',
   [ADMIN_ERROR_CODES.adminOnly]: 'Sólo un administrador puede asignar o modificar accesos.',
+  [ADMIN_ERROR_CODES.validationFailed]: 'Revisa los datos del formulario.',
+  [ADMIN_ERROR_CODES.invalidCatalogMetadata]: 'Los datos adicionales no cumplen el formato de este catálogo.',
+  [ADMIN_ERROR_CODES.catalogInvariant]:
+    'El cambio dejaría el catálogo incoherente, es un conjunto cerrado o un parámetro usa este valor.',
 };
 
 const NETWORK_ERROR_MESSAGE = 'No se pudo conectar con el servidor. Comprueba tu conexión e inténtalo de nuevo.';

@@ -5,6 +5,11 @@ import { MAX_JSON_LENGTH } from '../parameter-value';
 
 const PARAMETER_TYPES = ['STRING', 'NUMBER', 'BOOLEAN', 'JSON', 'DATE'] as const;
 
+export class ParameterRangeDto {
+  @ApiProperty({ example: 1 }) min!: number;
+  @ApiProperty({ example: 366 }) max!: number;
+}
+
 export class ParameterResponseDto {
   @ApiProperty({ example: 'seguridad.minutos_bloqueo' })
   key!: string;
@@ -30,8 +35,23 @@ export class ParameterResponseDto {
   @ApiProperty({ description: 'Lo lee el código de la plantilla' })
   isSystem!: boolean;
 
-  @ApiProperty({ description: 'Editarlo exige además parametros.configurar (grupo seguridad)' })
+  @ApiProperty({ description: 'Editarlo exige además parametros.configurar (grupo seguridad o estructural). Alias de `requiresConfigure`' })
   requiresConfigurePermission!: boolean;
+
+  @ApiProperty({ description: 'Editarlo exige además parametros.configurar (RN-07.32)' })
+  requiresConfigure!: boolean;
+
+  @ApiProperty({ description: 'No editable desde la API (p. ej. crm.moneda_base): PATCH → 409 SYSTEM_RESOURCE_READ_ONLY' })
+  readOnly!: boolean;
+
+  @ApiProperty({ type: [String], nullable: true, description: 'Valores admitidos, si es una lista cerrada' })
+  allowedValues!: string[] | null;
+
+  @ApiProperty({ type: String, nullable: true, example: 'number', description: 'Editor sugerido para la interfaz (registro de reglas)' })
+  editor!: string | null;
+
+  @ApiProperty({ type: ParameterRangeDto, nullable: true, description: 'Rango numérico admitido' })
+  range!: ParameterRangeDto | null;
 
   @ApiProperty({ format: 'date-time' })
   updatedAt!: string;

@@ -235,7 +235,28 @@ export class CatalogItemResponseDto {
   @ApiProperty({ format: 'date-time' }) updatedAt!: string;
 }
 
+export class CatalogMetadataFieldDto {
+  @ApiProperty({ example: 'isClosed' }) key!: string;
+  @ApiProperty({ enum: ['boolean', 'number', 'string', 'enum', 'enum[]', 'string[]'] }) type!: string;
+  @ApiProperty() required!: boolean;
+  @ApiPropertyOptional({ description: 'Admite `null`' }) nullable?: boolean;
+  @ApiPropertyOptional({ type: [String], description: 'Valores admitidos (`enum`, `enum[]`)' }) values?: string[];
+  @ApiPropertyOptional() min?: number;
+  @ApiPropertyOptional() max?: number;
+  @ApiPropertyOptional({ description: 'Solo enteros' }) integer?: boolean;
+}
+
 export class CatalogDetailResponseDto extends CatalogResponseDto {
+  @ApiProperty({
+    type: [CatalogMetadataFieldDto],
+    nullable: true,
+    description: 'Esquema de `metadata` del registro de semántica (catálogos `crm.*`); `null` = metadata libre',
+  })
+  metadataSchema!: CatalogMetadataFieldDto[] | null;
+
+  @ApiProperty({ description: 'Conjunto cerrado: no se crean ni desactivan elementos; solo cambian etiqueta y orden' })
+  closedSet!: boolean;
+
   @ApiProperty({ type: [CatalogItemResponseDto], description: 'Todos los elementos, activos e inactivos, por `sortOrder`' })
   items!: CatalogItemResponseDto[];
 }

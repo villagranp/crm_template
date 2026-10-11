@@ -11,6 +11,7 @@ import {
   ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
+  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 
 import { RequirePermission } from '@/common/decorators/require-permission.decorator';
@@ -19,6 +20,7 @@ import { PaginatedResponseDto } from '@/common/dto/paginated-response.dto';
 import type { AppRequest } from '@/common/types/request-context';
 import { auditContextFrom } from '@/modules/audit/audit.service';
 
+import { semanticsFor } from './catalog-semantics.registry';
 import { CatalogsService } from './catalogs.service';
 import {
   CatalogDetailResponseDto,
@@ -62,7 +64,13 @@ function toItemResponse(item: CatalogItemRecord): CatalogItemResponseDto {
 }
 
 function toDetailResponse(catalog: CatalogDetailRecord): CatalogDetailResponseDto {
-  return { ...toResponse(catalog), items: catalog.items.map(toItemResponse) };
+  const semantics = semanticsFor(catalog.key);
+  return {
+    ...toResponse(catalog),
+    metadataSchema: semantics ? semantics.fields.map((field) => ({ ...field, values: field.values ? [...field.values] : undefined })) : null,
+    closedSet: semantics?.closedSet ?? false,
+    items: catalog.items.map(toItemResponse),
+  };
 }
 
 /**
@@ -157,11 +165,23 @@ export class CatalogsController {
 
   @Post(':id/items')
   @RequirePermission('catalogos.editar')
-  @ApiOperation({ summary: 'Añade un elemento al catálogo', description: 'Audita `catalog_item.created`.' })
+  @ApiOperation({
+    summary: 'Añade un elemento al catálogo',
+    description: [
+      'Duplicado = mismo `code` o misma etiqueta normalizada (sin acentos, mayúsculas ni espacios extra), contando los inactivos (D-07.5).',
+      'En los catálogos `crm.*` el `metadata` se valida contra el registro de semántica (`metadataSchema` del detalle) y se comprueban sus invariantes.',
+      'Audita `catalog_item.created`.',
+    ].join(' '),
+  })
   @ApiCreatedResponse({ type: CatalogItemResponseDto })
-  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED (incluye `metadata` inválido)' })
+  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED (incluye `metadata` que no es objeto o es demasiado grande)' })
   @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'RESOURCE_NOT_FOUND: el catálogo' })
-  @ApiConflictResponse({ type: ErrorResponseDto, description: 'RESOURCE_CONFLICT: el código ya existe en el catálogo' })
+  @ApiConflictResponse({
+    type: ErrorResponseDto,
+    description:
+      'RESOURCE_CONFLICT: código o etiqueta ya existen (`details[].field`; `existingIsActive=false` propone reactivar); CATALOG_INVARIANT: `reason` = `closed_set` (conjunto cerrado) o `invariant`',
+  })
+  @ApiUnprocessableEntityResponse({ type: ErrorResponseDto, description: 'INVALID_CATALOG_METADATA: `details[].field` con la clave' })
   async createItem(
     @Param('id', ParseUUIDPipe) catalogId: string,
     @Body() dto: CreateCatalogItemDto,
@@ -190,6 +210,12 @@ export class CatalogsController {
   @ApiOkResponse({ type: CatalogItemResponseDto })
   @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED (incluye enviar `code`)' })
   @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'RESOURCE_NOT_FOUND: el elemento no existe en ese catálogo' })
+  @ApiConflictResponse({
+    type: ErrorResponseDto,
+    description:
+      'RESOURCE_CONFLICT: la etiqueta ya existe; CATALOG_INVARIANT: `reason` = `closed_set`, `invariant` o `referenced_by_parameter` (con `details[].keys`)',
+  })
+  @ApiUnprocessableEntityResponse({ type: ErrorResponseDto, description: 'INVALID_CATALOG_METADATA' })
   async updateItem(
     @Param('id', ParseUUIDPipe) catalogId: string,
     @Param('itemId', ParseUUIDPipe) itemId: string,

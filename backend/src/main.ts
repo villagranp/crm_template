@@ -1,10 +1,11 @@
 import 'reflect-metadata';
-import { ValidationPipe, VersioningType } from '@nestjs/common';
+import { VersioningType } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { createValidationPipe } from './common/filters/validation-exception.factory';
 import { AppConfigService } from './config/app-config.service';
 import { AppLogger } from './infrastructure/logging/app-logger.service';
 
@@ -38,17 +39,9 @@ async function bootstrap(): Promise<void> {
     defaultVersion: config.get('API_DEFAULT_VERSION'),
   });
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      transformOptions: { enableImplicitConversion: false },
-      // En produccion no se devuelve el detalle de validacion generado por defecto:
-      // el filtro global construye la respuesta con el formato estandar.
-      disableErrorMessages: false,
-    }),
-  );
+  // Errores de validación: `400 VALIDATION_FAILED` con `details[]` (DC-6). Las mismas
+  // opciones se usan en `test/support/test-app.ts`.
+  app.useGlobalPipes(createValidationPipe());
 
   if (config.get('SWAGGER_ENABLED') && !config.isProduction) {
     const documentConfig = new DocumentBuilder()

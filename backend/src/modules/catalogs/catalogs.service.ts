@@ -1,9 +1,19 @@
 import { Inject, Injectable } from '@nestjs/common';
 
-import { ResourceConflictError, ResourceNotFoundError } from '@/common/errors/application-error';
+import { BusinessRuleViolationError, ResourceConflictError, ResourceNotFoundError } from '@/common/errors/application-error';
 import type { Page } from '@/infrastructure/database/ports/pagination';
 import { type AuditContext, AuditService } from '@/modules/audit/audit.service';
+import { applyRule, catalogReferencesOf, rulesReferencingCatalog } from '@/modules/parameters/parameter-rules.registry';
+import { PARAMETERS_REPOSITORY, type ParametersRepository } from '@/modules/parameters/ports/parameters.repository.port';
 
+import {
+  type CatalogSemantics,
+  invariantViolations,
+  itemRuleViolations,
+  type SemanticItem,
+  semanticsFor,
+  validateMetadata,
+} from './catalog-semantics.registry';
 import {
   CATALOGS_REPOSITORY,
   type CatalogDetailRecord,
@@ -19,6 +29,8 @@ import {
 
 export const SYSTEM_RESOURCE_READ_ONLY = 'SYSTEM_RESOURCE_READ_ONLY';
 export const CATALOG_NOT_EMPTY = 'CATALOG_NOT_EMPTY';
+export const INVALID_CATALOG_METADATA = 'INVALID_CATALOG_METADATA';
+export const CATALOG_INVARIANT = 'CATALOG_INVARIANT';
 /** Separación entre elementos nuevos: deja hueco para intercalar sin renumerar. */
 export const SORT_ORDER_STEP = 10;
 
@@ -28,6 +40,23 @@ export interface CreateItemCommand {
   metadata: CatalogItemMetadata | null;
   sortOrder?: number;
   isActive: boolean;
+}
+
+/**
+ * Etiqueta normalizada (RN-07.21, D-07.5): sin acentos, recortada, con los espacios
+ * colapsados y en minúsculas. Dos etiquetas con la misma forma son duplicadas.
+ */
+export function normalizeLabel(label: string): string {
+  return label
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 }
 
 function catalogAuditState(catalog: CatalogRecord): Record<string, unknown> {
@@ -53,6 +82,14 @@ function itemAuditState(item: CatalogItemRecord): Record<string, unknown> {
  *   los inactivos: no hay forma genérica de saber si un elemento está en uso.
  * - Los elementos se activan y desactivan; nunca se borran. Su `code` es único
  *   en el catálogo e inmutable.
+ * - Duplicado (D-07.5, RN-07.21): mismo `code` o misma etiqueta normalizada,
+ *   contando los inactivos (`409 RESOURCE_CONFLICT`, `field = code | label`).
+ * - Catálogos `crm.*` con semántica registrada (`catalog-semantics.registry.ts`,
+ *   D-07.6): `metadata` según su esquema (`422 INVALID_CATALOG_METADATA`); reglas
+ *   por elemento, invariantes y conjunto cerrado (`409 CATALOG_INVARIANT`,
+ *   `reason = invariant | closed_set`); no se desactiva un código que usa un
+ *   parámetro del CRM (`reason = referenced_by_parameter`, RN-07.26). El resto de
+ *   catálogos no tiene esquema ni invariantes (RN-07.28).
  *
  * Toda mutación deja registro en la bitácora (D11).
  */
@@ -61,6 +98,7 @@ export class CatalogsService {
   constructor(
     @Inject(CATALOGS_REPOSITORY) private readonly repository: CatalogsRepository,
     private readonly audit: AuditService,
+    @Inject(PARAMETERS_REPOSITORY) private readonly parameters: ParametersRepository,
   ) {}
 
   list(filter: ListCatalogsFilter): Promise<Page<CatalogRecord>> {
@@ -140,12 +178,26 @@ export class CatalogsService {
   }
 
   async createItem(catalogId: string, command: CreateItemCommand, context: AuditContext): Promise<CatalogItemRecord> {
-    await this.findById(catalogId);
+    const catalog = await this.findById(catalogId);
+    const semantics = semanticsFor(catalog.key);
 
+    if (semantics?.closedSet) {
+      throw this.invariantError(catalog.key, 'closed_set', ['Conjunto cerrado: no se crean elementos']);
+    }
     if (await this.repository.existsItemCode(catalogId, command.code)) {
       throw new ResourceConflictError('An item with this code already exists in the catalog', [
         { field: 'code', issue: 'duplicated' },
       ]);
+    }
+    this.assertLabelAvailable(catalog, command.label);
+
+    if (semantics) {
+      this.assertMetadata(semantics, command.metadata);
+      this.assertSemanticChange(semantics, catalog.items, null, {
+        code: command.code,
+        isActive: command.isActive,
+        metadata: command.metadata,
+      });
     }
 
     const sortOrder = command.sortOrder ?? ((await this.repository.maxItemSortOrder(catalogId)) ?? 0) + SORT_ORDER_STEP;
@@ -178,6 +230,16 @@ export class CatalogsService {
     if (!current) {
       throw new ResourceNotFoundError('CatalogItem', itemId);
     }
+    const catalog = await this.findById(catalogId);
+    const semantics = semanticsFor(catalog.key);
+
+    if (input.label !== undefined && normalizeLabel(input.label) !== normalizeLabel(current.label)) {
+      this.assertLabelAvailable(catalog, input.label, itemId);
+    }
+
+    if (semantics) {
+      await this.assertSemanticUpdate(semantics, catalog, current, input);
+    }
 
     const updated = await this.repository.updateItem(itemId, input);
 
@@ -189,6 +251,123 @@ export class CatalogsService {
       metadata: { catalogId },
     });
     return updated;
+  }
+
+  private async assertSemanticUpdate(
+    semantics: CatalogSemantics,
+    catalog: CatalogDetailRecord,
+    current: CatalogItemRecord,
+    input: UpdateCatalogItemInput,
+  ): Promise<void> {
+    const deactivating = input.isActive === false && current.isActive;
+    const metadataChanged = input.metadata !== undefined && !sameJson(input.metadata, current.metadata);
+
+    if (semantics.closedSet) {
+      if (deactivating) {
+        throw this.invariantError(semantics.key, 'closed_set', ['Conjunto cerrado: no se desactivan elementos']);
+      }
+      if (metadataChanged) {
+        throw this.invariantError(semantics.key, 'closed_set', ['Conjunto cerrado: solo cambian etiqueta y orden']);
+      }
+    }
+    if (input.metadata !== undefined) {
+      this.assertMetadata(semantics, input.metadata);
+    }
+    this.assertSemanticChange(semantics, catalog.items, current, {
+      code: current.code,
+      isActive: input.isActive ?? current.isActive,
+      metadata: input.metadata !== undefined ? input.metadata : current.metadata,
+    });
+    if (deactivating) {
+      await this.assertNotReferencedByParameters(semantics.key, current.code);
+    }
+  }
+
+  /** D-07.5: la etiqueta normalizada es única en el catálogo, contando inactivos. */
+  private assertLabelAvailable(catalog: CatalogDetailRecord, label: string, exceptItemId?: string): void {
+    const normalized = normalizeLabel(label);
+    const existing = catalog.items.find((item) => item.id !== exceptItemId && normalizeLabel(item.label) === normalized);
+    if (existing) {
+      throw new ResourceConflictError(
+        existing.isActive
+          ? 'An item with this label already exists in the catalog'
+          : 'An inactive item with this label already exists in the catalog: reactivate it instead',
+        [
+          {
+            field: 'label',
+            issue: 'duplicated',
+            existingItemId: existing.id,
+            existingCode: existing.code,
+            existingIsActive: existing.isActive,
+          },
+        ],
+      );
+    }
+  }
+
+  private assertMetadata(semantics: CatalogSemantics, metadata: CatalogItemMetadata | null): void {
+    const issues = validateMetadata(semantics, metadata);
+    if (issues.length > 0) {
+      throw new BusinessRuleViolationError(
+        INVALID_CATALOG_METADATA,
+        'The item metadata does not match the catalog schema',
+        issues.map((issue) => ({ ...issue, catalogKey: semantics.key })),
+      );
+    }
+  }
+
+  /**
+   * Reglas del elemento resultante e invariantes del catálogo. Un invariante solo
+   * bloquea si la operación lo **rompe**: si ya estaba roto antes (p. ej. un catálogo
+   * que se está poblando), no impide seguir corrigiéndolo.
+   */
+  private assertSemanticChange(
+    semantics: CatalogSemantics,
+    items: readonly CatalogItemRecord[],
+    current: CatalogItemRecord | null,
+    next: SemanticItem,
+  ): void {
+    const metadataChanged = !current || !sameJson(current.metadata, next.metadata);
+    const itemIssues = metadataChanged ? itemRuleViolations(semantics, next.metadata) : [];
+
+    const before = invariantViolations(semantics, items);
+    const after = invariantViolations(semantics, [...items.filter((item) => item.id !== current?.id), next]);
+    const introduced = after.filter((issue) => !before.includes(issue));
+
+    const issues = [...itemIssues, ...introduced];
+    if (issues.length > 0) {
+      throw this.invariantError(semantics.key, 'invariant', issues);
+    }
+  }
+
+  /** RN-07.26: no se desactiva un código que usa un parámetro del CRM (D-07.6). */
+  private async assertNotReferencedByParameters(catalogKey: string, code: string): Promise<void> {
+    const keys: string[] = [];
+    for (const rule of rulesReferencingCatalog(catalogKey)) {
+      const parameter = await this.parameters.findByKey(rule.key);
+      if (!parameter) continue;
+      const result = applyRule(rule, parameter.value);
+      if (!result.ok) continue;
+      const used = catalogReferencesOf(rule, result.value).some(
+        (reference) => reference.catalogKey === catalogKey && reference.code === code,
+      );
+      if (used) keys.push(rule.key);
+    }
+    if (keys.length > 0) {
+      throw new ResourceConflictError(
+        'The item code is used by a system parameter: change the parameter first',
+        [{ reason: 'referenced_by_parameter', catalogKey, code, keys }],
+        CATALOG_INVARIANT,
+      );
+    }
+  }
+
+  private invariantError(catalogKey: string, reason: 'invariant' | 'closed_set', issues: string[]): ResourceConflictError {
+    return new ResourceConflictError(
+      reason === 'closed_set' ? 'The catalog is a closed set' : 'The operation breaks a catalog invariant',
+      issues.map((issue) => ({ reason, catalogKey, issue })),
+      CATALOG_INVARIANT,
+    );
   }
 
   private async assertKeyAvailable(key: string): Promise<void> {

@@ -12,7 +12,11 @@
  *   asignarla a un rol (`roles[].menuOptions`) o directamente al usuario.
  */
 
-export const ACTIONS = ['ver', 'crear', 'editar', 'eliminar', 'exportar', 'aprobar', 'configurar'] as const;
+import { CRM_MENU_OPTIONS, CRM_MODULES, CRM_PERMISSIONS, CRM_ROLES } from './crm-access';
+import { CRM_PARAMETERS } from './crm-parameters';
+
+/** `cerrar` y `administrar` los añade el CRM (00 §5.1). */
+export const ACTIONS = ['ver', 'crear', 'editar', 'eliminar', 'exportar', 'aprobar', 'configurar', 'cerrar', 'administrar'] as const;
 
 export type ActionKey = (typeof ACTIONS)[number];
 
@@ -24,6 +28,8 @@ export const ACTION_LABELS: Record<ActionKey, string> = {
   exportar: 'Exportar',
   aprobar: 'Aprobar',
   configurar: 'Configurar',
+  cerrar: 'Cerrar',
+  administrar: 'Administrar',
 };
 
 export interface ModuleSeed {
@@ -70,7 +76,7 @@ export interface RoleSeed {
  * Módulos base. "Administración" es el módulo de sistema que la plantilla trae
  * completo; los módulos de negocio los añade cada proyecto.
  */
-export const MODULES: ModuleSeed[] = [
+const CORE_MODULES: ModuleSeed[] = [
   { key: 'inicio', name: 'Inicio', description: 'Panel de control y accesos rápidos', icon: 'dashboard', sortOrder: 10 },
   {
     key: 'administracion',
@@ -85,7 +91,7 @@ export const MODULES: ModuleSeed[] = [
 /**
  * Permisos del núcleo de gestión. Cada entrada genera un permiso por acción.
  */
-export const PERMISSIONS: PermissionSeed[] = [
+const CORE_PERMISSIONS: PermissionSeed[] = [
   {
     resource: 'usuarios',
     resourceLabel: 'usuarios',
@@ -143,7 +149,7 @@ export const PERMISSIONS: PermissionSeed[] = [
 ];
 
 /** Opciones de menú del núcleo. `inicio` es pública: la ve cualquier sesión. */
-export const MENU_OPTIONS: MenuOptionSeed[] = [
+const CORE_MENU_OPTIONS: MenuOptionSeed[] = [
   { key: 'inicio', moduleKey: 'inicio', label: 'Panel de control', icon: 'dashboard', path: '/', sortOrder: 10, isPublic: true },
   {
     key: 'admin-usuarios',
@@ -226,7 +232,7 @@ export const MENU_OPTIONS: MenuOptionSeed[] = [
  * arranque. `consulta` y `operacion` son plantillas razonables que cada
  * proyecto ajusta; no pretenden cubrir su negocio.
  */
-export const ROLES: RoleSeed[] = [
+const CORE_ROLES: RoleSeed[] = [
   {
     code: 'administrador',
     name: 'Administrador',
@@ -280,12 +286,22 @@ export const ROLES: RoleSeed[] = [
   },
 ];
 
+export interface SystemParameterSeed {
+  key: string;
+  value: string;
+  type: 'STRING' | 'NUMBER' | 'BOOLEAN' | 'JSON' | 'DATE';
+  group: string;
+  name: string;
+  description: string;
+  isPublic: boolean;
+}
+
 /** Parámetros del sistema con los que arranca cualquier proyecto. */
-export const SYSTEM_PARAMETERS = [
+const CORE_SYSTEM_PARAMETERS: SystemParameterSeed[] = [
   {
     key: 'app.nombre',
     value: 'Aplicación empresarial',
-    type: 'STRING' as const,
+    type: 'STRING',
     group: 'general',
     name: 'Nombre de la aplicación',
     description: 'Se muestra en el título y en los correos del sistema.',
@@ -294,7 +310,7 @@ export const SYSTEM_PARAMETERS = [
   {
     key: 'seguridad.intentos_fallidos_maximos',
     value: '5',
-    type: 'NUMBER' as const,
+    type: 'NUMBER',
     group: 'seguridad',
     name: 'Intentos fallidos antes de bloquear',
     description: 'Número de accesos fallidos consecutivos que bloquean la cuenta.',
@@ -303,7 +319,7 @@ export const SYSTEM_PARAMETERS = [
   {
     key: 'seguridad.minutos_bloqueo',
     value: '15',
-    type: 'NUMBER' as const,
+    type: 'NUMBER',
     group: 'seguridad',
     name: 'Minutos de bloqueo',
     description: 'Duración del bloqueo temporal de la cuenta.',
@@ -312,7 +328,7 @@ export const SYSTEM_PARAMETERS = [
   {
     key: 'seguridad.dias_caducidad_password',
     value: '0',
-    type: 'NUMBER' as const,
+    type: 'NUMBER',
     group: 'seguridad',
     name: 'Días de caducidad de contraseña',
     description: 'Cero desactiva la caducidad. Cámbialo sólo si una política lo exige.',
@@ -321,7 +337,7 @@ export const SYSTEM_PARAMETERS = [
   {
     key: 'auditoria.dias_retencion',
     value: '365',
-    type: 'NUMBER' as const,
+    type: 'NUMBER',
     group: 'auditoria',
     name: 'Días de retención de la bitácora',
     description: 'Debe cumplir la política de retención del proyecto (docs/security).',
@@ -330,10 +346,18 @@ export const SYSTEM_PARAMETERS = [
   {
     key: 'ui.paginacion_default',
     value: '20',
-    type: 'NUMBER' as const,
+    type: 'NUMBER',
     group: 'interfaz',
     name: 'Tamaño de página por defecto',
     description: 'Debe coincidir con DEFAULT_PAGE_SIZE de la API.',
     isPublic: true,
   },
 ];
+
+/** Catálogo completo: núcleo + CRM (`crm-access.ts`). */
+export const MODULES: ModuleSeed[] = [...CORE_MODULES, ...CRM_MODULES];
+export const PERMISSIONS: PermissionSeed[] = [...CORE_PERMISSIONS, ...CRM_PERMISSIONS];
+/** Declaradas; la semilla solo crea las que tienen ruta registrada (DM-32, PLAN-ADMIN D6). */
+export const MENU_OPTIONS: MenuOptionSeed[] = [...CORE_MENU_OPTIONS, ...CRM_MENU_OPTIONS];
+export const ROLES: RoleSeed[] = [...CORE_ROLES, ...CRM_ROLES];
+export const SYSTEM_PARAMETERS: SystemParameterSeed[] = [...CORE_SYSTEM_PARAMETERS, ...CRM_PARAMETERS];
