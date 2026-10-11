@@ -3,8 +3,8 @@
 - **Fuente del alcance:** [`ALCANCE-CRM.md`](../../requirements/crm/ALCANCE-CRM.md) §6 (6.1–6.6.3), con §1, §2, §10–§13
 - **Contrato de datos:** [`00-modelo-de-datos.md`](00-modelo-de-datos.md) §2.10 (visitas, eventos, actividades, participantes), §2.11 (adjuntos), §2.12 (vista de interacciones), §3.2–§3.5 (catálogos), §4 (visibilidad), §5 (permisos y menú), §6 (folios), §8.2 (parámetros)
 - **Funcionalidades:** F-21 … F-33 de la [matriz de trazabilidad](matriz-trazabilidad.md)
-- **Decisiones que lo enmarcan:** [ADR-004](../../adr/ADR-004-data-access-abstraction.md), [ADR-005](../../adr/ADR-005-rest-api-standard.md), [ADR-008](../../adr/ADR-008-authorization.md), [ADR-014](../../adr/ADR-014-modular-clean-architecture.md), [ADR-017](../../adr/ADR-017-design-system-grupo-ag.md), [ADR-018](../../adr/ADR-018-identity-access-model.md), [ADR-020](../../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md)
-- **Estado:** especificación. **No** se ha tocado código, `schema.prisma`, migraciones ni seeds.
+- **Decisiones que lo enmarcan:** [ADR-004](../../adr/ADR-004-data-access-abstraction.md), [ADR-005](../../adr/ADR-005-rest-api-standard.md), [ADR-008](../../adr/ADR-008-authorization.md), [ADR-014](../../adr/ADR-014-modular-clean-architecture.md), [ADR-017](../../adr/ADR-017-design-system-grupo-ag.md), [ADR-018](../../adr/ADR-018-identity-access-model.md), [ADR-020](../../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md), [ADR-021](../../adr/ADR-021-almacenamiento-de-adjuntos-en-sistema-de-archivos-montado.md) (adjuntos), addendum [ADR-008](../../adr/ADR-008-authorization.md) (`@RequireAnyPermission`)
+- **Estado:** especificación; decisiones del módulo resueltas por el responsable de negocio el 2026-10-10. **No** se ha tocado código, `schema.prisma`, migraciones ni seeds.
 - **Skills aplicables:** `feature-development`, `requirements-analysis`, `user-story`, `api-design`, `authorization`, `access-management`, `backend-nestjs`, `database`, `prisma`, `frontend-react`, `design-system`, `security`, `observability`, `testing`, `documentation`
 
 > Este módulo **usa** las entidades de `00` (`Visit`, `VisitEvent`, `Activity`,
@@ -29,7 +29,7 @@
 - [J. Pruebas funcionales](#j-pruebas-funcionales)
 - [K. Dependencias y orden](#k-dependencias-y-orden)
 - [L. Archivos de código](#l-archivos-de-código)
-- [Decisiones pendientes del módulo](#decisiones-pendientes-del-módulo)
+- [Decisiones del módulo (resueltas el 2026-10-10)](#decisiones-del-módulo-resueltas-el-2026-10-10)
 - [Filas para la matriz](#filas-para-la-matriz)
 
 ---
@@ -49,7 +49,7 @@ por cliente y proyecto y el historial de interacciones.
 | Visitas y su historial de eventos (`visits`, `visit_events`) | Clientes y contactos (Módulo 2) |
 | Actividades (`activities`) | Proyectos y oportunidades (Módulo 3) |
 | Participantes de visitas y actividades (`interaction_participants`) | Usuarios, equipos, roles, catálogos y parámetros (Fase 0 / Módulo 7) |
-| Vínculo de adjuntos con visitas, eventos de visita y actividades (`attachments.visit_id`, `visit_event_id`, `activity_id`) | Almacenamiento de archivos (`FileStorage`, DM-8) |
+| Vínculo de adjuntos con visitas, eventos de visita y actividades (`attachments.visit_id`, `visit_event_id`, `activity_id`) | Almacenamiento de archivos (puerto `FileStorage` y adaptador `LocalFileSystemStorage`, DM-8, ADR-021) |
 | Lectura de la vista `crm_interactions_v` (`InteractionReadModel`) | Indicadores y alertas de Inicio (Módulo 1) y reportes (Módulo 5), que **consumen** estos datos |
 | Los puntos de entrada "Nueva actividad" / "Planificar visita" que se insertan en las fichas de cliente y proyecto | Las fichas de cliente y proyecto en sí |
 
@@ -62,19 +62,19 @@ se consulten** (ALCANCE §6, relaciones del módulo).
 ## B. Alcance completo
 
 Inventario exhaustivo de §6. Cada elemento tiene regla (C), pantalla (E),
-contrato (F) y criterio (I). Nada se excluye; lo que depende de una decisión se
-conserva y se marca.
+contrato (F) y criterio (I). Nada se excluye. Las decisiones que lo enmarcan quedaron
+resueltas el 2026-10-10 (ver la sección de decisiones).
 
-| F-xx | Alcance | Elementos que se implementan | Pendiente de decisión |
+| F-xx | Alcance | Elementos que se implementan | Decisiones (resueltas el 2026-10-10) |
 |---|---|---|---|
-| F-21 | §6.1 Agenda general | Vista **calendario** (mes / semana / día) y vista **listado**. Muestra fecha y hora, responsable, tipo de actividad, cliente, proyecto, estado, asunto y adjuntos relacionados. Filtros por fecha, asesor, país, tipo de actividad y estado. Navegación al detalle de cada evento. Visibilidad por permisos y alcance | D-04.1 (calendario), D-04.12 (tope), DM-8 (adjuntos) |
+| F-21 | §6.1 Agenda general | Vista **calendario** (mes / semana / día) y vista **listado**. Muestra fecha y hora, responsable, tipo de actividad, cliente, proyecto, estado, asunto y adjuntos relacionados. Filtros por fecha, asesor, país, tipo de actividad y estado. Navegación al detalle de cada evento. Visibilidad por permisos y alcance | D-04.1 (calendario sin librería), D-04.12 (tope), DM-8 (adjuntos, ADR-021) |
 | F-22 | §6.2 Actividades pendientes | Bandeja con actividad, fecha de vencimiento, prioridad, responsable, cliente, proyecto y estado. Identifica pendientes, vencidas y próximas a vencer. Orden por prioridad y vencimiento. Las completadas no aparecen | DM-7 (umbral) |
 | F-23 | §6.3 Seguimiento comercial | Vista por cliente y por proyecto: última interacción, próxima acción, responsable, fecha de próxima acción, notas y adjuntos. Trazabilidad de las gestiones. Derivado de visitas y actividades, sin duplicar | D-04.9, DM-22 |
 | F-24 | §6.4 Historial de interacciones | Historial cronológico con fecha, tipo, usuario, cliente, proyecto, resumen, resultado y actividad o visita relacionada. Acceso al registro de origen. Sin eventos duplicados | DM-22 |
 | F-25 | §6.5 Visitas comerciales | Gestión de visitas con cliente, proyecto, fecha y hora, asesor responsable, objetivo, participantes, ubicación, estado, resultado, comentarios y adjuntos. Listado, detalle con historial de eventos, edición de la planificación | DM-20 |
-| F-26 | §6.5.1 Planificar visita | Fecha y hora, cliente, proyecto, responsable, objetivo, ubicación, recordatorio y adjuntos. Validación de obligatorios. Validación de conflictos horarios **preparada sin bloquear** (aviso, tras parámetro) | D-04.2, DM-27, DM-8 |
+| F-26 | §6.5.1 Planificar visita | Fecha y hora, cliente, proyecto, responsable, objetivo, ubicación, recordatorio y adjuntos. Validación de obligatorios. Validación de conflictos horarios **preparada sin bloquear** (aviso, tras parámetro) | D-04.2, DM-27, DM-8 (ADR-021) |
 | F-27 | §6.5.2 Registrar visita realizada | Fecha real, asistentes, temas tratados, acuerdos, resultado, comentarios, próxima acción y adjuntos. Registra el usuario que ingresa. Actualiza el seguimiento | D-04.4, D-04.5 |
-| F-28 | §6.5.3 Confirmar visita | Estado, fecha de confirmación, usuario, resultado o resumen y adjuntos. Exige información mínima. Actualiza agenda e indicadores | DM-20 |
+| F-28 | §6.5.3 Confirmar visita | Estado, fecha de confirmación, usuario, resultado o resumen y adjuntos. Exige información mínima. **Confirma el asesor dueño de la visita** (DM-20). Actualiza agenda e indicadores | DM-20 |
 | F-29 | §6.5.4 Reprogramar o cancelar | Motivo, nueva fecha y hora (al reprogramar), usuario, fecha del cambio, estado anterior, estado nuevo, adjuntos. Conserva historial. Sin eliminación física. Actualiza la agenda | D-04.3 |
 | F-30 | §6.6 Actividades comerciales | Entidad única para llamadas, reuniones, correos y tareas: tipo, asunto, descripción, cliente, proyecto (y oportunidad, ALCANCE §2), responsable, fecha y hora, vencimiento, estado, prioridad, resultado, adjuntos. Tipos y estados de catálogo. Listado, detalle, edición, cancelación y eliminación lógica | D-04.7 |
 | F-31 | §6.6.1 Crear actividad | Desde el menú de Actividad comercial, la ficha del cliente y la ficha del proyecto, con preselección de cliente o proyecto. Validación de relaciones | D-04.14 |
@@ -107,7 +107,7 @@ o `DM-n`). Ninguna regla de negocio no escrita se aplica sin estar marcada.
 | RN-04.1 | Toda visita y toda actividad pertenecen a **un cliente** válido, no eliminado (`customers.deleted_at IS NULL`). El proyecto es opcional y, si se informa, debe ser **de ese cliente** (FK compuesta `(project_id, customer_id)`). La oportunidad (solo actividades) exige proyecto y debe ser **de ese proyecto** (FK compuesta + `ck_activities_opportunity_needs_project`). El caso de uso lo valida antes de escribir y devuelve `422` con código propio; la FK es la última barrera. El cliente se valida con `CustomerReferenceGuard.assertUsableCustomer(customerId, actor, { requireActive })` del Módulo 2 (02 F.6.3): inexistente, eliminado o no visible → `404 RESOURCE_NOT_FOUND`; en altas, un cliente con estado inactivo → `422 CUSTOMER_INACTIVE` (D-02.16; en ediciones que no cambian el cliente no se exige `requireActive`) | ALCANCE §2, §6.6.1 "validar relaciones"; 00 §2.10 |
 | RN-04.2 | Un proyecto u oportunidad eliminados lógicamente no se pueden asociar a una visita o actividad **nueva**; los registros existentes conservan el vínculo | 00 P3 |
 | RN-04.3 | Tipos, estados, prioridades, motivos y resultados se leen de `catalog_items` (`crm.tipo_actividad`, `crm.estado_actividad`, `crm.estado_visita`, `crm.prioridad`, `crm.motivo_reprogramacion`, `crm.motivo_cancelacion`, `crm.resultado_interaccion`). Cada escritura de una columna `*_id` hacia catálogo pasa por `CatalogReferenceValidator.assertItem(key, id, { requireActive })` → `422 INVALID_CATALOG_VALUE`. En altas se exige elemento activo; en ediciones que no cambian el valor se conserva un elemento ya desactivado | ALCANCE §1 regla 8, §6.6; 00 §3.5 |
-| RN-04.4 | La lógica nunca compara etiquetas ni UUID: usa la semántica de `metadata` (`isOpen`, `isCompleted`, `isCancelled`, `isPending`, `isDone`, `isConfirmed`, `weight`, `isInteraction`, `fields`). La única referencia por `code` es la del estado `REPROGRAMADA` (D-04.3) | 00 §3.3 |
+| RN-04.4 | La lógica nunca compara etiquetas ni UUID: usa la semántica de `metadata` (`isOpen`, `isCompleted`, `isCancelled`, `isPending`, `isDone`, `isConfirmed`, `weight`, `isInteraction`, `fields`). El estado `REPROGRAMADA` se identifica por el indicador `isRescheduled` de su `metadata` (D-04.3 aprobada, 00 §8.2), no por código ni etiqueta | 00 §3.3, §8.2 |
 | RN-04.5 | El **responsable** (`owner_id`) es por defecto el usuario autenticado. Asignar otro responsable exige `visitas.administrar` / `actividades.administrar`, que el usuario destino esté **activo** y **dentro del alcance** del actor (un asesor con alcance `OWN` solo puede asignarse a sí mismo) → `422 OWNER_NOT_ELIGIBLE` | 00 §4.3 (DM-34) |
 | RN-04.6 | Participantes (`interaction_participants`): exactamente uno de contacto, usuario o nombre externo (`ck_interaction_participants_subject`). Un contacto debe ser **del mismo cliente** (FK compuesta) → `422 INVALID_CONTACT`; al añadirlo, debe estar activo y no eliminado → `422 CONTACT_INACTIVE` / `422 INVALID_CONTACT` (códigos de `CustomerReferenceGuard.assertContactOfCustomer`, 02 F.6.3). Un usuario participante debe estar activo. Un contacto desactivado después sigue figurando en los registros históricos | ALCANCE §4.5 "proteger contactos con historia"; 00 §2.5, §2.10 |
 | RN-04.7 | Los campos obligatorios base son los de la base (`00` §2.10) más los que añada `crm.campos_obligatorios` (`visit`, `activity`). El parámetro solo **añade** obligatorios → `422 REQUIRED_FIELD_MISSING` con la lista de campos | ALCANCE §6.5.1 "validar obligatorios", §9.4; 00 §8.2 |
@@ -122,15 +122,15 @@ o `DM-n`). Ninguna regla de negocio no escrita se aplica sin estar marcada.
 | # | Regla | Origen |
 |---|---|---|
 | RN-04.13 | **Planificar** (§6.5.1): obligatorios cliente, fecha y hora de inicio, responsable y objetivo. Fin opcional; si falta, la duración por defecto es `crm.visitas.duracion_por_defecto_minutos` (solo para mostrar y para el cálculo de conflictos; no se guarda como fin). Si hay fin, `scheduled_end_at ≥ scheduled_start_at` → `422 INVALID_DATE_RANGE`. Se genera `code` con `SequenceGenerator.next('crm.visita')`, `original_scheduled_at = scheduled_start_at`, estado inicial (RN-04.8) y `VisitEvent(PLANNED, from=null, to=estado inicial)`. **Recordatorio**: `reminder_minutes_before` entero ≥ 0 o nulo; se guarda y se muestra; **no** dispara ningún envío (DM-27). La interfaz pide un número de minutos u horas, sin lista fija de opciones | ALCANCE §6.5.1; 00 §2.10, §6.1 |
-| RN-04.14 | **Conflictos horarios** ("preparar … sin bloquear"): con `crm.visitas.validar_conflicto_horario` = `NO` no se evalúa; `AVISAR` (defecto) evalúa y **guarda igualmente**, devolviendo los solapes como `scheduleConflicts` en la respuesta; `BLOQUEAR` devuelve `409 SCHEDULE_CONFLICT`. Solape = otra visita del **mismo responsable**, no cancelada (`isCancelled = false`), cuyo intervalo `[inicio, fin efectivo)` se cruza con el de la nueva. Se evalúa al planificar, reprogramar y reasignar responsable. El valor `BLOQUEAR` está implementado y probado pero **no se activa** hasta que el negocio confirme la regla (D-04.2) | ALCANCE §6.5.1; 00 §2.10 |
+| RN-04.14 | **Conflictos horarios** ("preparar … sin bloquear"): con `crm.visitas.validar_conflicto_horario` = `NO` no se evalúa; `AVISAR` (defecto) evalúa y **guarda igualmente**, devolviendo los solapes como `scheduleConflicts` en la respuesta; `BLOQUEAR` devuelve `409 SCHEDULE_CONFLICT`. Solape = otra visita del **mismo responsable**, no cancelada (`isCancelled = false`), cuyo intervalo `[inicio, fin efectivo)` se cruza con el de la nueva. Se evalúa al planificar, reprogramar y reasignar responsable. El valor `BLOQUEAR` está implementado y probado pero **no se activa** (D-04.2 aprobada: modo `AVISAR`; activar el bloqueo es solo un cambio de parámetro) | ALCANCE §6.5.1; 00 §2.10 |
 | RN-04.15 | **Editar la planificación** (`PATCH`): solo en estado `isPending`. Campos editables: proyecto, fin, objetivo, ubicación, recordatorio, participantes invitados y responsable (este último con RN-04.5). La **fecha de inicio no se edita**: se cambia reprogramando, para que quede en el historial → `422 USE_RESCHEDULE`. Una visita realizada, confirmada o cancelada no se edita por esta vía → `409 RECORD_READ_ONLY` | 00 §2.10; propuesta |
 | RN-04.16 | **Registrar realizada** (§6.5.2): solo desde `isPending` → estado `isDone` (`REALIZADA`). Obligatoria la **fecha real** (`actual_start_at`), no futura → `422 ACTUAL_DATE_IN_FUTURE`; fin real opcional y coherente (`ck_visits_actual_range`). Opcionales: asistentes (participantes `ATTENDED`), temas, acuerdos, resultado (`result_id` de `crm.resultado_interaccion` y/o `result_summary`), comentarios, próxima acción y su fecha, adjuntos (D-04.4). Se fijan `completion_recorded_by_id` = usuario y `completion_recorded_at` = ahora, y se inserta `VisitEvent(COMPLETED)` | ALCANCE §6.5.2; 00 §2.10 |
-| RN-04.17 | Los datos de realización de una visita `REALIZADA` aún **no confirmada** se pueden corregir (mismo endpoint de realización con `PUT`), con `visitas.editar` sobre una visita propia o `visitas.administrar`. Cada corrección queda en `audit_logs`; no genera un segundo evento `COMPLETED` (D-04.6) | Propuesta |
-| RN-04.18 | **Confirmar** (§6.5.3): solo desde `isDone` → `isConfirmed` (`CONFIRMADA`). Exige `confirmation_summary`, **o** que la visita ya tenga `result_summary` o `comments` (`ck_visits_confirm_requires`) → `422 CONFIRMATION_SUMMARY_REQUIRED`. Confirmar desde un estado pendiente (sin realización previa) → `409 INVALID_STATUS_TRANSITION` (DM-20). Se fijan `confirmed_at`, `confirmed_by_id` y se inserta `VisitEvent(CONFIRMED)`. Permiso `visitas.cerrar` (H) | ALCANCE §6.5.3; 00 §2.10, DM-20 |
-| RN-04.19 | **Reprogramar** (§6.5.4): solo desde `isPending`. Obligatorios nueva fecha y hora (distinta de la vigente → `422 RESCHEDULE_SAME_DATE`; no pasada → `422 DATE_IN_PAST`, D-04.5) y motivo (`reason_id` de `crm.motivo_reprogramacion` o `reason_text`) → `422 REASON_REQUIRED`. Fin nuevo opcional (si se informa, coherente; si no, se desplaza conservando la duración planificada). En la **misma fila**: `scheduled_start_at` = nueva, `reschedule_count + 1`, estado `REPROGRAMADA` (D-04.3). Se inserta `VisitEvent(RESCHEDULED)` con `previous_scheduled_start_at`, `new_scheduled_start_at`, `from_status_id`, `to_status_id`, motivo, comentario, usuario y `occurred_at` (= fecha del cambio). **Nunca** se crea otra visita | ALCANCE §6.5.4, §7.4 "no duplicar reprogramadas"; 00 §2.10 |
+| RN-04.17 | Los datos de realización de una visita `REALIZADA` aún **no confirmada** se pueden corregir (mismo endpoint de realización con `PUT`), con `visitas.editar` sobre una visita propia o `visitas.administrar`. Cada corrección queda en `audit_logs`; no genera un segundo evento `COMPLETED` (D-04.6) | D-04.6 (aprobada) |
+| RN-04.18 | **Confirmar** (§6.5.3): solo desde `isDone` → `isConfirmed` (`CONFIRMADA`). Exige `confirmation_summary`, **o** que la visita ya tenga `result_summary` o `comments` (`ck_visits_confirm_requires`) → `422 CONFIRMATION_SUMMARY_REQUIRED`. Confirmar desde un estado pendiente (sin realización previa) → `409 INVALID_STATUS_TRANSITION` (DM-20). **Solo el dueño** de la visita (`owner_id` = usuario autenticado) puede confirmarla, con `visitas.cerrar` (DM-20 resuelta: el asesor, el manager y el responsable de país lo tienen, cada uno sobre sus propias visitas). Ni `visitas.administrar` ni el administrador confirman una visita ajena → `403 VISIT_CONFIRMATION_OWNER_ONLY`. Orden de comprobación: fuera del alcance → `404`; sin `visitas.cerrar` → `403 PERMISSION_DENIED`; no dueño → `403 VISIT_CONFIRMATION_OWNER_ONLY`; estado → `409`. Se fijan `confirmed_at`, `confirmed_by_id` = dueño y se inserta `VisitEvent(CONFIRMED)`. Última barrera en base: `ck_visits_confirmed_by_owner` (`confirmed_by_id = owner_id`) | ALCANCE §6.5.3; 00 §2.10, §5.4, DM-20 |
+| RN-04.19 | **Reprogramar** (§6.5.4): solo desde `isPending`. Obligatorios nueva fecha y hora (distinta de la vigente → `422 RESCHEDULE_SAME_DATE`; no pasada → `422 DATE_IN_PAST`, D-04.5) y motivo (`reason_id` de `crm.motivo_reprogramacion` o `reason_text`) → `422 REASON_REQUIRED`. Fin nuevo opcional (si se informa, coherente; si no, se desplaza conservando la duración planificada). En la **misma fila**: `scheduled_start_at` = nueva, `reschedule_count + 1`, estado `REPROGRAMADA`: el elemento activo de `crm.estado_visita` con `isRescheduled = true` (D-04.3 aprobada; si está inactivo, la visita queda en el estado pendiente inicial). Se inserta `VisitEvent(RESCHEDULED)` con `previous_scheduled_start_at`, `new_scheduled_start_at`, `from_status_id`, `to_status_id`, motivo, comentario, usuario y `occurred_at` (= fecha del cambio). **Nunca** se crea otra visita | ALCANCE §6.5.4, §7.4 "no duplicar reprogramadas"; 00 §2.10 |
 | RN-04.20 | **Cancelar** (§6.5.4): solo desde `isPending`. Motivo obligatorio (`crm.motivo_cancelacion` o texto). Estado `isCancelled` (`CANCELADA`), `cancelled_at` = ahora, `VisitEvent(CANCELLED)` con estados anterior y nuevo. La fila **no se elimina**: no existe `DELETE /visits/{id}` ni permiso `visitas.eliminar`. Una visita cancelada no se reactiva (D-04.6) | ALCANCE §6.5.4; 00 §2.10 |
-| RN-04.21 | Estados terminales: `CONFIRMADA` y `CANCELADA` son de solo lectura (salvo consultar y descargar adjuntos). Cualquier operación de ciclo de vida sobre ellas → `409 INVALID_STATUS_TRANSITION` | 00 §2.10; propuesta (D-04.6) |
-| RN-04.22 | Una visita pendiente cuya hora planificada ya pasó se muestra como **"Sin registrar"** (derivado, no estado). No es "vencida" ni genera alerta en este módulo (D-04.16) | Propuesta; 00 P4 |
+| RN-04.21 | Estados terminales: `CONFIRMADA` y `CANCELADA` son de solo lectura (salvo consultar y descargar adjuntos). Cualquier operación de ciclo de vida sobre ellas → `409 INVALID_STATUS_TRANSITION` | 00 §2.10; D-04.6 (aprobada) |
+| RN-04.22 | Una visita pendiente cuya hora planificada ya pasó se muestra como **"Sin registrar"** (derivado, no estado). No es "vencida" ni genera alerta en este módulo (D-04.16) | D-04.16 (aprobada); 00 P4 |
 
 Transiciones de visita (semántica del catálogo, DM-20):
 
@@ -140,7 +140,7 @@ stateDiagram-v2
     Pendiente --> Pendiente: reprogramar (RESCHEDULED) → REPROGRAMADA
     Pendiente --> Realizada: registrar realizada (COMPLETED)
     Pendiente --> Cancelada: cancelar (CANCELLED)
-    Realizada --> Confirmada: confirmar (CONFIRMED)
+    Realizada --> Confirmada: confirmar (CONFIRMED), solo el dueño
     Confirmada --> [*]
     Cancelada --> [*]
     note right of Pendiente: isPending = PROGRAMADA o REPROGRAMADA
@@ -151,12 +151,12 @@ stateDiagram-v2
 | # | Regla | Origen |
 |---|---|---|
 | RN-04.23 | **Crear** (§6.6.1): obligatorios tipo, asunto, cliente, responsable y prioridad (más `crm.campos_obligatorios.activity`). `code` con `SequenceGenerator.next('crm.actividad')`. Estado inicial (RN-04.8). Relaciones según RN-04.1. Desde una ficha, el cliente o proyecto llegan preseleccionados; el backend los valida igual que si se hubieran elegido a mano (visibilidad incluida) | ALCANCE §6.6, §6.6.1; 00 §2.10 |
-| RN-04.24 | **Campos por tipo** (§6.6.2): `crm.tipo_actividad.metadata.fields` declara qué campos específicos admite el tipo (`scheduledAt`, `durationMinutes`, `participants`, `summary`, `resultId`, `resultNotes`, `nextAction`, `nextActionDate`). Enviar un campo específico que el tipo no admite → `422 FIELD_NOT_APPLICABLE`. Los campos generales (asunto, descripción, cliente, proyecto, oportunidad, responsable, vencimiento, estado, prioridad) valen para todos. Valores propuestos de `fields` en D-04.8 | ALCANCE §6.6.2; 00 §3.2 |
+| RN-04.24 | **Campos por tipo** (§6.6.2): `crm.tipo_actividad.metadata.fields` declara qué campos específicos admite el tipo (`scheduledAt`, `durationMinutes`, `participants`, `summary`, `resultId`, `resultNotes`, `nextAction`, `nextActionDate`). Enviar un campo específico que el tipo no admite → `422 FIELD_NOT_APPLICABLE`. Los campos generales (asunto, descripción, cliente, proyecto, oportunidad, responsable, vencimiento, estado, prioridad) valen para todos. Valores aprobados de `fields` en D-04.8 | ALCANCE §6.6.2; 00 §3.2 |
 | RN-04.25 | `duration_minutes` entero ≥ 0 (`ck_activities_duration`). No hay restricción de orden entre `scheduled_at` y `due_at` (no escrita) | 00 §2.10 |
 | RN-04.26 | **Tipo correo**: la actividad `CORREO` **registra** un correo gestionado fuera del CRM (asunto, destinatarios como participantes, resumen). El sistema no envía, no recibe y no lee buzones | ALCANCE §6.6.2 |
-| RN-04.27 | **Editar** (`PATCH`): solo actividades abiertas (`isOpen`). Cambiar de un estado abierto a otro abierto (`PENDIENTE` ↔ `EN_PROCESO`) es edición; pasar a completada o cancelada solo por sus operaciones → `422 USE_LIFECYCLE_OPERATION`. Cambiar el **tipo** revalida RN-04.24 sobre los campos ya guardados. Completadas y canceladas → `409 RECORD_READ_ONLY` (D-04.6) | Propuesta |
+| RN-04.27 | **Editar** (`PATCH`): solo actividades abiertas (`isOpen`). Cambiar de un estado abierto a otro abierto (`PENDIENTE` ↔ `EN_PROCESO`) es edición; pasar a completada o cancelada solo por sus operaciones → `422 USE_LIFECYCLE_OPERATION`. Cambiar el **tipo** revalida RN-04.24 sobre los campos ya guardados. Completadas y canceladas → `409 RECORD_READ_ONLY` (D-04.6) | D-04.6 (aprobada) |
 | RN-04.28 | **Completar** (§6.6.3): solo desde `isOpen` → `isCompleted` (`COMPLETADA`). **Exige resultado**: `result_id` o `result_notes` (`ck_activities_completion`) → `422 RESULT_REQUIRED`. Fecha de finalización (`completed_at`) por defecto ahora; si se informa, no futura → `422 ACTUAL_DATE_IN_FUTURE`. Comentario opcional (`completion_comment`). `completed_by_id` = usuario. Ya completada o cancelada → `409 INVALID_STATUS_TRANSITION` | ALCANCE §6.6.3; 00 §2.10 |
-| RN-04.29 | **Registrar una gestión ya realizada** en un solo paso: el alta admite un bloque `completion` opcional que crea y completa en la misma transacción (exige además `actividades.cerrar`). Así una llamada hecha no pasa por "pendiente" (D-04.14) | Propuesta |
+| RN-04.29 | **Registrar una gestión ya realizada** en un solo paso: el alta admite un bloque `completion` opcional que crea y completa en la misma transacción (exige además `actividades.cerrar`). Así una llamada hecha no pasa por "pendiente" (D-04.14) | D-04.14 (aprobada) |
 | RN-04.30 | **Cancelar**: solo desde `isOpen` → `isCancelled`, `cancelled_at` = ahora; comentario opcional que se guarda en la auditoría (no hay columna de motivo, D-04.7). **Eliminar** (`DELETE`): lógico (`deleted_at`), permiso `actividades.eliminar`, solo actividades abiertas o canceladas; una completada no se elimina porque es historia (DM-33, D-04.7). Una eliminada desaparece de todas las vistas (la vista la excluye) | 00 §2.10, §5.2; DM-33 |
 
 ### C.4 Derivados (no se almacenan, 00 P4)
@@ -197,7 +197,7 @@ stateDiagram-v2
 | `Catalog`, `CatalogItem` | Fase 0 / M7 | Tipos, estados, prioridades, motivos, resultados |
 | `SystemParameter` | Fase 0 / M7 | Ver D.5 |
 | `Sequence` | Fase 0 | Folios `crm.visita`, `crm.actividad` |
-| `StoredFile` | Fase 0 | Binario del adjunto (DM-8) |
+| `StoredFile` | Fase 0 | Metadatos del binario del adjunto (`storage_key` generado `<año>/<mes>/<uuid>`, tipo detectado, SHA-256; DM-8, ADR-021) |
 | `AuditLog` | Fase 0 | Auditoría |
 | Vista `crm_interactions_v` | 00 §2.12 (migración 8) | Historial y seguimiento, leída por `InteractionReadModel` con `$queryRaw` parametrizado |
 
@@ -210,6 +210,7 @@ stateDiagram-v2
 | FK compuestas de `interaction_participants` (padre y contacto con el mismo `customer_id`) + `ck_..._parent`, `ck_..._subject` | Participante del mismo cliente; un solo sujeto | `422 INVALID_CONTACT`, `400 VALIDATION_FAILED` |
 | `ck_visits_scheduled_range`, `ck_visits_actual_range` | Coherencia de fechas | `422 INVALID_DATE_RANGE` |
 | `ck_visits_confirm_requires` | Confirmación con realización y resumen | `409 INVALID_STATUS_TRANSITION`, `422 CONFIRMATION_SUMMARY_REQUIRED` |
+| `ck_visits_confirmed_by_owner` | Solo el dueño confirma (`confirmed_by_id = owner_id`, DM-20) | `403 VISIT_CONFIRMATION_OWNER_ONLY` |
 | `ck_visit_events_reschedule`, `ck_visit_events_reason` | Reprogramación con fechas; motivo en reprogramación y cancelación | `422 REASON_REQUIRED` |
 | `ck_activities_completion` | Completar con resultado y usuario | `422 RESULT_REQUIRED` |
 | `ck_visits_reminder`, `ck_activities_duration`, `ck_visits_reschedule_count` | Rangos | `400 VALIDATION_FAILED` |
@@ -223,7 +224,7 @@ stateDiagram-v2
 |---|---|---|
 | `crm.tipo_actividad` | `activities.type_id` | `isInteraction`, `fields` |
 | `crm.estado_actividad` | `activities.status_id` | `isOpen`, `isCompleted`, `isCancelled` |
-| `crm.estado_visita` | `visits.status_id`, `visit_events.from/to_status_id` | `isPending`, `isDone`, `isConfirmed`, `isCancelled`; código `REPROGRAMADA` (D-04.3) |
+| `crm.estado_visita` | `visits.status_id`, `visit_events.from/to_status_id` | `isPending`, `isDone`, `isConfirmed`, `isCancelled`, `isRescheduled` (D-04.3 aprobada) |
 | `crm.prioridad` | `activities.priority_id` | `weight` |
 | `crm.motivo_reprogramacion` | `visit_events.reason_id` (RESCHEDULED) | — |
 | `crm.motivo_cancelacion` | `visit_events.reason_id` (CANCELLED) | — |
@@ -241,7 +242,7 @@ Guardia de catálogo correcto en cada columna: `CatalogReferenceValidator` (00 �
 | `crm.visitas.duracion_por_defecto_minutos` | Fin efectivo para mostrar y para conflictos (RN-04.13) |
 | `crm.campos_obligatorios` (`visit`, `activity`) | RN-04.7 |
 | `crm.valores_por_defecto` (`activity.priorityId`) | RN-04.8 |
-| `crm.adjuntos.max_mb`, `crm.adjuntos.tipos_permitidos` | Adjuntos (DM-8) |
+| `crm.adjuntos.max_mb`, `crm.adjuntos.tipos_permitidos` | Adjuntos (DM-8 resuelta: 10 MB; PDF, JPEG, PNG, `.docx`, `.xlsx`) |
 
 ### D.6 Folios
 
@@ -337,11 +338,11 @@ Preselección por query string: `/actividad/actividades/nueva?customerId=…&pro
 | Estado | Acciones visibles |
 |---|---|
 | Pendiente (`PROGRAMADA` / `REPROGRAMADA`) | Editar planificación · Registrar realizada · Reprogramar · Cancelar |
-| `REALIZADA` | Corregir realización · Confirmar (`visitas.cerrar`) |
+| `REALIZADA` | Corregir realización · Confirmar (`visitas.cerrar` y **solo el dueño** de la visita, DM-20) |
 | `CONFIRMADA` / `CANCELADA` | Ninguna (solo lectura) |
 
 - **Diálogo Registrar realizada** (F-27): fecha y hora real (por defecto la planificada si ya pasó, si no ahora), fin real, asistentes (preseleccionados con los invitados, editables), temas, acuerdos, resultado (catálogo) + resumen, comentarios, próxima acción + fecha, adjuntos.
-- **Diálogo Confirmar** (F-28): resumen de confirmación (obligatorio si la realización no tiene resumen ni comentarios; el diálogo lo indica), adjuntos. Muestra la realización en solo lectura para revisar.
+- **Diálogo Confirmar** (F-28): solo se ofrece al dueño de la visita (`allowedActions` incluye `CONFIRM`); un manager o administrador que consulta la visita de otro no ve la acción. Resumen de confirmación (obligatorio si la realización no tiene resumen ni comentarios; el diálogo lo indica), adjuntos. Muestra la realización en solo lectura para revisar.
 - **Diálogo Reprogramar** (F-29): nueva fecha y hora, nuevo fin opcional, motivo (catálogo) y/o texto, comentario, adjuntos; aviso de conflicto como en E.7.
 - **Diálogo Cancelar** (F-29): motivo (catálogo) y/o texto, comentario, adjuntos; `ConfirmDialog` destructivo ("La visita quedará cancelada y no podrá reactivarse").
 - Estados: 404 → "La visita no existe o no tienes acceso" (no se distingue, ADR-008).
@@ -376,9 +377,9 @@ Este módulo entrega, y las fichas de 02 y 03 insertan:
 
 Los botones navegan a las rutas de E.1 con la preselección; se ocultan sin el permiso de creación. La sección se oculta sin `actividades.ver` ni `visitas.ver`.
 
-### E.12 Adjuntos (todas las pantallas) — dependiente de DM-8
+### E.12 Adjuntos (todas las pantallas) — DM-8 resuelta (ADR-021)
 
-Componente `AttachmentsPanel` (`owner`: visita, evento de visita o actividad): lista (nombre, tamaño, autor, fecha), subir, descargar, eliminar (solo si el dueño es editable, RN-04.21). Mientras no exista el ADR de almacenamiento (DM-8) el panel **no se muestra** y los diálogos no ofrecen adjuntar; la columna "Adjuntos" de agenda y listados muestra el número (siempre 0) para que el contrato no cambie después.
+Componente `AttachmentsPanel` (`owner`: visita, evento de visita o actividad): lista (nombre, tamaño, autor, fecha), subir, descargar, eliminar (solo si el dueño es editable, RN-04.21; los adjuntos de eventos no se eliminan). Antes de subir valida en el cliente tamaño (`crm.adjuntos.max_mb`, 10 MB) y extensión (PDF, JPEG, PNG, `.docx`, `.xlsx`) como ayuda de UX; la decisión es del backend (tipo detectado por firma) y sus errores se muestran con `describeApiError` (`413 ATTACHMENT_TOO_LARGE`, `422 ATTACHMENT_TYPE_NOT_ALLOWED`). La descarga usa la ruta del dueño (`…/attachments/{aid}/content`, F.4) a través del cliente de API autenticado; no hay vista previa en línea. Los diálogos de reprogramar, cancelar y confirmar suben sus archivos al evento recién creado (ventana de D-04.18); el diálogo Completar de actividad sube los archivos a la actividad **antes** de enviar la finalización, mientras sigue abierta. La columna "Adjuntos" de agenda y listados muestra `attachmentCount`.
 
 ---
 
@@ -403,7 +404,7 @@ documenta en OpenAPI (`@ApiTags('commercial-activity')`, respuestas `ErrorRespon
 | PATCH | `/visits/{id}` | `visitas.editar` propio / `visitas.administrar` | 200 `VisitDetailDto` | 404, 409 `RECORD_READ_ONLY` / `SCHEDULE_CONFLICT`, 422 `USE_RESCHEDULE` |
 | POST | `/visits/{id}/completion` | `visitas.editar` propio / `visitas.administrar` | 200 `VisitDetailDto` | 404, 409 `INVALID_STATUS_TRANSITION`, 422 `ACTUAL_DATE_IN_FUTURE` |
 | PUT | `/visits/{id}/completion` | ídem | 200 `VisitDetailDto` (corrige, RN-04.17) | 404, 409 |
-| POST | `/visits/{id}/confirmation` | `visitas.cerrar` (en alcance) | 200 `VisitDetailDto` | 404, 409, 422 `CONFIRMATION_SUMMARY_REQUIRED` |
+| POST | `/visits/{id}/confirmation` | `visitas.cerrar` (solo visitas propias, DM-20) | 200 `VisitDetailDto` | 403 `PERMISSION_DENIED` / `VISIT_CONFIRMATION_OWNER_ONLY`, 404, 409, 422 `CONFIRMATION_SUMMARY_REQUIRED` |
 | POST | `/visits/{id}/rescheduling` | `visitas.editar` propio / `visitas.administrar` | 200 `VisitDetailDto` (+ `scheduleConflicts`) | 404, 409, 422 `RESCHEDULE_SAME_DATE` / `DATE_IN_PAST` / `REASON_REQUIRED` |
 | POST | `/visits/{id}/cancellation` | `visitas.editar` propio / `visitas.administrar` | 200 `VisitDetailDto` | 404, 409, 422 `REASON_REQUIRED` |
 
@@ -435,7 +436,7 @@ No existe `DELETE /visits/{id}` (RN-04.20): la ruta no se declara; una petición
 
 **`VisitCancellationDto`**: `reasonId?`, `reasonText?` (al menos uno), `comment?`.
 
-**`VisitDetailDto`** (respuesta; nunca el modelo Prisma): `id`, `code`, `customer {id, crmCode, legalName}`, `project {id, code, name} | null`, `owner {id, displayName}`, `status {id, code, label, group}` (`group` = RN-04.35), `scheduledStartAt`, `scheduledEndAt`, `effectiveEndAt` (calculado), `originalScheduledAt`, `rescheduleCount`, `objective`, `location`, `reminderMinutesBefore`, `reminderAt` (calculado = inicio − minutos), `participants: ParticipantDto[]` (`{ id, role, kind: CONTACT|USER|EXTERNAL, contactId?, userId?, displayName }`), `completion { actualStartAt, actualEndAt, topics, agreements, result {id,label} | null, resultSummary, comments, nextAction, nextActionDate, recordedBy, recordedAt } | null`, `confirmation { confirmedAt, confirmedBy, summary } | null`, `cancelledAt`, `isUnregistered`, `attachmentCount`, `allowedActions: string[]` (`EDIT`, `COMPLETE`, `CORRECT_COMPLETION`, `CONFIRM`, `RESCHEDULE`, `CANCEL`, calculado con estado + permisos + propiedad; la interfaz lo usa para mostrar botones, el backend vuelve a decidir), `scheduleConflicts?: ScheduleConflictDto[]`, `createdAt`, `updatedAt`.
+**`VisitDetailDto`** (respuesta; nunca el modelo Prisma): `id`, `code`, `customer {id, crmCode, legalName}`, `project {id, code, name} | null`, `owner {id, displayName}`, `status {id, code, label, group}` (`group` = RN-04.35), `scheduledStartAt`, `scheduledEndAt`, `effectiveEndAt` (calculado), `originalScheduledAt`, `rescheduleCount`, `objective`, `location`, `reminderMinutesBefore`, `reminderAt` (calculado = inicio − minutos), `participants: ParticipantDto[]` (`{ id, role, kind: CONTACT|USER|EXTERNAL, contactId?, userId?, displayName }`), `completion { actualStartAt, actualEndAt, topics, agreements, result {id,label} | null, resultSummary, comments, nextAction, nextActionDate, recordedBy, recordedAt } | null`, `confirmation { confirmedAt, confirmedBy, summary } | null`, `cancelledAt`, `isUnregistered`, `attachmentCount`, `allowedActions: string[]` (`EDIT`, `COMPLETE`, `CORRECT_COMPLETION`, `CONFIRM`, `RESCHEDULE`, `CANCEL`, calculado con estado + permisos + propiedad; `CONFIRM` solo aparece si el usuario es el dueño y tiene `visitas.cerrar`; la interfaz lo usa para mostrar botones, el backend vuelve a decidir), `scheduleConflicts?: ScheduleConflictDto[]`, `createdAt`, `updatedAt`.
 
 **`VisitEventDto`**: `id`, `eventType` (`PLANNED | RESCHEDULED | COMPLETED | CONFIRMED | CANCELLED`), `fromStatus`, `toStatus`, `previousScheduledStartAt`, `newScheduledStartAt`, `reason {id,label} | null`, `reasonText`, `comment`, `performedBy {id, displayName}`, `occurredAt`, `attachmentCount`.
 
@@ -506,16 +507,21 @@ No existe `DELETE /visits/{id}` (RN-04.20): la ruta no se declara; una petición
 
 **`GET /follow-ups/trace`**: `customerId` o `projectId` (exactamente uno). `FollowUpTraceDto`: `row: FollowUpRowDto`, `interactions: InteractionDto[]` (las 50 últimas; más en `/interactions`), `upcoming: AgendaItemDto[]` (visitas pendientes y actividades abiertas futuras, máx. 20), `attachments: AttachmentDto[]` (máx. 50).
 
-### F.4 Adjuntos (habilitados tras el ADR de DM-8)
+### F.4 Adjuntos (DM-8 resuelta, ADR-021; rutas por dueño, DC-2)
 
-| Método | Ruta | Permiso |
-|---|---|---|
-| GET | `/visits/{id}/attachments` · `/activities/{id}/attachments` | `visitas.ver` · `actividades.ver` |
-| POST | `/visits/{id}/attachments` · `/visits/{id}/events/{eventId}/attachments` · `/activities/{id}/attachments` (`multipart/form-data`, `file` + `description?`) | `visitas.editar` / `actividades.editar` (propio o `administrar`); para eventos, quien pudo ejecutar la operación del evento, en los 15 minutos siguientes (D-04.18) |
-| GET | `/attachments/{attachmentId}/download` | Permiso de ver del dueño; respuesta según ADR (URL firmada o flujo) |
-| DELETE | `/attachments/{attachmentId}` | Editar el dueño; `409 RECORD_READ_ONLY` si el dueño es una visita confirmada/cancelada, un evento o una actividad completada (00 §2.11) |
+Las rutas cuelgan **del dueño** (DC-2 resuelta): la autorización la decide este módulo con la política de la visita, del evento o de la actividad, y el `AttachmentsService` transversal de 02 (F.6.5) solo guarda, lista, transmite y marca como eliminado. No existen rutas genéricas `/attachments/{aid}`. Un `attachmentId` que no pertenece al dueño de la ruta → `404 RESOURCE_NOT_FOUND`.
 
-Validación de tamaño y tipo con `crm.adjuntos.max_mb` / `crm.adjuntos.tipos_permitidos` (`ATTACHMENT_TOO_LARGE`, `422 ATTACHMENT_TYPE_NOT_ALLOWED`: códigos del `AttachmentsService` de 02 F.6.5; el status del exceso de tamaño, `413` o `422`, lo fija DC-4 / D-06.13); la subida usa el servicio transversal de adjuntos (D-04.10). Hasta el ADR, estas rutas **no se registran** (ninguna ruta a medias).
+| Método | Ruta | Permiso | Éxito | Errores principales |
+|---|---|---|---|---|
+| GET | `/visits/{id}/attachments` · `/visits/{id}/events/{eventId}/attachments` · `/activities/{id}/attachments` | `visitas.ver` · `visitas.ver` · `actividades.ver` (dueño dentro del alcance) | 200 `Paginated<AttachmentDto>` | 404 |
+| POST | `/visits/{id}/attachments` · `/activities/{id}/attachments` (`multipart/form-data`, `file` + `description?` ≤ 300) | `visitas.editar` / `actividades.editar` (propio; ajeno con `administrar`) | 201 `AttachmentDto` + `Location` | 403, 404, 409 `RECORD_READ_ONLY` (visita confirmada/cancelada, actividad completada/cancelada), 413 `ATTACHMENT_TOO_LARGE`, 422 `ATTACHMENT_TYPE_NOT_ALLOWED` |
+| POST | `/visits/{id}/events/{eventId}/attachments` (`multipart/form-data`) | Quien ejecutó el evento (`performed_by_id` = usuario), en los 15 minutos siguientes a `occurred_at` (D-04.18) | 201 `AttachmentDto` + `Location` | 403 `PERMISSION_DENIED` (otro usuario), 404, 409 `RECORD_READ_ONLY` (ventana vencida), 413, 422 |
+| GET | `/visits/{id}/attachments/{attachmentId}/content` · `/visits/{id}/events/{eventId}/attachments/{attachmentId}/content` · `/activities/{id}/attachments/{attachmentId}/content` | Permiso de ver del dueño (dueño dentro del alcance) | 200 flujo binario con el `Content-Type` guardado, `Content-Disposition: attachment; filename*=…` (nombre saneado) y `X-Content-Type-Options: nosniff` | 404 |
+| DELETE | `/visits/{id}/attachments/{attachmentId}` · `/activities/{id}/attachments/{attachmentId}` | Editar el dueño (propio; ajeno con `administrar`) | 204 (borrado lógico de `attachments` y `stored_files`) | 403, 404, 409 `RECORD_READ_ONLY` (visita confirmada/cancelada o actividad completada, 00 §2.11) |
+
+Los adjuntos de un evento de visita **no se eliminan** (historia, 00 §2.11): no se declara `DELETE` para ellos.
+
+Reglas de almacenamiento (00 §2.11, ADR-021): tamaño máximo `crm.adjuntos.max_mb` (10 MB, cortado en streaming) → `413 ATTACHMENT_TOO_LARGE`; tipos de `crm.adjuntos.tipos_permitidos` (PDF, JPEG, PNG, `.docx`, `.xlsx`) detectados por la firma del contenido y cotejados con la extensión → `422 ATTACHMENT_TYPE_NOT_ALLOWED` (DC-4); `storage_key` generado por el servidor; el binario **nunca** se sirve como estático (ni NGINX ni `express.static`) ni por URL firmada: solo por estas rutas tras autorizar. La subida usa el servicio transversal de adjuntos de 02 (D-04.10) sobre el puerto `FileStorage`.
 
 ### F.5 Códigos de error del módulo
 
@@ -524,6 +530,7 @@ Validación de tamaño y tipo con `crm.adjuntos.max_mb` / `crm.adjuntos.tipos_pe
 | `VALIDATION_FAILED` | 400 | DTO o query inválidos (`ValidationPipe`), incluido `sortBy` fuera de lista blanca |
 | `RESOURCE_NOT_FOUND` | 404 | No existe **o** está fuera del alcance (ADR-008) |
 | `PERMISSION_DENIED` | 403 | Dentro del alcance sin el permiso, o editar un registro ajeno sin `administrar` |
+| `VISIT_CONFIRMATION_OWNER_ONLY` | 403 | Confirmar una visita de la que el usuario no es dueño, aunque tenga `visitas.administrar` o sea administrador (RN-04.18, DM-20, `ck_visits_confirmed_by_owner`) |
 | `INVALID_CATALOG_VALUE` | 422 | 00 §3.5 |
 | `REQUIRED_FIELD_MISSING` | 422 | RN-04.7 |
 | `UNKNOWN_REFERENCE` | 422 | Proyecto, oportunidad o usuario inexistente o no visible (código existente, PLAN-ADMIN §10). El **cliente** no usa este código: lo valida `CustomerReferenceGuard` (02 F.6.3) y responde `404 RESOURCE_NOT_FOUND` |
@@ -540,7 +547,7 @@ Validación de tamaño y tipo con `crm.adjuntos.max_mb` / `crm.adjuntos.tipos_pe
 | `RECORD_READ_ONLY` | 409 | Editar terminal (RN-04.21, RN-04.27) |
 | `SCHEDULE_CONFLICT` | 409 | Solo con `BLOQUEAR` (RN-04.14) |
 | `RANGE_TOO_WIDE` | 400 | Calendario > 42 días |
-| `ATTACHMENT_TOO_LARGE` / `ATTACHMENT_TYPE_NOT_ALLOWED` | 413 (o 422, DC-4) / 422 | Adjuntos (códigos de 02 F.6.5) |
+| `ATTACHMENT_TOO_LARGE` / `ATTACHMENT_TYPE_NOT_ALLOWED` | 413 / 422 | Adjuntos: tamaño excedido / tipo no admitido por firma (DC-4; códigos de 02 F.6.5) |
 
 Los mensajes del frontend salen de `describeApiError` con *overrides* en español por código; nunca se muestra `message` del backend.
 
@@ -581,7 +588,7 @@ Si el contrato definitivo de 02/03 difiere, prevalece el suyo y este módulo se 
 | Clientes (02) | Cliente (obligatorio), país del cliente, contactos (participantes) | `customers.id`, `contacts.id` | FK + lookups F.7 |
 | Proyectos (03) | Proyecto y oportunidad (opcionales) | `projects.id`, `opportunities.id` | FK compuestas + lookups |
 | Fase 0 / Administración | Usuarios, equipos (alcance), roles/permisos, catálogos, parámetros, secuencias, auditoría | `users.id`, `catalog_items.id`, `system_parameters.key` | Puertos transversales |
-| Almacenamiento (DM-8) | Binarios | `stored_files.id` | `FileStorage` |
+| Almacenamiento (DM-8, ADR-021) | Binarios | `stored_files.id` | `AttachmentsService` de 02 sobre `FileStorage` / `LocalFileSystemStorage` |
 
 ### G.2 Provee
 
@@ -589,7 +596,7 @@ Si el contrato definitivo de 02/03 difiere, prevalece el suyo y este módulo se 
 |---|---|---|
 | Clientes (02) — ficha | Botones de alta con preselección y sección de actividad comercial (E.11); conteos para bloquear eliminación (DM-33) | Componentes exportados; `CommercialActivityUsageQuery` |
 | Proyectos (03) — ficha | Sección "Seguimiento comercial" (ALCANCE §5.2), botones de alta; `last_activity_at` actualizado (RN-04.11); conteos para bloqueo de eliminación | Componentes; puerto |
-| Inicio (01) | Visitas pendientes y próximas, actividades pendientes y vencidas (§3.2), actividades recientes, próximas visitas y últimas interacciones (§3.3), alertas "actividad vencida" y "visita realizada sin confirmar" (§3.4) | Mismas definiciones RN-04.31, RN-04.33, RN-04.35; `InteractionReadModel` reutilizado (00 §11); enlaces `detailPath`/`sourcePath` a las pantallas de este módulo |
+| Inicio (01) | Visitas pendientes y próximas, actividades pendientes y vencidas (§3.2), actividades recientes, próximas visitas y últimas interacciones (§3.3), alertas "actividad vencida" y "visita realizada sin confirmar" (§3.4; responsable de la segunda = dueño de la visita, que es quien la confirma, DM-20) | Mismas definiciones RN-04.31, RN-04.33, RN-04.35; `InteractionReadModel` reutilizado (00 §11); enlaces `detailPath`/`sourcePath` a las pantallas de este módulo |
 | Reportes (05) | Reporte de visitas (§7.4: planificada = `original_scheduled_at`/vigente, real, confirmación, sin duplicar reprogramadas) y de actividades (§7.5: pendientes, realizadas, vencidas) | Leen las tablas con su `ReportingRepository` aplicando **las mismas definiciones** de este documento (C.4); ningún reporte escribe |
 
 Las definiciones de C.4 son **la referencia única**: 01 y 05 las citan, no las redefinen. Para evitar divergencias, las funciones puras de clasificación (`activity-due-status.ts`, `agenda-status.ts`) se ubican en el módulo y se exponen para que los adaptadores de 01/05 usen los mismos umbrales y semánticas.
@@ -600,7 +607,7 @@ Las definiciones de C.4 son **la referencia única**: 01 y 05 las citan, no las 
 |---|---|
 | Inicio y Reportes aún no implementados (orden §11) | Nada se rompe: los datos y el `InteractionReadModel` quedan disponibles; no se construye ninguna pantalla de 01/05 aquí |
 | Administración (M7) sin pantallas nuevas | Catálogos y parámetros vienen de la semilla esencial; un cambio hecho con la pantalla genérica de catálogos ya existente se refleja sin desplegar (RN-04.3/4) |
-| Adjuntos sin ADR (DM-8) | Panel oculto, rutas no registradas, `attachmentCount = 0`. El resto del módulo funciona |
+| Adjuntos (DM-8 resuelta, ADR-021) | Sin bloqueo: rutas F.4 y panel se entregan con el módulo cuando el `AttachmentsService` y el adaptador `FileStorage` de 02 están disponibles (K.2 paso 8) |
 | Fichas de 02/03 no desplegadas en un entorno | Los componentes de E.11 no se renderizan; la creación desde el menú funciona con selección manual |
 | Proyecto u oportunidad eliminados | Siguen mostrándose en registros existentes (con marca "eliminado"); no se ofrecen en altas |
 | Lookups transversales no publicados por Fase 0 (D-04.10) | El módulo usa sus propios `form-options` / `owner-options`; nada se bloquea |
@@ -614,7 +621,7 @@ Las definiciones de C.4 son **la referencia única**: 01 y 05 las citan, no las 
 - Todos los endpoints exigen sesión (`401` sin token). Ninguno es público ni `@AuthenticatedOnly`.
 - Cada endpoint declara `@RequirePermission` (F.1–F.4). Donde la operación admite dos caminos (propio con `editar`, ajeno con `administrar`), el guard exige el mínimo (`editar`) y el caso de uso aplica la regla de propiedad → `403 PERMISSION_DENIED`.
 - Deny by default: un permiso no listado no se infiere.
-- Los endpoints que admiten **uno de varios** permisos (`/agenda`, `/agenda/calendar`, `/interactions`, `/follow-ups`, `/follow-ups/trace`, `/commercial-activity/owner-options`: `actividades.ver` **o** `visitas.ver`; `/visits/schedule-conflicts`: `visitas.crear` **o** `visitas.editar`) necesitan el decorador `@RequireAnyPermission` propuesto en D-01.1 (addendum a ADR-008). Como este módulo se implementa **antes** que Inicio, ese addendum debe estar aprobado antes del Módulo 4. Si no se aprueba, se aplica la alternativa de D-01.1: un endpoint por fuente (visitas / actividades) con `@RequirePermission` y fusión en el frontend; `schedule-conflicts` exige `visitas.crear` y la edición reutiliza la misma consulta.
+- Los endpoints que admiten **uno de varios** permisos (`/agenda`, `/agenda/calendar`, `/interactions`, `/follow-ups`, `/follow-ups/trace`, `/commercial-activity/owner-options`: `actividades.ver` **o** `visitas.ver`; `/visits/schedule-conflicts`: `visitas.crear` **o** `visitas.editar`) usan el decorador `@RequireAnyPermission` (D-01.1 aprobada, addendum a [ADR-008](../../adr/ADR-008-authorization.md)). Como este módulo se implementa **antes** que Inicio, el decorador se entrega antes del Módulo 4 (K.1).
 - El frontend protege rutas con el mismo permiso que su opción de menú y oculta acciones con `usePermission`/`useCan` y `allowedActions`, pero **la decisión es del backend** (ALCANCE §9.2 "no limitar la seguridad a ocultar botones").
 
 ### H.2 Matriz de permisos (00 §5.2, §5.4)
@@ -624,12 +631,14 @@ Las definiciones de C.4 son **la referencia única**: 01 y 05 las citan, no las 
 | Ver visitas (listado, detalle, eventos, agenda) | `visitas.ver` | Dentro del alcance |
 | Planificar | `visitas.crear` | Responsable = yo, o `visitas.administrar` |
 | Editar planificación, registrar/corregir realizada, reprogramar, cancelar | `visitas.editar` | Propia; ajena en alcance con `visitas.administrar` |
-| Confirmar | `visitas.cerrar` | Dentro del alcance (DM-20: confirma el manager o quien tenga el permiso; el asesor no lo tiene por defecto) |
+| Confirmar | `visitas.cerrar` | **Solo visitas propias** (`owner_id` = usuario), dentro del alcance. DM-20 resuelta: confirma el asesor dueño; asesor, manager y responsable de país tienen `visitas.cerrar` sobre sus propias visitas (00 §5.4). `visitas.administrar` y el comodín del administrador **no** confirman visitas ajenas → `403 VISIT_CONFIRMATION_OWNER_ONLY` (`ck_visits_confirmed_by_owner`) |
 | Ver actividades, bandeja, historial, seguimiento | `actividades.ver` (`visitas.ver` para la parte de visitas) | Dentro del alcance |
 | Crear actividad | `actividades.crear` (+ `cerrar` con `completion`) | Responsable = yo, o `actividades.administrar` |
 | Editar / cancelar | `actividades.editar` | Propia; ajena con `actividades.administrar` |
 | Completar | `actividades.cerrar` | Propia; ajena con `actividades.administrar` |
 | Eliminar (lógico) | `actividades.eliminar` | Dentro del alcance |
+| Listar y descargar adjuntos | Permiso de ver del dueño | Dentro del alcance del dueño |
+| Subir / eliminar adjuntos | Permiso de editar del dueño | Propio; ajeno con `administrar`; evento: quien lo ejecutó, 15 minutos (D-04.18) |
 
 Sin acción `visitas.eliminar` (00 §5.2). Matriz por rol: 00 §5.4 (DM-11).
 
@@ -648,7 +657,7 @@ Sin acción `visitas.eliminar` (00 §5.2). Matriz por rol: 00 §5.4 (DM-11).
 - La vista de interacciones, la agenda y el seguimiento aplican **el mismo filtro** en SQL (no se filtra en memoria después de paginar).
 - Fuera del alcance → `404` (no revela existencia). Dentro sin permiso → `403`.
 - La comprobación de conflictos no revela datos de visitas fuera del alcance (F.1).
-- **Bloqueante heredado:** DM-12 (alcance `TEAM` y ADR-020) debe estar resuelto antes de implementar.
+- DM-12 resuelta (2026-10-10): `TEAM` = miembros + responsable + subequipos; cambiar miembros, responsable o jerarquía de un equipo es asignación de acceso, exclusiva del administrador (addendum ADR-020). Ya no bloquea.
 
 ### H.4 Validación y datos sensibles
 
@@ -656,7 +665,7 @@ Sin acción `visitas.eliminar` (00 §5.2). Matriz por rol: 00 §5.4 (DM-11).
 - La vista se consulta con `$queryRaw` de plantilla (parámetros enlazados), nunca concatenación.
 - Datos personales: nombres de contactos y participantes externos son PII; se muestran solo dentro del alcance; en `audit_logs` se enmascaran (DM-29); **no** se escriben en logs de aplicación (solo ids y `correlationId`).
 - Textos libres (temas, acuerdos, resúmenes) se renderizan como texto (sin HTML) en el frontend.
-- Adjuntos: tipos en lista blanca, tamaño máximo, descarga autorizada por dueño (DM-8).
+- Adjuntos (ADR-021): lista blanca por firma del contenido, 10 MB, `storage_key` generado sin datos del usuario, protección ante *path traversal* en el adaptador, descarga solo por la API tras autorizar sobre el dueño con `Content-Disposition: attachment` y `nosniff`; nunca estático ni vista previa en línea; sin antivirus (mitigación de ADR-021).
 - Rate limiting global existente; sin endpoints de exportación en este módulo (exportar es de Reportes, 00 §5.2).
 
 ### H.5 Auditoría
@@ -735,7 +744,7 @@ Formato Given/When/Then resumido. Cada uno es verificable por al menos una prueb
 | AC-04.25 | **Cuando** falta un obligatorio base, **entonces** `400`/`422` con el campo; **dado** que `crm.campos_obligatorios.visit` añade `location`, **cuando** falta, **entonces** `422 REQUIRED_FIELD_MISSING`. (F-26) |
 | AC-04.26 | **Dado** `validar_conflicto_horario = AVISAR` y otra visita del mismo responsable que se solapa, **cuando** planifica, **entonces** la visita **se guarda** y la respuesta incluye `scheduleConflicts`; la interfaz muestra la advertencia antes y después de guardar sin impedir guardar. Con `NO` no se evalúa; con `BLOQUEAR`, `409 SCHEDULE_CONFLICT` (comportamiento disponible pero no activado). Una visita cancelada no cuenta como conflicto. (F-26) |
 | AC-04.27 | **Cuando** se informa un recordatorio de N minutos, **entonces** se guarda, se muestra en el detalle y en la agenda (`hasReminder`, `reminderAt`) y **no** se envía ninguna notificación. (F-26) |
-| AC-04.28 | **Dado** el ADR de almacenamiento aprobado, **cuando** se adjunta un archivo permitido a la visita, **entonces** queda vinculado a ella; **mientras** no exista, la interfaz no ofrece adjuntar y no hay rutas de subida. (F-26, F-25) |
+| AC-04.28 | **Dado** el responsable de una visita pendiente, **cuando** adjunta un archivo permitido (PDF, JPEG, PNG, `.docx` o `.xlsx` de hasta `crm.adjuntos.max_mb`), **entonces** queda vinculado a la visita y se descarga por `GET /visits/{id}/attachments/{aid}/content` como `attachment`; **cuando** supera el tamaño, **entonces** `413 ATTACHMENT_TOO_LARGE`; **cuando** su contenido no es de un tipo admitido (aunque la extensión lo sea), **entonces** `422 ATTACHMENT_TYPE_NOT_ALLOWED`. (F-26, F-25) |
 
 ### F-27 Registrar visita realizada
 
@@ -750,10 +759,13 @@ Formato Given/When/Then resumido. Cada uno es verificable por al menos una prueb
 
 | ID | Criterio |
 |---|---|
-| AC-04.33 | **Dado** un usuario con `visitas.cerrar` y una visita `REALIZADA` en su alcance, **cuando** confirma con un resumen, **entonces** pasa a `CONFIRMADA` con `confirmedAt`, `confirmedBy`, resumen y evento `CONFIRMED`, y queda en solo lectura. (F-28) |
+| AC-04.33 | **Dado** el asesor dueño de una visita `REALIZADA`, con `visitas.cerrar`, **cuando** la confirma con un resumen, **entonces** pasa a `CONFIRMADA` con `confirmedAt`, `confirmedBy` = él, resumen y evento `CONFIRMED`, y queda en solo lectura. (F-28) |
 | AC-04.34 | **Cuando** confirma sin resumen y la realización no tiene resumen ni comentarios, **entonces** `422 CONFIRMATION_SUMMARY_REQUIRED`; **cuando** la visita está pendiente (sin realización), **entonces** `409 INVALID_STATUS_TRANSITION`. (F-28) |
 | AC-04.35 | **Dado** un usuario sin `visitas.cerrar`, **entonces** la acción no se muestra y el endpoint devuelve `403`; dos confirmaciones simultáneas producen un solo evento y la otra recibe `409`. (F-28) |
 | AC-04.36 | **Entonces** la agenda muestra la visita como confirmada y deja de contarse como "realizada pendiente de confirmación" en la consulta que alimenta la alerta de Inicio. (F-28) |
+| AC-04.61 | **Dado** un manager (o responsable de país) dueño de una visita `REALIZADA`, **cuando** la confirma, **entonces** `200` y `confirmedBy` = él: `visitas.cerrar` vale para las visitas propias de cualquier rol que lo tenga (DM-20, 00 §5.4). (F-28) |
+| AC-04.62 | **Dado** un manager con `visitas.cerrar` y `visitas.administrar` y una visita `REALIZADA` de un asesor de su equipo (visible para él), **cuando** intenta confirmarla, **entonces** `403 VISIT_CONFIRMATION_OWNER_ONLY`, la visita sigue `REALIZADA`, no se inserta evento y la acción "Confirmar" no se le muestra (`allowedActions` sin `CONFIRM`). (F-28) |
+| AC-04.63 | **Dado** un administrador (comodín de permisos, alcance `ORGANIZATION`) y la visita `REALIZADA` de otro usuario, **cuando** intenta confirmarla, **entonces** `403 VISIT_CONFIRMATION_OWNER_ONLY` y nada cambia; en base, `ck_visits_confirmed_by_owner` impide cualquier `confirmed_by_id` distinto de `owner_id`. (F-28) |
 
 ### F-29 Reprogramar o cancelar visita
 
@@ -763,7 +775,7 @@ Formato Given/When/Then resumido. Cada uno es verificable por al menos una prueb
 | AC-04.38 | **Cuando** falta el motivo, **entonces** `422 REASON_REQUIRED`; **cuando** la fecha nueva es igual a la vigente, **entonces** `422 RESCHEDULE_SAME_DATE`; **cuando** es pasada, `422 DATE_IN_PAST`. (F-29) |
 | AC-04.39 | **Cuando** se cancela una visita pendiente con motivo, **entonces** pasa a `CANCELADA` con `cancelledAt` y evento `CANCELLED` (estados anterior y nuevo, motivo, usuario), y la fila sigue existiendo y consultable. (F-29) |
 | AC-04.40 | **Dada** una visita realizada, confirmada o cancelada, **cuando** se intenta reprogramar o cancelar, **entonces** `409 INVALID_STATUS_TRANSITION`. (F-29) |
-| AC-04.41 | **Dado** el ADR de adjuntos, **cuando** se adjunta un archivo a la reprogramación o cancelación, **entonces** queda vinculado al evento y se ve en el historial de la visita. (F-29) |
+| AC-04.41 | **Cuando** quien ejecutó la reprogramación o la cancelación adjunta un archivo en los 15 minutos siguientes, **entonces** queda vinculado al evento y se ve en el historial de la visita; pasado ese plazo, `409 RECORD_READ_ONLY`; otro usuario, `403`. (F-29) |
 
 ### F-30 Actividades comerciales (entidad)
 
@@ -808,6 +820,7 @@ Formato Given/When/Then resumido. Cada uno es verificable por al menos una prueb
 | AC-04.58 | **Entonces** todo endpoint del módulo devuelve `401` sin token y `403` con token sin el permiso declarado. (F-21…F-33) |
 | AC-04.59 | **Dado** un registro fuera del alcance del usuario, **entonces** cualquier endpoint de detalle u operación devuelve `404`, y ningún listado, agenda, historial, seguimiento ni comprobación de conflictos revela sus datos. (F-21…F-33) |
 | AC-04.60 | **Entonces** cada mutación deja un registro en `audit_logs` con el usuario, la acción y la diferencia, sin PII en claro de contactos (DM-29); cada operación de ciclo de vida de una visita deja exactamente un `visit_event`. (F-25…F-33) |
+| AC-04.64 | **Dados** adjuntos de una visita, de un evento y de una actividad, **entonces** se listan, descargan y eliminan solo por las rutas de su dueño (DC-2): la descarga responde con `Content-Disposition: attachment` y `nosniff`; un `attachmentId` de otro dueño en la ruta, o un dueño fuera del alcance, → `404`; eliminar un adjunto de una visita confirmada o de una actividad completada → `409 RECORD_READ_ONLY`; los adjuntos de eventos no tienen ruta de borrado; ningún archivo es accesible por una URL estática. (F-21, F-25…F-33) |
 
 ---
 
@@ -872,13 +885,19 @@ Tipos: **U** unitaria (backend, Jest, sin base), **I** integración (backend, `b
 | PF-04.53 | F + | Formulario de actividad: campos por tipo desde `metadata.fields`, preselección por query string (cliente; proyecto + cliente; error de preselección), "Ya realizada" exige resultado | AC-04.47–52 |
 | PF-04.54 | F + | `NewActivityButton`/`PlanVisitButton` ocultos sin permiso y con la URL de preselección correcta; `CommercialActivitySection` con datos y vacío | AC-04.47, 48 |
 | PF-04.55 | F + | Historial y seguimiento: orden, enlaces al origen, drawer de trazabilidad | AC-04.13, 15, 16 |
-| PF-04.56 | F + | `AttachmentsPanel` no se renderiza sin la capacidad de adjuntos habilitada | AC-04.28 |
+| PF-04.56 | F + | `AttachmentsPanel`: lista, validación previa de tamaño y extensión, mapeo de `413`/`422` a mensajes, descarga por la ruta del dueño, "Eliminar" oculto si el dueño no es editable y en adjuntos de eventos | AC-04.28, 64 |
 | PF-04.57 | F + | `route-registry.spec.ts` sigue en verde con las rutas nuevas | E.1 |
 | PF-04.58 | E ↔ | Asesor: desde la ficha de un proyecto crea una llamada "ya realizada" → aparece en historial y seguimiento del proyecto | AC-04.48, 52, 14 |
-| PF-04.59 | E ↔ | Asesor planifica una visita (con aviso de conflicto), la reprograma y la registra realizada; manager la confirma; la agenda refleja cada paso y el historial muestra una sola entrada | AC-04.26, 37, 29, 33, 6, 17 |
-| PF-04.60 | E − | Asesor sin `visitas.cerrar` no ve "Confirmar"; usuario sin opciones del módulo no ve el menú de Actividad comercial | AC-04.35, 58 |
+| PF-04.59 | E ↔ | Asesor planifica una visita (con aviso de conflicto), la reprograma, la registra realizada y él mismo la confirma; su manager, al abrir la visita, no ve "Confirmar"; la agenda refleja cada paso y el historial muestra una sola entrada | AC-04.26, 37, 29, 33, 62, 6, 17 |
+| PF-04.60 | E − | Usuario con `visitas.ver` y sin `visitas.cerrar` no ve "Confirmar" en una visita `REALIZADA`; usuario sin opciones del módulo no ve el menú de Actividad comercial | AC-04.35, 58 |
 | PF-04.61 | E + | Bandeja: completar una actividad vencida la retira de la bandeja y la agenda la muestra realizada | AC-04.10, 56 |
-| PF-04.62 | I (tras DM-8) | Adjuntos: subir a visita, a evento y a actividad; tipo no permitido 422 `ATTACHMENT_TYPE_NOT_ALLOWED`; tamaño `ATTACHMENT_TOO_LARGE` (413, DC-4); eliminar en visita confirmada 409; descarga sin permiso 404 | AC-04.28, 41 |
+| PF-04.62 | I | Adjuntos (almacenamiento en carpeta temporal de prueba): subir a visita, a evento (dentro de 15 min → 201; fuera → 409; otro usuario → 403) y a actividad; tipo no permitido por firma (extensión `.pdf` con contenido ejecutable) → 422 `ATTACHMENT_TYPE_NOT_ALLOWED`; mayor de `crm.adjuntos.max_mb` → 413 `ATTACHMENT_TOO_LARGE` sin binario huérfano; eliminar en visita confirmada → 409 | AC-04.28, 41, 64 |
+| PF-04.63 | I + | Asesor dueño confirma su visita `REALIZADA` → 200, `confirmedBy` = dueño, evento `CONFIRMED`; manager dueño de una visita propia la confirma → 200 | AC-04.33, 61 |
+| PF-04.64 | I − | Manager con `visitas.administrar` confirma la visita `REALIZADA` de un asesor de su equipo → 403 `VISIT_CONFIRMATION_OWNER_ONLY`; estado y eventos sin cambios; `allowedActions` del manager sin `CONFIRM` | AC-04.62 |
+| PF-04.65 | I − | Administrador confirma la visita de otro usuario → 403 `VISIT_CONFIRMATION_OWNER_ONLY`; nada cambia | AC-04.63 |
+| PF-04.66 | I − | Repositorio contra base efímera: actualizar `confirmed_by_id` con un usuario distinto de `owner_id` viola `ck_visits_confirmed_by_owner` | AC-04.63 |
+| PF-04.67 | I + / − | Descarga `GET …/attachments/{aid}/content` de visita, evento y actividad: 200 con `Content-Type` guardado, `Content-Disposition: attachment` y `nosniff`; `attachmentId` de otro dueño → 404; dueño fuera del alcance → 404; `DELETE` de adjunto de actividad abierta → 204 y deja de listarse; no existe ruta `/attachments/{aid}` | AC-04.64 |
+| PF-04.68 | F + | Detalle de visita `REALIZADA`: "Confirmar" visible para el dueño y oculto para el manager o el administrador que la consultan (según `allowedActions`); un `403 VISIT_CONFIRMATION_OWNER_ONLY` se muestra con su mensaje en español | AC-04.61, 62, 63 |
 
 ---
 
@@ -891,13 +910,14 @@ Tipos: **U** unitaria (backend, Jest, sin base), **I** integración (backend, `b
 | 1 | Migraciones 6 (`crm_commercial_activity`), 7 (`attachments`) y 8 (vista `crm_interactions_v`) de 00 §9, con sus `CHECK` | Fase 0 | Todo |
 | 2 | Semilla esencial: catálogos de 00 §3.2 (con `metadata.fields` de `crm.tipo_actividad`, D-04.8), parámetros de 00 §8.2, secuencias `crm.visita`/`crm.actividad`, permisos `visitas.*`/`actividades.*` | Fase 0 | Todo |
 | 3 | `SequenceGenerator`, `CatalogReferenceValidator`, `VisibilityScopeResolver`, registro de semántica de catálogos | Fase 0 | Todo |
-| 4 | DM-12 resuelto (alcance `TEAM`, ADR-020) | Responsable | Visibilidad |
+| 4 | DM-12 — **resuelta el 2026-10-10** (miembros + responsable + subequipos; addendum ADR-020) | Responsable | Ya no bloquea; la visibilidad `TEAM` la implementa Fase 0 |
 | 5 | Clientes (02): clientes, contactos, búsqueda y ficha | Módulo 2 | Formularios, E.11 |
 | 6 | Proyectos (03): proyectos, oportunidades, ficha | Módulo 3 | Vínculos, E.11 |
-| 7 | Lista de países activos para el filtro (02 o Fase 0) y confirmación de D-04.10 | 02 / Fase 0 | Filtro de país |
-| 8 | Ubicación de componentes compartidos del frontend — D-04.11 | Transversal | Pantallas |
-| 9 | ADR de almacenamiento (DM-8) | Arquitectura | **Solo** adjuntos (paso 8 abajo) |
-| 10 | Decisión de calendario D-04.1 (y ADR si se elige librería) | Responsable | Agenda calendario |
+| 7 | Lista de países activos para el filtro (02 o Fase 0); D-04.10 aprobada | 02 / Fase 0 | Filtro de país |
+| 8 | Componentes compartidos del frontend en `frontend/src/components/data/` — D-04.11 aprobada (con D-02.11) | Transversal | Pantallas |
+| 9 | Almacenamiento de adjuntos — DM-8 resuelta, [ADR-021](../../adr/ADR-021-almacenamiento-de-adjuntos-en-sistema-de-archivos-montado.md): `FileStorage` + `LocalFileSystemStorage` y `AttachmentsService` (entregados con 02) | 02 | **Solo** adjuntos (paso 8 abajo) |
+| 10 | Calendario — D-04.1 aprobada: calendario propio sin librería, sin ADR | — | Nada |
+| 11 | Decorador `@RequireAnyPermission` (D-01.1, addendum ADR-008 aprobado) | Transversal (autorización) | Endpoints de H.1 con permiso "uno de varios" |
 
 ### K.2 Orden interno
 
@@ -908,7 +928,7 @@ Tipos: **U** unitaria (backend, Jest, sin base), **I** integración (backend, `b
 5. Modelos de lectura: agenda, interacciones, seguimiento (PF-04.37–44).
 6. Frontend: rutas + menú (opciones sembradas con el módulo, DM-32) + pantallas E.2–E.10 (PF-04.48–57).
 7. Puntos de entrada E.11 integrados en las fichas de 02 y 03 (coordinado con sus dueños).
-8. Adjuntos (tras DM-8): rutas F.4, `AttachmentsPanel` (PF-04.62).
+8. Adjuntos (DM-8 resuelta, ADR-021): rutas por dueño de F.4, `AttachmentsPanel` (PF-04.56, PF-04.62, PF-04.67).
 9. E2E (PF-04.58–61), OpenAPI, `docs/api/README.md`, CHANGELOG, matriz → `especificada`/`en desarrollo`/`completada` según corresponda.
 
 ### K.3 Dependencias futuras (quién depende de este módulo)
@@ -934,7 +954,7 @@ adaptadores en `backend/src/infrastructure/database/prisma/repositories/`,
 | `backend/src/modules/commercial-activity/interactions.controller.ts` | `/interactions` |
 | `backend/src/modules/commercial-activity/follow-ups.controller.ts` | `/follow-ups`, `/follow-ups/trace` |
 | `backend/src/modules/commercial-activity/form-options.controller.ts` (+ servicio) | `/visits/form-options`, `/activities/form-options`, `/commercial-activity/owner-options` (D-04.10) |
-| `backend/src/modules/commercial-activity/attachments.controller.ts` | F.4 (tras DM-8), delegando en el módulo común de adjuntos que propone 02 (`backend/src/modules/attachments`) |
+| `backend/src/modules/commercial-activity/attachments.controller.ts` | F.4 (rutas por dueño, DC-2), delegando en el módulo común de adjuntos que propone 02 (`backend/src/modules/attachments`) |
 | `backend/src/modules/commercial-activity/visits.service.ts` (+ `.spec.ts`) | Casos de uso de visitas |
 | `backend/src/modules/commercial-activity/activities.service.ts` (+ `.spec.ts`) | Casos de uso de actividades y bandeja |
 | `backend/src/modules/commercial-activity/agenda.service.ts` (+ `.spec.ts`) | Agenda |
@@ -949,7 +969,7 @@ adaptadores en `backend/src/infrastructure/database/prisma/repositories/`,
 | `backend/src/modules/commercial-activity/dto/agenda.dto.ts` | Agenda |
 | `backend/src/modules/commercial-activity/dto/interaction.dto.ts` | Historial y seguimiento |
 | `backend/src/modules/commercial-activity/dto/participant.dto.ts` | Participantes |
-| `backend/src/modules/commercial-activity/dto/attachment.dto.ts` | Adjuntos (tras DM-8) |
+| `backend/src/modules/commercial-activity/dto/attachment.dto.ts` | Adjuntos |
 | `backend/src/modules/commercial-activity/ports/visit.repository.port.ts` | `VisitRepository` |
 | `backend/src/modules/commercial-activity/ports/activity.repository.port.ts` | `ActivityRepository` |
 | `backend/src/modules/commercial-activity/ports/interaction-read-model.port.ts` | `InteractionReadModel` |
@@ -959,11 +979,11 @@ adaptadores en `backend/src/infrastructure/database/prisma/repositories/`,
 | `backend/src/infrastructure/database/prisma/repositories/prisma-activity.repository.ts` | Adaptador (+ uso) |
 | `backend/src/infrastructure/database/prisma/repositories/prisma-interaction-read-model.ts` | `$queryRaw` sobre la vista |
 | `backend/src/infrastructure/database/prisma/repositories/prisma-agenda-read-model.ts` | Agenda |
-| `backend/test/commercial-activity-visits.e2e.spec.ts` | PF-04.8–25 |
+| `backend/test/commercial-activity-visits.e2e.spec.ts` | PF-04.8–25, PF-04.63–66 |
 | `backend/test/commercial-activity-activities.e2e.spec.ts` | PF-04.26–36 |
 | `backend/test/commercial-activity-read-models.e2e.spec.ts` | PF-04.37–42 |
 | `backend/test/commercial-activity-security.e2e.spec.ts` | PF-04.43–47 |
-| `backend/test/commercial-activity-attachments.e2e.spec.ts` | PF-04.62 (tras DM-8) |
+| `backend/test/commercial-activity-attachments.e2e.spec.ts` | PF-04.62, PF-04.67 |
 
 ### L.2 Backend — modificado
 
@@ -993,7 +1013,7 @@ Se sigue la convención que propone 02 (D-02.11): el CRM vive en
 | `common/CustomerProjectFields.tsx` | Cliente → proyecto → oportunidad encadenados |
 | `common/ParticipantsField.tsx` | Contactos, usuarios, externos |
 | `common/InteractionTimeline.tsx` (+ `.spec.tsx`) | E.5 reutilizable |
-| `common/AttachmentsPanel.tsx` (+ `.spec.tsx`) | E.12: envoltorio de `features/crm/common/AttachmentsSection.tsx` (propuesto por 02) para visita, evento y actividad; oculto sin DM-8 |
+| `common/AttachmentsPanel.tsx` (+ `.spec.tsx`) | E.12: envoltorio de `features/crm/common/AttachmentsSection.tsx` (propuesto por 02) para visita, evento y actividad |
 | `common/date-time.ts` (+ `.spec.ts`) | Formato con `Intl` en la zona del usuario; "hoy" en zona de negocio |
 | `agenda/AgendaPage.tsx` (+ `.spec.tsx`), `agenda/agenda.api.ts`, `agenda/agenda.queries.ts` | E.2 |
 | `agenda/components/CalendarMonthView.tsx`, `CalendarWeekView.tsx`, `CalendarDayView.tsx`, `AgendaList.tsx`, `AgendaFilters.tsx`, `AgendaEventDrawer.tsx` | Calendario propio (D-04.1) |
@@ -1022,56 +1042,61 @@ Se sigue la convención que propone 02 (D-02.11): el CRM vive en
 ### L.5 Documentación
 
 `docs/api/README.md` (endpoints del módulo), OpenAPI generado por decoradores,
-`CHANGELOG.md`, `matriz-trazabilidad.md` (estado de F-21…F-33), y, si se aprueba
-una librería de calendario, su ADR en `docs/adr/`.
+`CHANGELOG.md`, `matriz-trazabilidad.md` (estado de F-21…F-33). Sin ADR de calendario
+(D-04.1 aprobada: calendario propio sin librería).
 
 ---
 
-## Decisiones pendientes del módulo
+## Decisiones del módulo (resueltas el 2026-10-10)
 
-### Reutilizadas de `00` (no se redefinen)
+Todas las decisiones de esta sección quedaron **resueltas por el responsable de negocio el 2026-10-10**. Se conservan los identificadores.
+
+### Reutilizadas de `00` y transversales (no se redefinen)
 
 | DM | Efecto en este módulo |
 |---|---|
-| DM-7 | Umbral de "próxima a vencer" (48 h) |
-| DM-8 | **Bloquea adjuntos** (F-21 columna, F-25…F-33 adjuntos). Resto del módulo no bloqueado |
-| DM-12 | **Bloqueante**: alcance `TEAM` |
-| DM-13 | Herencia de visibilidad por proyecto visible |
-| DM-14 | Un país por usuario (`COUNTRY`) |
-| DM-16 | Qué mutaciones actualizan `last_activity_at` (aquí: todas las de visitas/actividades vinculadas) |
-| DM-20 | Cinco estados de visita; quién confirma; confirmar exige realización previa |
-| DM-21 | Resultado de catálogo + texto |
-| DM-22 | Qué entra en el historial de interacciones |
-| DM-27 | Recordatorio sin notificación |
-| DM-29 | Enmascarado de PII en auditoría |
-| DM-32 | Opciones de menú sembradas con este módulo |
-| DM-33 | Eliminación lógica de actividades y bloqueo de eliminación de clientes/proyectos con historia |
-| DM-34 | `editar` = propio, `administrar` = ajeno en alcance |
+| DM-7 | **Resuelta (2026-10-10).** Umbral de "próxima a vencer" (48 h) |
+| DM-8 | **Resuelta (2026-10-10), respuesta del responsable** ([ADR-021](../../adr/ADR-021-almacenamiento-de-adjuntos-en-sistema-de-archivos-montado.md)): carpeta mapeada al almacenamiento del servidor, 10 MB, PDF/imágenes/Word/Excel, descarga solo por la API. Adjuntos **desbloqueados** (F.4, E.12) |
+| DM-12 | **Resuelta (2026-10-10).** Alcance `TEAM` = miembros + responsable + subequipos; ya no bloquea |
+| DM-13 | **Resuelta (2026-10-10).** Herencia de visibilidad por proyecto visible |
+| DM-14 | **Resuelta (2026-10-10).** Un país por usuario (`COUNTRY`) |
+| DM-16 | **Resuelta (2026-10-10).** Qué mutaciones actualizan `last_activity_at` (aquí: todas las de visitas/actividades vinculadas) |
+| DM-20 | **Resuelta (2026-10-10), respuesta del responsable:** cinco estados de visita; **confirma el mismo asesor dueño de la visita**, no el manager (`visitas.cerrar` para asesor, manager y responsable de país sobre sus propias visitas; `visitas.administrar` y el administrador no confirman visitas ajenas → `403 VISIT_CONFIRMATION_OWNER_ONLY`); confirmar exige realización previa (`ck_visits_confirm_requires`) y ser el dueño (`ck_visits_confirmed_by_owner`) |
+| D-01.1 | **Resuelta (2026-10-10).** `@RequireAnyPermission` aprobado (addendum ADR-008); lo usan los endpoints de H.1 |
+| DC-2 | **Resuelta (2026-10-10).** Rutas de adjuntos **por dueño** para listar, subir, descargar (`…/content`) y borrar (F.4); se eliminan las rutas genéricas `/attachments/{aid}/download` y `DELETE /attachments/{aid}` |
+| DC-4 | **Resuelta (2026-10-10).** Tamaño excedido `413 ATTACHMENT_TOO_LARGE`; tipo no admitido `422 ATTACHMENT_TYPE_NOT_ALLOWED` |
+| DM-21 | **Resuelta (2026-10-10).** Resultado de catálogo + texto |
+| DM-22 | **Resuelta (2026-10-10).** Qué entra en el historial de interacciones |
+| DM-27 | **Resuelta (2026-10-10).** Recordatorio sin notificación |
+| DM-29 | **Resuelta (2026-10-10).** Enmascarado de PII en auditoría |
+| DM-32 | **Resuelta (2026-10-10).** Opciones de menú sembradas con este módulo |
+| DM-33 | **Resuelta (2026-10-10).** Eliminación lógica de actividades y bloqueo de eliminación de clientes/proyectos con historia |
+| DM-34 | **Resuelta (2026-10-10).** `editar` = propio, `administrar` = ajeno en alcance |
 
-### Nuevas
+### Propias del módulo
 
-Cada una con valor por defecto (se aplica si no se objeta) e impacto. Ninguna reduce el alcance.
+Todas **resueltas el 2026-10-10** con su valor recomendado aprobado (D-04.3 con la mejora `isRescheduled` adoptada). Ninguna reduce el alcance.
 
-| # | Pregunta | Por defecto | Impacto si cambia |
+| # | Pregunta | Valor final (resuelta 2026-10-10) | Impacto si cambia |
 |---|---|---|---|
-| **D-04.1** | Vista calendario: el frontend no tiene librería de calendario ni de fechas (`frontend/package.json`) | **Calendario propio** con MUI (Box/Grid, tokens del tema) + `Intl.DateTimeFormat` y `Date` nativos: vistas mes, semana y día; móvil con vista día. Entradas de fecha con `datetime-local` nativo. Sin dependencia nueva, sin ADR. Alternativas: FullCalendar o MUI X Scheduler/Date Pickers (requieren **ADR**, CLAUDE.md §8.6; más peso y estilos que chocan con los tokens) | Si se elige librería: ADR + sustituir los componentes `Calendar*View`; contratos y backend no cambian |
-| **D-04.2** | Regla de conflictos horarios | Solo visitas del mismo responsable, no canceladas, con solape de intervalo (fin efectivo = fin o duración por defecto); reuniones (actividades) no cuentan. Modo `AVISAR`; `BLOQUEAR` implementado pero no se activa hasta que el negocio confirme | Incluir actividades: ampliar `findOverlapping`. Activar bloqueo: cambiar el parámetro (sin despliegue) |
-| **D-04.3** | Cómo identificar el estado `REPROGRAMADA` (la semántica de 00 solo tiene `isPending`) | Por su `code` inmutable `REPROGRAMADA`; si está inactivo, la visita queda en el estado pendiente inicial. Propuesta a 00: añadir `isRescheduled` al esquema de `metadata` de `crm.estado_visita` | Si se adopta el indicador, cambio en el registro de semántica de 00 y en `visit-lifecycle`; sin cambio de esquema |
-| **D-04.4** | Obligatorios al registrar visita realizada | Solo fecha real; resto opcional. Si el negocio quiere más, se propone la clave `visitCompletion` en `crm.campos_obligatorios` (cambio en 00 §8.2) | Validación y formulario |
-| **D-04.5** | Fechas pasadas y futuras | Planificar en el pasado **permitido** (registro tardío) con aviso en la interfaz; reprogramar exige fecha no pasada; fecha real y fecha de finalización no futuras | Solo validaciones del caso de uso |
-| **D-04.6** | Edición tras cerrar y reapertura | Realización corregible hasta la confirmación; visitas confirmadas/canceladas y actividades completadas/canceladas de solo lectura; sin reabrir | Reabrir exigiría nuevo tipo de evento (`VisitEventType`, cambio en 00) y permiso `administrar` |
-| **D-04.7** | Motivo al cancelar una actividad y eliminación de completadas | Comentario opcional guardado en auditoría (no hay columna en 00); eliminar solo abiertas o canceladas | Motivo obligatorio y consultable → columnas `cancellation_reason*` en `activities` (cambio en 00) |
-| **D-04.8** | `metadata.fields` de `crm.tipo_actividad` | `LLAMADA`: `scheduledAt, durationMinutes, participants, summary, resultId, resultNotes, nextAction, nextActionDate`; `REUNION`: ídem; `CORREO`: `scheduledAt, participants, summary, resultId, resultNotes, nextAction, nextActionDate`; `TAREA`: `scheduledAt, resultId, resultNotes`. `isInteraction`: `true` salvo `TAREA` | Solo datos de la semilla; editable desde el mantenimiento de catálogos |
-| **D-04.9** | Fórmula de "próxima acción" en seguimiento | La de 00 §2.12 (próxima `next_action_date ≥ hoy`), con respaldo a la `next_action` sin fecha de la última interacción. Alternativa: considerar también visitas pendientes y actividades abiertas futuras como próxima acción | Solo la consulta del `InteractionReadModel` (y la de Inicio, que debe coincidir) |
-| **D-04.10** | Endpoints de referencia transversales (catálogos por clave para usuarios del CRM, usuarios asignables en el alcance, países) y servicio genérico de adjuntos | `GET /catalogs` actual exige `catalogos.ver` (administración) y no sirve para formularios. 02 resuelve los suyos dentro de su recurso (`/customers/form-options`, `/customers/sales-owner-options`) y propone un módulo `attachments` común. Por coherencia, este módulo expone **`GET /visits/form-options`** y **`GET /activities/form-options`** (permiso `visitas.ver` / `actividades.ver`: catálogos de D.4 activos, valores por defecto y modo de conflicto) y **`GET /commercial-activity/owner-options`** (usuarios activos dentro del alcance del actor, para responsable y filtro de asesor), y reutiliza el módulo de adjuntos de 02. Si Fase 0 publica lookups transversales, estos endpoints se sustituyen por ellos | Contrato de esos tres endpoints; sin cambio de datos |
-| **D-04.11** | Componentes de lista compartidos del frontend viven en `features/admin/common` y su README prohíbe importarlos entre áreas | Se adopta lo que propone 02 (D-02.11): moverlos a `frontend/src/components/data/` con reexportación desde `features/admin/common`, y el CRM en `frontend/src/features/crm/<submódulo>/`. Se resuelve una sola vez, con 02 | Si no se mueve, cada módulo duplica componentes (deuda) |
-| **D-04.12** | Calendario sin paginar | `GET /agenda/calendar` acotado a 42 días y 500 eventos con `truncated`; desviación documentada igual que las listas sin paginar de PLAN-ADMIN §10 | Otro tope: constante; paginación del calendario complicaría la UI |
-| **D-04.13** | Rutas con parámetro (`/actividad/visitas/:visitId`) en `app-routes.registry.json` | Se registran tal cual (el `route-registry.spec.ts` compara todas las rutas navegables) y el backend impide que una opción `LINK` apunte a una ruta con parámetro | Si el registro no debe contenerlas, ajustar `collectNavigablePaths`; afecta igual a 02 y 03 |
-| **D-04.14** | Registrar una gestión ya realizada en un paso | Sí, bloque `completion` en el alta con `actividades.cerrar` | Sin él, crear + completar en dos llamadas |
-| **D-04.15** | ¿La "próxima acción" crea automáticamente una tarea? | No; se guarda como texto y fecha y alimenta el seguimiento | Crear tarea automática: regla nueva en el caso de uso |
-| **D-04.16** | Visitas pendientes cuya hora ya pasó | Etiqueta derivada "Sin registrar"; no es "vencida" ni alerta | Si el negocio la quiere como alerta, la define Inicio con parámetro nuevo |
-| **D-04.17** | Zona horaria de presentación | Instantes en la zona del perfil del usuario (`users.time_zone`, DM-2); fechas sin hora y "hoy" en `crm.zona_horaria_negocio` | Mostrar todo en zona de negocio: solo frontend |
-| **D-04.18** | Adjuntar a un evento ya ocurrido | Solo quien ejecutó el evento, en los 15 minutos siguientes (permite el flujo "operación → subir archivos"); después, el evento es inmutable | Ventana distinta o subida en la misma petición (multipart en la operación) |
+| **D-04.1** | Vista calendario: el frontend no tiene librería de calendario ni de fechas (`frontend/package.json`) | **Resuelta (2026-10-10): valor recomendado aprobado.** **Calendario propio** con MUI (Box/Grid, tokens del tema) + `Intl.DateTimeFormat` y `Date` nativos: vistas mes, semana y día; móvil con vista día. Entradas de fecha con `datetime-local` nativo. Sin dependencia nueva, sin ADR (descartadas FullCalendar y MUI X Scheduler/Date Pickers) | Si se elige librería: ADR + sustituir los componentes `Calendar*View`; contratos y backend no cambian |
+| **D-04.2** | Regla de conflictos horarios | **Resuelta (2026-10-10): valor recomendado aprobado.** Solo visitas del mismo responsable, no canceladas, con solape de intervalo (fin efectivo = fin o duración por defecto); reuniones (actividades) no cuentan. Modo `AVISAR`; `BLOQUEAR` implementado pero no activado (activarlo es solo un cambio de parámetro) | Incluir actividades: ampliar `findOverlapping`. Activar bloqueo: cambiar el parámetro (sin despliegue) |
+| **D-04.3** | Cómo identificar el estado `REPROGRAMADA` (la semántica de 00 solo tiene `isPending`) | **Resuelta (2026-10-10):** se adopta el indicador `isRescheduled` en el `metadata` de `crm.estado_visita` (00 §8.2); `visit-lifecycle` identifica `REPROGRAMADA` por él, no por código. Si el elemento está inactivo, la visita queda en el estado pendiente inicial | Volver a identificarlo por `code`: solo el registro de semántica y `visit-lifecycle`; sin cambio de esquema |
+| **D-04.4** | Obligatorios al registrar visita realizada | **Resuelta (2026-10-10): valor recomendado aprobado.** Solo fecha real; resto opcional. La clave `visitCompletion` de `crm.campos_obligatorios` existe pero no se siembra (00 §8.2) | Validación y formulario |
+| **D-04.5** | Fechas pasadas y futuras | **Resuelta (2026-10-10): valor recomendado aprobado.** Planificar en el pasado **permitido** (registro tardío) con aviso en la interfaz; reprogramar exige fecha no pasada; fecha real y fecha de finalización no futuras | Solo validaciones del caso de uso |
+| **D-04.6** | Edición tras cerrar y reapertura | **Resuelta (2026-10-10): valor recomendado aprobado.** Realización corregible hasta la confirmación; visitas confirmadas/canceladas y actividades completadas/canceladas de solo lectura; sin reabrir | Reabrir exigiría nuevo tipo de evento (`VisitEventType`, cambio en 00) y permiso `administrar` |
+| **D-04.7** | Motivo al cancelar una actividad y eliminación de completadas | **Resuelta (2026-10-10): valor recomendado aprobado.** Comentario opcional guardado en auditoría (no hay columna en 00); eliminar solo abiertas o canceladas | Motivo obligatorio y consultable → columnas `cancellation_reason*` en `activities` (cambio en 00) |
+| **D-04.8** | `metadata.fields` de `crm.tipo_actividad` | **Resuelta (2026-10-10): valor recomendado aprobado.** `LLAMADA`: `scheduledAt, durationMinutes, participants, summary, resultId, resultNotes, nextAction, nextActionDate`; `REUNION`: ídem; `CORREO`: `scheduledAt, participants, summary, resultId, resultNotes, nextAction, nextActionDate`; `TAREA`: `scheduledAt, resultId, resultNotes`. `isInteraction`: `true` salvo `TAREA` | Solo datos de la semilla; editable desde el mantenimiento de catálogos |
+| **D-04.9** | Fórmula de "próxima acción" en seguimiento | **Resuelta (2026-10-10): valor recomendado aprobado.** La de 00 §2.12 (próxima `next_action_date ≥ hoy`), con respaldo a la `next_action` sin fecha de la última interacción. Alternativa: considerar también visitas pendientes y actividades abiertas futuras como próxima acción | Solo la consulta del `InteractionReadModel` (y la de Inicio, que debe coincidir) |
+| **D-04.10** | Endpoints de referencia transversales (catálogos por clave para usuarios del CRM, usuarios asignables en el alcance, países) y servicio genérico de adjuntos | **Resuelta (2026-10-10): valor recomendado aprobado.** `GET /catalogs` actual exige `catalogos.ver` (administración) y no sirve para formularios. 02 resuelve los suyos dentro de su recurso (`/customers/form-options`, `/customers/sales-owner-options`) y propone un módulo `attachments` común. Por coherencia, este módulo expone **`GET /visits/form-options`** y **`GET /activities/form-options`** (permiso `visitas.ver` / `actividades.ver`: catálogos de D.4 activos, valores por defecto y modo de conflicto) y **`GET /commercial-activity/owner-options`** (usuarios activos dentro del alcance del actor, para responsable y filtro de asesor), y reutiliza el módulo de adjuntos de 02. Si Fase 0 publica lookups transversales, estos endpoints se sustituyen por ellos | Contrato de esos tres endpoints; sin cambio de datos |
+| **D-04.11** | Componentes de lista compartidos del frontend viven en `features/admin/common` y su README prohíbe importarlos entre áreas | **Resuelta (2026-10-10): valor recomendado aprobado.** Se adopta lo que propone 02 (D-02.11): moverlos a `frontend/src/components/data/` con reexportación desde `features/admin/common`, y el CRM en `frontend/src/features/crm/<submódulo>/`. Se resuelve una sola vez, con 02 | Si no se mueve, cada módulo duplica componentes (deuda) |
+| **D-04.12** | Calendario sin paginar | **Resuelta (2026-10-10): valor recomendado aprobado.** `GET /agenda/calendar` acotado a 42 días y 500 eventos con `truncated`; desviación documentada igual que las listas sin paginar de PLAN-ADMIN §10 | Otro tope: constante; paginación del calendario complicaría la UI |
+| **D-04.13** | Rutas con parámetro (`/actividad/visitas/:visitId`) en `app-routes.registry.json` | **Resuelta (2026-10-10): valor recomendado aprobado.** Se registran tal cual (el `route-registry.spec.ts` compara todas las rutas navegables) y el backend impide que una opción `LINK` apunte a una ruta con parámetro | Si el registro no debe contenerlas, ajustar `collectNavigablePaths`; afecta igual a 02 y 03 |
+| **D-04.14** | Registrar una gestión ya realizada en un paso | **Resuelta (2026-10-10): valor recomendado aprobado.** Sí, bloque `completion` en el alta con `actividades.cerrar` | Sin él, crear + completar en dos llamadas |
+| **D-04.15** | ¿La "próxima acción" crea automáticamente una tarea? | **Resuelta (2026-10-10): valor recomendado aprobado.** No; se guarda como texto y fecha y alimenta el seguimiento | Crear tarea automática: regla nueva en el caso de uso |
+| **D-04.16** | Visitas pendientes cuya hora ya pasó | **Resuelta (2026-10-10): valor recomendado aprobado.** Etiqueta derivada "Sin registrar"; no es "vencida" ni alerta | Si el negocio la quiere como alerta, la define Inicio con parámetro nuevo |
+| **D-04.17** | Zona horaria de presentación | **Resuelta (2026-10-10): valor recomendado aprobado.** Instantes en la zona del perfil del usuario (`users.time_zone`, DM-2); fechas sin hora y "hoy" en `crm.zona_horaria_negocio` | Mostrar todo en zona de negocio: solo frontend |
+| **D-04.18** | Adjuntar a un evento ya ocurrido | **Resuelta (2026-10-10): valor recomendado aprobado.** Solo quien ejecutó el evento, en los 15 minutos siguientes (permite el flujo "operación → subir archivos"); después, el evento es inmutable. Desbloqueada por DM-8 (ADR-021) | Ventana distinta o subida en la misma petición (multipart en la operación) |
 
 ---
 
@@ -1079,18 +1104,18 @@ Cada una con valor por defecto (se aplica si no se objeta) e impacto. Ninguna re
 
 | F-xx | Entidades | Dependencias | AC | PF |
 |---|---|---|---|---|
-| F-21 | `Visit`, `Activity`, `Attachment`, `Customer`, `Project`, `User`, `Country`, `CatalogItem` | Fase 0, 02, 03, DM-8, DM-12, D-04.1, D-04.12 | AC-04.1–AC-04.6, AC-04.58–59 | PF-04.6, PF-04.37–39, PF-04.48–49, PF-04.59 |
+| F-21 | `Visit`, `Activity`, `Attachment`, `Customer`, `Project`, `User`, `Country`, `CatalogItem` | Fase 0, 02, 03, DM-8 (ADR-021), DM-12, D-01.1, D-04.1, D-04.12 (todas resueltas) | AC-04.1–AC-04.6, AC-04.58–59, AC-04.64 | PF-04.6, PF-04.37–39, PF-04.48–49, PF-04.59 |
 | F-22 | `Activity`, `CatalogItem` (`crm.estado_actividad`, `crm.prioridad`), `SystemParameter` | Fase 0, 02, DM-7 | AC-04.7–AC-04.10 | PF-04.1–2, PF-04.35–36, PF-04.50, PF-04.61 |
 | F-23 | Vista `crm_interactions_v`, `Visit`, `Activity`, `Attachment` | Fase 0 (migración 8), 02, 03, DM-22, D-04.9 | AC-04.11–AC-04.14 | PF-04.7, PF-04.41–42, PF-04.55, PF-04.58 |
 | F-24 | Vista `crm_interactions_v`, `Visit`, `Activity` | Fase 0 (migración 8), DM-22 | AC-04.15–AC-04.18 | PF-04.40, PF-04.55, PF-04.59 |
-| F-25 | `Visit`, `VisitEvent`, `InteractionParticipant`, `Attachment`, `Contact` | Fase 0, 02, 03, DM-20 | AC-04.19–AC-04.23 | PF-04.10, PF-04.14, PF-04.23, PF-04.25, PF-04.52 |
-| F-26 | `Visit`, `VisitEvent`, `InteractionParticipant`, `Attachment`, `Sequence`, `SystemParameter` | Fase 0, 02, 03, DM-8, DM-27, D-04.2, D-04.5 | AC-04.24–AC-04.28 | PF-04.4, PF-04.8–13, PF-04.51, PF-04.56, PF-04.59 |
+| F-25 | `Visit`, `VisitEvent`, `InteractionParticipant`, `Attachment`, `StoredFile`, `Contact` | Fase 0, 02, 03, DM-8 (ADR-021), DM-20, DC-2, DC-4 (resueltas) | AC-04.19–AC-04.23, AC-04.64 | PF-04.10, PF-04.14, PF-04.23, PF-04.25, PF-04.52, PF-04.62, PF-04.67 |
+| F-26 | `Visit`, `VisitEvent`, `InteractionParticipant`, `Attachment`, `StoredFile`, `Sequence`, `SystemParameter` | Fase 0, 02, 03, DM-8 (ADR-021), DM-27, D-04.2, D-04.5 (resueltas) | AC-04.24–AC-04.28 | PF-04.4, PF-04.8–13, PF-04.51, PF-04.56, PF-04.59, PF-04.62 |
 | F-27 | `Visit`, `VisitEvent`, `InteractionParticipant`, `Attachment`, `Project` (`last_activity_at`) | F-26, DM-21, D-04.4, D-04.6 | AC-04.29–AC-04.32 | PF-04.3, PF-04.15–17, PF-04.52, PF-04.59 |
-| F-28 | `Visit`, `VisitEvent`, `Attachment` | F-27, DM-20 | AC-04.33–AC-04.36 | PF-04.18–20, PF-04.52, PF-04.59–60 |
-| F-29 | `Visit`, `VisitEvent`, `Attachment`, `CatalogItem` (motivos) | F-26, D-04.3, D-04.5, D-04.18 | AC-04.37–AC-04.41 | PF-04.21–24, PF-04.52, PF-04.59, PF-04.62 |
+| F-28 | `Visit`, `VisitEvent`, `Attachment` | F-27, DM-20 (resuelta: confirma el dueño; `ck_visits_confirmed_by_owner`) | AC-04.33–AC-04.36, AC-04.61–AC-04.63 | PF-04.18–20, PF-04.52, PF-04.59–60, PF-04.63–66, PF-04.68 |
+| F-29 | `Visit`, `VisitEvent`, `Attachment`, `CatalogItem` (motivos) | F-26, DM-8 (ADR-021), D-04.3 (`isRescheduled`), D-04.5, D-04.18 (resueltas) | AC-04.37–AC-04.41 | PF-04.21–24, PF-04.52, PF-04.59, PF-04.62 |
 | F-30 | `Activity`, `InteractionParticipant`, `Attachment`, `Opportunity`, `CatalogItem` | Fase 0, 02, 03, DM-33, D-04.7 | AC-04.42–AC-04.45 | PF-04.27, PF-04.31, PF-04.34 |
 | F-31 | `Activity`, `Customer`, `Project`, `Opportunity`, `Sequence` | 02 y 03 (fichas), D-04.10, D-04.14 | AC-04.46–AC-04.49 | PF-04.26, PF-04.53–54, PF-04.58 |
 | F-32 | `Activity`, `InteractionParticipant`, `CatalogItem` (`crm.tipo_actividad.metadata.fields`) | F-30, D-04.8 | AC-04.50–AC-04.53 | PF-04.5, PF-04.28–30, PF-04.53, PF-04.58 |
 | F-33 | `Activity`, `Attachment`, `Project` (`last_activity_at`) | F-30, DM-21, D-04.6 | AC-04.54–AC-04.57 | PF-04.32–33, PF-04.50, PF-04.61 |
 
-Estado propuesto para las trece filas: `especificada` (adjuntos de F-21 y F-25…F-33 condicionados a DM-8, sin cambiar el estado de la fila).
+Estado propuesto para las trece filas: `especificada`. Sin condiciones pendientes: DM-8 quedó resuelta (ADR-021) y los adjuntos de F-21 y F-25…F-33 están desbloqueados; todas las decisiones del módulo se resolvieron el 2026-10-10.

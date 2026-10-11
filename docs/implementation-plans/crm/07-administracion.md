@@ -6,8 +6,11 @@
   [ADR-019](../../adr/ADR-019-autenticacion-local-con-migracion-a-entra.md), [ADR-020](../../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md),
   [ADR-008](../../adr/ADR-008-authorization.md), [`docs/api/README.md`](../../api/README.md), [`AUTHENTICATION.md`](../../../AUTHENTICATION.md),
   [`frontend/src/features/admin/README.md`](../../../frontend/src/features/admin/README.md)
-- **Funcionalidades:** F-43 Usuarios · F-44 Roles y permisos · F-45 Catálogos · F-46 Parámetros generales · F-47 Auditoría
-- **Estado:** especificación. No se ha tocado código, esquema, migraciones ni seeds.
+- **Decisiones aplicadas (2026-10-10):** [ADR-024](../../adr/ADR-024-moneda-base-usd-y-tipos-de-cambio.md) (moneda base USD y tipos de cambio, DM-36),
+  [ADR-025](../../adr/ADR-025-inmutabilidad-de-la-auditoria-con-disparadores.md) (disparadores de auditoría, D-07.11),
+  addendum de 2026-10-10 a [ADR-020](../../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md) (equipos y país = asignación de acceso, DM-12, D-07.2)
+- **Funcionalidades:** F-43 Usuarios · F-44 Roles y permisos · F-45 Catálogos · F-46 Parámetros generales (incluye el mantenimiento de tipos de cambio, extensión de alcance aprobada) · F-47 Auditoría
+- **Estado:** especificación; todas las decisiones del módulo resueltas el 2026-10-10. No se ha tocado código, esquema, migraciones ni seeds.
 - **Skills aplicados:** `architecture`, `access-management`, `authorization`, `authentication`, `security`, `database`, `api-design`, `frontend-react`, `design-system`, `testing`, `documentation`
 
 > **Naturaleza de este documento: especificación de brechas.** La administración del
@@ -25,7 +28,7 @@
 Dar a los administradores del CRM el mantenimiento de los datos que gobiernan a los
 otros seis módulos —usuarios comerciales con su código de colaborador, país, rol y
 equipo; roles con permisos por módulo y operación y su ámbito de visibilidad;
-catálogos `crm.*`; parámetros funcionales del CRM; y la consulta de auditoría a nivel
+catálogos `crm.*`; parámetros funcionales del CRM y tipos de cambio; y la consulta de auditoría a nivel
 de campo— **sobre las mismas tablas, endpoints y pantallas que ya existen**, sin
 crear un segundo sistema de accesos, de catálogos, de parámetros ni de autenticación.
 
@@ -54,16 +57,17 @@ módulo los emite; aquí se consultan) y los formularios comerciales que leen ca
 | Nombres, Apellidos | Sí: `firstName`, `lastName` (`access/dto/user.dto.ts` `CreateUserDto`/`UpdateUserDto`) | — |
 | Correo | Sí, único (`users.service.ts` `create` → `findUserByEmail`, `409`) | — |
 | Teléfono | Sí: `phone` (5–40) | — |
-| País | No | **Se añade** `users.country_id` → `countries` (00 §1.1). Selector de países activos. Cambiarlo es asignación de acceso (D-07.2) |
+| País | No | **Se añade** `users.country_id` → `countries` (00 §1.1). Selector de países activos: los seis de DM-2 (GT Guatemala, SV El Salvador, HN Honduras, CR Costa Rica, VE Venezuela, EC Ecuador). Fijarlo o cambiarlo es asignación de acceso, exclusivo del administrador (D-07.2, addendum ADR-020) |
 | Activo | Sí, como `status` (`INVITED`/`ACTIVE`/`SUSPENDED`/`LOCKED`) | **Se cambia solo la presentación**: "Activo" = `ACTIVE` o `INVITED`; "Inactivo" = `SUSPENDED`; `LOCKED` se muestra como "Bloqueado temporalmente". No se añade booleano |
 | Rol | Sí: `roleIds` en el alta; `PUT /users/{id}/roles` (admin, ADR-020) | — (varios roles por usuario; alcance efectivo = el más amplio, `access.service.ts` `widestScope`) |
-| Equipo | Sí: `teamIds` en el alta (exige `equipos.editar`); miembros desde Equipos (`PUT /teams/{id}/members`); el detalle del usuario los muestra **solo lectura** | **Se añade** la asignación desde la ficha del usuario (`PUT /users/{id}/teams`, D-07.4), con las mismas reglas del módulo de equipos |
-| Crear | Sí: `POST /users` | Acepta `employeeCode` y `countryId` |
+| Equipo | Sí: `teamIds` en el alta (exige `equipos.editar`); miembros desde Equipos (`PUT /teams/{id}/members`); el detalle del usuario los muestra **solo lectura** | **Se añade** la asignación desde la ficha del usuario (`PUT /users/{id}/teams`, D-07.4), con las mismas reglas del módulo de equipos. **Se cambia** quién puede: cambiar los equipos de un usuario (desde su ficha, desde Equipos o con `teamIds` en el alta) es asignación de acceso, exclusivo del administrador (`403 ADMIN_ONLY`, DM-12, D-07.2) |
+| Idioma y zona horaria (no pedido, existente) | Sí: `users.locale`, `users.time_zone` | **Se cambian los valores por defecto** de los usuarios nuevos a `es-GT` / `America/Guatemala` (00 §1.1, C12; migración 2). Los usuarios existentes no se tocan |
+| Crear | Sí: `POST /users` | Acepta `employeeCode` y `countryId` (este último, solo administrador) |
 | Consultar | Sí: `GET /users` (filtros `status`, `roleCode`, `teamId`, `search`) y `GET /users/{id}` | Filtro `countryId`; `search` también por código de colaborador; columnas Código y País |
 | Editar | Sí: `PATCH /users/{id}` | Acepta `employeeCode` (y `countryId` solo administrador) |
 | Activar / Desactivar | Sí: `POST /users/{id}/reactivate` y `/suspend` (D3, D4: suspender cierra sesiones) | — |
 | Asignar rol | Sí (ADR-020) | Valida el perfil comercial completo (D-07.3) |
-| Asignar equipo | Parcial (ver "Equipo") | D-07.4 |
+| Asignar equipo | Parcial (ver "Equipo") | D-07.4; exclusivo del administrador (DM-12, D-07.2) |
 | Asignar país | No | `countryId` en `PATCH`, exclusivo del administrador (D-07.2) |
 | Exportar (no pedido, existente) | Sí: `GET /users/export` (D13) | Columnas Código de colaborador y País |
 
@@ -76,7 +80,7 @@ persona comercial es el `User` existente (00 P1). No se crea otro endpoint de es
 | Elemento del alcance | Existe | Se añade / se cambia |
 |---|---|---|
 | Mantenimiento de roles | Sí: `GET/POST/PATCH/DELETE /roles`, `POST /roles/{id}/duplicate` (`roles.controller.ts`, D1, D2) | — |
-| Roles iniciales Asesor, Manager, Administrador | `administrador` (ORGANIZATION, `'*'`) existe; también `gestor-accesos`, `auditor`, `usuario` (`prisma/seed/access-catalog.ts`) | **Se siembran** `asesor` (OWN), `manager` (TEAM) y `responsable-pais` (COUNTRY) en la Fase 0 (00 §4.4, DM-11). Los existentes **no se tocan ni se borran**. Si son o no de sistema: D-07.1 |
+| Roles iniciales Asesor, Manager, Administrador | `administrador` (ORGANIZATION, `'*'`) existe; también `gestor-accesos`, `auditor`, `usuario` (`prisma/seed/access-catalog.ts`) | **Se siembran** `asesor` (OWN), `manager` (TEAM) y `responsable-pais` (COUNTRY) en la Fase 0 (00 §4.4, DM-11). Los existentes **no se tocan ni se borran**. Los tres comerciales son **roles de sistema** (`isSystem = true`, D-07.1 resuelta, DM-11): sus permisos son fijos (matriz 00 §5.4), la semilla los repone y, para variar un perfil, se **duplica** el rol |
 | Permisos crear, editar, consultar, eliminar, exportar | Sí: acciones `ver`, `crear`, `editar`, `eliminar`, `exportar` (`ACTIONS` en `access-catalog.ts`); "consultar" = `ver` | — |
 | Cerrar, Administrar | No | **Se añaden** las acciones `cerrar` y `administrar` a `ACTIONS`/`ACTION_LABELS` (00 §5.1, Fase 0). "Administrar" = operar sobre registros ajenos dentro del ámbito (DM-34), **no** el acceso al módulo de Administración, que sigue usando `usuarios.*`, `roles.*`, `catalogos.*`, `parametros.*`, `auditoria.*` |
 | Asignar permisos por módulo y operación | Sí: matriz módulo × acción en la ficha del rol (`roles/roles-format.ts` `buildPermissionMatrix`, agrupa por `Permission.moduleKey`); `PUT /roles/{id}/permissions` (admin, ADR-020; `409 SYSTEM_RESOURCE_READ_ONLY` en roles de sistema, D1) | Columnas `cerrar` y `administrar` en `ACTION_ORDER`/`ACTION_LABEL`; nombres de los módulos del CRM (00 §5.3) en la cabecera de cada grupo |
@@ -99,7 +103,7 @@ por semilla en la Fase 0 (00 §5.2).
 | Activar / Desactivar | Sí: `isActive` por `PATCH`; los elementos nunca se borran (D9) | Desactivar se rechaza si rompe un invariante o si un parámetro del CRM referencia el código (D-07.6) |
 | Ordenar valores | Sí: `sortOrder` por `PATCH` (dos `PATCH` sucesivos, no atómico, PLAN-ADMIN §10); hueco de 10 entre elementos | — Se conserva. `metadata.order` (flujo de fases/etapas) se edita en el formulario de semántica |
 | Consultar estado | Sí: `isActive` en la lista de elementos | Filtro "solo activos / todos" en el detalle si no existe |
-| Aplicar a los catálogos de Clientes, Proyectos, Oportunidades, Productos, Forecast, Visitas, Actividades | El mantenimiento es genérico: cualquier `Catalog` | Los 17 catálogos `crm.*` se siembran en la Fase 0 (00 §3.2) con `isSystem = true` y aparecen solos en la pantalla. Las listas que son **tablas** (países, unidades, familias, productos, reglas de conversión) no son `catalog_items`: su mantenimiento se trata en B.4 y D-07.9 |
+| Aplicar a los catálogos de Clientes, Proyectos, Oportunidades, Productos, Forecast, Visitas, Actividades | El mantenimiento es genérico: cualquier `Catalog` | Los 17 catálogos `crm.*` se siembran en la Fase 0 (00 §3.2) con `isSystem = true` y aparecen solos en la pantalla. Las listas que son **tablas** (países, monedas, tipos de cambio, unidades, familias, productos, reglas de conversión) no son `catalog_items`: su mantenimiento se trata en B.4, D-07.9 y D-07.13 (países y monedas, solo lectura) |
 | No permitir duplicados | Parcial: `code` único por catálogo (`uq_catalog_items_catalog_code`, `existsItemCode`) | **Se añade** unicidad de la etiqueta normalizada dentro del catálogo (D-07.5) |
 | No eliminar valores usados históricamente | Sí: no existe borrado de elementos; las FK del CRM a `catalog_items` son `Restrict` (00 §2) | — |
 | Identificadores estables | Sí: UUID + `code` inmutable (PLAN-ADMIN §10) | — |
@@ -119,20 +123,23 @@ para el grupo `seguridad`, D10). No se crean ni borran parámetros desde la inte
 
 | Elemento del alcance | Parámetros / estructura (00 §8.2) | Brecha |
 |---|---|---|
-| Reglas de duplicidad | `crm.clientes.unicidad_codigo`, `crm.clientes.unicidad_nit` (`PAIS`\|`GLOBAL`), `crm.clientes.reglas_duplicidad`, `crm.contactos.reglas_duplicidad` (JSON) | Validación de valores permitidos y del esquema JSON (D-07.7) |
+| Reglas de duplicidad | `crm.clientes.unicidad_codigo` (`PAIS`\|`GLOBAL`), `crm.clientes.reglas_duplicidad` (JSON; la clave `nit` solo admite `AVISAR`\|`NO`, porque el NIT no es único y nunca bloquea: DM-4), `crm.contactos.reglas_duplicidad` (JSON). **Ya no existe** `crm.clientes.unicidad_nit` (eliminado por DM-4) | Validación de valores permitidos y del esquema JSON (D-07.7) |
 | Campos obligatorios configurables | `crm.campos_obligatorios` (JSON por entidad) | Lista blanca de campos por entidad; solo **añade** obligatorios a los de la base (00 §8.2) |
-| Valores predeterminados | `crm.valores_por_defecto` (códigos de catálogo), `crm.moneda_por_defecto`, `crm.visitas.duracion_por_defecto_minutos`, `crm.zona_horaria_negocio` | Los códigos deben existir y estar activos en el catálogo correspondiente |
+| Valores predeterminados | `crm.valores_por_defecto` (códigos de catálogo), `crm.visitas.duracion_por_defecto_minutos`, `crm.zona_horaria_negocio` (`America/Guatemala`). La moneda por defecto del formulario de oportunidad es la del país del proyecto (DM-36), no un parámetro: `crm.moneda_por_defecto` **ya no existe** | Los códigos deben existir y estar activos en el catálogo correspondiente |
 | Alertas | `crm.alertas.oportunidad_sin_siguiente_accion`, `crm.alertas.prioridades` | Prioridades = códigos activos de `crm.prioridad` |
 | Vencimientos | `crm.alertas.actividad_por_vencer_horas`, `crm.alertas.visita_sin_confirmar_horas`, `crm.alertas.proyecto_sin_actualizar_dias` | Rangos (D-07.7) |
 | Reglas de avance | `crm.proyectos.reglas_avance`, `crm.oportunidades.transiciones_etapa` | Códigos de `crm.fase_cliente` / `crm.etapa_oportunidad`; porcentajes 0–100 |
 | Configuración funcional de login | **Ya existe**: `seguridad.intentos_fallidos_maximos` (1–20), `seguridad.minutos_bloqueo` (1–1440), `seguridad.dias_caducidad_password` (0–365), leídos por `AuthRepository.getSecuritySettings` (ADR-019) | Ninguna funcional. Se presentan juntos en un bloque "Acceso" |
 | Tipo de autenticación o ingreso permitido | Variable de despliegue `AUTH_PROVIDER` (`backend/src/config/env.schema.ts`, `local`\|`entra`\|`hybrid`) y `VITE_AUTH_PROVIDER` en el frontend (ADR-019) | **Solo lectura** en la pantalla (D-07.8, 00 §12 C6). No se crea parámetro editable |
-| Conversiones y estimaciones comerciales | Reglas de conversión en la **tabla** `unit_conversion_rules` (00 §2.3); parámetros `crm.forecast.unidad_tonelaje`, `crm.forecast.horizonte_meses`, `crm.moneda_por_defecto` | Pantalla de mantenimiento de reglas de conversión (y de unidades, familias y productos, DM-23) sobre las tablas de la Fase 0 (D-07.9) |
+| Conversiones y estimaciones comerciales | Reglas de conversión en la **tabla** `unit_conversion_rules` (00 §2.3); parámetros `crm.forecast.unidad_tonelaje`, `crm.forecast.horizonte_meses`, `crm.moneda_base` (`USD`, estructural y de **solo lectura**; sustituye a `crm.moneda_por_defecto`), `crm.tipos_cambio.dias_aviso_antiguedad` (`31`, rango 1–366) | Pantalla de mantenimiento de reglas de conversión (y de unidades, familias y productos, DM-23) sobre las tablas de la Fase 0 (D-07.9) |
+| Conversiones y estimaciones comerciales: **tipos de cambio** — *extensión de alcance aprobada por el responsable (2026-10-10), DM-36 / [ADR-024](../../adr/ADR-024-moneda-base-usd-y-tipos-de-cambio.md)* | Tablas `currencies` (USD, GTQ, HNL, CRC, VES, sembradas, **solo lectura**) y `exchange_rates` (tasa por 1 USD con fecha de vigencia y fuente, sembrada con los valores que entrega el negocio) (00 §2.16, §8.2) | **Se añade** dentro de F-46 (no es una funcionalidad nueva: siguen 47) la pantalla de mantenimiento de tipos de cambio: consultar, registrar una nueva fecha de vigencia y corregir tasa, fuente o notas; sin borrado ni desactivación. Corregir una tasa **no altera** la foto ya guardada en las oportunidades (00 §2.16). Permisos `parametros.ver` / `parametros.configurar` (E.5, F.7, RN-07.44) |
 | Otros del CRM (no listados, sembrados por 00) | `crm.visitas.validar_conflicto_horario`, `crm.importaciones.*`, `crm.adjuntos.*`, `sistema.permite_datos_demo` | Validación (D-07.7); los estructurales exigen `parametros.configurar` |
 
 **No se duplica:** no se crea una tabla de "configuración del CRM" ni un segundo
 mecanismo de parámetros; todo es `system_parameters` con `group = 'crm'`. No se crea
-un sistema de autenticación paralelo ni un selector de proveedor en base de datos.
+un sistema de autenticación paralelo ni un selector de proveedor en base de datos. Los
+tipos de cambio no se guardan como parámetros: viven en `exchange_rates` (00 §2.16) y
+se mantienen con los permisos de parámetros, por lo que el catálogo sigue en 41 permisos.
 
 ### B.5 Auditoría e historial de cambios (§9.5, F-47)
 
@@ -145,9 +152,9 @@ un sistema de autenticación paralelo ni un selector de proveedor en base de dat
 | Usuario | `subject_id`, `subject_email`; filtro "Actor" | — |
 | Fecha y hora | `occurred_at`; filtros Desde/Hasta | — |
 | Registrar clientes, contactos, proyectos, fases, oportunidades, resultados, productos asociados, forecast, visitas, actividades | No existen las entidades | Cada módulo emite sus eventos con `AuditService.record` y `resourceType` `crm.*` (00 §1.1). Este módulo fija la convención (RN-07.40) y la verifica en su consulta |
-| Registrar usuarios, roles, permisos, catálogos, parámetros | Sí: `user.*`, `role.*` (incl. `role.permissions_replaced`, `user.permissions_replaced`), `catalog.*`, `catalog_item.*`, `parameter.updated` | Los campos nuevos (`employeeCode`, `countryId`, equipos desde el usuario) entran en el antes/después |
+| Registrar usuarios, roles, permisos, catálogos, parámetros | Sí: `user.*`, `role.*` (incl. `role.permissions_replaced`, `user.permissions_replaced`), `catalog.*`, `catalog_item.*`, `parameter.updated` | Los campos nuevos (`employeeCode`, `countryId`, equipos desde el usuario) entran en el antes/después. Tipos de cambio: `crm.exchange_rate.created` / `crm.exchange_rate.updated` |
 | Consultar el historial mediante filtros | Sí: `GET /audit-logs` + exportación CSV (`auditoria.exportar`, D13) | Filtro `field` |
-| Restringir modificación y eliminación | **Solo en la aplicación**: no hay endpoint de escritura; el puerto `AuditRepository` solo tiene `record`; el de consulta es de lectura. **En la base no hay protección** y no existe tarea de purga | **Se añade** protección en la base (D-07.11) |
+| Restringir modificación y eliminación | **Solo en la aplicación**: no hay endpoint de escritura; el puerto `AuditRepository` solo tiene `record`; el de consulta es de lectura. **En la base no hay protección** y no existe tarea de purga | **Se añade** protección en la base con disparadores (D-07.11 resuelta, [ADR-025](../../adr/ADR-025-inmutabilidad-de-la-auditoria-con-disparadores.md)) |
 | Datos personales en la bitácora | `audit-diff.ts` omite campos cuyo nombre parece secreto (`pass|hash|token|secret|credential`); no enmascara PII | Enmascarado de PII de contactos (DM-29), necesario **antes** del Módulo 2 (K) |
 
 **No se duplica:** el historial funcional (`project_phase_history`,
@@ -166,13 +173,14 @@ un sistema de autenticación paralelo ni un selector de proveedor en base de dat
 | RN-07.2 | El correo sigue siendo único (`email_normalized`, existente). No cambia |
 | RN-07.3 | Obligatorios siempre: correo, nombres, apellidos, al menos un rol (existente). Obligatorios para un **usuario comercial** (D-07.3): código de colaborador y país |
 | RN-07.4 | El país debe existir y estar activo al asignarlo (`422 UNKNOWN_REFERENCE`, `issue: "inactive"` si está inactivo). Un usuario cuyo país se desactiva después lo conserva |
-| RN-07.5 | Cambiar el país de un usuario es **exclusivo del administrador** (`403 ADMIN_ONLY`), porque con alcance `COUNTRY` cambia lo que el usuario ve (D-07.2). Fijarlo en el alta también lo es, salvo que el actor sea administrador |
+| RN-07.5 | Cambiar el país de un usuario es **exclusivo del administrador** (`403 ADMIN_ONLY`), porque con alcance `COUNTRY` cambia lo que el usuario ve (D-07.2 resuelta, addendum de 2026-10-10 a ADR-020). Fijarlo en el alta también lo es: un no administrador que envía `countryId` recibe `403 ADMIN_ONLY` |
 | RN-07.6 | "Desactivar" = suspender (`SUSPENDED`); cierra todas sus sesiones al instante (D4). "Activar" = reactivar (`ACTIVE`, o `INVITED` si nunca fijó contraseña). No hay borrado de usuarios |
 | RN-07.7 | Salvaguardas D3 vigentes: nadie se suspende a sí mismo, nadie se quita su propio rol de administrador y siempre queda al menos un administrador activo (`409 SELF_LOCKOUT`, `409 LAST_ADMIN`) |
 | RN-07.8 | Referencias históricas: un usuario suspendido sigue apareciendo como responsable, autor o asesor en los registros donde figura (FK `Restrict`, 00 §2). Los selectores de responsable de registros **nuevos** ofrecen solo usuarios `ACTIVE`. Suspender no reasigna ni bloquea (D-07.14) |
 | RN-07.9 | Asignar roles, permisos u opciones directas, editar/suspender/reactivar a un administrador y restablecer contraseñas siguen siendo exclusivos del administrador (ADR-020). En el alta, un no administrador solo asigna roles sin permisos |
-| RN-07.10 | Equipos de un usuario: un único equipo principal; los equipos deben existir y no estar borrados; mismas reglas que `PUT /teams/{id}/members` (D8). Cambiar la pertenencia exige `equipos.editar` y, si se aprueba DM-12, ser administrador |
+| RN-07.10 | Equipos de un usuario: un único equipo principal; los equipos deben existir y no estar borrados; mismas reglas que `PUT /teams/{id}/members` (D8). Cambiar la pertenencia (con `PUT /users/{id}/teams` o con `teamIds` en el alta) exige `equipos.editar` **y** ser administrador (`403 ADMIN_ONLY`; DM-12 y D-07.2 resueltas, addendum ADR-020) |
 | RN-07.11 | Toda mutación queda en la bitácora con su diferencia: `employeeCode` y `countryId` (con el código ISO del país) se añaden al estado auditado del usuario (`userAuditView`) |
+| RN-07.45 | En el módulo de Equipos (existente, PLAN-ADMIN) son asignación de acceso y exclusivos del administrador (`403 ADMIN_ONLY`, además del permiso `equipos.*` de cada endpoint; DM-12, D-07.2, addendum ADR-020): reemplazar los miembros (`PUT /teams/{id}/members`), fijar o cambiar el responsable (`managerId`) o el equipo padre (`parentId`) en `POST /teams` o `PATCH /teams/{id}`, y eliminar un equipo que tiene miembros o subequipos (`DELETE /teams/{id}`; para el administrador sigue rigiendo `409 HAS_CHILDREN`). Crear un equipo sin responsable ni padre y editar su nombre o descripción conservan sus permisos actuales (`equipos.crear`, `equipos.editar`) sin la regla de administrador |
 
 ### Roles y permisos (F-44)
 
@@ -183,7 +191,7 @@ un sistema de autenticación paralelo ni un selector de proveedor en base de dat
 | RN-07.14 | `administrar` sobre un recurso comercial permite actuar sobre registros **ajenos dentro del ámbito**; `editar` solo sobre los propios (DM-34, 00 §4.3). No concede acceso a Administración |
 | RN-07.15 | El ámbito de visibilidad es uno por rol (`OWN`, `TEAM`, `COUNTRY`, `ORGANIZATION`); el efectivo de un usuario es el más amplio de sus roles vigentes (existente) |
 | RN-07.16 | Cambiar permisos, opciones, ámbito o activación de un rol, y crear o duplicar roles, es exclusivo del administrador (ADR-020) |
-| RN-07.17 | Roles de sistema: nombre, permisos y opciones de solo lectura en la interfaz; se personalizan con "Duplicar" (D1). Qué roles comerciales son de sistema: D-07.1 |
+| RN-07.17 | Roles de sistema: nombre, permisos y opciones de solo lectura en la interfaz; se personalizan con "Duplicar" (D1). `asesor`, `manager` y `responsable-pais` son roles de sistema (`isSystem = true`, D-07.1 resuelta, DM-11): su matriz es la de 00 §5.4, la semilla la repone y cualquier variante se hace sobre una copia |
 | RN-07.18 | Un rol con usuarios asignados no se elimina (`409 ROLE_IN_USE`, D2). Un rol desactivado deja de conceder acceso sin desasignarlo (ADR-018) |
 | RN-07.19 | La autorización la decide siempre el backend; ocultar acciones en el frontend es solo experiencia de usuario. Fuera del ámbito → `404`; dentro del ámbito sin permiso → `403` (00 §4.3) |
 
@@ -214,14 +222,16 @@ un sistema de autenticación paralelo ni un selector de proveedor en base de dat
 | RN-07.35 | Los módulos leen los parámetros en el servidor en cada operación (sin caché o con caché invalidada al editar); un valor ilegible en la base hace que el lector use el valor por defecto documentado y registre un aviso estructurado, nunca un `500` |
 | RN-07.36 | Reglas de conversión: única por (unidad origen, unidad destino, ámbito) (`409`); factor > 0; la unidad destino es la de tonelaje configurada; no se borran, se desactivan; la regla identidad `TON→TON` no se desactiva ni cambia de factor; cambiar un factor no reescribe líneas existentes (el factor se copia en cada línea, 00 §2.3) |
 | RN-07.37 | Unidades de medida: `code` inmutable; `dimension` inmutable una vez referenciada por un producto, una regla o una línea (`409`) |
+| RN-07.44 | Tipos de cambio (*extensión de alcance aprobada por el responsable, 2026-10-10, DM-36 / ADR-024*): una sola tasa por (moneda, fecha de vigencia) → `409 EXCHANGE_RATE_DUPLICATE`; la moneda debe existir, estar activa y no ser `USD` (la base no tiene tasa, `ck_exchange_rates_not_base`), y la tasa debe ser > 0 → si no, `422 INVALID_EXCHANGE_RATE`; `effectiveDate` y `currencyCode` son inmutables (solo se corrigen `ratePerUsd`, `source` y `notes`; para otra fecha se registra una fila nueva); las tasas no se borran ni se desactivan; corregir o añadir una tasa **no altera** la foto (`exchangeRate`, `exchangeRateDate`, `estimatedAmountUsd`) ya guardada en las oportunidades (00 §2.16). Las monedas (`currencies`) son de solo lectura (sembradas). Consultar exige `parametros.ver`; registrar y corregir, `parametros.configurar`. Cada alta y corrección queda auditada (`crm.exchange_rate.created` / `crm.exchange_rate.updated`) |
+| RN-07.46 | Reglas concretas del registro de parámetros (D-07.7) derivadas de las decisiones de 2026-10-10: `crm.moneda_base` (`USD`) es de **solo lectura** (`PATCH` → `409 SYSTEM_RESOURCE_READ_ONLY`), porque cambiarla invalidaría `estimated_amount_usd`; `crm.tipos_cambio.dias_aviso_antiguedad` es un entero 1–366 (defecto 31); en `crm.clientes.reglas_duplicidad` la clave `nit` solo admite `AVISAR` o `NO` (nunca `BLOQUEAR`, DM-4); `crm.clientes.unicidad_nit` y `crm.moneda_por_defecto` no existen (eliminado / sustituido) |
 
 ### Auditoría (F-47)
 
 | ID | Regla |
 |---|---|
-| RN-07.38 | La bitácora es de solo inserción: ningún endpoint la modifica ni la borra, y la base rechaza `UPDATE`, `TRUNCATE` y `DELETE` de filas dentro del periodo de retención (D-07.11) |
+| RN-07.38 | La bitácora es de solo inserción: ningún endpoint la modifica ni la borra, y la base rechaza con disparadores `UPDATE` y `TRUNCATE` siempre y `DELETE` de filas dentro del periodo de retención (D-07.11 resuelta, ADR-025) |
 | RN-07.39 | Consultar exige `auditoria.ver`; exportar, `auditoria.exportar`. Cada exportación queda auditada (existente) |
-| RN-07.40 | Convención para los módulos comerciales: `resourceType` = `crm.<entidad>` (`crm.customer`, `crm.contact`, `crm.project`, `crm.opportunity`, `crm.opportunity_result`, `crm.project_product`, `crm.forecast_line`, `crm.visit`, `crm.activity`, `crm.customer_import`, y los maestros `crm.product`, `crm.product_family`, `crm.unit_of_measure`, `crm.unit_conversion_rule`); `event` = `<resourceType>.<acción en pasado>` (p. ej. `crm.project.phase_changed`, `crm.opportunity.result_recorded`); `changes` con los nombres de campo del DTO. Si una especificación de módulo fija otro nombre, prevalece la suya y se actualiza el mapa de etiquetas |
+| RN-07.40 | Convención para los módulos comerciales: `resourceType` = `crm.<entidad>` (`crm.customer`, `crm.contact`, `crm.project`, `crm.opportunity`, `crm.opportunity_result`, `crm.project_product`, `crm.forecast_line`, `crm.visit`, `crm.activity`, `crm.customer_import`, y los maestros `crm.product`, `crm.product_family`, `crm.unit_of_measure`, `crm.unit_conversion_rule`, `crm.exchange_rate`); `event` = `<resourceType>.<acción en pasado>` (p. ej. `crm.project.phase_changed`, `crm.opportunity.result_recorded`); `changes` con los nombres de campo del DTO. Si una especificación de módulo fija otro nombre, prevalece la suya y se actualiza el mapa de etiquetas |
 | RN-07.41 | Datos personales de contactos (nombre, correo, teléfono) se registran enmascarados en `changes` (DM-29). Nunca contraseñas, hashes ni tokens (existente) |
 | RN-07.42 | La vista por campo es una presentación de `changes`; no se almacena nada adicional. Registros antiguos sin la forma `{before, after}` se muestran como JSON (existente) |
 | RN-07.43 | Retención: `auditoria.dias_retencion` (30–3650, defecto 365, existente). La purga física, cuando exista, solo puede borrar filas más antiguas que la retención |
@@ -235,24 +245,28 @@ se crea en la Fase 0.
 
 | Entidad (tabla) | Uso en el Módulo 7 | Origen |
 |---|---|---|
-| `User` (`users`) | `employee_code` (único, nulo), `country_id` (FK `Restrict`, nulo) | 00 §1.1, migración 2 |
-| `Country` (`countries`) | Selector del usuario; solo lectura aquí (D-07.13) | 00 §2.2 |
+| `User` (`users`) | `employee_code` (único, nulo), `country_id` (FK `Restrict`, nulo); defaults de `locale`/`time_zone` = `es-GT`/`America/Guatemala` para usuarios nuevos (C12) | 00 §1.1, migración 2 |
+| `Country` (`countries`) | Selector del usuario (GT, SV, HN, CR, VE, EC; DM-2); solo lectura, sin pantalla de mantenimiento (D-07.13 resuelta) | 00 §2.2 |
+| `Currency` (`currencies`) | Selector de moneda de la pantalla de tipos de cambio; **solo lectura** (USD, GTQ, HNL, CRC, VES, sembradas) | 00 §2.16, §8.2, migración 2 |
+| `ExchangeRate` (`exchange_rates`) | Mantenimiento de tipos de cambio dentro de F-46 (extensión de alcance aprobada, DM-36 / ADR-024): alta y corrección, sin borrado | 00 §2.16, migración 2 |
 | `Team`, `TeamMember` | Equipos del usuario (D-07.4) | Existentes |
 | `Role`, `Permission`, `RolePermission`, `UserRole`, `UserPermission`, `AppModule`, `MenuOption`, `RoleMenuOption`, `UserMenuOption` | Sin cambios de estructura; filas del CRM por semilla | Existentes + 00 §5 |
 | Enum `DataScope` | `TERRITORY` → `COUNTRY` | 00 §4.1, DM-10, migración 1 |
 | `Catalog`, `CatalogItem` | 17 catálogos `crm.*` de sistema; semántica en `metadata` | 00 §3.2 |
 | `SystemParameter` | Parámetros `crm.*` y `sistema.permite_datos_demo` | 00 §8.2 |
 | `UnitOfMeasure`, `ProductFamily`, `Product`, `UnitConversionRule` | Mantenimiento de maestros comerciales (D-07.9) | 00 §2.3 |
-| `AuditLog` (`audit_logs`) | Consulta; protección en base (D-07.11) | Existente |
+| `AuditLog` (`audit_logs`) | Consulta; protección en base con disparadores (D-07.11, ADR-025) | Existente |
 
 Restricciones de integridad que el módulo usa (todas de 00): `users.employee_code`
 único; `uq_catalog_items_catalog_code`; FK `Restrict` desde las entidades comerciales a
 `catalog_items`, `users`, `countries`, unidades y reglas; `uq_unit_conversion_rules_from_to_scope`
-y los `CHECK` de reglas (`factor > 0`, identidad, ámbito).
+y los `CHECK` de reglas (`factor > 0`, identidad, ámbito); `uq_exchange_rates_currency_effective_date`,
+`ck_exchange_rates_rate` (`rate_per_usd > 0`), `ck_exchange_rates_not_base` (`currency_code <> 'USD'`)
+y la FK `Restrict` de `exchange_rates` a `currencies`.
 
 Cambios de base **propios de este módulo** (no son tablas):
 
-1. Migración `…_audit_logs_append_only` (D-07.11): función y disparadores en SQL escrito a mano con `--create-only`, igual que los `CHECK` de 00 (Prisma no gestiona disparadores, así que no los detecta como deriva). Script inverso en `backend/prisma/rollbacks/`.
+1. Migración `…_audit_logs_append_only` (00 §9 paso 9; D-07.11 resuelta, [ADR-025](../../adr/ADR-025-inmutabilidad-de-la-auditoria-con-disparadores.md)): función y disparadores en SQL escrito a mano con `--create-only`, igual que los `CHECK` de 00 (Prisma no gestiona disparadores, así que no los detecta como deriva): `BEFORE UPDATE` y `BEFORE TRUNCATE` siempre rechazan; `BEFORE DELETE` rechaza las filas con `occurred_at` dentro de `auditoria.dias_retencion`. Script inverso en `backend/prisma/rollbacks/` (`DROP TRIGGER` ×3 y `DROP FUNCTION`). El `REVOKE UPDATE, DELETE` al rol de la aplicación se recomienda en el despliegue (H.3).
 2. Ningún índice nuevo obligatorio. El filtro por campo (`changes ? 'campo'`) se sirve con los índices existentes de `audit_logs` combinado con fecha/tipo; si el volumen lo exige, un índice GIN sobre `changes` sería una migración aditiva **en SQL** (no expresable en Prisma: mismo riesgo de deriva que PLAN-ADMIN §10), por lo que se deja como mejora medida, no como parte del alcance.
 
 ---
@@ -269,8 +283,9 @@ hex, duraciones ni píxeles a mano (ADR-017).
 | Componente | Cambio |
 |---|---|
 | `UsersPage.tsx` | Columnas **Código** (`hideOnMobile`) y **País**; filtro **País** (selector); el buscador indica "nombre, correo o código"; la columna Estado muestra Activo/Inactivo/Bloqueado/Invitado |
-| `UserFormDialog.tsx` (alta) | Campos **Código de colaborador** y **País** (selector de países activos, deshabilitado con explicación si el actor no es administrador, RN-07.5); equipos y equipo principal; los roles con permisos solo para administrador (existente) |
-| `UserDetailDialog.tsx` | Muestra código, país y equipos; edición de código; edición de país solo administrador; nuevo panel **Equipos** (`UserTeamsPanel`) con alta/baja de equipos y elección del principal, visible con `equipos.editar` |
+| `UserFormDialog.tsx` (alta) | Campos **Código de colaborador** y **País** (selector de los países activos de DM-2, deshabilitado con explicación si el actor no es administrador, RN-07.5); equipos y equipo principal (solo administrador, RN-07.10); los roles con permisos solo para administrador (existente). Idioma y zona horaria proponen `es-GT` / `America/Guatemala` |
+| `UserDetailDialog.tsx` | Muestra código, país y equipos; edición de código; edición de país solo administrador; nuevo panel **Equipos** (`UserTeamsPanel`) con alta/baja de equipos y elección del principal, editable solo por un administrador (con `equipos.editar`); para el resto, solo lectura |
+| `features/admin/teams/` (existente: `TeamsPage.tsx`, `TeamFormDialog.tsx`, `TeamMembersDialog.tsx`) | Las acciones de miembros, responsable, equipo padre y eliminar un equipo con miembros o subequipos se muestran solo a un administrador (RN-07.45); `teams.errors.ts` traduce `ADMIN_ONLY`. El backend decide |
 | `users.schemas.ts` | `employeeCode` (patrón RN-07.1), `countryId` (uuid); regla de perfil comercial como ayuda (el backend decide) |
 | Mensajes de error | `CRM_PROFILE_INCOMPLETE` → "Para asignar un rol comercial el usuario necesita código de colaborador y país."; conflicto de código → "Ya existe un usuario con ese código de colaborador." |
 
@@ -284,7 +299,7 @@ ruta no carga (guard de ruta existente).
 | `roles-format.ts` | `DATA_SCOPE_LABEL.COUNTRY = 'Su país'` (se retira `TERRITORY`); `ACTION_ORDER` y `ACTION_LABEL` con `cerrar` ("Cerrar") y `administrar` ("Administrar"); etiqueta de módulo por `moduleKey` (Clientes, Proyectos, Actividad comercial, Reportes, Integraciones, Inicio, Administración) |
 | `RoleDetailDialog.tsx` (matriz) | Matriz **módulo × operación** ya existente con las dos columnas nuevas; celdas sin permiso en el catálogo se muestran vacías (no "no concedido"); explicación de "Administrar" en un `Tooltip` |
 | `RoleFormDialog.tsx` | Selector de ámbito con `COUNTRY`; descripción breve de cada ámbito (propios / equipo y subequipos / país del usuario / toda la organización) |
-| Roles de sistema | Aviso existente "de solo lectura; usa Duplicar" se aplica a los roles comerciales si D-07.1 se queda en `isSystem` |
+| Roles de sistema | Aviso existente "de solo lectura; usa Duplicar" se aplica a los roles comerciales `asesor`, `manager` y `responsable-pais` (`isSystem = true`, D-07.1 resuelta) |
 
 ### E.3 Catálogos — `/administracion/catalogos` (existe: `features/admin/catalogs/`)
 
@@ -299,15 +314,16 @@ ruta no carga (guard de ruta existente).
 
 | Componente | Cambio |
 |---|---|
-| `ParametersPage.tsx` | Grupos con etiqueta: **Acceso** (`seguridad.*` + tarjeta de autenticación), **CRM — Duplicidad**, **Campos y valores por defecto**, **Alertas y vencimientos**, **Reglas de avance**, **Forecast y conversiones**, **Importaciones y adjuntos**. La agrupación visual se deriva del prefijo de la clave; no cambia `group` en base |
+| `ParametersPage.tsx` | Grupos con etiqueta: **Acceso** (`seguridad.*` + tarjeta de autenticación), **CRM — Duplicidad**, **Campos y valores por defecto**, **Alertas y vencimientos**, **Reglas de avance**, **Forecast, conversiones y moneda** (incluye `crm.moneda_base` en solo lectura y `crm.tipos_cambio.dias_aviso_antiguedad`, con enlace a la pantalla de tipos de cambio), **Importaciones y adjuntos**. La agrupación visual se deriva del prefijo de la clave; no cambia `group` en base |
 | `AuthenticationSettingsCard` (nuevo) | Solo lectura: proveedor vigente (Local / Microsoft Entra ID / Híbrido) desde `GET /parameters/authentication`, más los tres parámetros de login local editables (si el proveedor es `entra`, se indica que no aplican) |
-| `ParameterEditDialog.tsx` | Selector cuando el parámetro trae `allowedValues` (`PAIS`/`GLOBAL`, `NO`/`AVISAR`/`BLOQUEAR`); editores estructurados para los JSON con `editor` conocido: `required-fields` (casillas por entidad, las de base marcadas y bloqueadas), `catalog-defaults` (un selector por campo con los valores activos del catálogo), `stage-transitions` (matriz etapa × etapa), `priority-map`, `progress-rules`; resto: JSON con validación del servidor |
+| `ParameterEditDialog.tsx` | Selector cuando el parámetro trae `allowedValues` (`PAIS`/`GLOBAL`, `NO`/`AVISAR`/`BLOQUEAR`; para la clave `nit` de `crm.clientes.reglas_duplicidad`, solo `AVISAR`/`NO`); los parámetros de solo lectura (`crm.moneda_base`) no abren edición; editores estructurados para los JSON con `editor` conocido: `required-fields` (casillas por entidad, las de base marcadas y bloqueadas), `catalog-defaults` (un selector por campo con los valores activos del catálogo), `stage-transitions` (matriz etapa × etapa), `priority-map`, `progress-rules`; resto: JSON con validación del servidor |
 | Aviso de permiso | Parámetros con `requiresConfigure` deshabilitados con explicación si falta `parametros.configurar` |
 
-### E.5 Maestros comerciales (nuevas, D-07.9)
+### E.5 Maestros comerciales y tipos de cambio (nuevas, D-07.9, DM-36)
 
 | Ruta | Opción de menú (`administracion`) | Permiso | Contenido |
 |---|---|---|---|
+| `/administracion/tipos-cambio` | `admin-tipos-cambio` "Tipos de cambio" | `parametros.ver` (ruta) · `parametros.configurar` (acciones) | *Extensión de alcance aprobada por el responsable (2026-10-10), DM-36 / ADR-024; forma parte de F-46.* Lista paginada de tipos de cambio con filtros **Moneda** y rango **Desde/Hasta** de fecha de vigencia; columnas Moneda, Fecha de vigencia, Tasa (unidades por 1 USD), Fuente, Notas, Actualizado por y fecha. **Nuevo tipo de cambio** (moneda activa distinta de USD, fecha, tasa > 0, fuente, notas) y **Corregir** (solo tasa, fuente y notas; moneda y fecha se muestran bloqueadas). Sin borrado ni desactivación. Aviso fijo: "Corregir una tasa no recalcula las oportunidades ya guardadas". Pestaña **Monedas** de solo lectura (código, nombre, símbolo, decimales, activa) |
 | `/administracion/productos` | `admin-productos` "Productos y unidades" | `productos.ver` (ruta) · `productos.configurar` (acciones) | Pestañas **Familias**, **Productos** (SKU, descripción, familia, unidad base, activo), **Unidades** (código, nombre, símbolo, dimensión, activo). Alta, edición, activar/desactivar; sin borrado |
 | `/administracion/conversiones` | `admin-conversiones` "Conversiones" | `productos.ver` · `productos.configurar` | Reglas de conversión: origen, destino (fijo: unidad de tonelaje), factor, ámbito (Global / Familia / Producto / Tipo de proyecto) con su referencia, descripción, activo. Filtros por ámbito y unidad. Indicador de la regla identidad protegida |
 
@@ -338,7 +354,7 @@ Solo se listan los **cambios** y los **nuevos**; el resto de PLAN-ADMIN §3 sigu
 |---|---|---|---|
 | GET | `/users` | `usuarios.ver` | Query `countryId` (uuid); `search` incluye `employeeCode`. `UserListItemDto` gana `employeeCode: string \| null` y `country: { id, isoCode, name } \| null` |
 | GET | `/users/{id}` | `usuarios.ver` | `UserDetailResponseDto` gana `employeeCode`, `country` |
-| POST | `/users` | `usuarios.crear` | `CreateUserDto` gana `employeeCode?` (1–40, patrón) y `countryId?` (uuid). `countryId` por un no administrador → `403 ADMIN_ONLY` |
+| POST | `/users` | `usuarios.crear` | `CreateUserDto` gana `employeeCode?` (1–40, patrón) y `countryId?` (uuid). `countryId` o `teamIds` no vacío por un no administrador → `403 ADMIN_ONLY` (RN-07.5, RN-07.10). Usuarios nuevos con `locale`/`timeZone` por defecto `es-GT`/`America/Guatemala` |
 | PATCH | `/users/{id}` | `usuarios.editar` | `UpdateUserDto` gana `employeeCode?` y `countryId?` (este último, solo administrador). No se admite vaciar `employeeCode`/`countryId` de un usuario comercial (`422 CRM_PROFILE_INCOMPLETE`) |
 | PUT | `/users/{id}/roles` | `usuarios.editar` + admin | Si un rol resultante es comercial y faltan código o país → `422 CRM_PROFILE_INCOMPLETE` (D-07.3) |
 | GET | `/users/export` | `usuarios.exportar` | Columnas "Código de colaborador" y "País" |
@@ -349,11 +365,22 @@ Solo se listan los **cambios** y los **nuevos**; el resto de PLAN-ADMIN §3 sigu
 `PUT /users/{id}/teams` — servido por el módulo `teams` (no por `access`), que es el
 dueño de las reglas de pertenencia.
 
-- Permiso: `equipos.editar`; además `ADMIN_ONLY` si se aprueba DM-12.
+- Permiso: `equipos.editar` **y** ser administrador (`403 ADMIN_ONLY`; DM-12 y D-07.2 resueltas, addendum ADR-020).
 - Cuerpo: `{ "teams": [{ "teamId": "uuid", "isPrimary": true }] }` (≤ 50, únicos, como mucho un principal; lista vacía permitida).
 - Respuesta `200`: `{ "teams": [{ "id", "name", "isPrimary" }] }`.
 - Errores: `400` validación; `401`; `403 PERMISSION_DENIED` / `ADMIN_ONLY`; `404` usuario; `422 UNKNOWN_REFERENCE` (equipo inexistente o borrado); `409` si dos principales.
 - Auditoría: `team.members_replaced` por cada equipo afectado (mismo evento que `PUT /teams/{id}/members`) y `user.teams_replaced` sobre el usuario.
+
+**Equipos (cambios en endpoints existentes, RN-07.45).** Se añade la regla de administrador
+sin cambiar el contrato de datos; solo aparece `403 ADMIN_ONLY` en la documentación OpenAPI:
+
+| Método | Ruta | Permiso existente | Regla de administrador (`403 ADMIN_ONLY`) |
+|---|---|---|---|
+| POST | `/teams` | `equipos.crear` | Si el cuerpo trae `managerId` o `parentId` no nulos. Sin ellos, cualquier actor con `equipos.crear` |
+| PATCH | `/teams/{id}` | `equipos.editar` | Si cambia `managerId` o `parentId`. Cambiar `name` o `description` no la exige |
+| PUT | `/teams/{id}/members` | `equipos.editar` | Siempre |
+| DELETE | `/teams/{id}` | `equipos.eliminar` | Si el equipo tiene miembros o subequipos (para el administrador sigue `409 HAS_CHILDREN`, regla existente) |
+| POST | `/users` | `usuarios.crear` (+ `equipos.editar` si trae `teamIds`) | Si trae `teamIds` no vacío (igual que `countryId`, RN-07.5) |
 
 ### F.3 Roles (cambios)
 
@@ -372,8 +399,8 @@ dueño de las reglas de pertenencia.
 
 | Método | Ruta | Permiso | Cambio |
 |---|---|---|---|
-| GET | `/parameters` | `parametros.ver` | Cada parámetro gana `requiresConfigure: boolean`, `allowedValues: string[] \| null`, `editor: string \| null`, `range: {min,max} \| null` (del registro; metadatos de presentación, no datos nuevos) |
-| PATCH | `/parameters/{key}` | `parametros.editar` (+ `parametros.configurar` si `requiresConfigure`) | Validación por registro (D-07.7); `422 INVALID_PARAMETER_VALUE` con `issue` |
+| GET | `/parameters` | `parametros.ver` | Cada parámetro gana `requiresConfigure: boolean`, `allowedValues: string[] \| null`, `editor: string \| null`, `range: {min,max} \| null`, `readOnly: boolean` (del registro; metadatos de presentación, no datos nuevos) |
+| PATCH | `/parameters/{key}` | `parametros.editar` (+ `parametros.configurar` si `requiresConfigure`) | Validación por registro (D-07.7); `422 INVALID_PARAMETER_VALUE` con `issue`; `409 SYSTEM_RESOURCE_READ_ONLY` para `crm.moneda_base` (RN-07.46). `GET /parameters` lo marca con `readOnly: true` |
 | GET | `/parameters/authentication` | `parametros.ver` | **Nuevo**, solo lectura: `{ "provider": "local"\|"entra"\|"hybrid", "localLoginEnabled": boolean, "securityParameterKeys": ["seguridad.intentos_fallidos_maximos", …] }`. Nunca expone secretos, ids de tenant ni configuración de JWT |
 
 ### F.6 Auditoría (cambios)
@@ -401,11 +428,31 @@ DTOs: nunca el modelo Prisma (CLAUDE.md §8.9). `factor` viaja como cadena decim
 **lectura** de productos para sus formularios, este módulo añade solo la escritura y
 reutiliza su puerto.
 
+**Tipos de cambio y monedas** (dentro de F-46; *extensión de alcance aprobada por el
+responsable, 2026-10-10, DM-36 / [ADR-024](../../adr/ADR-024-moneda-base-usd-y-tipos-de-cambio.md)*).
+**Sin `DELETE`** y sin `isActive`: una tasa no se borra ni se desactiva, se corrige o se
+añade otra fecha (RN-07.44).
+
+| Método | Ruta | Permiso | Contrato | Errores propios |
+|---|---|---|---|---|
+| GET | `/exchange-rates` | `parametros.ver` | Query `currencyCode?` (ISO 4217), `from?`/`to?` (fechas `YYYY-MM-DD`, sobre `effectiveDate`, `from ≤ to`), `page`, `pageSize`, `sort` (lista blanca; defecto `effectiveDate` descendente). Respuesta paginada de `ExchangeRateResponseDto`: `{ id, currencyCode, effectiveDate, ratePerUsd, source, notes, createdAt, updatedAt, updatedBy: { id, displayName } \| null }` | `400 VALIDATION_FAILED` (filtros) |
+| POST | `/exchange-rates` | `parametros.configurar` | `CreateExchangeRateDto`: `{ currencyCode, effectiveDate, ratePerUsd, source (1–120), notes? (≤ 500) }`. `201` con el recurso. Auditoría `crm.exchange_rate.created` | `409 EXCHANGE_RATE_DUPLICATE` (misma moneda y fecha); `422 INVALID_EXCHANGE_RATE` (`issue`: `base_currency` si es `USD`, `inactive_currency`, `unknown_currency`, `non_positive_rate`) |
+| PATCH | `/exchange-rates/{id}` | `parametros.configurar` | `UpdateExchangeRateDto`: `{ ratePerUsd?, source?, notes? }`. `effectiveDate` y `currencyCode` son **inmutables**: un campo no declarado es `400`. `200` con el recurso. Auditoría `crm.exchange_rate.updated` con antes/después. No recalcula oportunidades | `404`; `422 INVALID_EXCHANGE_RATE` (`non_positive_rate`) |
+| GET | `/currencies` | `parametros.ver` | **Solo lectura**: `[{ code, name, symbol, decimals, isActive }]` (cinco filas sembradas, sin paginación). No hay escritura | — |
+
+`ratePerUsd` viaja como cadena decimal (precisión `Decimal(19,8)`, nunca `number` de
+JavaScript); `effectiveDate` como fecha sin hora (DM-31). Las lecturas de tipos de
+cambio que necesitan otros módulos (Proyectos, Reportes) van por el puerto
+`ExchangeRateReader` de la Fase 0 (00 §11), no por estos endpoints; este módulo es dueño
+de `ExchangeRateRepository` (escritura).
+
 ### F.8 Códigos de error nuevos
 
 `CRM_PROFILE_INCOMPLETE` (422), `INVALID_CATALOG_METADATA` (422), `CATALOG_INVARIANT`
 (409), `UNIT_DIMENSION_LOCKED` (409), `CONVERSION_RULE_PROTECTED` (409),
-`INVALID_CONVERSION_TARGET` (422). Se reutilizan `RESOURCE_CONFLICT`,
+`INVALID_CONVERSION_TARGET` (422), `EXCHANGE_RATE_DUPLICATE` (409, misma moneda y
+fecha de vigencia), `INVALID_EXCHANGE_RATE` (422, moneda `USD`, inexistente o inactiva,
+o tasa ≤ 0). Se reutilizan `RESOURCE_CONFLICT`,
 `UNKNOWN_REFERENCE`, `ADMIN_ONLY`, `PERMISSION_DENIED`, `INVALID_PARAMETER_VALUE`,
 `SYSTEM_RESOURCE_READ_ONLY`. Todos con mensaje en español en `describeApiError`.
 
@@ -430,10 +477,10 @@ relaciones (§9 "Relaciones del módulo").
 |---|---|---|
 | Todos | Permisos efectivos y alcance (`/me`, guard), menú (`/me/menu`), `users.country_id` y equipos (para `VisibilityScopeResolver`) | `crm.zona_horaria_negocio` |
 | 1 Inicio | Catálogos de prioridad y estados (indicadores) | `crm.alertas.*` (umbrales, prioridades, habilitación) |
-| 2 Clientes | `crm.tipo_empresa`, `crm.estado_cliente`, `crm.calificacion_cliente`; países; usuarios activos como responsable | `crm.clientes.unicidad_codigo`, `crm.clientes.unicidad_nit`, `crm.clientes.reglas_duplicidad`, `crm.contactos.reglas_duplicidad`, `crm.campos_obligatorios.customer`, `crm.valores_por_defecto["customer.*"]` |
-| 3 Proyectos | `crm.tipo_proyecto`, `crm.sector_proyecto`, `crm.fase_cliente`, `crm.etapa_oportunidad`, `crm.resultado_oportunidad`, `crm.motivo_resultado`, `crm.estado_producto_asociado`; productos, familias, unidades y reglas de conversión | `crm.proyectos.reglas_avance`, `crm.oportunidades.transiciones_etapa`, `crm.forecast.horizonte_meses`, `crm.forecast.unidad_tonelaje`, `crm.moneda_por_defecto`, `crm.campos_obligatorios.project`, `crm.valores_por_defecto["project.*","opportunity.*"]`, `crm.adjuntos.*` |
+| 2 Clientes | `crm.tipo_empresa`, `crm.estado_cliente`, `crm.calificacion_cliente`; países; usuarios activos como responsable | `crm.clientes.unicidad_codigo`, `crm.clientes.reglas_duplicidad` (NIT = aviso, DM-4), `crm.contactos.reglas_duplicidad`, `crm.campos_obligatorios.customer`, `crm.valores_por_defecto["customer.*"]` |
+| 3 Proyectos | `crm.tipo_proyecto`, `crm.sector_proyecto`, `crm.fase_cliente`, `crm.etapa_oportunidad`, `crm.resultado_oportunidad`, `crm.motivo_resultado`, `crm.estado_producto_asociado`; productos, familias, unidades y reglas de conversión; monedas y tipos de cambio (por `ExchangeRateReader`, 00 §2.16) | `crm.proyectos.reglas_avance`, `crm.oportunidades.transiciones_etapa`, `crm.forecast.horizonte_meses`, `crm.forecast.unidad_tonelaje`, `crm.moneda_base`, `crm.tipos_cambio.dias_aviso_antiguedad`, `crm.campos_obligatorios.project`, `crm.valores_por_defecto["project.*","opportunity.*"]`, `crm.adjuntos.*` |
 | 4 Actividad comercial | `crm.tipo_actividad`, `crm.estado_actividad`, `crm.estado_visita`, `crm.prioridad`, `crm.motivo_reprogramacion`, `crm.motivo_cancelacion`, `crm.resultado_interaccion` | `crm.visitas.validar_conflicto_horario`, `crm.visitas.duracion_por_defecto_minutos`, `crm.alertas.actividad_por_vencer_horas`, `crm.alertas.visita_sin_confirmar_horas`, `crm.campos_obligatorios.visit/activity`, `crm.valores_por_defecto["activity.*"]`, `crm.adjuntos.*` |
-| 5 Reportes | Los mismos catálogos (etiquetas, `metadata.inFunnel`, `order`); permisos `reportes.*` | `crm.forecast.*`, `crm.zona_horaria_negocio` |
+| 5 Reportes | Los mismos catálogos (etiquetas, `metadata.inFunnel`, `order`); permisos `reportes.*`; tipos de cambio para la moneda local de referencia (por `ExchangeRateReader`) | `crm.forecast.*`, `crm.zona_horaria_negocio`, `crm.moneda_base` |
 | 6 Integraciones | Catálogos por `code`, países por `isoCode`, usuarios por correo o `employeeCode` (responsable de la importación) | `crm.importaciones.*`, `crm.clientes.*` (mismas reglas que el alta) |
 
 Lo que Administración **consume**: los eventos de auditoría que emiten los módulos
@@ -462,32 +509,40 @@ la pantalla lo advierte tras crear el elemento (regla de transiciones: Proyectos
 | Ver / crear / editar usuarios | `usuarios.ver` / `.crear` / `.editar` | ADR-020 sobre administradores; país solo administrador (D-07.2) |
 | Suspender / reactivar | `usuarios.editar` | D3, D4; ADR-020 si el objetivo es administrador |
 | Asignar roles, permisos, opciones directas; restablecer contraseña | `usuarios.editar` / `opciones.configurar` | `ADMIN_ONLY` (ADR-020) |
-| Equipos de un usuario | `equipos.editar` | `ADMIN_ONLY` si DM-12 |
+| Equipos de un usuario (`PUT /users/{id}/teams`, `teamIds` en el alta) | `equipos.editar` | `ADMIN_ONLY` (DM-12, D-07.2, addendum ADR-020) |
+| Equipos: miembros, responsable, equipo padre; eliminar con miembros o subequipos | `equipos.editar` / `equipos.crear` / `equipos.eliminar` | `ADMIN_ONLY` (RN-07.45). Crear sin responsable ni padre y editar nombre o descripción: sin regla de administrador |
 | Exportar usuarios | `usuarios.exportar` | Auditado, ≤ 10 000 filas |
 | Roles: crear, duplicar, permisos, ámbito, activación | `roles.crear` / `roles.editar` | `ADMIN_ONLY` |
 | Catálogos | `catalogos.ver` / `.crear` / `.editar` / `.eliminar` | Registro de semántica |
 | Parámetros | `parametros.ver` / `.editar` | `parametros.configurar` en `seguridad.*` y estructurales (RN-07.32) |
 | Maestros comerciales | `productos.ver` / `productos.configurar` | — |
+| Tipos de cambio (F-46, extensión de alcance aprobada, DM-36 / ADR-024) | `parametros.ver` (consultar tipos de cambio y monedas) / `parametros.configurar` (registrar y corregir) | Monedas solo lectura; sin borrado. Auditado `crm.exchange_rate.created` / `crm.exchange_rate.updated` |
 | Auditoría | `auditoria.ver` / `auditoria.exportar` | Sin escritura posible |
 
-Ningún permiso nuevo: los de administración existen; `productos.ver/configurar` y las
+Ningún permiso nuevo: los de administración existen (también para tipos de cambio, por lo
+que el catálogo del CRM sigue en 41 permisos); `productos.ver/configurar` y las
 acciones `cerrar`/`administrar` llegan con la Fase 0 (00 §5).
 
 ### H.2 ADR-020
 
-Se mantiene sin excepciones. Se **amplía** (addendum, junto con DM-12) para incluir:
-cambiar el país de un usuario y cambiar su pertenencia a equipos, porque con los
-alcances `COUNTRY` y `TEAM` ambas cambian lo que el usuario ve. El gestor de accesos
-sigue pudiendo dar de alta usuarios con el rol `usuario` y editar sus datos
-personales y su código de colaborador.
+Se mantiene sin excepciones. Queda **ampliada** por el addendum de 2026-10-10 (DM-12 y
+D-07.2 resueltas; cierra la pregunta abierta de ADR-020 sobre equipos): son asignación de
+acceso y exigen ser administrador (`403 ADMIN_ONLY`) cambiar los equipos de un usuario
+(`PUT /users/{id}/teams`, `teamIds` en el alta), los miembros de un equipo, su responsable,
+su jerarquía (equipo padre), eliminar un equipo con miembros o subequipos, y fijar o
+cambiar el país de un usuario, porque con los alcances `TEAM` (que incluye subequipos) y
+`COUNTRY` cambian lo que el usuario ve (RN-07.5, RN-07.10, RN-07.45). Crear un equipo sin
+miembros (sin responsable ni padre) y editar su nombre o descripción conservan sus
+permisos `equipos.*`. El gestor de accesos sigue pudiendo dar de alta usuarios con el rol
+`usuario` (sin país ni equipos) y editar sus datos personales y su código de colaborador.
 
-### H.3 Inmutabilidad de la auditoría — estado actual y cierre
+### H.3 Inmutabilidad de la auditoría — estado actual y cierre (decidido: D-07.11, ADR-025)
 
 | Control | Estado hoy | Cierre |
 |---|---|---|
 | Sin endpoints de modificación o borrado | Cumple (`audit-logs.controller.ts` solo `GET`) | Prueba e2e que lo fija |
 | Puertos de solo inserción / solo lectura | Cumple (`AuditRepository.record`, `AuditQueryRepository` de lectura) | — |
-| Base de datos | **No cumple**: el usuario de la aplicación puede `UPDATE`/`DELETE` en `audit_logs` | Disparadores (D-07.11) + recomendación de `REVOKE UPDATE, DELETE` al rol de la aplicación en `docs/deployment/environments.md` (00 §4.5) |
+| Base de datos | **No cumple**: el usuario de la aplicación puede `UPDATE`/`DELETE` en `audit_logs` | **Decidido** ([ADR-025](../../adr/ADR-025-inmutabilidad-de-la-auditoria-con-disparadores.md)): disparadores `BEFORE UPDATE` y `BEFORE TRUNCATE` que siempre rechazan y `BEFORE DELETE` que rechaza las filas dentro de `auditoria.dias_retencion` (migración `…_audit_logs_append_only`, 00 §9 paso 9), más la recomendación de `REVOKE UPDATE, DELETE` al rol de la aplicación en `docs/deployment/environments.md` (00 §4.5) |
 | Atomicidad mutación + auditoría | Compromiso aceptado (PLAN-ADMIN §10): la fila se escribe tras la mutación | Sin cambio en este módulo; queda el seguimiento de unidad de trabajo de PLAN-ADMIN. Los módulos comerciales heredan el mismo compromiso |
 | Datos sensibles | Se omiten secretos por nombre de campo | Enmascarado de PII (DM-29) |
 
@@ -508,22 +563,23 @@ personales y su código de colaborador.
 - **AC-07.1** Given un administrador, When crea un usuario con código de colaborador, nombres, apellidos, correo, teléfono, país, rol y equipo, Then el usuario queda `INVITED`, con esos datos visibles en el detalle y un evento `user.created` que incluye `employeeCode` y el país.
 - **AC-07.2** Given un usuario existente con código `E-001`, When se crea o edita otro con `e-001 `, Then responde `409 RESOURCE_CONFLICT` con `field = employeeCode`.
 - **AC-07.3** Given un correo ya registrado, When se crea otro usuario con él, Then `409` (comportamiento existente conservado).
-- **AC-07.4** Given un gestor de accesos (no administrador), When intenta fijar o cambiar `countryId`, Then `403 ADMIN_ONLY` y nada cambia; When edita `employeeCode` o el teléfono, Then se guarda.
+- **AC-07.4** Given un gestor de accesos (no administrador), When intenta fijar o cambiar `countryId` o asignar equipos (en el alta con `teamIds` o con `PUT /users/{id}/teams`), Then `403 ADMIN_ONLY` y nada cambia; When edita `employeeCode` o el teléfono, Then se guarda.
 - **AC-07.5** Given un usuario sin código o sin país, When el administrador le asigna `asesor`, Then `422 CRM_PROFILE_INCOMPLETE`; con ambos datos, Then se asigna.
 - **AC-07.6** Given un usuario activo, When se desactiva, Then pasa a `SUSPENDED`, sus sesiones se revocan y la lista lo muestra "Inactivo"; When se activa, Then vuelve a `ACTIVE` (o `INVITED`).
 - **AC-07.7** Given un asesor suspendido responsable de registros, When se consulta uno de esos registros, Then sigue mostrando su nombre; When se abre un selector de responsable para un alta, Then no aparece.
-- **AC-07.8** Given `equipos.editar`, When se asignan dos equipos con uno principal desde la ficha del usuario, Then el detalle del usuario y la pantalla de Equipos muestran lo mismo; con dos principales, Then `409`.
+- **AC-07.8** Given un administrador (con `equipos.editar`), When asigna dos equipos con uno principal desde la ficha del usuario, Then el detalle del usuario y la pantalla de Equipos muestran lo mismo; con dos principales, Then `409`; Given un no administrador con `equipos.editar`, When lo intenta, Then `403 ADMIN_ONLY`.
 - **AC-07.9** Given la lista de usuarios, When se filtra por país o se busca por código, Then solo aparecen los coincidentes; la exportación incluye las columnas Código y País.
 - **AC-07.10** Sin `usuarios.ver` → `403` en la API y la ruta no se muestra en el menú; sin token → `401`.
+- **AC-07.41** Given un gestor de accesos con `equipos.crear`, `equipos.editar` y `equipos.eliminar` (no administrador), When reemplaza los miembros de un equipo, fija o cambia su responsable o su equipo padre (en el alta o en la edición) o elimina un equipo con miembros o subequipos, Then `403 ADMIN_ONLY` y nada cambia; When crea un equipo sin responsable ni padre o edita su nombre o descripción, Then se guarda; Given un administrador, When hace cualquiera de esas operaciones, Then se aplica con su auditoría (eliminar con miembros o subequipos sigue respondiendo `409 HAS_CHILDREN`).
 
 ### Roles y permisos (F-44)
 
-- **AC-07.11** Given la Fase 0 aplicada, When se listan roles, Then existen `asesor` (OWN), `manager` (TEAM), `responsable-pais` (COUNTRY) y `administrador` (ORGANIZATION), y siguen `gestor-accesos`, `auditor` y `usuario`.
+- **AC-07.11** Given la Fase 0 aplicada, When se listan roles, Then existen `asesor` (OWN), `manager` (TEAM) y `responsable-pais` (COUNTRY) como roles de sistema (`isSystem = true`) con los permisos de 00 §5.4, y `administrador` (ORGANIZATION), y siguen `gestor-accesos`, `auditor` y `usuario`.
 - **AC-07.12** Given la ficha de un rol, When se abre la matriz, Then los permisos se agrupan por módulo del CRM con columnas Ver, Crear, Editar, Cerrar, Eliminar, Exportar, Administrar (y las de administración), y solo las celdas existentes en el catálogo son seleccionables.
-- **AC-07.13** Given un administrador y un rol editable, When marca `oportunidades.cerrar` y guarda, Then `PUT /roles/{id}/permissions` lo persiste, queda `role.permissions_replaced` y un usuario con ese rol obtiene el permiso en `/me` sin volver a iniciar sesión.
+- **AC-07.13** Given un administrador y un rol que no es de sistema (p. ej. una copia de `asesor` creada con "Duplicar"), When marca `oportunidades.eliminar` y guarda, Then `PUT /roles/{id}/permissions` lo persiste, queda `role.permissions_replaced` y un usuario con ese rol obtiene el permiso en `/me` sin volver a iniciar sesión.
 - **AC-07.14** Given un no administrador con `roles.editar`, When cambia permisos o ámbito de un rol, Then `403 ADMIN_ONLY`.
 - **AC-07.15** Given un rol, When el administrador elige el ámbito "Su país", Then se guarda `COUNTRY` y `/me` del usuario lo devuelve como alcance efectivo si es el más amplio.
-- **AC-07.16** Given un rol de sistema, When se intenta cambiar sus permisos, Then `409 SYSTEM_RESOURCE_READ_ONLY` y la interfaz ofrece "Duplicar".
+- **AC-07.16** Given un rol de sistema (incluidos `asesor`, `manager` y `responsable-pais`), When se intenta cambiar sus permisos, Then `409 SYSTEM_RESOURCE_READ_ONLY` y la interfaz ofrece "Duplicar".
 - **AC-07.17** Given un usuario sin un permiso, When llama al endpoint que lo exige aunque la interfaz no muestre el botón, Then `403` (la seguridad no depende de ocultar).
 
 ### Catálogos (F-45)
@@ -539,21 +595,23 @@ personales y su código de colaborador.
 
 ### Parámetros (F-46)
 
-- **AC-07.26** Given la pantalla de parámetros, Then se ven agrupados duplicidad, obligatorios, valores por defecto, alertas, vencimientos, reglas de avance, acceso, forecast/conversiones, con sus valores sembrados.
-- **AC-07.27** Given `crm.clientes.unicidad_nit`, When se guarda `NACIONAL`, Then `422 INVALID_PARAMETER_VALUE`; con `GLOBAL`, Then se guarda y queda `parameter.updated` con antes/después.
+- **AC-07.26** Given la pantalla de parámetros, Then se ven agrupados duplicidad, obligatorios, valores por defecto, alertas, vencimientos, reglas de avance, acceso, forecast/conversiones/moneda, con sus valores sembrados; no aparecen `crm.clientes.unicidad_nit` ni `crm.moneda_por_defecto`.
+- **AC-07.27** Given `crm.clientes.reglas_duplicidad`, When se guarda `{"razonSocialNormalizada":"AVISAR","nit":"BLOQUEAR"}`, Then `422 INVALID_PARAMETER_VALUE` (el NIT solo admite `AVISAR` o `NO`, DM-4); con `"nit":"NO"`, Then se guarda y queda `parameter.updated` con antes/después.
 - **AC-07.28** Given `crm.campos_obligatorios`, When se añade `customer.taxId`, Then se guarda; When se envía un campo desconocido, Then `422`; When se omite un obligatorio de base, Then el valor guardado lo sigue incluyendo.
 - **AC-07.29** Given `crm.valores_por_defecto` con un código inexistente o inactivo en su catálogo, When se guarda, Then `422` con el campo.
 - **AC-07.30** Given un usuario con `parametros.editar` sin `parametros.configurar`, When edita `crm.forecast.unidad_tonelaje` o `seguridad.minutos_bloqueo`, Then `403`.
 - **AC-07.31** Given el bloque Acceso, Then muestra el proveedor vigente en solo lectura y los parámetros de login local editables; no existe ningún control que cambie el proveedor.
 - **AC-07.32** Given `productos.configurar`, When se crea una regla `KG→TON` duplicada para el mismo ámbito, Then `409`; When se intenta desactivar `TON→TON`, Then `409 CONVERSION_RULE_PROTECTED`; When se cambia el factor de una regla usada, Then las líneas existentes conservan su factor y tonelaje.
 - **AC-07.33** Given un parámetro con un valor ilegible en la base (introducido por fuera de la API), When un módulo lo lee, Then usa el valor por defecto y registra un aviso; la operación no falla.
+- **AC-07.40** *(tipos de cambio; extensión de alcance aprobada por el responsable, 2026-10-10, DM-36 / ADR-024)* Given un usuario con `parametros.configurar`, When registra `GTQ` con fecha `2026-10-01`, tasa `7.75` y fuente, Then `201`, aparece en `GET /exchange-rates?currencyCode=GTQ&from=2026-10-01&to=2026-10-31` y queda `crm.exchange_rate.created`; When registra otra `GTQ` con la misma fecha, Then `409 EXCHANGE_RATE_DUPLICATE`; When registra `USD`, una moneda inactiva o una tasa ≤ 0, Then `422 INVALID_EXCHANGE_RATE`; When corrige tasa, fuente o notas, Then `200` y `crm.exchange_rate.updated` con antes/después, y las oportunidades guardadas antes conservan su `exchangeRate`, `exchangeRateDate` y `estimatedAmountUsd`; When intenta cambiar `effectiveDate` o `currencyCode`, Then `400`; no existe `DELETE` (`404`). Given solo `parametros.ver`, Then consulta tipos de cambio y `GET /currencies` (solo lectura) pero registrar o corregir → `403`; sin token → `401`.
+- **AC-07.42** Given la pantalla de parámetros, When se intenta editar `crm.moneda_base`, Then no hay control de edición y `PATCH /parameters/crm.moneda_base` → `409 SYSTEM_RESOURCE_READ_ONLY`; When se guarda `crm.tipos_cambio.dias_aviso_antiguedad` = `0` o `367`, Then `422 INVALID_PARAMETER_VALUE`; con `45`, Then se guarda.
 
 ### Auditoría (F-47)
 
 - **AC-07.34** Given eventos de varios tipos, When se filtra por entidad, registro, acción, usuario, campo y rango de fechas, Then solo aparecen los eventos que cumplen todos los filtros.
 - **AC-07.35** Given la vista por campo, Then cada fila muestra entidad, identificador, acción, campo, valor anterior, valor nuevo, usuario y fecha y hora.
 - **AC-07.36** Given la exportación con `layout=fields`, Then el CSV tiene una fila por campo con esas columnas y la exportación queda auditada.
-- **AC-07.37** Given cualquier usuario (incluido el administrador), When intenta modificar o borrar un registro de auditoría por la API, Then no existe la ruta (`404`); When la aplicación ejecuta `UPDATE` o `DELETE` de un registro dentro de la retención en la base, Then la base lo rechaza.
+- **AC-07.37** Given cualquier usuario (incluido el administrador), When intenta modificar o borrar un registro de auditoría por la API, Then no existe la ruta (`404`); When la aplicación ejecuta `UPDATE` o `TRUNCATE` sobre `audit_logs`, o `DELETE` de un registro dentro de la retención, Then la base lo rechaza (disparadores de ADR-025).
 - **AC-07.38** Given cambios en usuarios, roles, permisos, catálogos y parámetros, Then cada uno aparece en la consulta con su antes/después; given cambios en un contacto, Then su correo y teléfono aparecen enmascarados.
 - **AC-07.39** Sin `auditoria.ver` → `403`; sin `auditoria.exportar` → `403` al exportar; sin token → `401`.
 
@@ -572,21 +630,22 @@ contra PostgreSQL efímera (`backend/test/*.e2e.spec.ts`) y E2E (Playwright,
 | PF-07.1 | Alta de usuario completo por administrador; detalle y evento con `employeeCode`/país | Integración | AC-07.1 |
 | PF-07.2 | Edición del código por gestor de accesos | Integración | AC-07.4 |
 | PF-07.3 | Suspender y reactivar: sesiones revocadas, estado presentado | Integración + RTL | AC-07.6 |
-| PF-07.4 | `PUT /users/{id}/teams` y coherencia con `GET /teams/{id}` | Integración | AC-07.8 |
+| PF-07.4 | `PUT /users/{id}/teams` por un administrador y coherencia con `GET /teams/{id}` | Integración | AC-07.8 |
 | PF-07.5 | Filtro por país, búsqueda por código, CSV con columnas nuevas | Integración | AC-07.9 |
-| PF-07.6 | Semilla: roles comerciales y existentes presentes, idempotente en dos ejecuciones | Integración | AC-07.11 |
+| PF-07.6 | Semilla: roles comerciales (`isSystem = true`, permisos de 00 §5.4) y existentes presentes; idempotente en dos ejecuciones y repone la matriz de los roles comerciales | Integración | AC-07.11 |
 | PF-07.7 | Matriz con `cerrar`/`administrar` agrupada por módulo | Unitaria (`roles-format.spec.ts`) + RTL | AC-07.12 |
-| PF-07.8 | Conceder `oportunidades.cerrar` a un rol propio y verlo en `/me` | Integración | AC-07.13 |
+| PF-07.8 | Duplicar `asesor`, conceder `oportunidades.eliminar` a la copia y verlo en `/me` | Integración | AC-07.13 |
 | PF-07.9 | Ámbito `COUNTRY` en rol y alcance efectivo en `/me` | Integración | AC-07.15 |
 | PF-07.10 | Ciclo de vida de un valor de `crm.tipo_empresa` con auditoría | Integración | AC-07.19 |
 | PF-07.11 | Formulario de `metadata` generado desde `metadataSchema` | RTL | AC-07.23 |
-| PF-07.12 | Guardar `GLOBAL` en `crm.clientes.unicidad_nit` | Integración | AC-07.27 |
+| PF-07.12 | Guardar `"nit":"NO"` en `crm.clientes.reglas_duplicidad` | Integración | AC-07.27 |
 | PF-07.13 | Editor de campos obligatorios: añadir campo; base bloqueada | Unitaria (registro) + RTL | AC-07.28 |
 | PF-07.14 | Tarjeta de autenticación en solo lectura con proveedor `local` | RTL + integración `GET /parameters/authentication` | AC-07.31 |
 | PF-07.15 | Alta de familia, producto, unidad y regla de conversión | Integración | AC-07.32 |
 | PF-07.16 | Cambio de factor sin reescritura de líneas (cuando exista Proyectos) | Integración | AC-07.32 |
 | PF-07.17 | Filtros de auditoría combinados, incluido `field` | Unitaria (`audit-filter.spec.ts`) + integración | AC-07.34 |
 | PF-07.18 | Vista por campo y exportación `layout=fields` | Unitaria (`audit-format.spec.ts`) + integración | AC-07.35, AC-07.36 |
+| PF-07.47 | Tipos de cambio: alta, filtros por moneda y rango de fechas, corrección de tasa/fuente/notas con auditoría `crm.exchange_rate.created/updated`; `GET /currencies` de solo lectura; pantalla con moneda y fecha bloqueadas al corregir | Integración + RTL | AC-07.40 |
 
 ### Negativas
 
@@ -594,7 +653,7 @@ contra PostgreSQL efímera (`backend/test/*.e2e.spec.ts`) y E2E (Playwright,
 |---|---|---|---|
 | PF-07.19 | Código de colaborador duplicado (distinto caso y espacios) | `409` `employeeCode` | AC-07.2 |
 | PF-07.20 | Correo duplicado | `409` | AC-07.3 |
-| PF-07.21 | No administrador fija `countryId` en alta y en edición | `403 ADMIN_ONLY` | AC-07.4 |
+| PF-07.21 | No administrador fija `countryId` en alta y en edición, envía `teamIds` en el alta o llama a `PUT /users/{id}/teams` | `403 ADMIN_ONLY` | AC-07.4, AC-07.8 |
 | PF-07.22 | País inexistente / inactivo | `422 UNKNOWN_REFERENCE` | RN-07.4 |
 | PF-07.23 | Asignar `asesor` sin código o sin país; vaciar el país de un asesor | `422 CRM_PROFILE_INCOMPLETE` | AC-07.5 |
 | PF-07.24 | Suspenderse a sí mismo; dejar el sistema sin administrador | `409 SELF_LOCKOUT` / `LAST_ADMIN` | RN-07.7 |
@@ -607,12 +666,15 @@ contra PostgreSQL efímera (`backend/test/*.e2e.spec.ts`) y E2E (Playwright,
 | PF-07.31 | `metadata` inválido por tipo y por clave obligatoria ausente | `422 INVALID_CATALOG_METADATA` | AC-07.23 |
 | PF-07.32 | Desactivar un código referenciado por parámetro | `409` `referenced_by_parameter` | AC-07.24 |
 | PF-07.33 | Borrar catálogo `crm.*` | `409 SYSTEM_RESOURCE_READ_ONLY` | AC-07.25 |
-| PF-07.34 | Valores fuera de lista, rango o esquema; códigos inactivos en JSON | `422 INVALID_PARAMETER_VALUE` | AC-07.27, AC-07.29 |
+| PF-07.34 | Valores fuera de lista, rango o esquema (incluido `nit: "BLOQUEAR"`); códigos inactivos en JSON | `422 INVALID_PARAMETER_VALUE` | AC-07.27, AC-07.29 |
 | PF-07.35 | Editar estructural sin `parametros.configurar` | `403` | AC-07.30 |
 | PF-07.36 | Regla de conversión duplicada, identidad desactivada, destino distinto de tonelaje, dimensión de unidad usada | `409` / `422` | AC-07.32 |
 | PF-07.37 | `UPDATE`/`DELETE`/`TRUNCATE` sobre `audit_logs` dentro de retención desde la conexión de la aplicación | Error de la base | AC-07.37 |
 | PF-07.38 | `PATCH`/`DELETE /audit-logs/{id}` | `404` | AC-07.37 |
-| PF-07.39 | `401` y `403` en cada endpoint nuevo o cambiado (`/users` con filtros, `/users/{id}/teams`, `/parameters/authentication`, maestros, `/audit-logs?field=`) | `401` / `403` | AC-07.10, AC-07.39 |
+| PF-07.39 | `401` y `403` en cada endpoint nuevo o cambiado (`/users` con filtros, `/users/{id}/teams`, `/parameters/authentication`, maestros, `/exchange-rates`, `/currencies`, `/audit-logs?field=`) | `401` / `403` | AC-07.10, AC-07.39, AC-07.40 |
+| PF-07.48 | Tipos de cambio: misma moneda y fecha; moneda `USD`, inactiva o inexistente; tasa `0` o negativa; `PATCH` con `effectiveDate` o `currencyCode`; `DELETE /exchange-rates/{id}`; alta o corrección solo con `parametros.ver` | `409 EXCHANGE_RATE_DUPLICATE` / `422 INVALID_EXCHANGE_RATE` / `400` / `404` / `403` | AC-07.40 |
+| PF-07.49 | No administrador con `equipos.*`: reemplazar miembros, fijar responsable o padre en alta y edición, eliminar equipo con miembros o subequipos; contraprueba: crear sin responsable ni padre y editar nombre/descripción se aceptan | `403 ADMIN_ONLY` / `201`, `200` | AC-07.41 |
+| PF-07.50 | `PATCH /parameters/crm.moneda_base`; `crm.tipos_cambio.dias_aviso_antiguedad` fuera de 1–366 | `409 SYSTEM_RESOURCE_READ_ONLY` / `422 INVALID_PARAMETER_VALUE` | AC-07.42 |
 
 ### Integración entre módulos
 
@@ -621,10 +683,11 @@ contra PostgreSQL efímera (`backend/test/*.e2e.spec.ts`) y E2E (Playwright,
 | PF-07.40 | Un valor desactivado en `crm.estado_cliente` deja de ofrecerse en el formulario de Clientes y un cliente que lo tiene sigue editándose sin cambiarlo | Integración (con Módulo 2) |
 | PF-07.41 | Cambiar `crm.alertas.proyecto_sin_actualizar_dias` cambia el recuento de alertas en Inicio sin reiniciar | Integración (con Módulo 1) |
 | PF-07.42 | Un parámetro ilegible inyectado en la base: el lector usa el defecto y registra aviso | Integración |
-| PF-07.43 | Cambiar el país de un responsable de país cambia los clientes que ve (alcance `COUNTRY`) | Integración (con Módulo 2) |
+| PF-07.43 | El administrador cambia el país de un responsable de país y cambian los clientes que ve (alcance `COUNTRY`) | Integración (con Módulo 2) |
 | PF-07.44 | Mutación de un contacto: evento `crm.contact.updated` con PII enmascarada visible en la vista por campo | Integración (con Módulo 2) |
 | PF-07.45 | E2E: administrador crea un asesor con código y país, le asigna equipo y rol `asesor`; el asesor entra y su menú muestra solo las opciones comerciales concedidas; se suspende y no puede entrar | Playwright |
 | PF-07.46 | E2E: administrador desactiva un valor de catálogo y lo ve ausente en un formulario comercial; la auditoría muestra el cambio por campo | Playwright |
+| PF-07.51 | Corregir un tipo de cambio no altera la foto (`exchangeRate`, `exchangeRateDate`, `estimatedAmountUsd`) de una oportunidad ya guardada; una oportunidad nueva con fecha posterior a la vigencia usa la tasa corregida | Integración (con Módulo 3) |
 
 ---
 
@@ -645,20 +708,21 @@ mejoras de experiencia, al final* (D-07.6).
 | Catálogos `crm.*` y su registro de semántica con invariantes | Fase 0 | La pantalla genérica de catálogos **ya está en producción**: sin el registro, un administrador podría romper `crm.etapa_oportunidad` el día que se siembra. El registro se entrega con la semilla |
 | Parámetros `crm.*` y su registro de validación; `ParameterReader` | Fase 0 | Igual: la pantalla de parámetros ya los mostraría editables |
 | `CatalogReferenceValidator`, `CatalogLookupService` | Antes de Clientes | Fase 0 (00 §11) |
-| Pertenencia a equipos exclusiva del administrador | Antes de Clientes (bloqueante, DM-12) | Addendum ADR-020 + guarda en `teams.service.ts` |
+| Pertenencia, responsable y jerarquía de equipos y país del usuario exclusivos del administrador | Antes de Clientes (DM-12, resuelta) | Addendum de 2026-10-10 a ADR-020 + guarda `ADMIN_ONLY` en `teams.service.ts` y `users.service.ts` (RN-07.5, RN-07.10, RN-07.45) |
 | Enmascarado de PII en auditoría | Antes de Clientes (contactos) | DM-29 en `audit-diff.ts`/`audit.service.ts` |
-| Países | Fase 0 | Semilla (`crm-masters.ts`), sin pantalla (D-07.13) |
+| Países | Fase 0 | Semilla (`crm-masters.ts`, los seis de DM-2), sin pantalla (D-07.13 resuelta) |
+| Monedas y tipos de cambio | Fase 0 (antes de Proyectos: la oportunidad exige tasa, `422 EXCHANGE_RATE_NOT_FOUND`) | Semilla (`crm-masters.ts`, `crm-exchange-rates.ts` con los valores que entrega el negocio) y puerto `ExchangeRateReader` (00 §2.16, §11). Hasta la pantalla de E.5, las tasas nuevas se cargan con el mismo script versionado e idempotente. Si hay un lanzamiento productivo antes del Módulo 7, se adelanta la parte de tipos de cambio de F.7/E.5 |
 | Unidades, reglas genéricas de conversión | Fase 0 | Semilla; familias/productos/reglas de negocio por script hasta las pantallas de E.5 (DM-23, DM-24) |
 | Opciones de menú del CRM | Con cada módulo | DM-32 |
 
 ### K.2 Lo que entrega el Módulo 7 (al final)
 
-1. Usuarios: campos, filtros, columnas, panel de equipos, reglas D-07.2/D-07.3 (si no se adelantaron).
-2. Roles: columnas y etiquetas de la matriz; decisión D-07.1 aplicada.
+1. Usuarios: campos, filtros, columnas, panel de equipos, reglas D-07.2/D-07.3 (si no se adelantaron); acciones de Equipos solo para administrador en la interfaz (RN-07.45).
+2. Roles: columnas y etiquetas de la matriz; roles comerciales de sistema (D-07.1).
 3. Catálogos: formulario de `metadata`, mensajes de invariantes, unicidad de etiqueta.
 4. Parámetros: metadatos de presentación, editores estructurados, tarjeta de autenticación.
-5. Maestros comerciales (E.5, F.7).
-6. Auditoría: filtro y vista por campo, exportación por campo, disparadores de inmutabilidad.
+5. Maestros comerciales y tipos de cambio (E.5, F.7).
+6. Auditoría: filtro y vista por campo, exportación por campo, disparadores de inmutabilidad (ADR-025).
 7. Documentación y E2E.
 
 ### K.3 Dependencias futuras
@@ -676,23 +740,23 @@ cambios y los parámetros de login local se indicarán como no aplicables.
 | Archivo | Cambio |
 |---|---|
 | `backend/src/modules/access/dto/user.dto.ts` | `employeeCode`, `countryId` en alta/edición; `employeeCode`, `country` en respuestas; filtro `countryId`; `COUNTRY` |
-| `backend/src/modules/access/users.service.ts` | Unicidad de código, país solo administrador, perfil comercial, auditoría ampliada, columnas de exportación |
+| `backend/src/modules/access/users.service.ts` | Unicidad de código, país y `teamIds` solo administrador, perfil comercial, auditoría ampliada, columnas de exportación |
 | `backend/src/modules/access/users.controller.ts` | Query y OpenAPI de los cambios |
 | `backend/src/modules/access/ports/access.repository.port.ts` | Campos y filtro nuevos; `findUserByEmployeeCode` |
 | `backend/src/infrastructure/database/prisma/repositories/prisma-access.repository.ts` | Implementación |
 | `backend/src/modules/access/access.service.ts`, `dto/role.dto.ts`, `dto/profile.dto.ts`, `access-rules.ts` | `COUNTRY` (Fase 0, DM-10) |
-| `backend/src/modules/teams/teams.service.ts`, `teams.module.ts` | Reemplazo de equipos de un usuario; `ADMIN_ONLY` si DM-12 |
+| `backend/src/modules/teams/teams.service.ts`, `teams.module.ts`, `teams.controller.ts` | Reemplazo de equipos de un usuario; `ADMIN_ONLY` en miembros, responsable, equipo padre y eliminación con miembros o subequipos (RN-07.45); `403 ADMIN_ONLY` en OpenAPI |
 | `backend/src/modules/teams/ports/teams.repository.port.ts`, `.../prisma-teams.repository.ts` | Método por usuario |
 | `backend/src/modules/catalogs/catalogs.service.ts` | Registro de semántica, invariantes, conjunto cerrado, unicidad de etiqueta, referencias desde parámetros |
 | `backend/src/modules/catalogs/dto/catalog.dto.ts` | `metadataSchema`, `closedSet` |
 | `backend/src/modules/catalogs/ports/catalogs.repository.port.ts`, `.../prisma-catalogs.repository.ts` | `existsItemLabel` normalizada, lectura por `key` |
 | `backend/src/modules/parameters/parameter-value.ts` | Delegar en el registro de reglas (conserva `PARAMETER_RANGES`) |
-| `backend/src/modules/parameters/parameters.service.ts` | Validación con referencias, `requiresConfigure` |
+| `backend/src/modules/parameters/parameters.service.ts` | Validación con referencias, `requiresConfigure`, `readOnly` (`crm.moneda_base`) |
 | `backend/src/modules/parameters/parameters.controller.ts`, `dto/parameter.dto.ts` | `GET /parameters/authentication`; metadatos de presentación |
 | `backend/src/modules/audit/audit-diff.ts`, `audit.service.ts` | Enmascarado (DM-29) |
 | `backend/src/modules/audit/audit-filter.ts`, `dto/audit-log.dto.ts`, `audit-logs.controller.ts`, `audit-query.service.ts`, `ports/audit-query.repository.port.ts`, `.../prisma-audit.repository.ts` | Filtro `field`, `layout=fields` |
-| `backend/src/modules/access/app-routes.registry.json` | `/administracion/productos`, `/administracion/conversiones` |
-| `backend/prisma/seed/access-catalog.ts` | Acciones, roles comerciales, opciones `admin-productos`/`admin-conversiones` (Fase 0 salvo las opciones) |
+| `backend/src/modules/access/app-routes.registry.json` | `/administracion/productos`, `/administracion/conversiones`, `/administracion/tipos-cambio` |
+| `backend/prisma/seed/access-catalog.ts` | Acciones, roles comerciales de sistema, opciones `admin-productos`/`admin-conversiones`/`admin-tipos-cambio` (Fase 0 salvo las opciones) |
 
 ### Backend — nuevos
 
@@ -700,13 +764,15 @@ cambios y los parámetros de login local se indicarán como no aplicables.
 |---|---|
 | `backend/src/modules/catalogs/catalog-semantics.registry.ts` (+ `.spec.ts`) | Esquemas e invariantes por `key` (00 §3.3) — Fase 0 |
 | `backend/src/modules/catalogs/catalog-lookup.service.ts` (+ `.spec.ts`) | Lectura de activos por `key` para los módulos — Fase 0 |
-| `backend/src/modules/parameters/parameter-rules.registry.ts` (+ `.spec.ts`) | Reglas por clave con `zod` (dependencia ya presente en `env.schema.ts`): rangos, valores, esquemas JSON, referencias, `requiresConfigure`, `editor` — Fase 0 |
+| `backend/src/modules/parameters/parameter-rules.registry.ts` (+ `.spec.ts`) | Reglas por clave con `zod` (dependencia ya presente en `env.schema.ts`): rangos, valores, esquemas JSON, referencias, `requiresConfigure`, `readOnly`, `editor` (incluye RN-07.46: `crm.moneda_base` solo lectura, `crm.tipos_cambio.dias_aviso_antiguedad` 1–366, `nit` solo `AVISAR`\|`NO`) — Fase 0 |
 | `backend/src/modules/parameters/parameter-reader.ts` (02 L.2) | Lector tipado con defecto; aquí se le añade la validación del registro — Fase 0 |
 | `backend/src/modules/access/crm-profile.ts` (+ `.spec.ts`) | Regla pura de perfil comercial (D-07.3) |
 | `backend/src/modules/teams/user-teams.controller.ts` | `PUT /users/{id}/teams` |
 | `backend/src/modules/crm-masters/` (`crm-masters.module.ts`, `product-families.controller.ts`, `products.controller.ts`, `units-of-measure.controller.ts`, `unit-conversion-rules.controller.ts`, servicios, `dto/`, `ports/`, specs) | F.7. Si 03 crea antes el puerto de lectura de productos, se reutiliza |
 | `backend/src/infrastructure/database/prisma/repositories/prisma-crm-masters.repository.ts` | Adaptador |
-| `backend/prisma/migrations/<ts>_audit_logs_append_only/migration.sql` + `backend/prisma/rollbacks/<ts>_audit_logs_append_only.down.sql` | D-07.11 |
+| `backend/src/modules/exchange-rates/` (`exchange-rates.module.ts`, `exchange-rates.controller.ts`, `currencies.controller.ts`, `exchange-rates.service.ts`, `dto/exchange-rate.dto.ts`, `ports/exchange-rate.repository.port.ts`, specs) | F.7 tipos de cambio y monedas (RN-07.44). Si la Fase 0 ya ubica `ExchangeRateReader` en un módulo, se añade ahí el `ExchangeRateRepository` de escritura |
+| `backend/src/infrastructure/database/prisma/repositories/prisma-exchange-rates.repository.ts` | Adaptador (único `uq_exchange_rates_currency_effective_date` → `409 EXCHANGE_RATE_DUPLICATE`) |
+| `backend/prisma/migrations/<ts>_audit_logs_append_only/migration.sql` + `backend/prisma/rollbacks/<ts>_audit_logs_append_only.down.sql` | D-07.11, ADR-025 |
 
 ### Frontend — modificar
 
@@ -719,6 +785,7 @@ cambios y los parámetros de login local se indicarán como no aplicables.
 | `frontend/src/features/admin/catalogs/{CatalogsPage.tsx, catalogs.api.ts, catalogs.errors.ts}`, `components/{CatalogDetailDialog.tsx, CatalogItemForm.tsx}` | Formulario de semántica, errores, conjunto cerrado |
 | `frontend/src/features/admin/parameters/{ParametersPage.tsx, parameters.api.ts, parameters.schemas.ts}`, `components/ParameterEditDialog.tsx` | Grupos, selectores, editores |
 | `frontend/src/features/admin/audit/{AuditPage.tsx, audit.api.ts, audit-format.ts}`, `components/AuditFilters.tsx` | Entidad, campo, vista por campo |
+| `frontend/src/features/admin/teams/{TeamsPage.tsx, teams.permissions.ts, teams.errors.ts}`, `components/{TeamFormDialog.tsx, TeamMembersDialog.tsx}` | Acciones de miembros, responsable, padre y eliminación con hijos solo para administrador; mensaje de `ADMIN_ONLY` |
 | `frontend/src/features/admin/admin-routes.ts`, `frontend/src/routes/route-paths.ts` | Rutas nuevas |
 | `frontend/src/features/admin/common/admin-api.ts` | Mensajes de los códigos nuevos |
 
@@ -731,57 +798,67 @@ cambios y los parámetros de login local se indicarán como no aplicables.
 | `frontend/src/features/admin/parameters/components/editors/{RequiredFieldsEditor, CatalogDefaultsEditor, StageTransitionsEditor, PriorityMapEditor, ProgressRulesEditor}.tsx` | Editores estructurados |
 | `frontend/src/features/admin/products/` (`ProductsPage.tsx`, `products.api.ts`, `products.queries.ts`, `products.schemas.ts`, `products.permissions.ts`, `components/…`, specs) | E.5 |
 | `frontend/src/features/admin/conversions/` (misma estructura) | E.5 |
+| `frontend/src/features/admin/exchange-rates/` (`ExchangeRatesPage.tsx`, `exchange-rates.api.ts`, `exchange-rates.queries.ts`, `exchange-rates.schemas.ts`, `exchange-rates.permissions.ts`, `components/{ExchangeRateFormDialog.tsx, CurrenciesTab.tsx}`, specs) | E.5 tipos de cambio |
 
 ### Pruebas
 
 - Backend unitarias: `*.spec.ts` junto a cada archivo citado.
-- Integración: `backend/test/{access-users, access-roles, catalogs, parameters, audit, teams}.e2e.spec.ts` (ampliar) y `backend/test/crm-masters.e2e.spec.ts`, `backend/test/audit-immutability.e2e.spec.ts` (nuevos).
+- Integración: `backend/test/{access-users, access-roles, catalogs, parameters, audit, teams}.e2e.spec.ts` (ampliar) y `backend/test/crm-masters.e2e.spec.ts`, `backend/test/exchange-rates.e2e.spec.ts`, `backend/test/audit-immutability.e2e.spec.ts` (nuevos).
 - Frontend: specs RTL de las pantallas citadas; `src/routes/route-registry.spec.ts` (rutas nuevas).
 - E2E: `frontend/tests/e2e/admin-crm.spec.ts` (PF-07.45, PF-07.46).
 
 ### Documentación
 
-`docs/api/README.md` (endpoints y códigos), addendum a ADR-018 (DM-10) y a ADR-020
-(D-07.2, DM-12), `docs/database/data-model.md` (disparadores de auditoría, columnas de
+`docs/api/README.md` (endpoints y códigos, incluidos `/exchange-rates` y `/currencies`), addendum a ADR-018 (DM-10) y a ADR-020
+(D-07.2, DM-12), ADR-024 (tipos de cambio) y ADR-025 (disparadores) ya escritos, `docs/database/data-model.md` (disparadores de auditoría, columnas de
 usuario), `docs/deployment/environments.md` (`REVOKE` sobre `audit_logs`),
 `frontend/src/features/admin/README.md` (áreas nuevas), skill `access-management`
 (acciones nuevas), CHANGELOG, y esta especificación y la matriz al cerrar.
 
 ---
 
-## Decisiones pendientes del módulo
+## Decisiones del módulo (resueltas el 2026-10-10)
 
-Se reutilizan de 00: **DM-6** (transiciones), **DM-7** (umbrales), **DM-10**
-(`COUNTRY`), **DM-11** (roles), **DM-12** (equipos y ADR-020, bloqueante antes de
-Clientes), **DM-14** (un país por usuario), **DM-23** (productos), **DM-24**
-(conversiones), **DM-29** (PII en auditoría), **DM-30** (obligatoriedad de código y
-país, refinada por D-07.3), **DM-32** (menú), **DM-34** (`editar` vs `administrar`).
+Todas las decisiones del módulo quedaron **resueltas por el responsable de negocio el
+2026-10-10**. Se conservan los identificadores; la columna "Valor final" indica si se
+aprobó el valor recomendado o recoge la respuesta del responsable.
 
-| # | Pregunta | Recomendación por defecto | Impacto si cambia |
+Se reutilizan de 00 (todas resueltas, 00 §10): **DM-6** (transiciones), **DM-7**
+(umbrales), **DM-10** (`COUNTRY`), **DM-11** (roles CRM de sistema), **DM-12** (equipos =
+asignación de acceso, addendum ADR-020), **DM-14** (un país por usuario), **DM-23**
+(productos: carga por script y mantenimiento con `productos.configurar` en este módulo),
+**DM-24** (conversiones: factores del negocio, sin tonelaje manual en líneas), **DM-29**
+(PII de contactos enmascarada en auditoría), **DM-30** (código y país obligatorios para
+usuarios del CRM, refinada por D-07.3), **DM-32** (menú con cada módulo), **DM-34**
+(`editar` vs `administrar`) y **DM-36** (moneda base USD y tipos de cambio, ADR-024; su
+mantenimiento es la extensión de alcance de F-46). DM-23, DM-24, DM-29 y DM-30 quedan
+aprobadas con su valor recomendado.
+
+| # | Pregunta | Valor final (resuelta 2026-10-10) | Impacto si cambia |
 |---|---|---|---|
-| **D-07.1** | ¿Los roles `asesor`, `manager` y `responsable-pais` son de sistema? Con `isSystem` (00 §4.4) su matriz es de solo lectura (D1) y el alcance §9.2 pide "asignar permisos por módulo y operación" | Sembrarlos con `isSystem = false` y **solo en el alta** (la semilla no repone sus asignaciones), para que el administrador ajuste la matriz. Es seguro porque todos los permisos del CRM se siembran en la Fase 0 (DM-32): no aparecerán permisos nuevos que haya que repartir después. **Requiere enmendar 00 §4.4**; mientras no se enmiende rige 00 y la personalización se hace con "Duplicar" | Con `isSystem = true`: la matriz de los iniciales solo cambia por semilla; los administradores trabajan con copias |
-| **D-07.2** | ¿Cambiar el país de un usuario es "asignar acceso"? | Sí: exclusivo del administrador (addendum a ADR-020, junto con DM-12), porque con `COUNTRY` cambia lo que ve | Si no, el gestor de accesos podría ampliar la visibilidad de un responsable de país |
-| **D-07.3** | ¿Cuándo se exigen código de colaborador y país? (refina DM-30) | A todo usuario con un **rol comercial** = rol vigente que concede algún permiso de recursos del CRM (00 §5.2), excepto `administrador`. Se comprueba al asignar roles, en el alta con roles y al editar (no se pueden vaciar) | Si se exige a todos, hay que rellenar los usuarios existentes y el administrador sembrado |
-| **D-07.4** | ¿Cómo se asigna equipo desde Usuarios sin duplicar Equipos? | `PUT /users/{id}/teams` servido por el módulo `teams` con las mismas reglas y eventos | Alternativa: solo desde Equipos (el alcance §9.1 pide "asignar equipo" en usuarios) |
-| **D-07.5** | ¿Qué es "duplicado" en un catálogo? | Mismo `code` (existe) o misma etiqueta normalizada, contando inactivos | Si se permite la misma etiqueta, solo `code` protege; el formulario mostraría opciones iguales |
-| **D-07.6** | ¿Cuándo se entregan las protecciones de catálogos y parámetros, si las pantallas ya existen? | Con la semilla en la Fase 0 (registro de semántica, reglas de parámetros, bloqueo de desactivación de códigos referenciados). Las mejoras de pantalla, al final | Si se esperan al final, durante las fases 1–6 un administrador puede romper invariantes desde las pantallas ya publicadas |
-| **D-07.7** | ¿Cómo se validan los parámetros JSON y de lista? | Registro por clave con `zod` (ya dependencia del backend), referencias a catálogos validadas en el servicio, `requiresConfigure` para los estructurales (RN-07.32) | Sin registro, un valor mal formado rompe al módulo que lo lee |
-| **D-07.8** | "Tipo de autenticación o ingreso permitido" | Solo lectura desde `AUTH_PROVIDER` (`GET /parameters/authentication`); la configuración funcional de login son los `seguridad.*` existentes. Sin parámetro editable (00 C6, ADR-019) | Hacerlo editable sería un sistema paralelo prohibido por §9.4 y requeriría ADR |
-| **D-07.9** | ¿Dónde se mantienen conversiones, unidades, familias y productos? | Pantallas de Administración "Productos y unidades" y "Conversiones" sobre las tablas de 00 §2.3, con `productos.ver`/`productos.configurar` (reutiliza DM-23/DM-24). Destino fijo: unidad de tonelaje | Si se cargan solo por script, el alcance "conversiones y estimaciones comerciales" quedaría sin mantenimiento |
-| **D-07.10** | Vista de auditoría por campo | Presentación de `changes` + filtro `field` en `GET /audit-logs` y `layout=fields` en la exportación; sin tabla nueva | Una tabla por campo duplicaría la bitácora y su retención |
-| **D-07.11** | ¿Cómo se garantiza en la base que la auditoría no se modifica ni se borra? | Disparadores: `BEFORE UPDATE` y `BEFORE TRUNCATE` siempre rechazan; `BEFORE DELETE` rechaza filas con `occurred_at` dentro de `auditoria.dias_retencion` (la futura purga sigue siendo posible). Además `REVOKE UPDATE, DELETE` al rol de la aplicación como recomendación de despliegue | Sin ello, la restricción depende solo del código. Un `REVOKE` total sin disparador impediría la purga desde la aplicación |
-| **D-07.12** | ¿Cómo leen los formularios comerciales catálogos, países, usuarios y parámetros si `/catalogs`, `/users` y `/parameters` exigen permisos de administración? | Cada módulo expone sus opciones de formulario bajo su propio permiso (p. ej. `clientes.ver`), implementadas con `CatalogLookupService`/`ParameterReader` compartidos. Los endpoints de administración no se abren. Si la Fase 0 o el Módulo 2 ya fijan otro mecanismo, prevalece el suyo | Un endpoint genérico de consulta exigiría `@AuthenticatedOnly` (hoy reservado a `/me`) o un guard "cualquiera de" (addendum a ADR-008) |
-| **D-07.13** | ¿Mantenimiento de países? | No en este alcance: semilla esencial (DM-2); el usuario solo los selecciona | Añadir pantalla es aditivo (tabla ya existe) |
-| **D-07.14** | ¿Desactivar un asesor con registros abiertos se bloquea o reasigna? | No bloquea ni reasigna; los registros conservan al responsable y se reasignan en cada módulo con `administrar` | Bloquear exigiría que Administración consulte a todos los módulos |
+| **D-07.1** | ¿Los roles `asesor`, `manager` y `responsable-pais` son de sistema? | **Resuelta (2026-10-10), respuesta del responsable (DM-11):** son roles **de sistema** (`isSystem = true`) con permisos fijos (matriz 00 §5.4) que la semilla repone; para variar un perfil se **duplica** el rol. Se descarta la variante `isSystem = false` propuesta antes por este módulo; contradicción E1 con 00 §4.4 **cerrada** | Con `isSystem = false`, el administrador ajustaría la matriz de los iniciales y la semilla dejaría de reponerla |
+| **D-07.2** | ¿Cambiar el país de un usuario (y sus equipos) es "asignar acceso"? | **Resuelta (2026-10-10), respuesta del responsable (con DM-12):** sí. Cambiar los equipos de un usuario, los miembros, el responsable o la jerarquía de un equipo, eliminar un equipo con miembros o subequipos, y el país de un usuario son asignación de acceso, exclusivos del administrador (`403 ADMIN_ONLY`, addendum de 2026-10-10 a ADR-020). Crear un equipo sin miembros y editar nombre o descripción conservan sus permisos `equipos.*` (RN-07.5, RN-07.10, RN-07.45) | Si no, el gestor de accesos podría ampliar la visibilidad de un usuario con alcance `TEAM` o `COUNTRY` |
+| **D-07.3** | ¿Cuándo se exigen código de colaborador y país? (refina DM-30) | **Resuelta (2026-10-10): valor recomendado aprobado.** A todo usuario con un **rol comercial** = rol vigente que concede algún permiso de recursos del CRM (00 §5.2), excepto `administrador`. Se comprueba al asignar roles, en el alta con roles y al editar (no se pueden vaciar) | Si se exige a todos, hay que rellenar los usuarios existentes y el administrador sembrado |
+| **D-07.4** | ¿Cómo se asigna equipo desde Usuarios sin duplicar Equipos? | **Resuelta (2026-10-10): valor recomendado aprobado.** `PUT /users/{id}/teams` servido por el módulo `teams` con las mismas reglas y eventos; exclusivo del administrador (D-07.2) | Alternativa: solo desde Equipos (el alcance §9.1 pide "asignar equipo" en usuarios) |
+| **D-07.5** | ¿Qué es "duplicado" en un catálogo? | **Resuelta (2026-10-10): valor recomendado aprobado.** Mismo `code` (existe) o misma etiqueta normalizada, contando inactivos | Si se permite la misma etiqueta, solo `code` protege; el formulario mostraría opciones iguales |
+| **D-07.6** | ¿Cuándo se entregan las protecciones de catálogos y parámetros, si las pantallas ya existen? | **Resuelta (2026-10-10): valor recomendado aprobado.** Con la semilla en la **Fase 0** (registro de semántica, reglas de parámetros, bloqueo de desactivación de códigos referenciados). Las mejoras de pantalla, al final | Si se esperan al final, durante las fases 1–6 un administrador puede romper invariantes desde las pantallas ya publicadas |
+| **D-07.7** | ¿Cómo se validan los parámetros JSON y de lista? | **Resuelta (2026-10-10): valor recomendado aprobado.** Registro por clave con `zod` (ya dependencia del backend), referencias a catálogos validadas en el servicio, `requiresConfigure` para los estructurales (RN-07.32). El registro recoge además (RN-07.46): `crm.moneda_base` = `USD` de solo lectura (sustituye a `crm.moneda_por_defecto`), `crm.tipos_cambio.dias_aviso_antiguedad` 1–366 (defecto 31), `crm.clientes.unicidad_nit` eliminado (DM-4) y la clave `nit` de `crm.clientes.reglas_duplicidad` solo `AVISAR`\|`NO` | Sin registro, un valor mal formado rompe al módulo que lo lee |
+| **D-07.8** | "Tipo de autenticación o ingreso permitido" | **Resuelta (2026-10-10): valor recomendado aprobado.** Solo lectura desde `AUTH_PROVIDER` (`GET /parameters/authentication`); la configuración funcional de login son los `seguridad.*` existentes. Sin parámetro editable (00 C6, ADR-019) | Hacerlo editable sería un sistema paralelo prohibido por §9.4 y requeriría ADR |
+| **D-07.9** | ¿Dónde se mantienen conversiones, unidades, familias y productos (y, desde DM-36, los tipos de cambio)? | **Resuelta (2026-10-10): valor recomendado aprobado.** Pantallas de Administración "Productos y unidades" y "Conversiones" sobre las tablas de 00 §2.3, con `productos.ver`/`productos.configurar` (reutiliza DM-23/DM-24). Destino fijo: unidad de tonelaje. Los tipos de cambio se mantienen en "Tipos de cambio" con `parametros.ver`/`parametros.configurar`, **extensión de alcance aprobada por el responsable (2026-10-10), DM-36 / ADR-024**, dentro de F-46 | Si se cargan solo por script, el alcance "conversiones y estimaciones comerciales" quedaría sin mantenimiento |
+| **D-07.10** | Vista de auditoría por campo | **Resuelta (2026-10-10): valor recomendado aprobado.** Presentación de `changes` + filtro `field` en `GET /audit-logs` y `layout=fields` en la exportación; sin tabla nueva | Una tabla por campo duplicaría la bitácora y su retención |
+| **D-07.11** | ¿Cómo se garantiza en la base que la auditoría no se modifica ni se borra? | **Resuelta (2026-10-10) por [ADR-025](../../adr/ADR-025-inmutabilidad-de-la-auditoria-con-disparadores.md):** disparadores `BEFORE UPDATE` y `BEFORE TRUNCATE` que siempre rechazan; `BEFORE DELETE` rechaza filas con `occurred_at` dentro de `auditoria.dias_retencion` (la futura purga sigue siendo posible). `REVOKE UPDATE, DELETE` al rol de la aplicación recomendado en el despliegue | Sin ello, la restricción depende solo del código. Un `REVOKE` total sin disparador impediría la purga desde la aplicación |
+| **D-07.12** | ¿Cómo leen los formularios comerciales catálogos, países, usuarios y parámetros si `/catalogs`, `/users` y `/parameters` exigen permisos de administración? | **Resuelta (2026-10-10): valor recomendado aprobado.** Cada módulo expone sus opciones de formulario bajo su propio permiso (p. ej. `clientes.ver`), implementadas con `CatalogLookupService`/`ParameterReader` compartidos. Los endpoints de administración no se abren | Un endpoint genérico de consulta exigiría `@AuthenticatedOnly` (hoy reservado a `/me`) o un guard "cualquiera de" (addendum a ADR-008) |
+| **D-07.13** | ¿Mantenimiento de países? | **Resuelta (2026-10-10): valor recomendado aprobado.** No en este alcance: semilla esencial con los seis países de DM-2 (GT, SV, HN, CR, VE, EC); el usuario solo los selecciona. Las monedas, igual: sembradas y de solo lectura | Añadir pantalla es aditivo (tabla ya existe) |
+| **D-07.14** | ¿Desactivar un asesor con registros abiertos se bloquea o reasigna? | **Resuelta (2026-10-10): valor recomendado aprobado.** No bloquea ni reasigna; los registros conservan al responsable y se reasignan en cada módulo con `administrar` | Bloquear exigiría que Administración consulte a todos los módulos |
 
 ---
 
 ## Filas para la matriz
 
-| ID | Módulo | Funcionalidad | Alcance | Especificación | Entidades | Dependencias | Criterios | Pruebas | Estado | Decisión pendiente |
+| ID | Módulo | Funcionalidad | Alcance | Especificación | Entidades | Dependencias | Criterios | Pruebas | Estado | Decisiones (resueltas 2026-10-10) |
 |---|---|---|---|---|---|---|---|---|---|---|
-| F-43 | 7 Administración | Usuarios | §9.1 | [07](07-administracion.md) | `users` (+`employee_code`, `country_id`), `countries`, `teams`, `team_members`, `user_roles`, `audit_logs` | Fase 0 (migración 2, semilla de países); PLAN-ADMIN usuarios; ADR-020 | AC-07.1–AC-07.10 | PF-07.1–PF-07.5, PF-07.19–PF-07.24, PF-07.39, PF-07.43, PF-07.45 | especificada | DM-12, DM-14, DM-30, D-07.2, D-07.3, D-07.4, D-07.14 |
+| F-43 | 7 Administración | Usuarios | §9.1 | [07](07-administracion.md) | `users` (+`employee_code`, `country_id`; defaults `es-GT`/`America/Guatemala`), `countries`, `teams`, `team_members`, `user_roles`, `audit_logs` | Fase 0 (migración 2, semilla de países); PLAN-ADMIN usuarios y equipos; ADR-020 y su addendum de 2026-10-10 | AC-07.1–AC-07.10, AC-07.41 | PF-07.1–PF-07.5, PF-07.19–PF-07.24, PF-07.39, PF-07.43, PF-07.45, PF-07.49 | especificada | DM-12, DM-14, DM-30, D-07.2, D-07.3, D-07.4, D-07.13, D-07.14 |
 | F-44 | 7 Administración | Roles y permisos | §9.2 | [07](07-administracion.md) | `roles`, `permissions`, `role_permissions`, `role_menu_options`, enum `data_scope` | Fase 0 (migración 1, semilla de roles/permisos); PLAN-ADMIN roles; ADR-018, ADR-020 | AC-07.11–AC-07.17 | PF-07.6–PF-07.9, PF-07.25–PF-07.27, PF-07.45 | especificada | DM-10, DM-11, DM-32, DM-34, D-07.1 |
 | F-45 | 7 Administración | Catálogos | §9.3 | [07](07-administracion.md) | `catalogs`, `catalog_items` (17 `crm.*`), `system_parameters` (referencias) | Fase 0 (semilla, registro de semántica); PLAN-ADMIN catálogos | AC-07.18–AC-07.25 | PF-07.10, PF-07.11, PF-07.28–PF-07.33, PF-07.40, PF-07.46 | especificada | D-07.5, D-07.6, D-07.12 |
-| F-46 | 7 Administración | Parámetros generales | §9.4 | [07](07-administracion.md) | `system_parameters` (`crm.*`, `seguridad.*`), `units_of_measure`, `product_families`, `products`, `unit_conversion_rules` | Fase 0 (semilla de parámetros y maestros); PLAN-ADMIN parámetros; ADR-019 | AC-07.26–AC-07.33 | PF-07.12–PF-07.16, PF-07.34–PF-07.36, PF-07.41, PF-07.42 | especificada | DM-6, DM-7, DM-23, DM-24, D-07.7, D-07.8, D-07.9 |
-| F-47 | 7 Administración | Auditoría e historial de cambios | §9.5 | [07](07-administracion.md) | `audit_logs` | PLAN-ADMIN auditoría; eventos emitidos por los módulos 2–6 | AC-07.34–AC-07.39 | PF-07.17, PF-07.18, PF-07.37–PF-07.39, PF-07.44, PF-07.46 | especificada | DM-29, D-07.10, D-07.11 |
+| F-46 | 7 Administración | Parámetros generales (incluye tipos de cambio: **extensión de alcance aprobada por el responsable (2026-10-10), DM-36 / ADR-024**) | §9.4 | [07](07-administracion.md) | `system_parameters` (`crm.*`, `seguridad.*`), `units_of_measure`, `product_families`, `products`, `unit_conversion_rules`, `currencies` (solo lectura), `exchange_rates` | Fase 0 (semilla de parámetros, maestros, monedas y tipos de cambio; `ExchangeRateReader`); PLAN-ADMIN parámetros; ADR-019, ADR-024 | AC-07.26–AC-07.33, AC-07.40, AC-07.42 | PF-07.12–PF-07.16, PF-07.34–PF-07.36, PF-07.41, PF-07.42, PF-07.47, PF-07.48, PF-07.50, PF-07.51 | especificada | DM-6, DM-7, DM-23, DM-24, DM-36, D-07.7, D-07.8, D-07.9 |
+| F-47 | 7 Administración | Auditoría e historial de cambios | §9.5 | [07](07-administracion.md) | `audit_logs` | PLAN-ADMIN auditoría; eventos emitidos por los módulos 2–6; ADR-025 | AC-07.34–AC-07.39 | PF-07.17, PF-07.18, PF-07.37–PF-07.39, PF-07.44, PF-07.46 | especificada | DM-29, D-07.10, D-07.11 |

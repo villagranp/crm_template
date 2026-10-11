@@ -6,8 +6,11 @@
 - **Decisiones que lo enmarcan:** [ADR-004](../../adr/ADR-004-data-access-abstraction.md), [ADR-005](../../adr/ADR-005-rest-api-standard.md),
   [ADR-008](../../adr/ADR-008-authorization.md), [ADR-014](../../adr/ADR-014-modular-clean-architecture.md),
   [ADR-017](../../adr/ADR-017-design-system-grupo-ag.md), [ADR-018](../../adr/ADR-018-identity-access-model.md),
-  [ADR-020](../../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md)
-- **Estado:** especificación. **No** hay código, esquema ni migraciones de este módulo.
+  [ADR-020](../../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md) (con su addendum de 2026-10-10),
+  [ADR-021](../../adr/ADR-021-almacenamiento-de-adjuntos-en-sistema-de-archivos-montado.md)
+- **Estado:** especificación. **No** hay código, esquema ni migraciones de este módulo. Todas las
+  decisiones que lo afectaban quedaron **resueltas por el responsable de negocio el 2026-10-10**
+  (ver [Decisiones del módulo](#decisiones-del-módulo-resueltas-el-2026-10-10)).
 - **Skills aplicables:** `feature-development`, `requirements-analysis`, `user-story`, `api-design`, `authorization`,
   `access-management`, `backend-nestjs`, `database`, `prisma`, `frontend-react`, `design-system`, `security`,
   `testing`, `observability`, `documentation`, `code-review`
@@ -20,8 +23,9 @@
 > su dueño (este módulo o transversal, según `00` §11).
 >
 > No redefine entidades: todo nombre de modelo, tabla, catálogo, parámetro o permiso
-> que aparece aquí está definido en `00`. Donde `00` no decide algo que este módulo
-> necesita, se abre una decisión `D-02.n` con valor por defecto.
+> que aparece aquí está definido en `00`. Donde `00` no decidía algo que este módulo
+> necesita, se abrió una decisión `D-02.n`; todas quedaron aprobadas con su valor
+> recomendado el 2026-10-10.
 
 ---
 
@@ -39,7 +43,7 @@
 - [J. Pruebas funcionales](#j-pruebas-funcionales)
 - [K. Dependencias y orden](#k-dependencias-y-orden)
 - [L. Archivos de código a implementar](#l-archivos-de-código-a-implementar)
-- [Decisiones pendientes del módulo](#decisiones-pendientes-del-módulo)
+- [Decisiones del módulo (resueltas el 2026-10-10)](#decisiones-del-módulo-resueltas-el-2026-10-10)
 - [Filas para la matriz](#filas-para-la-matriz)
 
 ---
@@ -51,7 +55,9 @@ sus contactos (`Contact`) registrados localmente en el CRM. Resuelve:
 
 1. **Encontrar** un cliente con filtros combinables, dentro de lo que el usuario está autorizado a ver.
 2. **Registrar** clientes nuevos con identificador CRM automático, validaciones de formato,
-   unicidad configurable y detección de duplicados antes de guardar.
+   unicidad configurable del código de cliente y detección de duplicados antes de guardar
+   (incluido el aviso de NIT repetido, que no bloquea: varios establecimientos de un mismo
+   cliente comparten NIT, DM-4).
 3. **Consultar y mantener** la ficha de la cuenta: editar según permisos y campo, desactivar,
    eliminar lógicamente sin perder historia, administrar adjuntos.
 4. **Mostrar** los proyectos de la cuenta consultando al Módulo de Proyectos, sin poseer sus datos.
@@ -90,11 +96,11 @@ Inventario sin omisiones de §4. Cada fila se desarrolla en E, F, I y J.
 
 | Campo (§4.2) | Columna de `Customer` (00 §2.4) | Origen del valor |
 |---|---|---|
-| Código de cliente | `customerCode` (+ `customerCodeNormalized`) | Usuario (DM-18) |
+| Código de cliente | `customerCode` (+ `customerCodeNormalized`) | Usuario (DM-18): opcional, único por país; identifica cada establecimiento (DM-4) |
 | Identificador interno CRM | `crmCode` | **Generado** con `Sequence` `crm.cliente` (`CLI-000123`), inmutable |
 | Razón social | `legalName` (+ `legalNameNormalized`) | Usuario |
 | Nombre comercial | `tradeName` | Usuario |
-| País | `countryId` → `Country` | Tabla `countries` (activos) |
+| País | `countryId` → `Country` | Tabla `countries` (activos): Guatemala, El Salvador, Honduras, Costa Rica, Venezuela y Ecuador (DM-2) |
 | Ciudad | `city` | Texto libre (DM-19) |
 | Dirección | `address` | Usuario |
 | Teléfono | `phone` | Usuario, validado por país |
@@ -103,12 +109,19 @@ Inventario sin omisiones de §4. Cada fila se desarrolla en E, F, I y J.
 | Estado | `statusId` → catálogo `crm.estado_cliente` | Catálogo; por defecto `crm.valores_por_defecto["customer.statusId"]` |
 | Calificación | `ratingId` → catálogo `crm.calificacion_cliente` | Catálogo |
 | Responsable de ventas | `salesOwnerId` → `User` | Usuarios elegibles (D-02.2) |
-| NIT | `taxId` (+ `taxIdNormalized`); etiqueta `Country.taxIdLabel` | Usuario, validado por país (DM-3) |
-| Archivos adjuntos | `Attachment` (con `customerId`) + `StoredFile` | Subida (**bloqueada por DM-8**) |
+| NIT | `taxId` (+ `taxIdNormalized`); etiqueta `Country.taxIdLabel` (GT NIT, SV NIT, HN RTN, CR Cédula jurídica, VE RIF, EC RUC) | Usuario, validado por país (DM-3). **No es único**: NIT repetido en el mismo país = aviso no bloqueante (DM-4) |
+| Archivos adjuntos | `Attachment` (con `customerId`) + `StoredFile` | Subida al almacenamiento de [ADR-021](../../adr/ADR-021-almacenamiento-de-adjuntos-en-sistema-de-archivos-montado.md) (DM-8 resuelta) |
 
 Reglas de §4.2 cubiertas en C: identificador único, obligatorios, correo y teléfono, duplicados
-antes de guardar, unicidad de código y NIT configurada, existencia del asesor, valores de
-catálogo, usuario y fecha de creación, auditoría.
+antes de guardar, unicidad configurada (código de cliente único por país, endurecible a global;
+NIT sin unicidad, con aviso de repetido, DM-4), existencia del asesor, valores de catálogo,
+usuario y fecha de creación, auditoría.
+
+**Establecimientos (DM-4, respuesta del responsable: "puede ser el mismo cliente pero con dos
+establecimientos").** Cada establecimiento (sucursal) es un cliente propio en `customers`, con su
+propio código de cliente cuando se informa (único por país, es lo que lo identifica) y su propio
+`crmCode`. Varios establecimientos pueden compartir NIT: el NIT compartido es el vínculo entre
+ellos y la búsqueda por NIT los muestra juntos. No existe una entidad "grupo de empresa" (00 §2.4).
 
 ### B.3 Ficha del cliente (F-07, §4.3)
 
@@ -155,8 +168,8 @@ seleccionar contacto principal · mostrar contactos dentro de la ficha.
 
 ## C. Reglas de negocio
 
-Numeradas `RN-02.n`. Las que dependen de una decisión abierta citan su id; se implementan con
-el valor por defecto mientras no se objete.
+Numeradas `RN-02.n`. Las que dependen de una decisión citan su id; todas esas decisiones
+quedaron resueltas el 2026-10-10 (ver la sección de decisiones).
 
 ### C.1 Identidad y códigos
 
@@ -165,7 +178,8 @@ el valor por defecto mientras no se objete.
   **en la misma transacción** del alta. Nunca `MAX()+1`. Es inmutable: ningún DTO de edición lo acepta.
 - **RN-02.2** El código de cliente (`customerCode`) es opcional, lo introduce el usuario y solo se
   edita con `clientes.administrar` (DM-18). Se normaliza a mayúsculas sin espacios ni guiones
-  (00 §6.2.4).
+  (00 §6.2.4). Es único por país (RN-02.13) y es el dato que identifica a cada establecimiento
+  de un cliente que comparte NIT con otros (DM-4).
 - **RN-02.3** Los datos de demostración usan códigos `DEMO-CLI-…` y no consumen la secuencia (00 §8.1);
   la API no permite fijar `crmCode`.
 
@@ -182,7 +196,8 @@ el valor por defecto mientras no se objete.
   `+`, `-`, `(`, `)`, con entre 7 y 20 dígitos (DM-3).
 - **RN-02.7** NIT (identificador fiscal del país, etiqueta `Country.taxIdLabel`): si
   `Country.taxIdPattern` existe, el valor normalizado debe cumplirlo; si no, alfanumérico de 4 a 30
-  caracteres tras normalizar (mayúsculas, sin espacios, guiones ni puntos) (DM-3).
+  caracteres tras normalizar (mayúsculas, sin espacios, guiones ni puntos) (DM-3). El NIT **no es
+  único** (DM-4): repetirlo en el mismo país solo genera el aviso de RN-02.14.
 - **RN-02.8** País: debe existir y estar activo para un alta o para cambiar el país. Un cliente ya
   asociado a un país desactivado lo conserva al editar otros campos.
 - **RN-02.9** Valores de catálogo (`companyTypeId`, `statusId`, `ratingId`): cada uno debe pertenecer a
@@ -200,25 +215,50 @@ el valor por defecto mientras no se objete.
   acepta referencias por `id` (pantalla) o por clave natural (importación: `code` de catálogo,
   `isoCode` de país, código de colaborador o correo del responsable, D-02.17) y devuelve **todos** los
   errores de la entrada, no solo el primero.
+- **RN-02.32** Contenido peligroso en texto libre (D-06.11, aprobada el 2026-10-10): en el alta y en
+  la edición manual, un valor de razón social, nombre comercial, ciudad o dirección que, tras
+  recortar, empieza por `=`, `@`, tabulador o retorno de carro se rechaza con
+  `422 FORMULA_NOT_ALLOWED` y el campo en `details[].field`. Es la misma regla que aplica la carga
+  masiva al leer (06 RN-06.11), de modo que ambos caminos aceptan exactamente lo mismo; vive en
+  `CustomerValidationService` (RN-02.12). En la edición se evalúa solo sobre los campos enviados.
+  El mensaje nunca repite el valor. Evita guardar cargas útiles que una hoja de cálculo ejecutaría
+  al exportar (la neutralización de la exportación sigue existiendo como segunda defensa).
 
 ### C.3 Unicidad y duplicados
 
-- **RN-02.13** Unicidad dura de código de cliente y NIT (00 §6.2): siempre únicos **por país** (lo
-  garantiza la base: `uq_customers_country_customer_code`, `uq_customers_country_tax_id`). Con
-  `crm.clientes.unicidad_codigo` o `crm.clientes.unicidad_nit` = `GLOBAL`, el servicio comprueba además
-  en todos los países bajo `pg_advisory_xact_lock` por valor normalizado. Errores `409 CUSTOMER_CODE_TAKEN`
-  / `409 TAX_ID_TAKEN`. Un cliente eliminado lógicamente **sigue ocupando** su código y su NIT: el
-  error lo indica (`details.isDeleted = true`) para que quien tenga permiso lo restaure (D-02.6).
-  La violación del índice único por carrera se traduce al mismo `409`, nunca a `500`.
-- **RN-02.14** Duplicados blandos de clientes según `crm.clientes.reglas_duplicidad` (DM-4). Claves
-  admitidas: `razonSocialNormalizada`, `nombreComercialNormalizado`, `correo`, `telefono`; valores
-  `NO | AVISAR | BLOQUEAR`. Ámbito: mismo país; todos los países si `crm.clientes.unicidad_nit` es
-  `GLOBAL` (D-02.4). Incluye clientes eliminados lógicamente (marcados como tales).
-  - `AVISAR` → `409 POSSIBLE_DUPLICATE` con los candidatos; el usuario reenvía con
-    `acknowledgedDuplicateIds` que contenga **todos** los candidatos devueltos. Si aparece un candidato
-    nuevo no reconocido, vuelve el `409`.
-  - `BLOQUEAR` → `409 DUPLICATE_BLOCKED` sin opción de confirmar.
+- **RN-02.13** Unicidad dura **solo del código de cliente** (00 §6.2, DM-4 resuelta): único **por
+  país** (lo garantiza la base: `uq_customers_country_customer_code`; los nulos no colisionan porque
+  el código es opcional, DM-18). Con `crm.clientes.unicidad_codigo = GLOBAL`, el servicio comprueba
+  además en todos los países bajo `pg_advisory_xact_lock` por valor normalizado. Error
+  `409 CUSTOMER_CODE_TAKEN`. Un cliente eliminado lógicamente **sigue ocupando** su código: el error
+  lo indica (`details.isDeleted = true`) para que quien tenga permiso lo restaure (D-02.6). La
+  violación del índice único por carrera se traduce al mismo `409`, nunca a `500`.
+  El **NIT no es único** (respuesta del responsable: los establecimientos de un mismo cliente pueden
+  compartir NIT): no existe `uq_customers_country_tax_id` ni el parámetro
+  `crm.clientes.unicidad_nit` (ambos eliminados de 00); `idx_customers_country_id_tax_id` es solo un
+  índice de búsqueda para el aviso de RN-02.14. Ningún error de la API bloquea por NIT repetido.
+- **RN-02.14** Duplicados blandos de clientes según `crm.clientes.reglas_duplicidad` (DM-4), cuyo
+  valor por defecto es `{"razonSocialNormalizada":"AVISAR","nit":"AVISAR"}`. Claves admitidas:
+  `razonSocialNormalizada`, `nombreComercialNormalizado`, `correo`, `telefono` (valores
+  `NO | AVISAR | BLOQUEAR`) y `nit` (solo `AVISAR | NO`: el registro de parámetros rechaza
+  `BLOQUEAR` para esta clave, 00 §6.2; si aun así el servicio leyera otro valor, lo trata como
+  `AVISAR` y lo registra como advertencia en el log, nunca bloquea). Ámbito: **mismo país**
+  (D-02.4). Incluye clientes eliminados lógicamente (marcados como tales): su NIT sigue contando
+  para el aviso.
+  - **Cuándo se evalúa:** en el alta, todas las claves; en la edición, solo las claves cuyo valor
+    cambia, y todas si cambia el país (que cambia el ámbito, D-02.5). En particular, el aviso de NIT
+    repetido se evalúa en el alta y en la edición **cuando cambia el NIT** (o el país); una edición
+    que no toca el NIT no vuelve a avisar.
+  - `AVISAR` → `409 POSSIBLE_DUPLICATE` con los candidatos y el motivo de cada uno (`reason`, F.3;
+    `TAX_ID` para el NIT); el usuario reenvía con el indicador explícito de confirmación
+    `acknowledgedDuplicateIds`, que debe contener **todos** los candidatos devueltos. Si aparece un
+    candidato nuevo no reconocido, vuelve el `409`. Es el mismo mecanismo para la razón social y
+    para el NIT.
+  - `BLOQUEAR` → `409 DUPLICATE_BLOCKED` sin opción de confirmar (nunca para `nit`).
   - Clave desconocida en el parámetro → se ignora con advertencia en el log.
+  - En la carga masiva el aviso de NIT repetido es la advertencia `DUPLICATE_TAX_ID` de la fila
+    (06 RN-06.18, D-06.6): la fila queda válida y se importa solo si la confirmación incluye las
+    filas con advertencias.
 - **RN-02.15** Candidatos fuera del alcance del usuario: se informan con datos mínimos (`crmCode`,
   `legalName`, país, nombre del responsable, `isVisible = false`) y sin enlace (D-02.3).
 - **RN-02.16** Contactos: el mismo correo normalizado en el **mismo cliente** se bloquea siempre (índice
@@ -234,7 +274,9 @@ el valor por defecto mientras no se objete.
 ### C.4 Visibilidad, edición y eliminación
 
 - **RN-02.18** Visibilidad de un cliente (00 §4.2): `OWN` → `salesOwnerId = yo`; `TEAM` →
-  `salesOwnerId` ∈ miembros y responsables de mis equipos con subequipos (DM-12); `COUNTRY` →
+  `salesOwnerId` ∈ miembros y responsables de mis equipos, **incluidos los subequipos** (DM-12
+  resuelta; cambiar miembros, responsable o jerarquía de un equipo, o el país de un usuario, es
+  asignación de acceso exclusiva del administrador, addendum de ADR-020); `COUNTRY` →
   `countryId = users.country_id` (DM-14; usuario sin país → D-02.8); `ORGANIZATION` → todos. Además,
   **herencia** (DM-13): visible si el usuario ve al menos un proyecto no eliminado del cliente. Los
   clientes eliminados no aparecen en ninguna consulta salvo `deleted=true` con `clientes.eliminar`.
@@ -255,8 +297,8 @@ el valor por defecto mientras no se objete.
   (D-02.16 fija el conjunto). Al eliminar, contactos, adjuntos, historial y auditoría se conservan
   intactos; nada se borra físicamente.
 - **RN-02.23** Restaurar un cliente eliminado (D-02.6): `clientes.eliminar` y cliente que estaría en
-  el alcance directo; revalida la unicidad (RN-02.13) por si otro cliente ocupó los valores con
-  `GLOBAL` activado después.
+  el alcance directo; revalida la unicidad del código de cliente (RN-02.13) por si otro cliente lo
+  ocupó con `GLOBAL` activado después. El NIT no se revalida como bloqueo (no es único, DM-4).
 
 ### C.5 Contactos y contacto principal
 
@@ -280,13 +322,29 @@ el valor por defecto mientras no se objete.
 ### C.6 Adjuntos
 
 - **RN-02.29** Los adjuntos del cliente son filas de `Attachment` con `customerId` y un `StoredFile`
-  (00 §2.11). Tamaño máximo `crm.adjuntos.max_mb`; tipos de `crm.adjuntos.tipos_permitidos`
-  comprobados por tipo declarado **y** firma del contenido; nombre de archivo saneado. Subir y
-  eliminar exigen poder editar el cliente (RN-02.20); listar y descargar exigen verlo.
-  Eliminar = `deletedAt` en `attachments` y `stored_files`.
-- **RN-02.30** **Bloqueo:** ninguna subida se habilita hasta aprobar el ADR de almacenamiento (DM-8).
-  El contrato se implementa; los endpoints de subida y descarga no se registran hasta entonces y la
-  interfaz muestra la sección como no disponible. Listar devuelve la colección vacía.
+  (00 §2.11). Tamaño máximo `crm.adjuntos.max_mb` (10); tipos de `crm.adjuntos.tipos_permitidos`
+  (PDF, JPEG, PNG, Word `.docx` y Excel `.xlsx`) comprobados por la **firma del contenido** (magic
+  bytes), cotejada con la extensión y con la lista blanca; el `Content-Type` del navegador no se
+  usa. Exceso de tamaño → `413 ATTACHMENT_TOO_LARGE` (el tamaño se corta en streaming al superar
+  el máximo); tipo no admitido → `422 ATTACHMENT_TYPE_NOT_ALLOWED` (DC-4). Nombre de archivo
+  saneado (sin separadores de ruta ni caracteres de control, máx. 255), guardado solo para mostrar
+  y para `Content-Disposition`. Subir y eliminar exigen poder editar el cliente (RN-02.20); listar
+  y descargar exigen verlo. Eliminar = `deletedAt` en `attachments` y `stored_files`; el binario
+  se purga después según la retención.
+- **RN-02.30** Almacenamiento y descarga (DM-8 resuelta, [ADR-021](../../adr/ADR-021-almacenamiento-de-adjuntos-en-sistema-de-archivos-montado.md)):
+  el binario se guarda con el puerto `FileStorage` y su adaptador `LocalFileSystemStorage` bajo la
+  ruta base `ATTACHMENTS_STORAGE_PATH` (por defecto `./storage/attachments`, carpeta ignorada por
+  Git, montada como volumen Docker hacia el almacenamiento del servidor). La clave
+  `stored_files.storage_key` la genera el servidor (`<año>/<mes>/<uuid>`, sin el nombre ni la
+  extensión del usuario); el adaptador rechaza cualquier ruta resuelta fuera de la base (*path
+  traversal*) y no sigue enlaces simbólicos; escribe a un temporal y renombra al final, y si la
+  transacción de base falla borra el binario. El adjunto **nunca** se sirve como estático (ni NGINX
+  ni `express.static`): la descarga se transmite por la API (`GET /customers/{customerId}/attachments/{attachmentId}/content`,
+  rutas por dueño, DC-2) **después** de comprobar permiso y visibilidad del cliente, con
+  `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff` y el `Content-Type`
+  detectado al guardar. Sin URL firmada, sin vista previa en línea y sin antivirus (mitigación:
+  lista blanca por firma y descarga como `attachment`). El respaldo es responsabilidad del
+  almacenamiento del servidor.
 
 ### C.7 Trazabilidad
 
@@ -321,7 +379,7 @@ Todo definido en `00`. Este módulo **no** crea tablas, columnas ni catálogos.
 | `User`, `TeamMember`, `Team`, `Role`, `UserRole` | Plantilla (Admin) | Responsable de ventas, elegibilidad, resolución del alcance |
 | `SystemParameter` | Fase 0 / Módulo 7 | Unicidad, duplicidad, obligatorios, valores por defecto, adjuntos |
 | `Sequence` | Fase 0 | Folio `crm.cliente` |
-| `StoredFile` | Plantilla | Metadatos del binario del adjunto (bloqueado por DM-8) |
+| `StoredFile` | Plantilla | Metadatos del binario del adjunto: `storage_key` generado, `file_name` saneado, `mime_type` detectado, `checksum` SHA-256 (ADR-021) |
 | `AuditLog` | Plantilla | Rastro de mutaciones |
 | `Project` | Módulo 3 | **Lectura** para herencia de visibilidad (RN-02.18), conteo de dependencias (RN-02.22) y la sección F-08 (vía contrato del Módulo 3) |
 | `Visit`, `Activity` | Módulo 4 | **Lectura** de conteos para el bloqueo de eliminación (RN-02.22) |
@@ -358,17 +416,23 @@ El código nunca compara etiquetas ni UUID: pregunta por la semántica (00 §3.3
 
 ### D.5 Parámetros utilizados (00 §8.2)
 
-`crm.clientes.unicidad_codigo`, `crm.clientes.unicidad_nit`, `crm.clientes.reglas_duplicidad`,
-`crm.contactos.reglas_duplicidad`, `crm.campos_obligatorios` (clave `customer`),
-`crm.valores_por_defecto` (clave `customer.statusId`), `crm.adjuntos.max_mb`,
-`crm.adjuntos.tipos_permitidos`.
+`crm.clientes.unicidad_codigo`, `crm.clientes.reglas_duplicidad` (por defecto
+`{"razonSocialNormalizada":"AVISAR","nit":"AVISAR"}`), `crm.contactos.reglas_duplicidad`,
+`crm.campos_obligatorios` (clave `customer`), `crm.valores_por_defecto` (clave
+`customer.statusId`), `crm.adjuntos.max_mb`, `crm.adjuntos.tipos_permitidos`.
+`crm.clientes.unicidad_nit` **ya no existe** (DM-4: un parámetro no puede imponer una unicidad
+que el negocio descartó).
+
+Configuración de despliegue (no es parámetro): `ATTACHMENTS_STORAGE_PATH` (ADR-021, 00 §8.2), que
+este módulo añade a `.env.example` y a la validación de configuración al implementarse.
 
 ### D.6 Restricciones de integridad relevantes
 
 | Restricción | Garantiza |
 |---|---|
 | `crm_code` único | RN-02.1 |
-| `uq_customers_country_customer_code`, `uq_customers_country_tax_id` | Mínimo de RN-02.13 |
+| `uq_customers_country_customer_code` | Mínimo de RN-02.13 (código de cliente único por país) |
+| `idx_customers_country_id_tax_id` (índice, **no** único) | Búsqueda del aviso de NIT repetido (RN-02.14); el NIT no es único (DM-4) |
 | `ck_customers_customer_code_normalized`, `ck_customers_tax_id_normalized` | Valor y normalizado van juntos |
 | `uq_contacts_customer_email` | RN-02.16 (correo por cliente) |
 | `uq_contacts_id_customer` + FK compuesta del principal | RN-02.26 ("de este cliente", "como máximo uno") |
@@ -418,10 +482,10 @@ opción de menú (D-02.12).
 | Código CRM | Texto informativo "Se asigna al guardar"; no es un campo |
 | Obligatorios | Marcados según `form-options.requiredFields` (base + parámetro); `RequiredNote` |
 | Responsable | Sin `clientes.administrar`: fijo en el usuario actual, no editable. Con él: autocompletar de `sales-owner-options` |
-| Validación de cliente | Zod (`customers.schemas.ts`): obligatorios, longitudes, formato de correo; patrón de teléfono y NIT del país si viene en `form-options`. Es UX: el backend valida de nuevo |
-| Posible duplicado | Ante `409 POSSIBLE_DUPLICATE`, `PossibleDuplicateDialog` lista los candidatos (con enlace solo si `isVisible`) y ofrece "Revisar" o "Guardar de todos modos" (reenvía con `acknowledgedDuplicateIds`). Ante `DUPLICATE_BLOCKED`, `CUSTOMER_CODE_TAKEN` o `TAX_ID_TAKEN`: error en el campo; si `isDeleted` y el usuario tiene `clientes.eliminar`, enlace a restaurar |
-| Errores por campo | `details[].field` del `400`/`422` se pintan bajo cada campo |
-| Adjuntos | Mientras DM-8 esté abierta: sección deshabilitada con "Los adjuntos estarán disponibles próximamente". Tras el ADR: selección de archivos con validación previa de tamaño y tipo; se suben **después** del `201` (D-02.15); un fallo por archivo se muestra en la ficha sin deshacer el cliente |
+| Validación de cliente | Zod (`customers.schemas.ts`): obligatorios, longitudes, formato de correo; patrón de teléfono y NIT del país si viene en `form-options`; texto libre que no empiece por `=`, `@`, tabulador o retorno de carro (RN-02.32). Es UX: el backend valida de nuevo |
+| Posible duplicado | Ante `409 POSSIBLE_DUPLICATE`, `PossibleDuplicateDialog` lista los candidatos con su motivo (p. ej. "Mismo NIT" para `reason = TAX_ID`, "Razón social parecida"; con enlace solo si `isVisible`) y ofrece "Revisar" o "Guardar de todos modos" (reenvía con `acknowledgedDuplicateIds`). Para el NIT el texto aclara que puede tratarse de otro establecimiento del mismo cliente (DM-4). Ante `DUPLICATE_BLOCKED` o `CUSTOMER_CODE_TAKEN`: error en el campo; si `isDeleted` y el usuario tiene `clientes.eliminar`, enlace a restaurar |
+| Errores por campo | `details[].field` del `400 VALIDATION_FAILED` (DC-6) y del `422` (incluido `FORMULA_NOT_ALLOWED`) se pintan bajo cada campo |
+| Adjuntos | Selección de archivos con validación previa de tamaño (`form-options.attachments.maxMb`) y tipo (`allowedTypes`), solo como ayuda; se suben **después** del `201` (D-02.15); un fallo por archivo (`413 ATTACHMENT_TOO_LARGE`, `422 ATTACHMENT_TYPE_NOT_ALLOWED`) se muestra en la ficha sin deshacer el cliente |
 | Al guardar | Navega a la ficha del cliente creado, con aviso "Cliente CLI-000123 creado" |
 | Estados | **Cargando opciones:** esqueleto del formulario. **Error al cargar opciones:** mensaje + "Reintentar" (no se puede guardar sin opciones). **Enviando:** botón con progreso, formulario bloqueado. **Sin permiso:** `RequirePermission` |
 
@@ -431,11 +495,11 @@ opción de menú (D-02.12).
 |---|---|
 | Encabezado | Razón social, `crmCode`, chip de estado, responsable. Acciones según `capabilities`: "Editar" (`canEdit`), "Eliminar" (`canDelete`), "Nueva actividad" (G.4), "Restaurar" si está eliminado y `canRestore` |
 | Sección General (`CustomerGeneralSection`) | `DetailList` con todos los campos de B.2 y sus etiquetas; NIT con la etiqueta del país; trazabilidad: creado por/el, actualizado por/el; origen "Carga masiva IMP-…" si `sourceImportId`. Acceso heredado: aviso "Lo ves porque participas en un proyecto de este cliente" (solo lectura) |
-| Editar (`CustomerEditDrawer`) | `AdminDrawer` con `CustomerForm` en modo edición; campos fuera de `capabilities.editableFields` deshabilitados con explicación. Mismo manejo de duplicados que el alta |
+| Editar (`CustomerEditDrawer`) | `AdminDrawer` con `CustomerForm` en modo edición; campos fuera de `capabilities.editableFields` deshabilitados con explicación. Mismo manejo de duplicados que el alta: el aviso de NIT repetido aparece solo si se cambia el NIT o el país (RN-02.14) |
 | Eliminar | `ConfirmDialog` `destructive` que explica que la eliminación es lógica y conserva la historia. Ante `409 CUSTOMER_HAS_DEPENDENCIES` muestra los conteos (proyectos, actividades abiertas, visitas pendientes) y sugiere desactivar |
 | Sección Contactos (`CustomerContactsSection`) | Ver E.5 |
 | Sección Proyectos (`CustomerProjectsSection`) | Ver E.6 |
-| Sección Adjuntos (`CustomerAttachmentsSection`, de `crm/common`) | Lista (nombre, tipo, tamaño, subido por, fecha) con descarga; "Subir" y "Eliminar" con `canManageAttachments`. Bloqueada por DM-8: muestra estado "no disponible" |
+| Sección Adjuntos (`CustomerAttachmentsSection`, de `crm/common`) | Lista (nombre, tipo, tamaño, subido por, fecha) con descarga; "Subir" y "Eliminar" con `canManageAttachments`. La descarga usa `httpClient.download` + `saveFile` contra F19 (el token no viaja en un `<a href>` y el archivo nunca se abre en línea). Estados: cargando, vacío ("Este cliente no tiene adjuntos"), error con reintento, subida con progreso y error por archivo |
 | Estados | **Cargando:** esqueleto por sección (cada sección carga por separado). **No encontrado (404):** "Este cliente no existe o no tienes acceso" + volver a la búsqueda. **Error:** por sección, con "Reintentar"; un error en Proyectos no rompe la ficha. **Sin permiso:** ruta protegida; secciones sin permiso (contactos sin `contactos.ver`, proyectos sin `proyectos.ver`) no se muestran |
 
 ### E.5 Contactos dentro de la ficha (F-09)
@@ -484,10 +548,10 @@ Todos bajo `/api/v1`, formato de error de `API-STANDARDS.md` §8, DTO de entrada
 | F2 | GET | `/customers/form-options` | `clientes.ver` | — | `200 CustomerFormOptionsDto` (F.3) | 401, 403 |
 | F3 | GET | `/customers/sales-owner-options` | `clientes.ver` | `search?`, `page`, `pageSize` | `200 { data: SalesOwnerOptionDto[], pagination }` | 400, 401, 403 |
 | F4 | GET | `/customers/{id}` | `clientes.ver` | `id` UUID | `200 CustomerResponseDto` (F.3) | 400 (UUID), 401, 403, 404 `RESOURCE_NOT_FOUND` (inexistente, fuera de alcance o eliminado sin `clientes.eliminar`) |
-| F5 | POST | `/customers` | `clientes.crear` | `CreateCustomerDto` | `201 CustomerResponseDto` + `Location` | 400 `VALIDATION_FAILED`, 401, 403 `PERMISSION_DENIED` / `FIELD_NOT_EDITABLE` (`salesOwnerId` ajeno sin `clientes.administrar`), 409 `CUSTOMER_CODE_TAKEN` / `TAX_ID_TAKEN` / `POSSIBLE_DUPLICATE` / `DUPLICATE_BLOCKED`, 422 `REQUIRED_FIELD_MISSING` / `INVALID_CATALOG_VALUE` / `INVALID_COUNTRY` / `INVALID_SALES_OWNER` / `INVALID_PHONE_FORMAT` / `INVALID_TAX_ID_FORMAT` |
+| F5 | POST | `/customers` | `clientes.crear` | `CreateCustomerDto` | `201 CustomerResponseDto` + `Location` | 400 `VALIDATION_FAILED` (DC-6), 401, 403 `PERMISSION_DENIED` / `FIELD_NOT_EDITABLE` (`salesOwnerId` ajeno sin `clientes.administrar`), 409 `CUSTOMER_CODE_TAKEN` / `POSSIBLE_DUPLICATE` (incluye NIT repetido, motivo `TAX_ID`) / `DUPLICATE_BLOCKED`, 422 `REQUIRED_FIELD_MISSING` / `INVALID_CATALOG_VALUE` / `INVALID_COUNTRY` / `INVALID_SALES_OWNER` / `INVALID_PHONE_FORMAT` / `INVALID_TAX_ID_FORMAT` / `FORMULA_NOT_ALLOWED` |
 | F6 | PATCH | `/customers/{id}` | `clientes.editar` o `clientes.administrar` (ver H) | `UpdateCustomerDto` (parcial; omitido = sin cambio, `null` = borrar opcional) | `200 CustomerResponseDto` | 400, 401, 403 `PERMISSION_DENIED` / `FIELD_NOT_EDITABLE` (con `details[].field`), 404, 409 (como F5), 422 (como F5) |
 | F7 | DELETE | `/customers/{id}` | `clientes.eliminar` | — | `204` | 401, 403, 404, 409 `CUSTOMER_HAS_DEPENDENCIES` (`details: [{ dependency: 'projects'|'openActivities'|'pendingVisits', count }]`) |
-| F8 | POST | `/customers/{id}/restore` | `clientes.eliminar` | — | `200 CustomerResponseDto` | 401, 403, 404, 409 `CUSTOMER_NOT_DELETED` / `CUSTOMER_CODE_TAKEN` / `TAX_ID_TAKEN` |
+| F8 | POST | `/customers/{id}/restore` | `clientes.eliminar` | — | `200 CustomerResponseDto` | 401, 403, 404, 409 `CUSTOMER_NOT_DELETED` / `CUSTOMER_CODE_TAKEN` |
 
 Notas:
 
@@ -573,7 +637,8 @@ statuses:      [{ id, code, label, sortOrder, isActive }]   (activos de crm.esta
 ratings:       [{ id, code, label, sortOrder }]   (activos de crm.calificacion_cliente)
 defaults:      { statusId|null }                  (de crm.valores_por_defecto)
 requiredFields: string[]                          (base + crm.campos_obligatorios.customer)
-attachments:   { enabled: boolean, maxMb, allowedTypes: string[] }   (enabled = false hasta DM-8)
+attachments:   { enabled: boolean, maxMb, allowedTypes: string[] }   (enabled = true: almacenamiento de ADR-021;
+                                                                     maxMb y allowedTypes de crm.adjuntos.*)
 ```
 
 Para mostrar en edición un valor ya desactivado, la ficha usa la etiqueta que trae
@@ -586,12 +651,16 @@ correo ni teléfono.
 `PossibleDuplicateErrorDetails` (en `details` del `409 POSSIBLE_DUPLICATE` / `DUPLICATE_BLOCKED`)
 
 ```text
-[{ rule: 'razonSocialNormalizada'|'nombreComercialNormalizado'|'correo'|'telefono',
-   candidate: { id|null, crmCode, legalName, country { isoCode, name },
+[{ rule: 'razonSocialNormalizada'|'nombreComercialNormalizado'|'correo'|'telefono'|'nit',
+   reason: 'LEGAL_NAME'|'TRADE_NAME'|'EMAIL'|'PHONE'|'TAX_ID',
+   candidate: { id|null, crmCode, customerCode|null, legalName, country { isoCode, name },
                 salesOwnerName, isVisible, isDeleted } }]
 ```
 
-`id` es `null` cuando `isVisible = false` (RN-02.15).
+`id` es `null` cuando `isVisible = false` (RN-02.15). `reason` es el motivo legible por máquina
+de la coincidencia (uno por regla; `TAX_ID` = NIT repetido en el mismo país, DM-4). Un mismo
+candidato puede aparecer con varios motivos. `customerCode` permite distinguir establecimientos
+que comparten NIT (es dato de empresa, D-02.3).
 
 ### F.4 Operaciones propias — contactos
 
@@ -613,19 +682,33 @@ email|null, isActive, isPrimary, comments|null, hasHistory, createdAt, updatedAt
 `acknowledgedDuplicateIds?`. `UpdateContactDto`: los mismos opcionales salvo `isPrimary` (el
 principal se cambia con F13/F14).
 
-### F.5 Operaciones propias — adjuntos del cliente (bloqueadas por DM-8)
+### F.5 Operaciones propias — adjuntos del cliente (ADR-021)
+
+Rutas por dueño (DC-2): la autorización la decide este módulo sobre el cliente; el
+`AttachmentsService` transversal solo opera sobre `owner = { type: 'customer', id }`.
 
 | # | Método | Ruta | Permiso | Request | Respuesta | Errores |
 |---|---|---|---|---|---|---|
 | F17 | GET | `/customers/{customerId}/attachments` | `clientes.ver` | paginación | `200 { data: AttachmentResponseDto[], pagination }` | 401, 403, 404 |
-| F18 | POST | `/customers/{customerId}/attachments` | `clientes.editar` (+ política de edición) | `multipart/form-data`: `file`, `description? ≤300` | `201 AttachmentResponseDto` + `Location` | 400, 401, 403, 404, 422 `ATTACHMENT_TOO_LARGE` / `ATTACHMENT_TYPE_NOT_ALLOWED`, 429 |
-| F19 | GET | `/customers/{customerId}/attachments/{attachmentId}/content` | `clientes.ver` | — | `302` a URL firmada de corta duración, o flujo `200` con `Content-Disposition: attachment` (según el ADR) | 401, 403, 404 |
+| F18 | POST | `/customers/{customerId}/attachments` | `clientes.editar` (+ política de edición) | `multipart/form-data`: `file` (uno), `description? ≤300` | `201 AttachmentResponseDto` + `Location` | 400 `VALIDATION_FAILED` (falta `file`, más de un archivo, campos extra), 401, 403, 404, 413 `ATTACHMENT_TOO_LARGE`, 422 `ATTACHMENT_TYPE_NOT_ALLOWED`, 429 |
+| F19 | GET | `/customers/{customerId}/attachments/{attachmentId}/content` | `clientes.ver` | — | `200` flujo binario transmitido por la API **después** de autorizar, con `Content-Type` = tipo detectado al guardar, `Content-Disposition: attachment; filename*=UTF-8''<nombre saneado y codificado>`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-store` | 401, 403, 404 (también adjunto de otro cliente o eliminado) |
 | F20 | DELETE | `/customers/{customerId}/attachments/{attachmentId}` | `clientes.editar` (+ política de edición) | — | `204` | 401, 403, 404 |
 
 `AttachmentResponseDto`: `id, fileName, contentType, sizeBytes, description|null,
-createdAt, createdBy { id, displayName }|null`. **F18 y F19 no se registran** hasta aprobar el ADR
-de DM-8 (RN-02.30); F17 y F20 sí (F17 devuelve vacío). El límite de tasa de F18 sigue la
-configuración global (`429` documentado).
+createdAt, createdBy { id, displayName }|null`. Nunca expone `storageKey` ni rutas del
+almacenamiento. Los cuatro endpoints se registran desde la primera entrega (DM-8 resuelta).
+
+- F18: interceptor de subida con almacenamiento **en memoria acotada o streaming** hacia
+  `FileStorage.save` (nunca un temporal fuera de la base del almacenamiento), `files: 1`, corte al
+  superar `crm.adjuntos.max_mb`; NGINX limita antes el cuerpo (`client_max_body_size`), y
+  `crm.adjuntos.max_mb` no puede superarlo (00 §8.2). El `413` de NGINX puede llegar sin cuerpo
+  JSON: el frontend lo trata igual. Tipo por firma (RN-02.29). Límite de tasa de la configuración
+  global (`429` documentado).
+- F19: el binario se lee con `FileStorage.openRead(storageKey)` y se transmite; si falta en el
+  almacenamiento (fila sin binario), `500` registrado con correlation ID, nunca otro archivo. El
+  adjunto **nunca** se publica como recurso estático ni con URL firmada (ADR-021).
+- `413` se añade a la tabla de API-STANDARDS §3 al implementar (DC-4 y D-06.13 resueltas el
+  2026-10-10).
 
 ### F.6 Servicios de aplicación reutilizables (contratos internos, sin HTTP)
 
@@ -645,17 +728,21 @@ interface CustomerDraft {                                 // valores crudos, ya 
 interface FieldIssue { field: string; code: string; message: string }   // misma forma que customer_import_rows.errors
 interface ValidationOutcome {
   errors: FieldIssue[];                         // todos, no solo el primero
-  duplicates: DuplicateCandidate[];             // blandos (AVISAR) y duros
-  blockingDuplicates: DuplicateCandidate[];     // BLOQUEAR, código o NIT ocupados
+  duplicates: DuplicateCandidate[];             // blandos (AVISAR), cada uno con rule y reason (TAX_ID para el NIT)
+  blockingDuplicates: DuplicateCandidate[];     // BLOQUEAR o código de cliente ocupado (nunca por NIT, DM-4)
   normalized: NormalizedCustomer | null;        // ids resueltos + valores normalizados si no hay errores
 }
 validate(draft, { mode: CustomerRefMode, actor: Principal, scope: VisibilityScope,
                   existingCustomerId?: string }): Promise<ValidationOutcome>
-duplicateKeys(draft): CustomerDuplicateKeys     // claves normalizadas para detectar duplicados dentro de un archivo
+duplicateKeys(draft): CustomerDuplicateKeys     // claves normalizadas para detectar duplicados dentro de un archivo:
+                                                //   blocking: código de cliente (en el ámbito de unicidad_codigo)
+                                                //   warning:  NIT, solo si la regla 'nit' vale AVISAR (mismo país)
 ```
 
-Aplica RN-02.4 a RN-02.17. No escribe nada. Los códigos de `FieldIssue.code` son los mismos que
-los códigos de error HTTP de F5 para que la importación muestre el mismo error por fila.
+Aplica RN-02.4 a RN-02.17 y RN-02.32. No escribe nada. Los códigos de `FieldIssue.code` son los
+mismos que los códigos de error HTTP de F5 para que la importación muestre el mismo error por
+fila. Con `existingCustomerId` (edición) evalúa los duplicados blandos solo para las claves que
+cambian (RN-02.14).
 
 #### F.6.2 `CustomerCreationService` (dueño: este módulo; consumidor: Módulo 6)
 
@@ -668,8 +755,11 @@ create(draft, ctx: { actor: Principal; audit: AuditContext; mode: CustomerRefMod
 Un único caso de uso de alta: valida (F.6.1), aplica valores por defecto, asigna `crmCode` con
 `SequenceGenerator` en la transacción, inserta, audita (`metadata.source`). La importación lo invoca
 fila a fila en su propia transacción (00 §2.14) y **nunca** sobrescribe un cliente existente.
-En modo `IMPORT` no hay confirmación interactiva: un `AVISAR` se trata como lo decida el Módulo 6
-(la regla de §8.1 "no permitir duplicados" sugiere rechazar la fila).
+En modo `IMPORT` no hay confirmación interactiva: un `AVISAR` se trata como advertencia de la
+fila, según D-06.6 (aprobada): la fila queda válida y solo se importa si la confirmación de la
+carga incluye las filas con advertencias, que el Módulo 6 traduce en `acknowledgedDuplicateIds`.
+El NIT repetido se muestra en la carga con el código `DUPLICATE_TAX_ID` (06 RN-06.18); el resto de
+avisos, con `POSSIBLE_DUPLICATE`.
 
 #### F.6.3 `CustomerReferenceGuard` (dueño: este módulo; consumidores: Módulos 3 y 4)
 
@@ -683,7 +773,8 @@ assertContactOfCustomer(contactId, customerId, { requireActive: boolean }): Prom
 #### F.6.4 `DuplicateRules` (dueño: este módulo)
 
 Funciones puras: `parseDuplicateRules(json, allowedKeys)` → `{ key → 'NO'|'AVISAR'|'BLOQUEAR' }`
-con advertencias de claves desconocidas; `evaluate(rules, matches)` → avisos y bloqueos. Las usan
+con advertencias de claves desconocidas y con la clave `nit` limitada a `AVISAR | NO` (otro valor
+→ `AVISAR` con advertencia, RN-02.14); `evaluate(rules, matches)` → avisos y bloqueos. Las usan
 `CustomerValidationService` y `ContactsService`. La búsqueda de coincidencias la hace el
 repositorio (`findDuplicateCandidates`) con índices de 00.
 
@@ -694,8 +785,8 @@ repositorio (`findDuplicateCandidates`) con índices de 00.
 | `SequenceGenerator` | Fase 0, `infrastructure/database` | `next(key: string, tx): Promise<string>`; `SELECT … FOR UPDATE` sobre `sequences`; aplica `prefix`, `pattern`, `padding`, `resetPolicy` |
 | `CatalogReferenceValidator` | Fase 0, extensión de `catalogs` | `assertItem(catalogKey, itemIdOrCode, { by: 'id'|'code', requireActive, field }) → CatalogItemRef`; `422 INVALID_CATALOG_VALUE` |
 | `VisibilityScopeResolver` | Fase 0, `access` | `resolve(principal) → { kind: 'ALL' } \| { kind: 'FILTERED', ownerIds?: string[], countryIds?: string[] }` (00 §4.2) |
-| `ParameterReader` | Fase 0, `parameters` | `get<T>(key): Promise<T>` tipado y con caché corta. Hoy `ParametersService` no expone lectura por clave: se añade |
-| `AttachmentsService` + `FileStorage` | Transversal nuevo (`modules/attachments`), **este módulo lo entrega**; `FileStorage` espera al ADR de DM-8 | `list(owner, page)`, `add(owner, file, meta, ctx)`, `open(owner, attachmentId)`, `remove(owner, attachmentId, ctx)`; `owner = { type: 'customer'|'project'|'visit'|'visitEvent'|'activity', id }`. La autorización sobre el dueño la decide el módulo que llama |
+| `ParameterReader` | Fase 0, `parameters` | `get<T>(key): Promise<T>` tipado, **sin caché o con caché invalidada** al editar el parámetro (DC-3, regla de 07 RN-07.35: un cambio surte efecto inmediato). Hoy `ParametersService` no expone lectura por clave: se añade |
+| `AttachmentsService` + `FileStorage` | Transversal nuevo, **este módulo lo entrega**: `AttachmentsService` en `modules/attachments`; puerto `FileStorage` y adaptador `LocalFileSystemStorage` en `infrastructure/storage` (ADR-021, 00 §2.11) | `list(owner, page)`, `add(owner, stream, meta, ctx)`, `open(owner, attachmentId) → { stream, fileName, contentType, sizeBytes }`, `remove(owner, attachmentId, ctx)`; `owner = { type: 'customer'|'project'|'visit'|'visitEvent'|'activity', id }`. La autorización sobre el dueño la decide el módulo que llama. `FileStorage`: `save(stream, { storageKey, maxBytes }) → { sizeBytes, checksum }`, `openRead(storageKey) → stream`, `delete(storageKey)`; el dominio no conoce rutas |
 | `AuditService` | Plantilla | `record(event, ctx, { resourceType, resourceId, before, after, metadata })` + enmascarado de PII de contactos (DM-29) |
 
 Si al empezar este módulo la Fase 0 no entregó alguna de las cuatro primeras, se implementa en su
@@ -752,7 +843,7 @@ funcionalidad de esos módulos.
 | Módulo 4 no implementado | Botón "Nueva actividad" oculto (no hay opción de menú de actividades); conteos de actividades y visitas = 0; ningún contacto tiene historia (se pueden eliminar lógicamente) |
 | Módulo 6 no implementado | `sourceImportId` siempre nulo; los servicios F.6.1/F.6.2 existen y se prueban de forma unitaria con modo `BY_NATURAL_KEY` |
 | Módulo 7 no implementado | Catálogos, parámetros y usuarios se cargan por semilla (00 §8); la auditoría se escribe aunque aún no haya la pantalla de consulta del CRM (la de PLAN-ADMIN ya la muestra) |
-| ADR de DM-8 no aprobado | Adjuntos: contrato implementado, subida y descarga no registradas, sección "no disponible" |
+| Adjuntos | Sin dependencia pendiente: DM-8 resuelta por ADR-021; este módulo entrega `FileStorage`, `LocalFileSystemStorage` y `AttachmentsService`, que luego reutilizan Proyectos y Actividad |
 
 ---
 
@@ -775,8 +866,8 @@ AND ( scope = ALL
 
 `access = 'DIRECT'` si cumple por alcance propio; `'INHERITED'` si solo por la herencia. El mismo
 predicado se usa en listas, detalle, contactos (visibilidad del cliente), adjuntos y en la guarda
-`assertUsableCustomer`. `TEAM` se resuelve antes a una lista acotada de usuarios (00 §4.2).
-Bloqueante: DM-12 (H.4).
+`assertUsableCustomer`. `TEAM` se resuelve antes a una lista acotada de usuarios, con los
+subequipos incluidos (00 §4.2; DM-12 resuelta, H.4).
 
 ### H.2 Permiso por operación
 
@@ -811,16 +902,26 @@ administrar; `manager` (TEAM) y `responsable-pais` (COUNTRY) además eliminan y 
   `createdById`, `sourceImportId`, `primaryContactId`).
 - Ningún valor del usuario se concatena en SQL; búsquedas con parámetros de Prisma; `ILIKE` con
   comodines escapados.
-- Adjuntos: tipo por firma, tamaño máximo, nombre saneado, descarga con `Content-Disposition:
-  attachment` o URL firmada (ADR de DM-8); nunca se sirve con el tipo declarado por el usuario.
+- Adjuntos (ADR-021): tipo por firma, tamaño máximo cortado en streaming, nombre saneado, clave de
+  almacenamiento generada por el servidor, ruta resuelta dentro de la base (sin *path traversal* ni
+  enlaces simbólicos), descarga transmitida por la API tras autorizar con `Content-Disposition:
+  attachment` y `nosniff`; nunca servido como estático ni con el tipo declarado por el usuario.
 
-### H.4 Bloqueantes de seguridad
+### H.4 Decisiones de seguridad (resueltas el 2026-10-10)
 
-- **DM-12** (bloqueante según 00 §4.4 y ADR-020 "Open questions"): antes de que este módulo filtre por
-  equipo, debe decidirse si cambiar miembros de un equipo es "asignar acceso". Con el valor por
-  defecto, cambiar miembros de un equipo comercial pasa a ser exclusivo del administrador (addendum
-  a ADR-020).
-- **DM-10**: el alcance `COUNTRY` requiere la migración `TERRITORY → COUNTRY` (Fase 0).
+Ya no hay bloqueantes de seguridad abiertos para este módulo:
+
+- **DM-12 resuelta:** el alcance `TEAM` incluye a los miembros y responsables del equipo y de sus
+  **subequipos**, sin foto histórica del equipo. Cambiar miembros, responsable o jerarquía de un
+  equipo, o el país de un usuario, es asignación de acceso y es **exclusivo del administrador**
+  (`403 ADMIN_ONLY` para cualquier otro; addendum de 2026-10-10 a
+  [ADR-020](../../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md), D-07.2). Este
+  módulo no cambia equipos ni países de usuarios: solo los lee para resolver el alcance.
+- **DM-10 aprobada:** el alcance `COUNTRY` (antes `TERRITORY`) queda aprobado con el addendum de
+  2026-10-10 a [ADR-018](../../adr/ADR-018-identity-access-model.md); la migración
+  `RENAME VALUE 'TERRITORY' TO 'COUNTRY'` es de la Fase 0 (requisito K.1.1).
+- **DM-8 resuelta:** controles de adjuntos de H.3 y RN-02.30 (ADR-021). Sin antivirus: mitigación
+  por lista blanca de firmas y descarga como `attachment`.
 
 ### H.5 Datos sensibles y auditoría
 
@@ -891,9 +992,13 @@ Formato Given/When/Then. Cada uno cita su funcionalidad.
 - **AC-02.16** (F-06) **Given** un cliente con código `AB-12` en GT, **When** se crea otro en GT con
   `ab12`, **Then** `409 CUSTOMER_CODE_TAKEN`; en SV se permite con `unicidad_codigo = PAIS` y se
   rechaza con `GLOBAL`.
-- **AC-02.17** (F-06) **Given** un NIT ya usado en el mismo país (incluido un cliente eliminado),
-  **When** se crea otro con ese NIT, **Then** `409 TAX_ID_TAKEN` con `isDeleted` informado; con
-  `unicidad_nit = GLOBAL` también entre países.
+- **AC-02.17** (F-06) **Given** la regla por defecto `nit = AVISAR` y un NIT ya usado en el mismo
+  país (incluido un cliente eliminado), **When** se crea otro cliente con ese NIT escrito con otro
+  formato (guiones, puntos), **Then** `409 POSSIBLE_DUPLICATE` con el candidato, `reason = TAX_ID`
+  e `isDeleted` informado; **When** reenvía con `acknowledgedDuplicateIds` con ese candidato,
+  **Then** `201` y ambos clientes conservan el mismo NIT; **Given** el mismo NIT en otro país,
+  **Then** se crea sin aviso; **Given** `nit = NO`, **Then** se crea sin aviso. Nunca se devuelve un
+  error que bloquee por NIT.
 - **AC-02.18** (F-06) **Given** `reglas_duplicidad = {"razonSocialNormalizada":"AVISAR"}` y un cliente
   "Ferretería El Sol", **When** se crea "FERRETERIA  el sol" en el mismo país, **Then**
   `409 POSSIBLE_DUPLICATE` con el candidato; **When** reenvía con `acknowledgedDuplicateIds` con ese
@@ -916,11 +1021,11 @@ Formato Given/When/Then. Cada uno cita su funcionalidad.
 - **AC-02.23** (F-06) **Given** que un administrador desactiva un tipo de empresa en el catálogo,
   **When** un usuario abre el formulario de alta, **Then** ese valor ya no se ofrece, sin desplegar
   nada (las opciones vienen de `GET /customers/form-options`).
-- **AC-02.24** (F-06) **Given** DM-8 sin resolver, **When** el usuario abre el alta, **Then** la sección
-  de adjuntos aparece deshabilitada con su explicación y `POST /customers/{id}/attachments` no
-  existe; **Given** el ADR aprobado, **When** crea un cliente con dos archivos y uno excede
-  `crm.adjuntos.max_mb`, **Then** el cliente se crea, un archivo se adjunta y el otro muestra
-  `ATTACHMENT_TOO_LARGE`.
+- **AC-02.24** (F-06) **Given** el almacenamiento de ADR-021 configurado, **When** el usuario crea un
+  cliente con dos archivos y uno excede `crm.adjuntos.max_mb`, **Then** el cliente se crea, un
+  archivo se adjunta y el otro muestra el error `413 ATTACHMENT_TOO_LARGE` en la ficha, sin
+  deshacer el alta (D-02.15); y `form-options.attachments` trae `enabled = true`, `maxMb` y
+  `allowedTypes` de los parámetros.
 - **AC-02.25** (F-06) **Given** el mismo conjunto de datos inválidos, **When** se valida en modo
   `BY_ID` (pantalla) y en modo `BY_NATURAL_KEY` (importación), **Then** ambos devuelven los mismos
   códigos de error por campo, y `CustomerCreationService` es el único camino de alta de clientes.
@@ -945,18 +1050,20 @@ Formato Given/When/Then. Cada uno cita su funcionalidad.
   ofrece y `assertUsableCustomer(..., { requireActive: true })` lo rechaza con `422 CUSTOMER_INACTIVE`.
 - **AC-02.31** (F-07) **Given** un manager con `clientes.eliminar` y un cliente sin dependencias,
   **When** lo elimina, **Then** `204`, el cliente desaparece de las búsquedas, sus contactos, adjuntos
-  y auditoría siguen en la base, su código y NIT siguen ocupados y queda `crm.customer.deleted`.
+  y auditoría siguen en la base, su código sigue ocupado, su NIT sigue contando para el aviso de
+  NIT repetido y queda `crm.customer.deleted`.
 - **AC-02.32** (F-07) **Given** un cliente con un proyecto no eliminado, una actividad abierta o una
   visita pendiente, **When** se intenta eliminar, **Then** `409 CUSTOMER_HAS_DEPENDENCIES` con los
   conteos; **Given** un asesor sin `clientes.eliminar`, **Then** `403` y el botón no se muestra.
 - **AC-02.33** (F-07) **Given** un cliente eliminado y un usuario con `clientes.eliminar`, **When**
   `POST /customers/{id}/restore`, **Then** `200`, vuelve a las búsquedas y queda
   `crm.customer.restored`; sobre un cliente no eliminado → `409 CUSTOMER_NOT_DELETED`.
-- **AC-02.34** (F-07) **Given** el ADR de DM-8 aprobado y un cliente editable, **When** se sube un PDF
-  permitido, **Then** `201`, aparece en la lista y se puede descargar por quien ve el cliente;
-  **When** se sube un ejecutable renombrado a `.pdf`, **Then** `422 ATTACHMENT_TYPE_NOT_ALLOWED`;
-  **When** se elimina, **Then** `204` y desaparece de la lista, con `deletedAt` en ambas tablas.
-  Sin el ADR, la lista devuelve vacío y la sección muestra "no disponible".
+- **AC-02.34** (F-07) **Given** un cliente editable, **When** se sube un PDF, una imagen JPEG o PNG,
+  un `.docx` o un `.xlsx` dentro del límite, **Then** `201`, aparece en la lista y se puede
+  descargar por quien ve el cliente; **When** se sube un ejecutable renombrado a `.pdf`, **Then**
+  `422 ATTACHMENT_TYPE_NOT_ALLOWED`; **When** se sube un archivo mayor que `crm.adjuntos.max_mb`,
+  **Then** `413 ATTACHMENT_TOO_LARGE` y no queda binario ni fila; **When** se elimina, **Then**
+  `204` y desaparece de la lista, con `deletedAt` en ambas tablas.
 - **AC-02.35** (F-07) **Given** la ficha, **When** carga, falla una sección o el cliente no existe,
   **Then** cada sección muestra su propio estado de carga o error y la ficha completa muestra "no
   existe o no tienes acceso" ante `404`.
@@ -1020,6 +1127,29 @@ Formato Given/When/Then. Cada uno cita su funcionalidad.
   pide `GET /me/menu`, **Then** recibe el módulo "Clientes" con la opción `clientes-buscar` → `/clientes`,
   y `route-registry.spec.ts` pasa con las tres rutas registradas.
 
+### Añadidos por las respuestas del responsable (2026-10-10)
+
+- **AC-02.52** (F-07) **Given** la regla `nit = AVISAR` y un cliente A cuyo NIT coincide con el de
+  otro cliente B del mismo país, **When** se edita A sin tocar el NIT ni el país (p. ej. solo la
+  dirección), **Then** `200` sin aviso; **When** se cambia el NIT de A a uno que ya tiene otro
+  cliente del mismo país, o se cambia su país a uno donde ese NIT ya existe, **Then**
+  `409 POSSIBLE_DUPLICATE` con `reason = TAX_ID`, y con `acknowledgedDuplicateIds` **Then** `200`.
+- **AC-02.53** (F-06, F-07) **Given** una razón social, nombre comercial, ciudad o dirección que
+  empieza por `=`, `@`, tabulador o retorno de carro, **When** se crea o edita el cliente, **Then**
+  `422 FORMULA_NOT_ALLOWED` con ese campo en `details` y sin repetir el valor; **Given** un
+  teléfono `+502 …`, **Then** se acepta (la regla solo afecta al texto libre).
+- **AC-02.54** (F-07) **Given** un adjunto de un cliente visible, **When** se descarga por F19,
+  **Then** la respuesta es un flujo `200` con `Content-Disposition: attachment`,
+  `X-Content-Type-Options: nosniff` y el tipo detectado al guardar; **Given** un usuario que no ve
+  el cliente, o un `attachmentId` de otro cliente bajo la ruta de este, **Then** `404`; **And** no
+  existe ninguna URL estática que sirva el archivo, y ninguna respuesta expone `storageKey` ni rutas
+  del almacenamiento.
+- **AC-02.55** (F-05, F-06) **Given** un cliente con dos establecimientos registrados como clientes
+  distintos con el mismo NIT y códigos de cliente distintos (`EST-01`, `EST-02`) en GT, **When** se
+  busca por ese NIT, **Then** aparecen ambos; **When** se intenta crear un tercero con el código
+  `EST-01` en GT, **Then** `409 CUSTOMER_CODE_TAKEN` (el código sigue siendo único por país); **When**
+  se crea un tercero sin código de cliente, **Then** se permite tras confirmar el aviso de NIT.
+
 ---
 
 ## J. Pruebas funcionales
@@ -1047,14 +1177,14 @@ PostgreSQL real (`backend/test/*.e2e.spec.ts`, Supertest, cada prueba con datos 
 | PF-02.14 | AC-02.14 | Negativo | U, I | Correo inválido; teléfono contra patrón del país y contra la regla genérica |
 | PF-02.15 | AC-02.15 | Negativo | U, I | NIT contra `taxIdPattern`; normalización guardada |
 | PF-02.16 | AC-02.16 | Negativo | I | Código duplicado mismo país; distinto país con `PAIS` y con `GLOBAL` |
-| PF-02.17 | AC-02.17 | Negativo | I | NIT duplicado (incl. eliminado, `isDeleted`); `GLOBAL` entre países |
+| PF-02.17 | AC-02.17 | Positivo / negativo | I | NIT repetido en el mismo país (incl. eliminado, `isDeleted`; formato distinto que normaliza igual) → `409 POSSIBLE_DUPLICATE` con `reason = TAX_ID` → confirmación → `201`; mismo NIT en otro país sin aviso; `nit = NO` sin aviso; ninguna respuesta bloqueante por NIT |
 | PF-02.18 | AC-02.18 | Positivo / negativo | U, I | `AVISAR` → `409` → confirmación → `201`; candidato nuevo no reconocido → `409`; `BLOQUEAR`; `NO` |
 | PF-02.19 | AC-02.19 | Negativo | I | Candidato fuera de alcance con datos mínimos e `id = null` |
 | PF-02.20 | AC-02.20 | Negativo | I | Elemento de otro catálogo y elemento inactivo → `422 INVALID_CATALOG_VALUE` (una prueba por columna); estado por defecto |
 | PF-02.21 | AC-02.21 | Negativo | I | Responsable inexistente, suspendido, sin `clientes.ver` → `422`; asesor asigna a otro → `403 FIELD_NOT_EDITABLE` |
 | PF-02.22 | AC-02.22 | Integración | I | Concurrencia: 10 altas en paralelo → `crmCode` únicos y consecutivos; mismo código en paralelo → un `201` y un `409` |
 | PF-02.23 | AC-02.23 | Integración | I, FE | `form-options` refleja un elemento desactivado; el formulario no lo ofrece |
-| PF-02.24 | AC-02.24 | Positivo / negativo | FE (ahora), I (tras ADR) | Sección deshabilitada sin ADR; F18 no registrado (`404`); tras ADR, subida posterior al alta con fallo parcial |
+| PF-02.24 | AC-02.24 | Positivo / negativo | FE, I | Subida posterior al alta con fallo parcial (`413` en un archivo, el cliente se conserva); `form-options.attachments` con `enabled = true` y valores de los parámetros |
 | PF-02.25 | AC-02.25 | Integración | U | Mismo `CustomerDraft` inválido en `BY_ID` y `BY_NATURAL_KEY` → mismos códigos; resolución por `code`, `isoCode` y código de colaborador |
 | PF-02.26 | AC-02.26 | Positivo | I | Detalle completo; `capabilities` para asesor dueño, asesor heredado, manager y administrador |
 | PF-02.27 | AC-02.27 | Negativo | I | Inexistente, fuera de alcance y eliminado → mismo `404` |
@@ -1063,8 +1193,8 @@ PostgreSQL real (`backend/test/*.e2e.spec.ts`, Supertest, cada prueba con datos 
 | PF-02.30 | AC-02.30 | Integración | I | Desactivar: visible, filtrable, excluido con `activeOnly`, rechazado por `assertUsableCustomer` |
 | PF-02.31 | AC-02.31 | Positivo | I | Eliminación lógica: `204`, oculto, hijos intactos, código ocupado, auditoría |
 | PF-02.32 | AC-02.32 | Negativo | I | Dependencias (proyecto, actividad abierta, visita pendiente; insertadas en las tablas de 00) → `409` con conteos; sin permiso `403` |
-| PF-02.33 | AC-02.33 | Positivo / negativo | I | Restaurar eliminado `200`; no eliminado `409`; con `GLOBAL` y valor ocupado por otro → `409` |
-| PF-02.34 | AC-02.34 | Positivo / negativo | I (tras ADR) | Subida, descarga por quien ve, firma de contenido falsa → `422`, eliminación lógica; sin ADR lista vacía |
+| PF-02.33 | AC-02.33 | Positivo / negativo | I | Restaurar eliminado `200`; no eliminado `409`; con `GLOBAL` y código de cliente ocupado por otro → `409 CUSTOMER_CODE_TAKEN`; NIT compartido con otro cliente no impide restaurar |
+| PF-02.34 | AC-02.34 | Positivo / negativo | I | Subida de cada tipo permitido, descarga por quien ve, firma de contenido falsa → `422 ATTACHMENT_TYPE_NOT_ALLOWED`, exceso de tamaño → `413` sin binario huérfano, eliminación lógica (almacenamiento en un directorio temporal de la prueba) |
 | PF-02.35 | AC-02.35 | Positivo | FE | Estados por sección; `404` de la ficha |
 | PF-02.36 | AC-02.36 | Integración | FE (contrato simulado); E2E al entregar el Módulo 3 | Sección con columnas del contrato F.7 |
 | PF-02.37 | AC-02.37 | Positivo | FE | Búsqueda, filtros y orden envían los parámetros del contrato; navegación a `/proyectos/:id` |
@@ -1086,8 +1216,13 @@ PostgreSQL real (`backend/test/*.e2e.spec.ts`, Supertest, cada prueba con datos 
 | PF-02.53 | AC-02.5, AC-02.31, AC-02.32 | Recorrido | E2E | Manager: ve clientes del equipo, intenta eliminar uno con dependencias (`409` visible), desactiva otro y elimina uno sin dependencias |
 | PF-02.54 | AC-02.8, AC-02.27 | Negativo | E2E | Asesor sin el menú de otro: la URL directa de un cliente ajeno muestra "no existe o no tienes acceso" |
 | PF-02.55 | AC-02.12, AC-02.22 | Unitario | U | `SequenceGenerator`: formato `{prefix}-{seq}`, padding, `resetPolicy`; nunca reutiliza valores tras un rollback de la transacción del alta (huecos aceptados) |
-| PF-02.56 | AC-02.18, AC-02.43 | Unitario | U | `DuplicateRules`: parseo, claves desconocidas, precedencia `BLOQUEAR` > `AVISAR` > `NO`, correo de contacto siempre bloquea |
+| PF-02.56 | AC-02.17, AC-02.18, AC-02.43 | Unitario | U | `DuplicateRules`: parseo, claves desconocidas, precedencia `BLOQUEAR` > `AVISAR` > `NO`, clave `nit` limitada a `AVISAR`/`NO` (`BLOQUEAR` → `AVISAR` con advertencia), correo de contacto siempre bloquea |
 | PF-02.57 | AC-02.5, AC-02.6 | Unitario | U | `VisibilityScopeResolver`: OWN, TEAM con subequipos y responsable, COUNTRY con y sin país (D-02.8), ORGANIZATION, rol más amplio |
+| PF-02.58 | AC-02.52 | Positivo / negativo | U, I | Edición sin cambio de NIT ni país → sin aviso; cambio de NIT a uno repetido → `409 POSSIBLE_DUPLICATE` (`TAX_ID`) → confirmación → `200`; cambio de país a uno donde el NIT existe → aviso |
+| PF-02.59 | AC-02.53 | Negativo | U, I, FE | `=`, `@`, tabulador y retorno de carro al inicio de razón social, nombre comercial, ciudad y dirección → `422 FORMULA_NOT_ALLOWED` en alta y edición (una prueba por campo); teléfono con `+` aceptado; el mensaje no contiene el valor; Zod muestra el mismo error |
+| PF-02.60 | AC-02.54 | Negativo / seguridad | I | Descarga: cabeceras `Content-Disposition: attachment`, `nosniff`, `Content-Type` detectado, `no-store`; usuario sin visibilidad y adjunto de otro cliente → `404`; `401`/`403` en F17–F20; ninguna ruta estática (NGINX ni `express.static`) devuelve el binario; ningún DTO contiene `storageKey` |
+| PF-02.61 | AC-02.55 | Positivo / negativo | I, E2E | Dos establecimientos con el mismo NIT y códigos distintos: búsqueda por NIT devuelve ambos; tercer alta con código repetido → `409 CUSTOMER_CODE_TAKEN`; sin código → aviso de NIT y `201` al confirmar |
+| PF-02.62 | AC-02.34, AC-02.54 | Unitario | U | `LocalFileSystemStorage`: clave `<año>/<mes>/<uuid>`; rechazo de rutas fuera de la base (`../`, absolutas, enlaces simbólicos); escritura a temporal + `rename`; corte en streaming al superar `maxBytes` sin dejar archivo; `checksum` SHA-256. Detección de tipo por firma (PDF, JPEG, PNG, DOCX, XLSX; ZIP sin `[Content_Types].xml` o con macros rechazado) |
 
 ---
 
@@ -1099,17 +1234,17 @@ PostgreSQL real (`backend/test/*.e2e.spec.ts`, Supertest, cada prueba con datos 
 |---|---|---|
 | 1 | Migraciones 1, 2, 4 de 00 §9 aplicadas (`COUNTRY`, `countries` + `users.country_id/employee_code`, `customers`/`contacts`) y, por las FK y lecturas, el resto de la Fase 0 (proyectos, actividad, adjuntos, importaciones) | 00 §9 |
 | 2 | Semilla esencial: países, catálogos `crm.tipo_empresa`, `crm.estado_cliente`, `crm.calificacion_cliente` (y los de estado de actividad y visita), secuencia `crm.cliente`, parámetros de D.5, permisos `clientes.*`/`contactos.*`, roles `asesor`/`manager`/`responsable-pais` y acciones `administrar`/`cerrar` | 00 §8.2, DM-32 |
-| 3 | **DM-12 resuelta** (alcance TEAM y addendum a ADR-020) | 00 §4.4 — bloqueante |
-| 4 | **DM-10** aprobada (addendum a ADR-018) | 00 §4.1 |
+| 3 | DM-12 resuelta el 2026-10-10 (TEAM con subequipos; cambiar equipos o país de un usuario es exclusivo del administrador, addendum de ADR-020): requisito **cumplido**; solo falta que el `VisibilityScopeResolver` de la Fase 0 resuelva los subequipos | 00 §4.2 |
+| 4 | DM-10 aprobada el 2026-10-10 (addendum de ADR-018): requisito **cumplido**; la migración `TERRITORY → COUNTRY` va en el punto 1 | 00 §4.1 |
 | 5 | `SequenceGenerator`, `CatalogReferenceValidator`, `VisibilityScopeResolver`, `ParameterReader` disponibles (o se construyen al inicio de este módulo en su ubicación transversal) | 00 §11 |
 | 6 | Registro de semántica de catálogos (`catalog-semantics.registry.ts`) con `crm.estado_cliente.isActive` obligatorio | 00 §3.3 |
-| 7 | D-02.11 resuelta (componentes compartidos del frontend accesibles desde `features/crm`) | Este documento |
+| 7 | D-02.11 aprobada el 2026-10-10 (componentes compartidos movidos a `frontend/src/components/data/`): el movimiento se hace en la Fase 0 o al inicio de este módulo | Este documento |
 
 ### K.2 Bloqueos parciales (no detienen el módulo; se conserva el alcance)
 
 | Bloqueo | Afecta | Mientras tanto |
 |---|---|---|
-| DM-8 (ADR de almacenamiento) | Adjuntos de F-06 y F-07 (F18, F19, subida en el alta) | Contrato, servicio y lista vacía; sección "no disponible" |
+| ~~DM-8~~ (resuelta el 2026-10-10, ADR-021) | — | Sin bloqueo: los adjuntos de F-06 y F-07 se entregan completos |
 | Módulo 3 | F-08 (sección de proyectos) | Estado informativo (D-02.10); F-08 `bloqueada` hasta que exista el contrato |
 | Módulo 4 | Botón "Nueva actividad" (AC-02.49) | Oculto |
 
@@ -1120,9 +1255,9 @@ PostgreSQL real (`backend/test/*.e2e.spec.ts`, Supertest, cada prueba con datos 
 3. Puerto y adaptador `CustomersRepository` (visibilidad, búsqueda, duplicados, dependencias).
 4. `CustomerValidationService` y `CustomerCreationService`; endpoints F1–F8 con OpenAPI.
 5. Contactos: puerto, adaptador, servicio, endpoints F9–F16.
-6. `AttachmentsService` (sin `FileStorage`) y endpoints F17, F20.
+6. Puerto `FileStorage` y adaptador `LocalFileSystemStorage` (ADR-021), configuración `ATTACHMENTS_STORAGE_PATH` (`env.schema.ts`, `.env.example`, `.gitignore`, volumen de `docker-compose`), `AttachmentsService` y endpoints F17–F20.
 7. Semilla del módulo `clientes` y de la opción `clientes-buscar`; registro de rutas.
-8. Frontend: rutas, búsqueda, alta, ficha, contactos, proyectos (con disponibilidad), adjuntos (no disponible), `CustomerPicker`.
+8. Frontend: rutas, búsqueda, alta, ficha, contactos, proyectos (con disponibilidad), adjuntos (subida, descarga y eliminación), `CustomerPicker`.
 9. E2E, documentación (`docs/api/README.md`, CHANGELOG, matriz), revisión (`code-review`).
 
 ### K.4 Dependencias futuras (quién depende de este módulo)
@@ -1130,8 +1265,8 @@ PostgreSQL real (`backend/test/*.e2e.spec.ts`, Supertest, cada prueba con datos 
 Módulo 3 (cliente del proyecto, `CustomerPicker`, `assertUsableCustomer`), Módulo 4 (clientes y
 contactos de visitas, actividades y participantes), Módulo 1 y 5 (lectura de clientes con el mismo
 predicado de visibilidad), Módulo 6 (validación y alta), Módulo 7 (consulta de la auditoría generada;
-mantenimiento de los catálogos y parámetros que usa este módulo). Cuando llegue el ADR de DM-8, se
-registran F18/F19 y se habilita la sección sin cambiar el contrato.
+mantenimiento de los catálogos y parámetros que usa este módulo). Proyectos y Actividad reutilizan
+`AttachmentsService` y `FileStorage` (ADR-021) con sus propias rutas por dueño (DC-2).
 
 ---
 
@@ -1149,7 +1284,7 @@ integración en `backend/test/<x>.e2e.spec.ts`; frontend por área como `feature
 | `backend/src/modules/customers/customers.module.ts` | Enlaza puertos y adaptadores; importa `PrismaModule`, `AuditModule`, `AccessModule`, `CatalogsModule`, `ParametersModule`, `AttachmentsModule`; exporta `CustomerValidationService`, `CustomerCreationService`, `CustomerReferenceGuard` |
 | `backend/src/modules/customers/customers.controller.ts` | F1–F8 |
 | `backend/src/modules/customers/customer-contacts.controller.ts` | F9–F16 |
-| `backend/src/modules/customers/customer-attachments.controller.ts` | F17–F20 (F18/F19 no registrados hasta DM-8) |
+| `backend/src/modules/customers/customer-attachments.controller.ts` | F17–F20 (rutas por dueño, DC-2; descarga en flujo con las cabeceras de F.5) |
 | `backend/src/modules/customers/customers.service.ts` (+ `.spec.ts`) | Consulta, detalle, edición, desactivación, eliminación, restauración, opciones |
 | `backend/src/modules/customers/customer-creation.service.ts` (+ `.spec.ts`) | F.6.2 |
 | `backend/src/modules/customers/customer-validation.service.ts` (+ `.spec.ts`) | F.6.1 |
@@ -1176,7 +1311,14 @@ integración en `backend/test/<x>.e2e.spec.ts`; frontend por área como `feature
 | `backend/src/modules/catalogs/catalog-semantics.registry.ts` | 00 §3.3 (Fase 0) |
 | `backend/src/modules/access/ports/visibility-scope.port.ts`, `backend/src/modules/access/visibility-scope.resolver.ts` (+ `.spec.ts`) | 00 §4.2; `AccessModule` lo exporta |
 | `backend/src/modules/parameters/parameter-reader.ts` (+ `.spec.ts`) | Lectura tipada por clave; `ParametersModule` la exporta |
-| `backend/src/modules/attachments/attachments.module.ts`, `attachments.service.ts` (+ `.spec.ts`), `attachment-policy.ts` (+ `.spec.ts`), `ports/attachments.repository.port.ts`, `ports/file-storage.port.ts` | Servicio transversal de adjuntos; `FILE_STORAGE` sin adaptador hasta DM-8 |
+| `backend/src/modules/attachments/attachments.module.ts`, `attachments.service.ts` (+ `.spec.ts`), `attachment-policy.ts` (+ `.spec.ts`), `ports/attachments.repository.port.ts` | Servicio transversal de adjuntos (límites de `crm.adjuntos.*`, nombre saneado, alta/baja coordinada de fila y binario) |
+| `backend/src/modules/attachments/attachment-content-type.ts` (+ `.spec.ts`) | Detección del tipo por firma (PDF, JPEG, PNG; DOCX y XLSX como ZIP con `[Content_Types].xml` y su parte principal) y cotejo con extensión y lista blanca (RN-02.29) |
+| `backend/src/infrastructure/storage/file-storage.port.ts` | `FILE_STORAGE`: `save`, `openRead`, `delete` (00 §2.11, ADR-021) |
+| `backend/src/infrastructure/storage/local-file-system.storage.ts` (+ `.spec.ts`) | Adaptador `LocalFileSystemStorage` sobre `ATTACHMENTS_STORAGE_PATH`: clave generada, ruta segura, temporal + `rename`, corte por tamaño, SHA-256 |
+| `backend/src/infrastructure/storage/storage.module.ts` | Proveedor de `FILE_STORAGE`; lo importa `AttachmentsModule` |
+| `backend/src/config/env.schema.ts`, `backend/src/config/app-config.service.ts` | `ATTACHMENTS_STORAGE_PATH` (defecto `./storage/attachments`) validado al arrancar |
+| `.env.example`, `.gitignore`, `docker-compose.yml` | Variable con valor de ejemplo, carpeta `storage/` ignorada, volumen montado en la ruta del contenedor (ADR-021; 00 §8.2) |
+| `infrastructure/nginx/nginx.conf` | Verificar que `client_max_body_size` ≥ `crm.adjuntos.max_mb` y que no existe ninguna `location` que sirva la carpeta de adjuntos |
 | `backend/src/infrastructure/database/prisma/repositories/prisma-attachments.repository.ts` | Adaptador de `attachments` + `stored_files` |
 | `backend/src/modules/audit/` (extensión) | Enmascarado de PII en `changes` (DM-29), p. ej. opción `maskedFields` en `AuditEventOptions` |
 | `backend/src/modules/access/route-registry.ts` / `menu-options.service.ts` (extensión) | Rechazar rutas con parámetro (`:`) como destino de opción de menú (D-02.12) |
@@ -1196,7 +1338,7 @@ integración en `backend/test/<x>.e2e.spec.ts`; frontend por área como `feature
 | `backend/test/customers.e2e.spec.ts` | PF-02.1–4, 7–8, 12–23, 26–33, 50 |
 | `backend/test/customers-visibility.e2e.spec.ts` | PF-02.5, 6, 19, 27 (alcances y herencia) |
 | `backend/test/customer-contacts.e2e.spec.ts` | PF-02.40–48 |
-| `backend/test/customer-attachments.e2e.spec.ts` | PF-02.24, 34 (lista vacía ahora; subida tras DM-8) |
+| `backend/test/customer-attachments.e2e.spec.ts` | PF-02.24, 34, 60 (con `ATTACHMENTS_STORAGE_PATH` apuntando a un directorio temporal de la prueba) |
 | `backend/test/support/test-app.ts` (extensión) | Ayudantes para crear usuarios con país y equipo, clientes, proyectos/actividades/visitas mínimos y participaciones |
 
 ### L.5 Frontend
@@ -1208,7 +1350,7 @@ integración en `backend/test/<x>.e2e.spec.ts`; frontend por área como `feature
 | `frontend/src/routes/app-routes.tsx` | Añadir `...CRM_ROUTES` a `shellRoutes` con `RequirePermission` |
 | `frontend/src/features/crm/README.md` | Convenciones del área CRM (espejo de `features/admin/README.md`) |
 | `frontend/src/features/crm/common/use-module-availability.ts` (+ `.spec.ts`) | D-02.10: disponibilidad por `/me/menu` |
-| `frontend/src/features/crm/common/AttachmentsSection.tsx` (+ `.spec.tsx`) | Lista, subida y estado "no disponible"; reutilizable por Proyectos y Actividad |
+| `frontend/src/features/crm/common/AttachmentsSection.tsx` (+ `.spec.tsx`) | Lista, subida con progreso, descarga (`httpClient.download`), eliminación y errores `413`/`422`; reutilizable por Proyectos y Actividad |
 | `frontend/src/features/crm/common/PossibleDuplicateDialog.tsx` (+ `.spec.tsx`) | Confirmación de duplicados (clientes y contactos) |
 | `frontend/src/features/crm/customers/CustomersPage.tsx` (+ `.spec.tsx`) | E.2 |
 | `frontend/src/features/crm/customers/CustomerCreatePage.tsx` (+ `.spec.tsx`) | E.3 |
@@ -1236,69 +1378,86 @@ integración en `backend/test/<x>.e2e.spec.ts`; frontend por área como `feature
 
 `docs/api/README.md` (endpoints y códigos nuevos), `CHANGELOG.md`, `matriz-trazabilidad.md`
 (F-05…F-09), `.claude/skills/access-management` si cambia el procedimiento de rutas con parámetro,
-y ADR o addendum si se aprueban D-02.11/D-02.12 con impacto estructural.
+`DEVELOPMENT.md` (variable `ATTACHMENTS_STORAGE_PATH` y volumen de adjuntos, ADR-021),
+`API-STANDARDS.md` §3 (`413`, DC-4) y ADR o addendum si D-02.11/D-02.12 resultan tener impacto
+estructural al implementarse.
 
 ### L.7 Códigos de error nuevos
 
-`CUSTOMER_CODE_TAKEN` (409), `TAX_ID_TAKEN` (409), `POSSIBLE_DUPLICATE` (409), `DUPLICATE_BLOCKED` (409),
+`CUSTOMER_CODE_TAKEN` (409), `POSSIBLE_DUPLICATE` (409; `details[].reason`, `TAX_ID` para el NIT), `DUPLICATE_BLOCKED` (409),
 `CUSTOMER_HAS_DEPENDENCIES` (409), `CUSTOMER_NOT_DELETED` (409), `CONTACT_EMAIL_TAKEN` (409),
 `CONTACT_HAS_HISTORY` (409), `CONTACT_NOT_DELETED` (409), `REQUIRED_FIELD_MISSING` (422),
 `INVALID_CATALOG_VALUE` (422, de 00), `INVALID_COUNTRY` (422), `INVALID_SALES_OWNER` (422),
 `INVALID_PHONE_FORMAT` (422), `INVALID_TAX_ID_FORMAT` (422), `CONTACT_INACTIVE` (422),
-`INVALID_CONTACT` (422), `CUSTOMER_INACTIVE` (422), `ATTACHMENT_TOO_LARGE` (422),
-`ATTACHMENT_TYPE_NOT_ALLOWED` (422), `FIELD_NOT_EDITABLE` (403). Se reutilizan `VALIDATION_FAILED`,
-`RESOURCE_NOT_FOUND`, `PERMISSION_DENIED`.
+`INVALID_CONTACT` (422), `CUSTOMER_INACTIVE` (422), `FORMULA_NOT_ALLOWED` (422, D-06.11; mismo
+código que la incidencia de la carga masiva), `ATTACHMENT_TOO_LARGE` (**413**, DC-4),
+`ATTACHMENT_TYPE_NOT_ALLOWED` (422, DC-4), `FIELD_NOT_EDITABLE` (403). Se reutilizan
+`VALIDATION_FAILED` (400, DC-6: el `ValidationPipe` lo emite desde la Fase 0), `RESOURCE_NOT_FOUND`,
+`PERMISSION_DENIED`. `TAX_ID_TAKEN` **se elimina** (DM-4: el NIT no es único).
 
 ---
 
-## Decisiones pendientes del módulo
+## Decisiones del módulo (resueltas el 2026-10-10)
 
-Se aplica el valor por defecto si no se objeta. Ninguna elimina alcance.
+Todas las decisiones que afectaban a este módulo quedaron **resueltas por el responsable de negocio
+el 2026-10-10**: las que tuvieron respuesta expresa se marcan **Respuesta del responsable**; el resto
+quedó aprobado con su valor recomendado. Se conservan todos los identificadores.
 
 ### Decisiones de 00 que afectan a este módulo
 
-| Id | Tema | Efecto aquí |
-|---|---|---|
-| DM-2 | Países | Contenido de `form-options.countries` |
-| DM-3 | Validación de NIT y teléfono por país | RN-02.6, RN-02.7 |
-| DM-4 | Duplicidad de clientes | RN-02.13, RN-02.14. Si no debe haber NIT único (sucursales), decidir **antes de migrar** |
-| DM-5 | Duplicidad de contactos | RN-02.16 |
-| DM-8 | Almacenamiento de adjuntos (ADR) | RN-02.30; F18/F19 bloqueados |
-| DM-10 | `TERRITORY → COUNTRY` | Alcance COUNTRY (H.4) |
-| DM-11 | Roles y matriz | H.2 |
-| DM-12 | Alcance TEAM y ADR-020 | **Bloqueante del inicio** (K.1.3) |
-| DM-13 | Herencia de visibilidad | RN-02.18, `access = INHERITED` |
-| DM-14 | Un país por usuario | Filtro COUNTRY |
-| DM-16 | Estado comercial del proyecto | Columna de F-08 (la calcula el Módulo 3) |
-| DM-18 | Código de cliente opcional y editable con `administrar` | RN-02.2 |
-| DM-19 | Ciudad texto libre | Filtro `city` por "contiene" |
-| DM-29 | Enmascarado de PII en auditoría | RN-02.31 |
-| DM-30 | País y código de colaborador obligatorios para usuarios del CRM | Elegibilidad del responsable, D-02.8 |
-| DM-32 | Siembra del menú con el módulo | L.3 |
-| DM-33 | Eliminación lógica bloqueada por dependencias | RN-02.22, D-02.16 |
-| DM-34 | `editar` = propios; `administrar` = ajenos | RN-02.20, H.2 |
+| Id | Tema | Efecto aquí | Estado |
+|---|---|---|---|
+| DM-2 | Países | Contenido de `form-options.countries`: GT, SV, HN, CR, VE, EC, con su etiqueta fiscal (NIT, NIT, RTN, Cédula jurídica, RIF, RUC) | **Resuelta (2026-10-10).** Respuesta del responsable: Guatemala, El Salvador, Honduras, Costa Rica, Venezuela y Ecuador; no Nicaragua ni Panamá |
+| DM-3 | Validación de NIT y teléfono por país | RN-02.6, RN-02.7 | **Resuelta (2026-10-10).** Valor recomendado aprobado: patrones por país; en Fase 0 longitud y caracteres permitidos |
+| DM-4 | Duplicidad de clientes | RN-02.13, RN-02.14, AC-02.17, AC-02.52, AC-02.55: código de cliente único por país (identifica cada establecimiento; opcional); NIT sin único, aviso `409 POSSIBLE_DUPLICATE` (`TAX_ID`) en el alta y en la edición si cambia el NIT; se eliminan `uq_customers_country_tax_id`, `crm.clientes.unicidad_nit` y `TAX_ID_TAKEN` | **Resuelta (2026-10-10).** Respuesta del responsable: los establecimientos de un mismo cliente pueden compartir NIT |
+| DM-5 | Duplicidad de contactos | RN-02.16 | **Resuelta (2026-10-10).** Valor recomendado aprobado: correo único por cliente (bloquea); nombre completo avisa |
+| DM-8 | Almacenamiento de adjuntos (ADR) | RN-02.29, RN-02.30, F.5, AC-02.24, AC-02.34, AC-02.54; F18 y F19 desbloqueados | **Resuelta (2026-10-10).** Respuesta del responsable: carpeta del proyecto mapeada al almacenamiento del servidor ([ADR-021](../../adr/ADR-021-almacenamiento-de-adjuntos-en-sistema-de-archivos-montado.md)) |
+| DM-10 | `TERRITORY → COUNTRY` | Alcance COUNTRY (H.4) | **Resuelta (2026-10-10).** Valor recomendado aprobado (addendum a ADR-018) |
+| DM-11 | Roles y matriz | H.2 | **Resuelta (2026-10-10).** Valor recomendado aprobado: roles CRM de sistema con permisos fijos |
+| DM-12 | Alcance TEAM y ADR-020 | RN-02.18, H.1, H.4; ya no bloquea el inicio (K.1.3) | **Resuelta (2026-10-10).** Valor recomendado aprobado: TEAM incluye subequipos; cambiar equipos o el país de un usuario es exclusivo del administrador (addendum de ADR-020) |
+| DM-13 | Herencia de visibilidad | RN-02.18, `access = INHERITED` | **Resuelta (2026-10-10).** Valor recomendado aprobado: herencia de solo lectura (00 §4.2) |
+| DM-14 | Un país por usuario | Filtro COUNTRY | **Resuelta (2026-10-10).** Valor recomendado aprobado |
+| DM-16 | Estado comercial del proyecto | Columna de F-08 (la calcula el Módulo 3) | **Resuelta (2026-10-10).** Valor recomendado aprobado |
+| DM-18 | Código de cliente opcional y editable con `administrar` | RN-02.2 | **Resuelta (2026-10-10).** Valor recomendado aprobado (reafirmado en la respuesta a DM-4) |
+| DM-19 | Ciudad texto libre | Filtro `city` por "contiene" | **Resuelta (2026-10-10).** Valor recomendado aprobado |
+| DM-29 | Enmascarado de PII en auditoría | RN-02.31 | **Resuelta (2026-10-10).** Valor recomendado aprobado |
+| DM-30 | País y código de colaborador obligatorios para usuarios del CRM | Elegibilidad del responsable, D-02.8 | **Resuelta (2026-10-10).** Valor recomendado aprobado |
+| DM-32 | Siembra del menú con el módulo | L.3 | **Resuelta (2026-10-10).** Valor recomendado aprobado |
+| DM-33 | Eliminación lógica bloqueada por dependencias | RN-02.22, D-02.16 | **Resuelta (2026-10-10).** Valor recomendado aprobado |
+| DM-34 | `editar` = propios; `administrar` = ajenos | RN-02.20, H.2 | **Resuelta (2026-10-10).** Valor recomendado aprobado |
+
+### Decisiones de otros módulos y de la consolidación que afectan a este módulo
+
+| Id | Tema | Efecto aquí | Estado |
+|---|---|---|---|
+| D-06.11 | Valores que empiezan por `=`, `@`, tabulador o retorno de carro | RN-02.32, AC-02.53, `422 FORMULA_NOT_ALLOWED` en el alta y la edición manual | **Resuelta (2026-10-10).** Valor recomendado aprobado: se rechazan también en el alta manual |
+| D-06.6 | Avisos de duplicado en la carga masiva | F.6.2 (modo `IMPORT`) | **Resuelta (2026-10-10).** Valor recomendado aprobado; el NIT repetido es la advertencia `DUPLICATE_TAX_ID` |
+| DC-2 | Forma de las rutas de adjuntos | F.5: rutas por dueño (`/customers/{id}/attachments/{aid}/content`) | **Resuelta (2026-10-10).** Valor recomendado aprobado |
+| DC-3 | Caché del lector de parámetros | F.6.5: sin caché o invalidada al editar | **Resuelta (2026-10-10).** Valor recomendado aprobado |
+| DC-4 | Status de tamaño y tipo de adjunto | `413 ATTACHMENT_TOO_LARGE`, `422 ATTACHMENT_TYPE_NOT_ALLOWED` | **Resuelta (2026-10-10).** Valor recomendado aprobado |
+| DC-6 | Código de los errores de validación | `400 VALIDATION_FAILED` en todos los endpoints | **Resuelta (2026-10-10).** Valor recomendado aprobado (`exceptionFactory` del `ValidationPipe` en la Fase 0) |
 
 ### Decisiones nuevas
 
-| Id | Pregunta | Recomendación por defecto | Impacto si cambia |
+| Id | Pregunta | Valor final (resuelta 2026-10-10) | Impacto si cambia |
 |---|---|---|---|
-| **D-02.1** | ¿Cómo leen los formularios los catálogos y países sin permisos de administración (`/catalogs` exige `catalogos.ver`)? | Un endpoint de opciones **por módulo** con el permiso de ver del módulo (`GET /customers/form-options`, `clientes.ver`). No se crea un endpoint genérico con `@AuthenticatedOnly` (reservado al autoservicio) | Un endpoint genérico requeriría un mapa catálogo → permiso o un decorador "cualquiera de" (convención nueva, ADR) |
-| **D-02.2** | ¿Quién puede ser responsable de ventas? | Usuario `ACTIVE`, con permiso efectivo `clientes.ver` y, si el actor tiene `clientes.administrar`, dentro de los usuarios de su alcance (TEAM: miembros/responsables; COUNTRY: usuarios de su país; ORGANIZATION: todos). Sin `administrar`, solo el propio actor | Cambia `listEligibleSalesOwners` y RN-02.10; sin cambio de esquema |
-| **D-02.3** | ¿Qué se revela de un candidato a duplicado fuera del alcance? | Código CRM, razón social, país y nombre del responsable; sin id ni enlace. Razón social y código son datos de empresa, no PII | Si se prefiere no revelar nada, solo "existe un posible duplicado" (peor experiencia: el usuario no puede coordinarse) |
-| **D-02.4** | Ámbito y claves de los duplicados blandos | Mismo país (todos si `unicidad_nit = GLOBAL`); claves `razonSocialNormalizada`, `nombreComercialNormalizado`, `correo`, `telefono` para clientes y `nombreCompleto`, `telefono` para contactos (el correo de contacto siempre bloquea) | Solo parámetro y adaptador |
-| **D-02.5** | ¿Se puede cambiar el país de un cliente? | Sí, solo con `clientes.administrar`; revalida unicidad y formatos con el país nuevo. Los proyectos conservan su propio país | Si se prohíbe, `countryId` sale del DTO de edición |
-| **D-02.6** | ¿Cómo se recupera un cliente o contacto eliminado que sigue ocupando código, NIT o correo? | `POST …/restore` con `clientes.eliminar` / `contactos.eliminar`; listado de eliminados con `deleted=true` y el mismo permiso | Sin restauración, un código eliminado quedaría inutilizable para siempre (la base lo sigue ocupando) |
-| **D-02.7** | ¿Quién edita los contactos de un cliente ajeno pero visible? | Quien puede editar el cliente: cliente propio con `contactos.editar`, o ajeno en el alcance directo con `clientes.administrar` + `contactos.editar`. Los heredados son de solo lectura | Si se permite editar contactos de cualquier cliente visible, solo cambia `CustomerAccessPolicy` |
-| **D-02.8** | Usuario con alcance COUNTRY sin `country_id` | Se degrada a OWN y se registra una advertencia en el log | Si se prefiere que no vea nada, cambia el resolver |
-| **D-02.9** | ¿`clientes.administrar` alcanza a clientes visibles solo por herencia (DM-13)? | No: la herencia da solo lectura | Si sí, cambia la política y se amplía lo que un asesor puede modificar |
-| **D-02.10** | ¿Cómo sabe la ficha si Proyectos y Actividad ya existen? | Por el menú del usuario (`GET /me/menu`): si contiene la opción del módulo (`proyectos-buscar`, `actividad-actividades`), se activa la sección o el botón. Coherente con ADR-018 y DM-32 | Alternativas: constante de compilación (acopla áreas del frontend) o manejar el `404` de la API (frágil) |
-| **D-02.11** | Componentes compartidos del frontend (`DataTable`, `ConfirmDialog`…) viven en `features/admin/common` y "un área no importa de otra" | Moverlos a `frontend/src/components/data/` (o similar) y dejar `features/admin/common/index.ts` reexportándolos, sin tocar las áreas de admin. El área CRM vive en `frontend/src/features/crm/<submódulo>/` con `crm-routes.ts` | Si se decide importar de `features/admin/common`, se rompe la regla del README de admin |
-| **D-02.12** | Rutas con parámetro en el registro y predicado de visibilidad compartido | Registrar `/clientes/nuevo` y `/clientes/:customerId` (la prueba del router lo exige) y hacer que el servicio de opciones de menú rechace destinos con `:`. El predicado de visibilidad de clientes se exporta desde el adaptador Prisma para los modelos de lectura de Inicio y Reportes | Si la prueba del router excluyera rutas con parámetro, no se registran (cambio en `route-tree.ts`) |
-| **D-02.13** | Concurrencia en la edición | Última escritura gana, como el resto de la plantilla; la auditoría conserva la diferencia | Bloqueo optimista (`updatedAt` esperado → `409`) añadiría un campo al DTO de edición |
-| **D-02.14** | Semántica de la búsqueda | Prefijo en códigos y NIT normalizados; "contiene" en razón social, nombre comercial y ciudad normalizados. Sin `pg_trgm` | Búsqueda difusa requeriría extensión de PostgreSQL y ADR |
-| **D-02.15** | Adjuntos en el alta | Se suben después del `201`, uno a uno; un fallo no deshace el cliente | Alta y archivos atómicos exigirían un `multipart` único y almacenamiento temporal |
-| **D-02.16** | Uso de clientes inactivos y conjunto de dependencias que bloquean la eliminación | Inactivo: no se ofrece ni se acepta como cliente de proyectos, visitas o actividades **nuevos** (`422 CUSTOMER_INACTIVE`); los existentes no cambian. Bloquean la eliminación: proyectos no eliminados (cualquier fase), actividades abiertas no eliminadas, visitas pendientes | Permitir clientes inactivos en registros nuevos cambia solo la guarda; ampliar o reducir dependencias cambia el conteo |
-| **D-02.17** | ¿Cómo identifica la importación al responsable comercial y los catálogos? | Catálogos por `code`, país por `isoCode`, responsable por código de colaborador o, si no hay, por correo. El servicio admite ambos; el Módulo 6 fija la columna de la plantilla | Solo resolución de referencias en modo `BY_NATURAL_KEY` |
+| **D-02.1** | ¿Cómo leen los formularios los catálogos y países sin permisos de administración (`/catalogs` exige `catalogos.ver`)? | **Resuelta (2026-10-10): valor recomendado aprobado.** Un endpoint de opciones **por módulo** con el permiso de ver del módulo (`GET /customers/form-options`, `clientes.ver`). No se crea un endpoint genérico con `@AuthenticatedOnly` (reservado al autoservicio) | Un endpoint genérico requeriría un mapa catálogo → permiso o un decorador "cualquiera de" (convención nueva, ADR) |
+| **D-02.2** | ¿Quién puede ser responsable de ventas? | **Resuelta (2026-10-10): valor recomendado aprobado.** Usuario `ACTIVE`, con permiso efectivo `clientes.ver` y, si el actor tiene `clientes.administrar`, dentro de los usuarios de su alcance (TEAM: miembros y responsables, con subequipos; COUNTRY: usuarios de su país; ORGANIZATION: todos). Sin `administrar`, solo el propio actor | Cambia `listEligibleSalesOwners` y RN-02.10; sin cambio de esquema |
+| **D-02.3** | ¿Qué se revela de un candidato a duplicado fuera del alcance? | **Resuelta (2026-10-10): valor recomendado aprobado.** Código CRM, código de cliente, razón social, país y nombre del responsable; sin id ni enlace. Razón social y códigos son datos de empresa, no PII | Si se prefiere no revelar nada, solo "existe un posible duplicado" (peor experiencia: el usuario no puede coordinarse) |
+| **D-02.4** | Ámbito y claves de los duplicados blandos | **Resuelta (2026-10-10): valor recomendado aprobado, ajustado a DM-4.** Mismo país (la extensión "todos los países si `unicidad_nit = GLOBAL`" desaparece con el parámetro); claves `razonSocialNormalizada`, `nombreComercialNormalizado`, `correo`, `telefono` y `nit` (solo `AVISAR`/`NO`) para clientes, y `nombreCompleto`, `telefono` para contactos (el correo de contacto siempre bloquea) | Solo parámetro y adaptador |
+| **D-02.5** | ¿Se puede cambiar el país de un cliente? | **Resuelta (2026-10-10): valor recomendado aprobado.** Sí, solo con `clientes.administrar`; revalida la unicidad del código, los formatos y los avisos (incluido el de NIT) con el país nuevo. Los proyectos conservan su propio país | Si se prohíbe, `countryId` sale del DTO de edición |
+| **D-02.6** | ¿Cómo se recupera un cliente o contacto eliminado que sigue ocupando código o correo? | **Resuelta (2026-10-10): valor recomendado aprobado.** `POST …/restore` con `clientes.eliminar` / `contactos.eliminar`; listado de eliminados con `deleted=true` y el mismo permiso | Sin restauración, un código eliminado quedaría inutilizable para siempre (la base lo sigue ocupando) |
+| **D-02.7** | ¿Quién edita los contactos de un cliente ajeno pero visible? | **Resuelta (2026-10-10): valor recomendado aprobado.** Quien puede editar el cliente: cliente propio con `contactos.editar`, o ajeno en el alcance directo con `clientes.administrar` + `contactos.editar`. Los heredados son de solo lectura | Si se permite editar contactos de cualquier cliente visible, solo cambia `CustomerAccessPolicy` |
+| **D-02.8** | Usuario con alcance COUNTRY sin `country_id` | **Resuelta (2026-10-10): valor recomendado aprobado.** Se degrada a OWN y se registra una advertencia en el log | Si se prefiere que no vea nada, cambia el resolver |
+| **D-02.9** | ¿`clientes.administrar` alcanza a clientes visibles solo por herencia (DM-13)? | **Resuelta (2026-10-10): valor recomendado aprobado.** No: la herencia da solo lectura | Si sí, cambia la política y se amplía lo que un asesor puede modificar |
+| **D-02.10** | ¿Cómo sabe la ficha si Proyectos y Actividad ya existen? | **Resuelta (2026-10-10): valor recomendado aprobado.** Por el menú del usuario (`GET /me/menu`): si contiene la opción del módulo (`proyectos-buscar`, `actividad-actividades`), se activa la sección o el botón. Coherente con ADR-018 y DM-32 | Alternativas: constante de compilación (acopla áreas del frontend) o manejar el `404` de la API (frágil) |
+| **D-02.11** | Componentes compartidos del frontend (`DataTable`, `ConfirmDialog`…) viven en `features/admin/common` y "un área no importa de otra" | **Resuelta (2026-10-10): valor recomendado aprobado.** Moverlos a `frontend/src/components/data/` y dejar `features/admin/common/index.ts` reexportándolos, sin tocar las áreas de admin. El área CRM vive en `frontend/src/features/crm/<submódulo>/` con `crm-routes.ts` | Si se decide importar de `features/admin/common`, se rompe la regla del README de admin |
+| **D-02.12** | Rutas con parámetro en el registro y predicado de visibilidad compartido | **Resuelta (2026-10-10): valor recomendado aprobado.** Registrar `/clientes/nuevo` y `/clientes/:customerId` (la prueba del router lo exige) y hacer que el servicio de opciones de menú rechace destinos con `:`. El predicado de visibilidad de clientes se exporta desde el adaptador Prisma para los modelos de lectura de Inicio y Reportes | Si la prueba del router excluyera rutas con parámetro, no se registran (cambio en `route-tree.ts`) |
+| **D-02.13** | Concurrencia en la edición | **Resuelta (2026-10-10): valor recomendado aprobado.** Última escritura gana, como el resto de la plantilla; la auditoría conserva la diferencia | Bloqueo optimista (`updatedAt` esperado → `409`) añadiría un campo al DTO de edición |
+| **D-02.14** | Semántica de la búsqueda | **Resuelta (2026-10-10): valor recomendado aprobado.** Prefijo en códigos y NIT normalizados; "contiene" en razón social, nombre comercial y ciudad normalizados. Sin `pg_trgm` | Búsqueda difusa requeriría extensión de PostgreSQL y ADR |
+| **D-02.15** | Adjuntos en el alta | **Resuelta (2026-10-10): valor recomendado aprobado.** Se suben después del `201`, uno a uno; un fallo no deshace el cliente | Alta y archivos atómicos exigirían un `multipart` único y almacenamiento temporal |
+| **D-02.16** | Uso de clientes inactivos y conjunto de dependencias que bloquean la eliminación | **Resuelta (2026-10-10): valor recomendado aprobado.** Inactivo: no se ofrece ni se acepta como cliente de proyectos, visitas o actividades **nuevos** (`422 CUSTOMER_INACTIVE`); los existentes no cambian. Bloquean la eliminación: proyectos no eliminados (cualquier fase), actividades abiertas no eliminadas, visitas pendientes | Permitir clientes inactivos en registros nuevos cambia solo la guarda; ampliar o reducir dependencias cambia el conteo |
+| **D-02.17** | ¿Cómo identifica la importación al responsable comercial y los catálogos? | **Resuelta (2026-10-10): valor recomendado aprobado.** Catálogos por `code`, país por `isoCode`, responsable por código de colaborador o, si no hay, por correo. El servicio admite ambos; el Módulo 6 fija la columna de la plantilla | Solo resolución de referencias en modo `BY_NATURAL_KEY` |
 
 ---
 
@@ -1306,12 +1465,12 @@ Se aplica el valor por defecto si no se objeta. Ninguna elimina alcance.
 
 | F-xx | Entidades | Dependencias | AC ids | PF ids |
 |---|---|---|---|---|
-| F-05 | `Customer`, `Country`, `CatalogItem` (`crm.estado_cliente`), `User`, `TeamMember`, `Project` (herencia) | Fase 0 (modelo, semilla, `VisibilityScopeResolver`), DM-10, **DM-12**, DM-13, DM-14, D-02.8, D-02.11, D-02.14 | AC-02.1–AC-02.11, AC-02.50, AC-02.51 | PF-02.1–PF-02.11, PF-02.50–PF-02.52, PF-02.54, PF-02.57 |
-| F-06 | `Customer`, `Sequence`, `Country`, `CatalogItem` (`crm.tipo_empresa`, `crm.estado_cliente`, `crm.calificacion_cliente`), `User`, `SystemParameter`, `Attachment`, `StoredFile`, `AuditLog` | `SequenceGenerator`, `CatalogReferenceValidator`, `ParameterReader`, DM-3, DM-4, DM-18, DM-8 (adjuntos), D-02.1–D-02.4, D-02.15, D-02.17 | AC-02.12–AC-02.25, AC-02.50 | PF-02.12–PF-02.25, PF-02.50, PF-02.52, PF-02.55, PF-02.56 |
-| F-07 | `Customer`, `Contact`, `Attachment`, `StoredFile`, `AuditLog`, `Project`/`Activity`/`Visit` (conteos) | DM-8, DM-29, DM-33, DM-34, D-02.5, D-02.6, D-02.9, D-02.10, D-02.13, D-02.16; Módulo 4 (botón de actividad) | AC-02.26–AC-02.35, AC-02.49, AC-02.50 | PF-02.26–PF-02.35, PF-02.49, PF-02.50, PF-02.52–PF-02.54 |
+| F-05 | `Customer`, `Country`, `CatalogItem` (`crm.estado_cliente`), `User`, `TeamMember`, `Project` (herencia) | Fase 0 (modelo, semilla, `VisibilityScopeResolver`), DM-10, DM-12, DM-13, DM-14, D-02.8, D-02.11, D-02.14 (todas resueltas el 2026-10-10) | AC-02.1–AC-02.11, AC-02.50, AC-02.51, AC-02.55 | PF-02.1–PF-02.11, PF-02.50–PF-02.52, PF-02.54, PF-02.57, PF-02.61 |
+| F-06 | `Customer`, `Sequence`, `Country`, `CatalogItem` (`crm.tipo_empresa`, `crm.estado_cliente`, `crm.calificacion_cliente`), `User`, `SystemParameter`, `Attachment`, `StoredFile`, `AuditLog` | `SequenceGenerator`, `CatalogReferenceValidator`, `ParameterReader`, `FileStorage` (ADR-021), DM-2, DM-3, DM-4, DM-18, DM-8, D-06.11, DC-4, DC-6, D-02.1–D-02.4, D-02.15, D-02.17 (todas resueltas el 2026-10-10) | AC-02.12–AC-02.25, AC-02.50, AC-02.53, AC-02.55 | PF-02.12–PF-02.25, PF-02.50, PF-02.52, PF-02.55, PF-02.56, PF-02.59, PF-02.61 |
+| F-07 | `Customer`, `Contact`, `Attachment`, `StoredFile`, `AuditLog`, `Project`/`Activity`/`Visit` (conteos) | `FileStorage` (ADR-021), DM-4, DM-8, DM-29, DM-33, DM-34, D-06.11, DC-2, DC-4, D-02.5, D-02.6, D-02.9, D-02.10, D-02.13, D-02.16 (todas resueltas el 2026-10-10); Módulo 4 (botón de actividad) | AC-02.26–AC-02.35, AC-02.49, AC-02.50, AC-02.52–AC-02.54 | PF-02.26–PF-02.35, PF-02.49, PF-02.50, PF-02.52–PF-02.54, PF-02.58–PF-02.60, PF-02.62 |
 | F-08 | `Project`, `CatalogItem` (`crm.fase_cliente`), `Opportunity` (estado comercial) — lectura vía contrato del Módulo 3 | **Módulo 3** (`GET /projects?customerId`, `/proyectos/:id`), DM-16, D-02.10 | AC-02.36–AC-02.39 | PF-02.36–PF-02.39 |
-| F-09 | `Contact`, `Customer.primaryContactId`, `InteractionParticipant` (lectura), `AuditLog` | DM-5, DM-29, D-02.4, D-02.6, D-02.7 | AC-02.40–AC-02.48, AC-02.50 | PF-02.40–PF-02.48, PF-02.50, PF-02.52, PF-02.56 |
+| F-09 | `Contact`, `Customer.primaryContactId`, `InteractionParticipant` (lectura), `AuditLog` | DM-5, DM-29, D-02.4, D-02.6, D-02.7 (todas resueltas el 2026-10-10) | AC-02.40–AC-02.48, AC-02.50 | PF-02.40–PF-02.48, PF-02.50, PF-02.52, PF-02.56 |
 
-Estado sugerido en la matriz: F-05, F-06, F-07, F-09 `especificada` (adjuntos de F-06/F-07 con
-decisión DM-8); F-08 `especificada` con dependencia del Módulo 3 (pasa a `bloqueada` si el Módulo 3
-no ha entregado su contrato cuando se implemente este módulo).
+Estado en la matriz: F-05, F-06, F-07 y F-09 `especificada`, sin decisiones abiertas (los adjuntos de
+F-06/F-07 quedan desbloqueados por ADR-021); F-08 `especificada` con dependencia del Módulo 3 (pasa
+a `bloqueada` si el Módulo 3 no ha entregado su contrato cuando se implemente este módulo).

@@ -3,9 +3,12 @@
 - **Fuente del alcance:** [`docs/requirements/crm/ALCANCE-CRM.md`](../../requirements/crm/ALCANCE-CRM.md) (§2, §2.1 y los campos de los 7 módulos)
 - **Decisiones que lo enmarcan:** [ADR-003](../../adr/ADR-003-postgresql-prisma.md), [ADR-004](../../adr/ADR-004-data-access-abstraction.md),
   [ADR-008](../../adr/ADR-008-authorization.md), [ADR-018](../../adr/ADR-018-identity-access-model.md),
-  [ADR-020](../../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md)
+  [ADR-020](../../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md),
+  [ADR-021](../../adr/ADR-021-almacenamiento-de-adjuntos-en-sistema-de-archivos-montado.md),
+  [ADR-024](../../adr/ADR-024-moneda-base-usd-y-tipos-de-cambio.md),
+  [ADR-025](../../adr/ADR-025-inmutabilidad-de-la-auditoria-con-disparadores.md)
 - **Modelo vigente:** [`backend/prisma/schema.prisma`](../../../backend/prisma/schema.prisma), explicado en [`docs/database/data-model.md`](../../database/data-model.md)
-- **Estado:** propuesta de diseño. **No se ha tocado `schema.prisma`, ni migraciones, ni seeds, ni código.**
+- **Estado:** diseño aprobado. Las decisiones DM-1…DM-36 están **resueltas** (responsable de negocio, 2026-10-10; ver §10 y `decisiones-pendientes.md`). **No se ha tocado `schema.prisma`, ni migraciones, ni seeds, ni código.**
 - **Skills aplicados:** `database`, `prisma`, `architecture`, `authorization`, `access-management`, `security`
 
 > Este documento es el **contrato de datos** que siguen las siete especificaciones
@@ -13,9 +16,11 @@
 > *usar* una entidad de aquí; no puede redefinirla ni crear otra que la duplique.
 > Cualquier cambio a este contrato se hace aquí primero.
 >
-> Las decisiones abiertas se numeran **DM-n** (§10) y se consolidan en
-> `docs/implementation-plans/crm/decisiones-pendientes.md`. Cada una trae un valor
-> por defecto: si no se objeta, el modelo se implementa con ese valor.
+> Las decisiones se numeran **DM-n** (§10) y se consolidan en
+> `docs/implementation-plans/crm/decisiones-pendientes.md`. Todas quedaron
+> **resueltas el 2026-10-10** por el responsable de negocio: las que respondió
+> expresamente (DM-1/DM-35, DM-2, DM-4, DM-8, DM-20 y la nueva DM-36) cambian este
+> documento; el resto se aprobó con su valor recomendado.
 
 ---
 
@@ -30,7 +35,7 @@
 7. [Diagrama](#7-diagrama)
 8. [Plan de seeds](#8-plan-de-seeds)
 9. [Migración](#9-migración)
-10. [Decisiones pendientes](#10-decisiones-pendientes)
+10. [Decisiones (resueltas el 2026-10-10)](#10-decisiones-resueltas-el-2026-10-10)
 11. [Puertos de datos previstos](#11-puertos-de-datos-previstos)
 12. [Contradicciones detectadas en el alcance](#12-contradicciones-detectadas-en-el-alcance)
 
@@ -66,7 +71,7 @@
 
 | Modelo (tabla) | Decisión | Detalle |
 |---|---|---|
-| `User` (`users`) | **Extendido** | `employeeCode String? @unique @map("employee_code") @db.VarChar(40)` (código de colaborador, ALCANCE §9.1, único); `countryId String? @map("country_id") @db.Uuid` → `Country`, `onDelete: Restrict`; `@@index([countryId], map: "idx_users_country_id")`. Ambos **nulables en la base** porque el administrador sembrado y los usuarios ya existentes no los tienen; la obligatoriedad para usuarios del CRM la aplica el caso de uso (DM-30). Nombres, apellidos, correo único, teléfono y activo (`status`) ya existen. Back-relations nuevas: dueño de clientes, proyectos, oportunidades, forecast, visitas, actividades y autor de historiales |
+| `User` (`users`) | **Extendido** | Defaults de `locale` y `timeZone` pasan de `es-MX`/`America/Mexico_City` a **`es-GT`/`America/Guatemala`** (DM-2 resuelta, C12; solo afecta a usuarios nuevos: `ALTER COLUMN … SET DEFAULT`, los existentes no se tocan). `employeeCode String? @unique @map("employee_code") @db.VarChar(40)` (código de colaborador, ALCANCE §9.1, único); `countryId String? @map("country_id") @db.Uuid` → `Country`, `onDelete: Restrict`; `@@index([countryId], map: "idx_users_country_id")`. Ambos **nulables en la base** porque el administrador sembrado y los usuarios ya existentes no los tienen; la obligatoriedad para usuarios del CRM la aplica el caso de uso (DM-30). Nombres, apellidos, correo único, teléfono y activo (`status`) ya existen. Back-relations nuevas: dueño de clientes, proyectos, oportunidades, forecast, visitas, actividades y autor de historiales |
 | `UserIdentity`, `UserCredential`, `UserSession`, `LoginAttempt`, `PasswordResetToken` | **Tal cual** | Autenticación (ADR-019). El CRM no crea otro sistema de acceso (ALCANCE §9.4) |
 | `Team` (`teams`) | **Tal cual** | Equipos comerciales. Jerárquico; el alcance `TEAM` incluye descendientes (data-model §5). Sin columna de país: el alcance no lo exige y el país se evalúa por usuario y por registro (§4). Ver DM-12 |
 | `TeamMember` (`team_members`) | **Tal cual** | Pertenencia usuario–equipo. `isPrimary` da el "equipo" que se muestra en Proyectos del equipo (ALCANCE §5.5) |
@@ -76,8 +81,8 @@
 | `SystemParameter` (`system_parameters`) | **Tal cual + filas** | Alertas, vencimientos, unicidad, duplicidad, obligatorios, valores por defecto, transiciones, conversión (§8.2). Grupo `crm` |
 | `Catalog`, `CatalogItem` (`catalogs`, `catalog_items`) | **Tal cual + filas** | Todas las listas cortas del CRM (§3). Sin columnas nuevas: la semántica va en `code` + `metadata`, validada por un registro de semántica en el backend (§3.3) |
 | `Sequence` (`sequences`) | **Tal cual + filas** | Códigos humanos de cliente, proyecto, oportunidad, visita, actividad e importación (§6). Falta el **servicio** que asigna folios con bloqueo de fila: se crea en la Fase 0 (no existe hoy en `backend/src`) |
-| `StoredFile` (`stored_files`) | **Tal cual** | Metadatos del binario. Para el CRM `ownerType`/`ownerId` quedan **nulos**: la pertenencia la dice `Attachment` con FK reales (§2.11). Su `deletedAt` se usa. Requiere decidir el almacenamiento (DM-8) |
-| `AuditLog` (`audit_logs`) | **Tal cual** | Auditoría de todas las mutaciones relevantes (ALCANCE §9.5), con `changes = {campo: {antes, despues}}`. `resourceType` con prefijo `crm.` (`crm.customer`, `crm.project`…). Campo, valor anterior y nuevo ya están en `changes` |
+| `StoredFile` (`stored_files`) | **Tal cual** | Metadatos del binario. Para el CRM `ownerType`/`ownerId` quedan **nulos**: la pertenencia la dice `Attachment` con FK reales (§2.11). Su `deletedAt` se usa. `storageKey` es la **ruta relativa generada** dentro del almacenamiento de archivos montado (DM-8 resuelta, ADR-021; §2.11) |
+| `AuditLog` (`audit_logs`) | **Tal cual + disparadores** | Auditoría de todas las mutaciones relevantes (ALCANCE §9.5), con `changes = {campo: {antes, despues}}`. `resourceType` con prefijo `crm.` (`crm.customer`, `crm.project`…). Campo, valor anterior y nuevo ya están en `changes`. Inalterable en la base con disparadores (D-07.11, ADR-025) |
 | `Notification` (`notifications`) | **No en Fase 0** | Las alertas del CRM se calculan (P4, DM-26). Queda disponible para recordatorios de visitas si se aprueban (DM-27) |
 | `ApprovalRequest`, `ApprovalStep` | **No usado** | Ningún flujo del alcance pide aprobación por registro. La "aprobación para habilitación productiva" de la carga masiva es una decisión de proyecto, no un flujo de datos (DM-28) |
 | `UserPreference` | **Opcional** | Puede guardar filtros o vista (calendario/listado) de la agenda. No es parte del contrato |
@@ -112,7 +117,7 @@ Por brevedad, `TS` = `@db.Timestamptz(6)` y el bloque de trazabilidad estándar 
 >
 > **Porcentajes**: `Decimal @db.Decimal(5, 2)` con `CHECK` 0–100.
 > **Cantidades y tonelajes**: `Decimal @db.Decimal(19, 4)`. **Factores de
-> conversión**: `Decimal @db.Decimal(19, 8)`. **Dinero**: `Decimal @db.Decimal(19, 4)` + `currencyCode Char(3)`.
+> conversión** y **tipos de cambio**: `Decimal @db.Decimal(19, 8)`. **Dinero**: `Decimal @db.Decimal(19, 4)` + `currencyCode Char(3)` (FK a `currencies`); todo monto en moneda local lleva además su **equivalente en USD** y el tipo de cambio aplicado (moneda base USD, DM-36, §2.16).
 
 ### 2.1 Enums nuevos
 
@@ -209,7 +214,8 @@ enum ImportRowStatus {
   @@map("import_row_status")
 }
 
-/// Pendiente de decisión (DM-9).
+/// DM-9 resuelta: la tabla se crea vacía; la métrica inicial es TONNAGE mensual por
+/// usuario. El resto de valores quedan disponibles sin migración.
 enum SalesTargetMetric {
   TONNAGE
   AMOUNT
@@ -224,7 +230,9 @@ enum SalesTargetMetric {
 ### 2.2 País — `Country` (`countries`)
 
 Tabla dedicada, no catálogo: la referencian usuarios, clientes, proyectos y metas
-con FK, y tiene columnas propias (reglas de validación del identificador fiscal y del teléfono).
+con FK, y tiene columnas propias (reglas de validación del identificador fiscal y del
+teléfono, moneda). Países resueltos (DM-2, 2026-10-10): Guatemala, El Salvador, Honduras,
+Costa Rica, Venezuela y Ecuador (§8.2).
 
 ```prisma
 model Country {
@@ -238,13 +246,16 @@ model Country {
   /// Expresión regular de validación; null = solo longitud y caracteres permitidos (DM-3).
   taxIdPattern    String?  @map("tax_id_pattern") @db.VarChar(200)
   phonePattern    String?  @map("phone_pattern") @db.VarChar(200)
-  defaultCurrency String?  @map("default_currency") @db.Char(3)
+  /// Moneda local del país (ISO 4217): GTQ, USD, HNL, CRC, VES. FK a currencies (DM-36, §2.16).
+  /// Es la moneda alternativa que admite una estimación además de la base USD.
+  currencyCode    String   @map("currency_code") @db.Char(3)
   timeZone        String?  @map("time_zone") @db.VarChar(60)
   sortOrder       Int      @default(0) @map("sort_order")
   isActive        Boolean  @default(true) @map("is_active")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  currency  Currency   @relation(fields: [currencyCode], references: [code], onDelete: Restrict)
   users     User[]
   customers Customer[]
   projects  Project[]
@@ -386,7 +397,8 @@ model Customer {
   /// Minúsculas, sin acentos, espacios colapsados. Base de la detección de duplicados.
   legalNameNormalized    String    @map("legal_name_normalized") @db.VarChar(200)
   tradeName              String?   @map("trade_name") @db.VarChar(200)
-  /// NIT (o el identificador fiscal del país: Country.taxIdLabel).
+  /// NIT (o el identificador fiscal del país: Country.taxIdLabel). NO es único: varios
+  /// establecimientos (sucursales) del mismo cliente comparten NIT (DM-4 resuelta).
   taxId                  String?   @map("tax_id") @db.VarChar(30)
   taxIdNormalized        String?   @map("tax_id_normalized") @db.VarChar(30)
   countryId              String    @map("country_id") @db.Uuid
@@ -424,7 +436,8 @@ model Customer {
   attachments    Attachment[]
 
   @@unique([countryId, customerCodeNormalized], map: "uq_customers_country_customer_code")
-  @@unique([countryId, taxIdNormalized], map: "uq_customers_country_tax_id")
+  /// Búsqueda de NIT repetido (aviso de duplicado blando, §6.2). Índice, no único (DM-4).
+  @@index([countryId, taxIdNormalized], map: "idx_customers_country_id_tax_id")
   @@index([salesOwnerId], map: "idx_customers_sales_owner_id")
   @@index([statusId], map: "idx_customers_status_id")
   @@index([countryId, city], map: "idx_customers_country_id_city")
@@ -444,7 +457,8 @@ ALTER TABLE customers
 
 Notas:
 
-- **Borrado:** `deletedAt` = eliminación lógica (permiso `clientes.eliminar`), que oculta el registro y conserva todo lo asociado (ALCANCE §4.3). "Desactivar" = cambiar `statusId` a un estado con `metadata.isActive = false`; el cliente sigue visible. Un cliente eliminado **sigue ocupando** su código y su NIT: se reactiva, no se recrea.
+- **Borrado:** `deletedAt` = eliminación lógica (permiso `clientes.eliminar`), que oculta el registro y conserva todo lo asociado (ALCANCE §4.3). "Desactivar" = cambiar `statusId` a un estado con `metadata.isActive = false`; el cliente sigue visible. Un cliente eliminado **sigue ocupando** su código: se reactiva, no se recrea. Su NIT sigue contando para el aviso de NIT repetido.
+- **Establecimientos (DM-4 resuelta, 2026-10-10):** "puede ser el mismo cliente pero con dos establecimientos". Cada establecimiento es una fila de `customers` con su propio código de cliente (único por país, el que lo identifica) y puede compartir NIT con otras. No se modela una entidad "grupo de empresa": el NIT compartido es el vínculo y la búsqueda por NIT los muestra juntos.
 - **Unicidad base en la base, endurecible por parámetro:** ver §6.2.
 - **`primaryContactId`**: ver §2.5.
 
@@ -622,10 +636,19 @@ model Opportunity {
   /// "Fecha" de la oportunidad (ALCANCE §5.8): fecha de identificación (DM-35).
   opportunityDate  DateTime  @map("opportunity_date") @db.Date
   ownerId          String    @map("owner_id") @db.Uuid
-  /// "Estimación" (DM-1).
-  estimatedAmount  Decimal?  @map("estimated_amount") @db.Decimal(19, 4)
-  currencyCode     String?   @map("currency_code") @db.Char(3)
-  estimatedTonnage Decimal?  @map("estimated_tonnage") @db.Decimal(19, 4)
+  /// "Estimación" (DM-1 y DM-36 resueltas): monto + moneda + foto del tipo de cambio
+  /// + equivalente en USD, y tonelaje opcional. Los cinco campos de monto van juntos (CHECK).
+  /// Monto en la moneda elegida: USD (base) o la moneda del país del proyecto.
+  estimatedAmount    Decimal?  @map("estimated_amount") @db.Decimal(19, 4)
+  currencyCode       String?   @map("currency_code") @db.Char(3)
+  /// Tipo de cambio APLICADO: unidades de currencyCode por 1 USD. 1 si la moneda es USD.
+  /// Es una foto: corregir después exchange_rates no lo cambia (§2.16).
+  exchangeRate       Decimal?  @map("exchange_rate") @db.Decimal(19, 8)
+  /// Fecha de vigencia de la fila de exchange_rates aplicada. Nula si la moneda es USD.
+  exchangeRateDate   DateTime? @map("exchange_rate_date") @db.Date
+  /// estimatedAmount / exchangeRate, 4 decimales HALF_UP. Base de todos los totales e indicadores.
+  estimatedAmountUsd Decimal?  @map("estimated_amount_usd") @db.Decimal(19, 4)
+  estimatedTonnage   Decimal?  @map("estimated_tonnage") @db.Decimal(19, 4)
   description      String?   @db.VarChar(2000)
   /// Siguiente acción: su ausencia en una oportunidad abierta genera alerta.
   nextAction       String?   @map("next_action") @db.VarChar(300)
@@ -639,6 +662,7 @@ model Opportunity {
   project       Project                    @relation(fields: [projectId], references: [id], onDelete: Restrict)
   stage         CatalogItem                @relation("OpportunityStage", fields: [stageId], references: [id], onDelete: Restrict)
   owner         User                       @relation("OpportunityOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  currency      Currency?                  @relation(fields: [currencyCode], references: [code], onDelete: Restrict)
   stageHistory  OpportunityStageHistory[]
   result        OpportunityResult?
   resultHistory OpportunityResultHistory[]
@@ -725,9 +749,16 @@ SQL de migración:
 
 ```sql
 ALTER TABLE opportunities
-  ADD CONSTRAINT ck_opportunities_amount   CHECK (estimated_amount IS NULL OR estimated_amount >= 0),
-  ADD CONSTRAINT ck_opportunities_currency CHECK (estimated_amount IS NULL OR currency_code IS NOT NULL),
-  ADD CONSTRAINT ck_opportunities_tonnage  CHECK (estimated_tonnage IS NULL OR estimated_tonnage >= 0);
+  ADD CONSTRAINT ck_opportunities_amount        CHECK (estimated_amount IS NULL OR estimated_amount >= 0),
+  -- DM-36: monto, moneda, tipo de cambio y equivalente USD van juntos (todos o ninguno).
+  ADD CONSTRAINT ck_opportunities_amount_set    CHECK (num_nonnulls(estimated_amount, currency_code, exchange_rate, estimated_amount_usd) IN (0, 4)),
+  ADD CONSTRAINT ck_opportunities_exchange_rate CHECK (exchange_rate IS NULL OR exchange_rate > 0),
+  ADD CONSTRAINT ck_opportunities_amount_usd    CHECK (estimated_amount_usd IS NULL OR estimated_amount_usd >= 0),
+  -- En USD el tipo de cambio es 1, sin fecha de vigencia, y el equivalente es el propio monto.
+  ADD CONSTRAINT ck_opportunities_usd_identity  CHECK (currency_code IS DISTINCT FROM 'USD'
+                                                      OR (exchange_rate = 1 AND exchange_rate_date IS NULL AND estimated_amount_usd = estimated_amount)),
+  ADD CONSTRAINT ck_opportunities_rate_date     CHECK (currency_code IS NULL OR currency_code = 'USD' OR exchange_rate_date IS NOT NULL),
+  ADD CONSTRAINT ck_opportunities_tonnage       CHECK (estimated_tonnage IS NULL OR estimated_tonnage >= 0);
 ALTER TABLE opportunity_results
   ADD CONSTRAINT ck_opportunity_results_lost_reason     CHECK (outcome <> 'LOST' OR reason_id IS NOT NULL),
   ADD CONSTRAINT ck_opportunity_results_partial_percent CHECK (outcome <> 'PARTIAL' OR awarded_percent IS NOT NULL),
@@ -743,9 +774,11 @@ ALTER TABLE opportunity_result_history
 Notas:
 
 - **¿Por qué tabla 1:1 para el resultado y no columnas en `opportunities`?** Porque el resultado es opcional y tiene sus propias reglas (CHECK) y su propio historial; mantenerlo aparte deja limpia la oportunidad y hace trivial "oportunidades sin resultado".
-- **Etapa y resultado se solapan** (Ganado/Perdido aparecen en los dos): regla propuesta en §3.4 y DM-15.
+- **Etapa y resultado se solapan** (Ganado/Perdido aparecen en los dos): regla de §3.4 (DM-15 aprobada).
 - **Transiciones de etapa**: parámetro `crm.oportunidades.transiciones_etapa` (DM-6), validado por el caso de uso. La base no las puede expresar sin disparadores.
 - **"Evitar duplicar oportunidades al consultar sus productos"** (ALCANCE §7.2): los conteos se hacen sobre `opportunities`, nunca sobre el `JOIN` con `project_products`. Regla del adaptador de reportes.
+- **Estimación en moneda local (DM-36, ADR-024):** el caso de uso de alta/edición de la oportunidad resuelve el tipo de cambio con `ExchangeRateReader.findApplicable(currencyCode, opportunityDate)` (§2.16) y guarda la foto (`exchangeRate`, `exchangeRateDate`) y `estimatedAmountUsd` en la misma transacción. Se recalcula **solo** cuando cambian `estimatedAmount`, `currencyCode` u `opportunityDate`; cualquier otra edición conserva la foto. Monedas admitidas: `USD` o `countries.currency_code` del país del proyecto (`422 CURRENCY_NOT_ALLOWED` en otro caso). Sin tipo de cambio vigente → `422 EXCHANGE_RATE_NOT_FOUND` (no se guarda un monto sin equivalente en USD; el usuario puede registrarlo en USD).
+- **Tonelaje estimado (DM-1):** opcional e independiente del monto; no se convierte.
 
 ### 2.8 Productos asociados — `ProjectProduct` (`project_products`)
 
@@ -1029,6 +1062,8 @@ ALTER TABLE visits
   ADD CONSTRAINT ck_visits_actual_range     CHECK (actual_end_at IS NULL OR (actual_start_at IS NOT NULL AND actual_end_at >= actual_start_at)),
   ADD CONSTRAINT ck_visits_confirm_requires CHECK (confirmed_at IS NULL OR (actual_start_at IS NOT NULL AND confirmed_by_id IS NOT NULL
                                                    AND (confirmation_summary IS NOT NULL OR result_summary IS NOT NULL OR comments IS NOT NULL))),
+  -- DM-20 resuelta: confirma el propio asesor dueño de la visita, no el manager.
+  ADD CONSTRAINT ck_visits_confirmed_by_owner CHECK (confirmed_by_id IS NULL OR confirmed_by_id = owner_id),
   ADD CONSTRAINT ck_visits_reschedule_count CHECK (reschedule_count >= 0),
   ADD CONSTRAINT ck_visits_reminder         CHECK (reminder_minutes_before IS NULL OR reminder_minutes_before >= 0);
 ALTER TABLE visit_events
@@ -1052,6 +1087,7 @@ ALTER TABLE interaction_participants
 - Una visita es **una fila** toda su vida. Reprogramar actualiza `scheduledStartAt`, incrementa `rescheduleCount` e inserta un `VisitEvent(RESCHEDULED)` con fecha anterior, fecha nueva, motivo, usuario y estados anterior/nuevo. Nunca se crea una visita nueva por reprogramar, así que el reporte cuenta una sola vez.
 - Cancelar pone el estado `CANCELADA`, fija `cancelledAt` e inserta `VisitEvent(CANCELLED)`. La fila no se borra (no hay `deletedAt`, no hay permiso `visitas.eliminar`).
 - Planificar, registrar como realizada y confirmar insertan también su evento: `visit_events` es el historial completo.
+- **Quién confirma (DM-20 resuelta, 2026-10-10):** el **mismo asesor dueño** de la visita (`owner_id`), con `visitas.cerrar`; el manager no confirma visitas ajenas (`visitas.administrar` no alcanza a confirmar). Lo garantizan el caso de uso y `ck_visits_confirmed_by_owner`. Una visita confirmada es de solo lectura (no se reasigna), así que el CHECK sigue cierto. Los cinco estados (`PROGRAMADA`, `REPROGRAMADA`, `REALIZADA`, `CONFIRMADA`, `CANCELADA`) quedan aprobados.
 - Los adjuntos de una reprogramación, cancelación o confirmación cuelgan del `VisitEvent` (§2.11).
 - **Conflictos de horario** (ALCANCE §6.5.1, "preparar sin bloquear"): el índice `(owner_id, scheduled_start_at)` soporta la consulta de solapes; el parámetro `crm.visitas.validar_conflicto_horario` (`AVISAR` por defecto, valores `NO|AVISAR|BLOQUEAR`) decide qué hace el caso de uso.
 
@@ -1105,7 +1141,25 @@ ALTER TABLE attachments
 - `StoredFile` necesita la back-relation `attachment Attachment?`. Sus columnas `ownerType/ownerId` quedan nulas para el CRM (no se duplica la pertenencia).
 - Eliminar un adjunto = `deletedAt` en `attachments` y en `stored_files`; el binario se purga después según la política de retención. Los adjuntos de visitas confirmadas o eventos no se eliminan (historia).
 - La visibilidad de un adjunto es la de su dueño (§4).
-- **Bloqueante:** no existe adaptador de almacenamiento de objetos. Hace falta un ADR (DM-8) antes de implementar cualquier subida.
+
+**Almacenamiento del binario (DM-8 resuelta el 2026-10-10, [ADR-021](../../adr/ADR-021-almacenamiento-de-adjuntos-en-sistema-de-archivos-montado.md)).** El responsable decidió "una carpeta dentro del proyecto que se mapeará a un almacenamiento en el servidor":
+
+| Aspecto | Regla |
+|---|---|
+| Puerto | `FileStorage` (`backend/src/infrastructure/storage/file-storage.port.ts`): `save(stream, { storageKey, maxBytes }) → { sizeBytes, checksum }`, `openRead(storageKey) → stream`, `delete(storageKey)`. El dominio y los casos de uso no conocen rutas ni el sistema de archivos |
+| Adaptador | `LocalFileSystemStorage`: escribe bajo la ruta base `ATTACHMENTS_STORAGE_PATH` (variable de entorno; por defecto `./storage/attachments` relativo al directorio de trabajo del backend, carpeta **ignorada por Git**). Se añade a `.env.example` y a la validación de configuración al implementar |
+| Docker | El `docker-compose` monta un volumen en esa ruta (p. ej. `/app/storage/attachments`); en el servidor ese volumen apunta al almacenamiento definitivo. La imagen no contiene adjuntos |
+| `stored_files.storage_key` | **Ruta relativa generada por el servidor**: `<año>/<mes>/<uuid>` (sin el nombre ni la extensión del usuario). Única (`@unique` existente). Nunca se construye con datos del cliente |
+| `stored_files.file_name` | Nombre original **solo para mostrar** y para `Content-Disposition` (saneado: sin separadores de ruta ni caracteres de control, máx. 255) |
+| `stored_files.mime_type` | Tipo **detectado** por la firma del contenido (magic bytes) y cotejado con la extensión y con la lista blanca; no se confía en el `Content-Type` del navegador |
+| `stored_files.checksum` | SHA-256 del contenido, calculado al guardar |
+| Límites | `crm.adjuntos.max_mb` = 10; tipos `crm.adjuntos.tipos_permitidos`: PDF, JPEG, PNG, Word (`.docx`) y Excel (`.xlsx`) (§8.2). Exceso de tamaño `413`, tipo no admitido `422 ATTACHMENT_TYPE_NOT_ALLOWED` (DC-4) |
+| Descarga | **Nunca se sirve como estático** (ni NGINX ni `express.static`). Se transmite por la API (`GET …/attachments/{aid}/content`, rutas por dueño, DC-2) **después** de comprobar permiso y visibilidad del dueño, con `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff` y el `Content-Type` guardado. Sin URL firmada |
+| Ruta segura | El adaptador resuelve `path.resolve(base, storageKey)` y rechaza cualquier resultado fuera de la base (defensa ante *path traversal* aunque la clave sea generada); no sigue enlaces simbólicos |
+| Escritura | A un temporal dentro de la base y `rename` al final; si la transacción de base falla, se borra el binario (y viceversa: fila sin binario → error registrado). El tamaño se corta en streaming al superar el máximo |
+| Borrado | Lógico (`deletedAt`); el binario se purga después con la retención. Los adjuntos de visitas confirmadas y de eventos no se eliminan |
+| Respaldo | Responsabilidad del almacenamiento del servidor (fuera de la aplicación), coordinado con el respaldo de la base |
+| Antivirus | Sin antivirus en esta versión (no hay servicio aprobado); mitigación: lista blanca por firma, descarga como `attachment`, nunca ejecución ni vista previa en línea. Añadir un escáner sería un adaptador nuevo con ADR |
 
 ### 2.12 Historial de interacciones — **vista derivada**, no tabla
 
@@ -1158,9 +1212,9 @@ model CustomerImport {
   code             String           @unique @db.VarChar(30)
   format           ImportFileFormat
   originalFileName String           @map("original_file_name") @db.VarChar(255)
-  /// Nulo mientras DM-8 no esté resuelto: el original se procesa en memoria (06 D-06.8).
+  /// Nulo: el original se procesa en memoria y no se guarda (D-06.8 resuelta; §2.14).
   sourceFileId     String?          @map("source_file_id") @db.Uuid
-  /// Archivo de errores descargable (§8.1 punto 16). Nulo mientras DM-8 no esté resuelto:
+  /// Archivo de errores descargable (§8.1 punto 16). Nulo (D-06.8 resuelta):
   /// el archivo de errores se genera al vuelo desde raw_data (06 D-06.8).
   errorFileId      String?          @map("error_file_id") @db.Uuid
   status           ImportStatus     @default(UPLOADED)
@@ -1230,11 +1284,12 @@ ALTER TABLE customer_import_rows
 
 - "Mantener integridad ante errores parciales" (§8.1): cada fila válida se inserta en su propia transacción (o en lotes con *savepoint*); una fila fallida queda `REJECTED` con su error, sin deshacer las demás. Los contadores se recalculan al cerrar.
 - Los clientes importados son filas normales de `customers` (con `sourceImportId`) y pasan por el **mismo** caso de uso de alta (validaciones, folio, auditoría).
-- **Anotado en la consolidación (06 D-06.6, D-06.8):** cada incidencia de `errors` lleva `severity` (`ERROR` | `WARNING`); `source_file_id` y `error_file_id` quedan **nulos** mientras DM-8 no esté resuelto (no se guarda ningún binario de la carga). Las columnas y sus FK se conservan para cuando exista almacenamiento.
+- **Anotado en la consolidación (06 D-06.6, D-06.8):** cada incidencia de `errors` lleva `severity` (`ERROR` | `WARNING`). **D-06.8 resuelta (2026-10-10):** aunque ya existe almacenamiento (ADR-021), se aprueba el valor recomendado: la carga **no guarda** el archivo original (se procesa en memoria) y el de errores se genera al vuelo desde `raw_data`; `source_file_id` y `error_file_id` quedan nulos. Guardarlos más adelante no cambia el esquema (las columnas y sus FK se conservan).
+- **NIT repetido en la carga (DM-4 resuelta):** coincidir en NIT con un cliente existente del mismo país, o con otra fila del archivo, es un **aviso** (`severity: WARNING`, código `DUPLICATE_TAX_ID`), no un rechazo: la fila queda `VALID` y se importa solo si la confirmación incluye las filas con advertencias (D-06.6). El código de cliente repetido sigue siendo error.
 
-### 2.15 Metas comerciales — `SalesTarget` (`sales_targets`) — **PENDIENTE DE DECISIÓN (DM-9)**
+### 2.15 Metas comerciales — `SalesTarget` (`sales_targets`) — DM-9 resuelta
 
-El Inicio muestra "metas y cumplimiento, **cuando existan metas configuradas**" (§3.2), pero el alcance no incluye pantalla de mantenimiento de metas ni define su granularidad. Propuesta:
+El Inicio muestra "metas y cumplimiento, **cuando existan metas configuradas**" (§3.2), pero el alcance no incluye pantalla de mantenimiento de metas ni define su granularidad. **Aprobado (2026-10-10):** tabla vacía, metas mensuales de toneladas por persona, carga por script:
 
 ```prisma
 model SalesTarget {
@@ -1248,8 +1303,8 @@ model SalesTarget {
   teamId          String?           @map("team_id") @db.Uuid
   countryId       String?           @map("country_id") @db.Uuid
   productFamilyId String?           @map("product_family_id") @db.Uuid
+  /// Toneladas, cantidad o, si metric = AMOUNT, USD (moneda base, DM-36). Sin columna de moneda.
   targetValue     Decimal           @map("target_value") @db.Decimal(19, 4)
-  currencyCode    String?           @map("currency_code") @db.Char(3)
   notes           String?           @db.VarChar(500)
   deletedAt       DateTime?         @map("deleted_at") @db.Timestamptz(6)
   // + bloque de trazabilidad estándar
@@ -1266,11 +1321,106 @@ model SalesTarget {
 ALTER TABLE sales_targets
   ADD CONSTRAINT ck_sales_targets_subject  CHECK (num_nonnulls(user_id, team_id, country_id) = 1),
   ADD CONSTRAINT ck_sales_targets_month    CHECK (month IS NULL OR month BETWEEN 1 AND 12),
-  ADD CONSTRAINT ck_sales_targets_value    CHECK (target_value >= 0),
-  ADD CONSTRAINT ck_sales_targets_currency CHECK (metric <> 'AMOUNT' OR currency_code IS NOT NULL);
+  ADD CONSTRAINT ck_sales_targets_value    CHECK (target_value >= 0);
 ```
 
-**Recomendación:** crear la tabla en la migración de la Fase 0 (vacía, sin seed esencial) para que Inicio y Reportes tengan una fuente estable; con cero filas la tarjeta muestra "Sin metas configuradas" y **no inventa valores**. La carga inicial sería por script versionado hasta que se decida una pantalla.
+**Aprobado (DM-9):** crear la tabla en la migración de la Fase 0 (vacía, sin seed esencial) para que Inicio y Reportes tengan una fuente estable; con cero filas la tarjeta muestra "Sin metas configuradas" y **no inventa valores**. La carga inicial sería por script versionado hasta que se decida una pantalla.
+
+### 2.16 Monedas y tipos de cambio — `Currency` y `ExchangeRate` (DM-36, ADR-024)
+
+**Decisión del responsable (2026-10-10):** "moneda base USD, con la capacidad de usar un
+tipo de cambio a la moneda del país". Todo total, indicador y reporte se expresa en USD; una
+estimación puede capturarse en la moneda local del país del proyecto y se guarda con su
+equivalente en USD y la foto del tipo de cambio aplicado (§2.7).
+
+**Diseño mínimo elegido:** una tabla pequeña de monedas (para que `countries.currency_code`,
+`opportunities.currency_code` y `exchange_rates.currency_code` tengan FK real y la moneda
+tenga nombre, símbolo y decimales para mostrar) y una tabla de tipos de cambio por fecha de
+vigencia. Se descartan: solo el código ISO sin tabla (sin integridad ni datos de
+presentación), un catálogo genérico (`catalog_items` no puede ser destino de una FK por
+código ni guarda decimales con significado) y una tabla de pares de monedas (no hace falta:
+la base es siempre USD).
+
+```prisma
+/// Moneda ISO 4217. Clave natural de 3 letras como PK: es estable, es lo que viaja en la
+/// API y evita una unión en cada lectura (excepción justificada a P7, como hace isoCode en Country).
+model Currency {
+  /// ISO 4217 (USD, GTQ, HNL, CRC, VES).
+  code      String   @id @db.Char(3)
+  name      String   @db.VarChar(60)
+  symbol    String   @db.VarChar(8)
+  /// Decimales de presentación (2 para las cinco iniciales). El almacenamiento siempre es (19, 4).
+  decimals  Int      @default(2) @db.SmallInt
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  countries     Country[]
+  exchangeRates ExchangeRate[]
+  opportunities Opportunity[]
+
+  @@map("currencies")
+}
+
+/// Tipo de cambio de una moneda frente al USD con fecha de vigencia. Rige desde
+/// effectiveDate hasta la siguiente fila de la misma moneda.
+model ExchangeRate {
+  id            String   @id @default(uuid()) @db.Uuid
+  currencyCode  String   @map("currency_code") @db.Char(3)
+  effectiveDate DateTime @map("effective_date") @db.Date
+  /// Unidades de la moneda por 1 USD (p. ej. GTQ 7,75000000).
+  ratePerUsd    Decimal  @map("rate_per_usd") @db.Decimal(19, 8)
+  /// Origen del dato (banco central, tesorería, "carga inicial"…). Texto libre.
+  source        String   @db.VarChar(120)
+  notes         String?  @db.VarChar(500)
+  // + bloque de trazabilidad estándar (createdAt, updatedAt, createdById, updatedById)
+
+  currency Currency @relation(fields: [currencyCode], references: [code], onDelete: Restrict)
+
+  /// Una sola tasa por moneda y fecha; también sirve a la búsqueda "última vigente ≤ fecha".
+  @@unique([currencyCode, effectiveDate], map: "uq_exchange_rates_currency_effective_date")
+  @@map("exchange_rates")
+}
+```
+
+SQL de migración:
+
+```sql
+ALTER TABLE currencies
+  ADD CONSTRAINT ck_currencies_code     CHECK (code ~ '^[A-Z]{3}$'),
+  ADD CONSTRAINT ck_currencies_decimals CHECK (decimals BETWEEN 0 AND 4);
+ALTER TABLE exchange_rates
+  ADD CONSTRAINT ck_exchange_rates_rate     CHECK (rate_per_usd > 0),
+  -- El USD es la base: su tasa es siempre 1 y no se guarda.
+  ADD CONSTRAINT ck_exchange_rates_not_base CHECK (currency_code <> 'USD');
+```
+
+**Regla de búsqueda** (puerto `ExchangeRateReader`, Fase 0):
+
+- `findApplicable(currencyCode, date)`: si `currencyCode = 'USD'` → tasa 1, sin fila. Si no,
+  la fila de esa moneda con **mayor `effective_date` ≤ `date`** (`ORDER BY effective_date DESC LIMIT 1`,
+  servida por el único). La fecha de referencia es `opportunities.opportunity_date` (DM-35).
+- Sin fila → `422 EXCHANGE_RATE_NOT_FOUND` (con `currencyCode` y `date` en `details`).
+- Fila más antigua que `crm.tipos_cambio.dias_aviso_antiguedad` (31) respecto a la fecha
+  de referencia → se guarda, y la respuesta incluye el aviso no bloqueante
+  `EXCHANGE_RATE_STALE` para que el usuario lo vea.
+- Conversión: `amountUsd = round(amount / ratePerUsd, 4, HALF_UP)` con aritmética decimal
+  en el backend (nunca `number` de JavaScript).
+
+**Foto, no referencia.** La oportunidad guarda el valor de la tasa y su fecha, no una FK a
+`exchange_rates`: corregir o añadir una tasa después no altera estimaciones ya guardadas
+ni los totales históricos. Para revaluar, se edita el monto, la moneda o la fecha.
+
+**Mantenimiento.** Siembra inicial (§8.2) y pantalla en Administración, dentro de F-46
+§9.4 "Conversiones y estimaciones comerciales", con `parametros.ver` (consultar) y
+`parametros.configurar` (crear y corregir): **extensión de alcance aprobada por el
+responsable** (07). Las tasas no se borran ni se desactivan: se corrigen (auditado
+`crm.exchange_rate.created/updated`) o se añade una nueva fecha.
+
+**Presentación.** Totales e indicadores en USD. Donde se muestra un monto concreto, se
+enseñan el monto original con su moneda y el equivalente en USD. Los reportes pueden
+mostrar, como referencia, la moneda local cuando el filtro se reduce a **un solo país**
+(05), convirtiendo el total USD con la tasa vigente a la fecha de corte y rotulándolo así.
 
 ---
 
@@ -1287,6 +1437,8 @@ La regla de la plantilla (`schema.prisma`, comentario de `Catalog`): **lista cor
 | Familias de producto | Tabla `product_families` | FK desde productos, reglas de conversión y metas |
 | Productos | Tabla `products` | Entidad maestra con FK |
 | Reglas de conversión | Tabla `unit_conversion_rules` | Factor, ámbito y FK |
+| Monedas | Tabla `currencies` | Destino de FK por código ISO; decimales de presentación (§2.16) |
+| Tipos de cambio | Tabla `exchange_rates` | Valor decimal con fecha de vigencia y FK (§2.16) |
 | Equipos | Tabla `teams` (existe) | — |
 | Todo lo demás de §3.2 | `catalog_items` | Listas cortas, editables por el mantenimiento genérico |
 
@@ -1332,7 +1484,7 @@ Todos con `Catalog.isSystem = true` (no se borran ni cambian de `key`; PLAN-ADMI
 
 `WON / LOST / PARTIAL` llevan reglas del alcance (motivo obligatorio si perdido, porcentaje obligatorio si parcial) que la base puede hacer cumplir **solo si el valor es una columna enum** (`CHECK outcome <> 'LOST' OR reason_id IS NOT NULL`). Por eso `opportunity_results.outcome` es el enum `OpportunityOutcome` y el catálogo `crm.resultado_oportunidad` aporta solo etiqueta y orden para el formulario (códigos = valores del enum, conjunto cerrado protegido por el registro). El formulario sigue leyendo la lista de la base (ALCANCE §1 regla 8).
 
-**Relación etapa ↔ resultado (propuesta, DM-15):** registrar un resultado exige que la oportunidad pase a una etapa cerrada cuyo `metadata.outcome` sea `stageOutcome` del resultado: `WON` y `PARTIAL` → etapa con `outcome="WON"` (Ganado); `LOST` → etapa con `outcome="LOST"` (Perdido). Pasar a una etapa cerrada exige registrar el resultado en la misma operación. Reabrir (volver a una etapa abierta) anula el resultado (`OpportunityResultHistory.action = CLEARED`). Así "Parcial" no genera una etapa nueva (§5.9) y nunca hay una oportunidad "Ganada" sin resultado.
+**Relación etapa ↔ resultado (aprobada, DM-15):** registrar un resultado exige que la oportunidad pase a una etapa cerrada cuyo `metadata.outcome` sea `stageOutcome` del resultado: `WON` y `PARTIAL` → etapa con `outcome="WON"` (Ganado); `LOST` → etapa con `outcome="LOST"` (Perdido). Pasar a una etapa cerrada exige registrar el resultado en la misma operación. Reabrir (volver a una etapa abierta) anula el resultado (`OpportunityResultHistory.action = CLEARED`). Así "Parcial" no genera una etapa nueva (§5.9) y nunca hay una oportunidad "Ganada" sin resultado.
 
 ### 3.5 Guardia "el elemento pertenece al catálogo X"
 
@@ -1354,23 +1506,23 @@ Una FK a `catalog_items` no puede comprobar **a qué catálogo** pertenece el el
 |---|---|---|
 | Registros propios | `OWN` | — |
 | Equipo | `TEAM` | — |
-| País | `COUNTRY` | **`TERRITORY` se renombra a `COUNTRY`** |
+| País | `COUNTRY` | **`TERRITORY` se renombra a `COUNTRY`** (DM-10 resuelta; addendum a ADR-018) |
 | Ámbito administrativo autorizado | `ORGANIZATION` | — |
 
-**Propuesta (DM-10):** `ALTER TYPE data_scope RENAME VALUE 'TERRITORY' TO 'COUNTRY';` en una migración escrita a mano (Prisma generaría `DROP/CREATE TYPE` con conversión, que falla si alguna fila usa el valor). Es atómico, instantáneo y reversible (`RENAME VALUE 'COUNTRY' TO 'TERRITORY'`). Ningún rol sembrado usa hoy `TERRITORY`.
+**Aprobado (DM-10, 2026-10-10; addendum de 2026-10-10 a [ADR-018](../../adr/ADR-018-identity-access-model.md)):** `ALTER TYPE data_scope RENAME VALUE 'TERRITORY' TO 'COUNTRY';` en una migración escrita a mano (Prisma generaría `DROP/CREATE TYPE` con conversión, que falla si alguna fila usa el valor). Es atómico, instantáneo y reversible (`RENAME VALUE 'COUNTRY' TO 'TERRITORY'`). Ningún rol sembrado usa hoy `TERRITORY`.
 
-**Coste:** cambia el **contrato público** (`dataScope` aparece como enum en `profile.dto.ts`, `role.dto.ts`, `user.dto.ts` y en el frontend: `roles.api.ts`, `roles-format.ts`, `users.api.ts`, `access.types.ts`, `HomePage.tsx`, más `access.service.ts` y `access-catalog.ts`). Por CLAUDE.md §11 necesita **addendum a ADR-018** y se publica en el CHANGELOG. Alternativa sin migración: mantener `TERRITORY` e interpretarlo como "país" (solo cambian etiquetas). Se recomienda renombrar: el sistema aún no está en producción y un nombre que no dice lo que hace es deuda permanente.
+**Coste:** cambia el **contrato público** (`dataScope` aparece como enum en `profile.dto.ts`, `role.dto.ts`, `user.dto.ts` y en el frontend: `roles.api.ts`, `roles-format.ts`, `users.api.ts`, `access.types.ts`, `HomePage.tsx`, más `access.service.ts` y `access-catalog.ts`). Por CLAUDE.md §11 lleva **addendum a ADR-018** (aprobado) y se publica en el CHANGELOG. La alternativa sin migración (mantener `TERRITORY` interpretado como "país") se descartó: el sistema aún no está en producción y un nombre que no dice lo que hace es deuda permanente.
 
 ### 4.2 Columnas que evalúan el alcance, por entidad
 
 `/me` ya expone el alcance **más amplio** entre los roles del usuario. Cada repositorio del CRM recibe un `VisibilityScope` resuelto (no Prisma) y lo traduce a filtros:
 
 - `OWN` → `ownerIds = [yo]`
-- `TEAM` → `ownerIds` = miembros de los equipos donde soy miembro o responsable (`teams.manager_id`), **incluidos los subequipos** (data-model §5). Se resuelve primero a una lista de usuarios (acotada) y se filtra por `owner_id IN (…)`. Ver DM-12.
-- `COUNTRY` → `countryIds = [users.country_id]` (DM-14 por si un usuario cubre varios países).
+- `TEAM` → `ownerIds` = miembros de los equipos donde soy miembro o responsable (`teams.manager_id`), **incluidos los subequipos** (data-model §5; DM-12 resuelta). Se resuelve primero a una lista de usuarios (acotada) y se filtra por `owner_id IN (…)`. Cambiar miembros, responsable o jerarquía de un equipo, o el país de un usuario, es asignación de acceso y es exclusivo del administrador (addendum de 2026-10-10 a [ADR-020](../../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md), D-07.2).
+- `COUNTRY` → `countryIds = [users.country_id]` (DM-14 resuelta: un país por usuario).
 - `ORGANIZATION` → sin filtro.
 
-| Entidad | Dueño (OWN/TEAM) | País (COUNTRY) | Herencia propuesta (DM-13) |
+| Entidad | Dueño (OWN/TEAM) | País (COUNTRY) | Herencia (DM-13 aprobada: solo lectura) |
 |---|---|---|---|
 | `customers` | `sales_owner_id` | `country_id` | También visible si el usuario ve algún proyecto del cliente (un asesor necesita ver la cuenta de sus proyectos) |
 | `contacts` | — | — | Visibilidad del cliente |
@@ -1382,12 +1534,13 @@ Una FK a `catalog_items` no puede comprobar **a qué catálogo** pertenece el el
 | `attachments` | — | — | Visibilidad del dueño del adjunto |
 | `customer_imports` | `started_by_id` | — | `importaciones.ver` con alcance `ORGANIZATION` ve todas |
 | `sales_targets` | `user_id` / `team_id` | `country_id` | — |
+| `currencies`, `exchange_rates` | — | — | Configuración sin alcance: los casos de uso los leen; el mantenimiento exige `parametros.*` (§2.16) |
 
-El "Equipo" que muestra Proyectos del equipo (§5.5) es el equipo principal (`team_members.is_primary`) del asesor responsable: se deriva, no se copia en `projects`. Si el asesor cambia de equipo, sus registros "se mueven" con él (comportamiento habitual en un CRM; si se quisiera la foto histórica, sería una columna `team_id` en cada entidad: DM-12).
+El "Equipo" que muestra Proyectos del equipo (§5.5) es el equipo principal (`team_members.is_primary`) del asesor responsable: se deriva, no se copia en `projects`. Si el asesor cambia de equipo, sus registros "se mueven" con él (comportamiento habitual en un CRM; DM-12 resuelta **sin** foto histórica del equipo).
 
 ### 4.3 Visibilidad ≠ edición
 
-ALCANCE §5.5: "un usuario autorizado para consultar proyectos del equipo no necesariamente debe poder modificarlos". Regla propuesta (DM-34):
+ALCANCE §5.5: "un usuario autorizado para consultar proyectos del equipo no necesariamente debe poder modificarlos". Regla aprobada (DM-34):
 
 - **Ver**: permiso `<recurso>.ver` **y** registro dentro del alcance.
 - **Editar**: permiso `<recurso>.editar` **y** registro propio (`owner_id = yo`).
@@ -1400,13 +1553,13 @@ ALCANCE §5.5: "un usuario autorizado para consultar proyectos del equipo no nec
 |---|---|---|---|
 | Asesor | `asesor` (nuevo, `isSystem`) | `OWN` | Sembrar |
 | Manager | `manager` (nuevo, `isSystem`) | `TEAM` | Sembrar. Cubre "Jefe" y "Supervisor" de §5.5 (DM-11) |
-| Responsable de país (§5.5) | `responsable-pais` (nuevo) | `COUNTRY` | Propuesto; §9.2 no lo lista entre los iniciales (DM-11) |
+| Responsable de país (§5.5) | `responsable-pais` (nuevo, `isSystem`) | `COUNTRY` | Sembrar (DM-11 aprobada) |
 | Administrador | `administrador` (**existente**) | `ORGANIZATION` | Se reutiliza. Con `permissions: '*'` y `menuOptions: '*'` recibe automáticamente todo lo del CRM |
 | — | `gestor-accesos`, `auditor`, `usuario` (existentes) | — | **No se tocan ni se borran.** `usuario` sigue siendo el rol sin permisos que un no administrador puede asignar en el alta (ADR-020). Si el negocio no los quiere visibles, se desactivan, no se borran (DM-11) |
 
-> **Decisión abierta (consolidación):** 07 D-07.1 propone sembrar `asesor`, `manager` y `responsable-pais` con `isSystem = false` para que su matriz sea editable. Contradice esta tabla; **mientras no se decida rige esta tabla** (ver `decisiones-pendientes.md`).
+> **Resuelto (DM-11 · D-07.1, 2026-10-10):** los roles CRM son **de sistema** (`isSystem = true`): el sistema fija sus permisos y la semilla los repone; para variar un perfil se **duplica** el rol. Se descarta la variante `isSystem = false` de 07 D-07.1 (contradicción E1 cerrada).
 
-ADR-020 sigue rigiendo: solo el administrador asigna roles. **Bloqueante antes de Clientes:** la pregunta abierta de ADR-020 sobre si cambiar miembros de un equipo cuenta como "asignar acceso" (con alcance `TEAM` cambia lo que otro usuario ve). DM-12.
+ADR-020 sigue rigiendo: solo el administrador asigna roles. La pregunta abierta de ADR-020 sobre equipos quedó **resuelta** (DM-12, D-07.2): cambiar miembros, responsable o jerarquía de un equipo, y el país de un usuario, es asignación de acceso y exclusivo del administrador (addendum de 2026-10-10 a ADR-020).
 
 ### 4.5 Datos sensibles
 
@@ -1417,7 +1570,9 @@ ADR-020 sigue rigiendo: solo el administrador asigna roles. **Bloqueante antes d
 | Correo/teléfono de clientes (empresa) | Dato de empresa | Normal |
 | Usuarios: `employee_code`, `country_id` | Interno | Igual que el resto del usuario |
 
-Además: las tablas de historial (`*_history`, `visit_events`) y `audit_logs` son de solo inserción. Recomendación para despliegue: el usuario de la aplicación sin `UPDATE`/`DELETE` sobre ellas; la purga por retención con otro rol (`docs/deployment/environments.md`).
+Además: las tablas de historial (`*_history`, `visit_events`) y `audit_logs` son de solo inserción. `audit_logs` lo hace cumplir **en la base** con disparadores (D-07.11 resuelta, [ADR-025](../../adr/ADR-025-inmutabilidad-de-la-auditoria-con-disparadores.md)). Recomendación para despliegue: el usuario de la aplicación sin `UPDATE`/`DELETE` sobre ellas; la purga por retención con otro rol (`docs/deployment/environments.md`).
+
+**Adjuntos:** el binario vive fuera de la base, en el almacenamiento montado (ADR-021); su confidencialidad depende de que solo la API lo lea (sin servicio estático) y de los permisos del sistema de archivos del servidor.
 
 ---
 
@@ -1446,9 +1601,9 @@ ALCANCE §9.2: crear, editar, consultar, cerrar, eliminar, exportar, administrar
 | `actividades` | actividades | `actividad-comercial` | `ver`, `crear`, `editar`, `cerrar`, `eliminar`, `administrar` |
 | `reportes` | reportes comerciales | `reportes` | `ver`, `exportar` |
 | `importaciones` | cargas masivas de clientes | `integraciones` | `ver`, `crear` |
-| `metas` | metas comerciales | `inicio` | `ver` (mantenimiento pendiente, DM-9) |
+| `metas` | metas comerciales | `inicio` | `ver` (carga por script, sin pantalla de mantenimiento: DM-9 resuelta) |
 
-Notas: los productos asociados y la clasificación se gobiernan con `proyectos.editar`; duplicar proyecto exige `proyectos.crear` + `proyectos.ver` del origen. Exportar existe solo en Reportes (§7.6). Los catálogos, parámetros y usuarios del Módulo 7 usan los permisos de administración **existentes** (`catalogos.*`, `parametros.*`, `usuarios.*`).
+Notas: los productos asociados y la clasificación se gobiernan con `proyectos.editar`; duplicar proyecto exige `proyectos.crear` + `proyectos.ver` del origen. Exportar existe solo en Reportes (§7.6). Los catálogos, parámetros y usuarios del Módulo 7 usan los permisos de administración **existentes** (`catalogos.*`, `parametros.*`, `usuarios.*`); el mantenimiento de tipos de cambio también (`parametros.ver` / `parametros.configurar`, §2.16), así que el catálogo sigue en 41 permisos.
 
 ### 5.3 Módulos y opciones de menú
 
@@ -1490,7 +1645,7 @@ La agenda muestra visitas y actividades: el backend filtra cada tipo por su prop
 
 **Cuándo se siembran (DM-32):** los **permisos y roles** en la Fase 0 (son datos y no llevan a ninguna pantalla); cada **opción de menú y su ruta registrada**, con el módulo que entrega la pantalla. Una opción sembrada antes de que exista su pantalla lleva a un 404, que es justo lo que D6 evita.
 
-### 5.4 Matriz rol → permiso (propuesta, DM-11)
+### 5.4 Matriz rol → permiso (aprobada, DM-11; fija para los roles de sistema)
 
 | Permiso | asesor (OWN) | manager (TEAM) | responsable-pais (COUNTRY) | administrador |
 |---|---|---|---|---|
@@ -1507,7 +1662,7 @@ La agenda muestra visitas y actividades: el backend filtra cada tipo por su prop
 | `forecast.ver/editar` | sí | sí | sí | * |
 | `forecast.administrar` | — | sí | sí | * |
 | `visitas.ver/crear/editar` | sí | sí | sí | * |
-| `visitas.cerrar` (confirmar) | ver DM-20 | sí | sí | * |
+| `visitas.cerrar` (confirmar **sus propias** visitas, DM-20) | sí | sí | sí | * |
 | `visitas.administrar` | — | sí | sí | * |
 | `actividades.ver/crear/editar/cerrar` | sí | sí | sí | * |
 | `actividades.eliminar`, `actividades.administrar` | — | sí | sí | * |
@@ -1515,6 +1670,8 @@ La agenda muestra visitas y actividades: el backend filtra cada tipo por su prop
 | `reportes.exportar` | — | sí | sí | * |
 | `importaciones.ver/crear` | — | — | — | * |
 | `metas.ver` | sí | sí | sí | * |
+
+`visitas.cerrar` solo permite confirmar visitas de las que el actor es dueño (DM-20 resuelta): ni `visitas.administrar` ni el comodín del administrador confirman la visita de otro (`ck_visits_confirmed_by_owner`, §2.10).
 
 ---
 
@@ -1540,12 +1697,13 @@ Con `resetPolicy = YEAR` el año forma parte del código, así que la unicidad g
 
 "Validar código de cliente y NIT conforme a las reglas de unicidad configuradas" (§4.2). La base **no puede** obedecer un parámetro, así que se separan dos niveles:
 
-1. **Mínimo garantizado por la base** (siempre cierto): `uq_customers_country_customer_code (country_id, customer_code_normalized)` y `uq_customers_country_tax_id (country_id, tax_id_normalized)`. Un NIT es por país; dos clientes del mismo país no comparten NIT ni código. Los nulos no colisionan. Incluye eliminados lógicos (se reactivan, no se recrean).
+**DM-4 resuelta (2026-10-10):** "puede ser el mismo cliente pero con dos establecimientos". El NIT **no es único**; el código de cliente sí (identifica cada establecimiento).
+
+1. **Mínimo garantizado por la base** (siempre cierto): `uq_customers_country_customer_code (country_id, customer_code_normalized)`: dos clientes del mismo país no comparten código. Los nulos no colisionan (el código sigue siendo opcional, DM-18). Incluye eliminados lógicos (se reactivan, no se recrean). **No hay único de NIT**: `idx_customers_country_id_tax_id (country_id, tax_id_normalized)` es un índice de búsqueda.
 2. **Endurecimiento por parámetro** (solo puede ser más estricto que la base):
-   - `crm.clientes.unicidad_codigo` ∈ `PAIS` (defecto) | `GLOBAL`
-   - `crm.clientes.unicidad_nit` ∈ `PAIS` (defecto) | `GLOBAL`
-   - Con `GLOBAL`, el caso de uso comprueba además en todos los países, bajo bloqueo consultivo (`pg_advisory_xact_lock` por valor normalizado), igual que PLAN-ADMIN hace con `LAST_ADMIN`.
-3. **Duplicados "blandos"** (§4.2 "verificar duplicados antes de guardar"): `crm.clientes.reglas_duplicidad` (JSON), p. ej. `{"razonSocialNormalizada": "AVISAR", "correo": "AVISAR"}` → el caso de uso devuelve `409 POSSIBLE_DUPLICATE` con los candidatos, y el usuario confirma con un indicador explícito. Se apoya en `idx_customers_legal_name_normalized`. Búsqueda difusa (`pg_trgm`) **no** se propone: es una extensión nueva y requeriría ADR.
+   - `crm.clientes.unicidad_codigo` ∈ `PAIS` (defecto) | `GLOBAL`. Con `GLOBAL`, el caso de uso comprueba además en todos los países, bajo bloqueo consultivo (`pg_advisory_xact_lock` por valor normalizado), igual que PLAN-ADMIN hace con `LAST_ADMIN`.
+   - `crm.clientes.unicidad_nit` **se elimina** de la propuesta: un parámetro no puede imponer una unicidad que el negocio descartó.
+3. **Duplicados "blandos"** (§4.2 "verificar duplicados antes de guardar"): `crm.clientes.reglas_duplicidad` (JSON), por defecto `{"razonSocialNormalizada": "AVISAR", "nit": "AVISAR"}` → el caso de uso devuelve `409 POSSIBLE_DUPLICATE` con los candidatos (motivo `TAX_ID` para el NIT, mismo país) y el usuario continúa con un indicador explícito de confirmación: **avisa, no bloquea**. Para la clave `nit` el registro de parámetros solo admite `AVISAR` o `NO` (nunca `BLOQUEAR`, DM-4). En la carga masiva el mismo caso es una advertencia `DUPLICATE_TAX_ID` (§2.14, D-06.6). Se apoya en `idx_customers_legal_name_normalized` e `idx_customers_country_id_tax_id`. Búsqueda difusa (`pg_trgm`) **no** se propone: es una extensión nueva y requeriría ADR.
 4. **Normalización** (una función de dominio compartida por alta, edición e importación): código → mayúsculas sin espacios ni guiones; NIT → mayúsculas, sin espacios, guiones ni puntos; razón social → minúsculas, sin acentos, espacios colapsados; correo → minúsculas. Validación de formato por país con `countries.tax_id_pattern` / `phone_pattern` (DM-3).
 
 Contactos: `uq_contacts_customer_email (customer_id, email_normalized)` + `crm.contactos.reglas_duplicidad` (DM-5). Usuarios: `employee_code` único global (§9.1) y `email_normalized` único (existe).
@@ -1556,6 +1714,9 @@ Contactos: `uq_contacts_customer_email (customer_id, email_normalized)` + `crm.c
 
 ```mermaid
 erDiagram
+    Currency ||--o{ Country : "moneda local"
+    Currency ||--o{ ExchangeRate : "tipos de cambio"
+    Currency |o--o{ Opportunity : "moneda de la estimación"
     Country ||--o{ User : "país del usuario"
     Country ||--o{ Customer : ""
     Country ||--o{ Project : ""
@@ -1637,7 +1798,9 @@ Idempotencia: `upsert` por clave natural (`isoCode`, `code`, `key`, `sku`, `(cat
 
 | Maestro (ALCANCE §2.1) | Fuente | Valores |
 |---|---|---|
-| Países | `crm-masters.ts` | GT Guatemala (+502, NIT, GTQ, America/Guatemala), SV El Salvador (+503, NIT, USD), HN Honduras (+504, RTN, HNL), NI Nicaragua (+505, RUC, NIO), CR Costa Rica (+506, Cédula jurídica, CRC), PA Panamá (+507, RUC, USD). **Supuesto, DM-2** |
+| Monedas | `crm-masters.ts` | `USD` Dólar estadounidense ($), `GTQ` Quetzal (Q), `HNL` Lempira (L), `CRC` Colón costarricense (₡), `VES` Bolívar (Bs.), todas con 2 decimales (DM-36) |
+| Países | `crm-masters.ts` | **DM-2 resuelta (2026-10-10):** GT Guatemala (+502, NIT, GTQ, America/Guatemala), SV El Salvador (+503, NIT, USD, America/El_Salvador), HN Honduras (+504, RTN, HNL, America/Tegucigalpa), CR Costa Rica (+506, Cédula jurídica, CRC, America/Costa_Rica), VE Venezuela (+58, RIF, VES, America/Caracas), EC Ecuador (+593, RUC, USD, America/Guayaquil). **No** se siembran Nicaragua ni Panamá |
+| Tipos de cambio iniciales | `crm-exchange-rates.ts` (datos) | Una fila por moneda distinta de USD (GTQ, HNL, CRC, VES) con fecha de vigencia y fuente. **Los valores los entrega el negocio antes del primer despliegue** (no se inventan); la semilla es idempotente por `(currency_code, effective_date)` y no pisa una tasa ya corregida. Después se mantienen desde Administración (§2.16) |
 | Roles y permisos | `access-catalog.ts` | §5.2 y §5.4; acciones `cerrar` y `administrar` |
 | Módulos y opciones | `access-catalog.ts` | §5.3, según el módulo entregado (DM-32) |
 | Catálogos (tipos, estados, calificaciones de clientes; tipos y sectores de proyecto; fases; etapas; resultados y motivos; tipos y estados de actividades; estados de visitas; prioridades; motivos de reprogramación/cancelación; resultado de interacción; estado de producto asociado) | `crm-catalogs.ts` | §3.2 |
@@ -1652,8 +1815,9 @@ Parámetros (`group = 'crm'` salvo indicación; `isSystem = true`):
 
 | `key` | `type` | Valor por defecto | Uso |
 |---|---|---|---|
-| `crm.zona_horaria_negocio` | STRING | `America/Guatemala` | Límites de mes del forecast, "hoy" de vencimientos |
-| `crm.moneda_por_defecto` | STRING | `USD` | Moneda de la estimación (DM-1) |
+| `crm.zona_horaria_negocio` | STRING | `America/Guatemala` | Límites de mes del forecast, "hoy" de vencimientos (DM-2) |
+| `crm.moneda_base` | STRING | `USD` | Moneda de todos los totales e indicadores (DM-36). **Estructural y de solo lectura** en el registro de parámetros: cambiarla invalidaría `estimated_amount_usd` (sustituye a `crm.moneda_por_defecto`) |
+| `crm.tipos_cambio.dias_aviso_antiguedad` | NUMBER | `31` (rango 1–366) | Antigüedad a partir de la cual el tipo de cambio aplicado genera el aviso `EXCHANGE_RATE_STALE` (§2.16) |
 | `crm.alertas.actividad_por_vencer_horas` | NUMBER | `48` | "Próximas a vencer" (§6.2) |
 | `crm.alertas.visita_sin_confirmar_horas` | NUMBER | `48` | Visita realizada sin confirmar (§3.4) |
 | `crm.alertas.proyecto_sin_actualizar_dias` | NUMBER | `30` | Proyecto sin actualizaciones (§3.4) |
@@ -1664,8 +1828,7 @@ Parámetros (`group = 'crm'` salvo indicación; `isSystem = true`):
 | `crm.oportunidades.transiciones_etapa` | JSON | `{"CONTACTADO":["COTIZANDO","GANADO","PERDIDO"],"COTIZANDO":["CONTACTADO","GANADO","PERDIDO"],"GANADO":[],"PERDIDO":[]}` + reabrir solo con `oportunidades.administrar` | DM-6 |
 | `crm.proyectos.reglas_avance` | JSON | `{"FINALIZADO":{"progresoMinimo":100}}` | Coherencia fase/porcentaje (§9.4 "reglas de avance") |
 | `crm.clientes.unicidad_codigo` | STRING | `PAIS` | §6.2 |
-| `crm.clientes.unicidad_nit` | STRING | `PAIS` | §6.2 |
-| `crm.clientes.reglas_duplicidad` | JSON | `{"razonSocialNormalizada":"AVISAR"}` | §6.2 |
+| `crm.clientes.reglas_duplicidad` | JSON | `{"razonSocialNormalizada":"AVISAR","nit":"AVISAR"}` | §6.2. NIT repetido = aviso, nunca bloqueo (DM-4) |
 | `crm.contactos.reglas_duplicidad` | JSON | `{"correo":"BLOQUEAR","nombreCompleto":"AVISAR"}` | DM-5 |
 | `crm.campos_obligatorios` | JSON | `{"customer":["legalName","countryId","statusId","salesOwnerId"],"project":["name","customerId","countryId","ownerId"],"visit":["customerId","scheduledStartAt","ownerId","objective"],"activity":["typeId","subject","customerId","ownerId","priorityId"]}` | §9.4. Solo puede **añadir** obligatorios a los que ya exige la base |
 | `crm.valores_por_defecto` | JSON | `{"customer.statusId":"PROSPECTO","project.phaseId":"DISENO","opportunity.stageId":"CONTACTADO","activity.priorityId":"MEDIA"}` | §9.4 (códigos de catálogo) |
@@ -1675,13 +1838,15 @@ Parámetros (`group = 'crm'` salvo indicación; `isSystem = true`):
 | `crm.importaciones.max_filas` | NUMBER | `5000` | Límite por archivo |
 | `crm.importaciones.max_mb` | NUMBER | `10` | Tamaño máximo |
 | `crm.importaciones.dias_retencion_filas` | NUMBER | `90` | Purga de `raw_data` |
-| `crm.adjuntos.max_mb` | NUMBER | `10` | DM-8 |
-| `crm.adjuntos.tipos_permitidos` | JSON | `["application/pdf","image/jpeg","image/png","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/vnd.openxmlformats-officedocument.wordprocessingml.document"]` | DM-8 |
-| `crm.inicio.visitas_proximas_dias` | NUMBER | `7` (rango 1–60) | Horizonte de "visitas próximas" (KPI-07 de Inicio y reporte de visitas). **Propuesto por 01 (y reutilizado por 05), pendiente de D-01.5**; D-05.6 resuelta: no se crea otro |
-| `crm.reportes.max_filas_exportacion` | NUMBER | `100000` | Tope de filas de una exportación XLSX; por encima `422 EXPORT_TOO_LARGE`, nunca archivo truncado. **Propuesto por 05, pendiente de D-05.3** |
+| `crm.adjuntos.max_mb` | NUMBER | `10` | DM-8 resuelta (ADR-021). No puede superar el límite de cuerpo de NGINX |
+| `crm.adjuntos.tipos_permitidos` | JSON | `["application/pdf","image/jpeg","image/png","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/vnd.openxmlformats-officedocument.wordprocessingml.document"]` | DM-8 resuelta: PDF, imágenes, Word y Excel |
+| `crm.inicio.visitas_proximas_dias` | NUMBER | `7` (rango 1–60) | Horizonte de "visitas próximas" (KPI-07 de Inicio y reporte de visitas). D-01.5 resuelta (parámetro aprobado); D-05.6: no se crea otro |
+| `crm.reportes.max_filas_exportacion` | NUMBER | `100000` | Tope de filas de una exportación XLSX; por encima `422 EXPORT_TOO_LARGE`, nunca archivo truncado. D-05.3 resuelta |
 | `sistema.permite_datos_demo` (group `sistema`) | BOOLEAN | `false` | Guardia de la demo (§8.1) |
 
-**Propuestas de los módulos que no son parámetros nuevos** (consolidación; se aplican solo si se aprueban, ver `decisiones-pendientes.md`): clave `visitCompletion` dentro de `crm.campos_obligatorios` (04 D-04.4; por defecto no se siembra) e indicador `isRescheduled` en el `metadata` de `crm.estado_visita` (04 D-04.3; cambia el registro de semántica de §3.3, no el esquema).
+**Propuestas de los módulos que no son parámetros nuevos** (aprobadas el 2026-10-10 con su valor recomendado): la clave `visitCompletion` dentro de `crm.campos_obligatorios` existe pero **no se siembra** (04 D-04.4: solo la fecha real es obligatoria); el indicador `isRescheduled` en el `metadata` de `crm.estado_visita` se adopta como mejora (04 D-04.3; cambia el registro de semántica de §3.3, no el esquema).
+
+**Configuración de despliegue (no es parámetro):** `ATTACHMENTS_STORAGE_PATH` (ruta base del almacenamiento de adjuntos, ADR-021) se añade a `.env.example` con el valor de ejemplo `./storage/attachments` al implementar el Módulo 2, y esa carpeta a `.gitignore`.
 
 ### 8.3 Semilla de demostración
 
@@ -1704,7 +1869,8 @@ Datos ficticios (sin nombres reales de clientes ni personas; dominios `.invalid`
 | Actividades | De los 4 tipos: `PENDIENTE` futura, `PENDIENTE` por vencer (< 48 h), `PENDIENTE` vencida, `COMPLETADA` con resultado, `CANCELADA`; con participantes | Pendientes, completadas, vencidas |
 | Interacciones | Salen solas de la vista con lo anterior | Historiales e interacciones |
 | Importación | `DEMO-IMP-0001` `COMPLETED_WITH_ERRORS`: 10 filas (7 importadas, 1 inválida, 1 duplicada en archivo, 1 duplicada con existente) | Historial de cargas |
-| Adjuntos | **Ninguno** hasta resolver DM-8 | — |
+| Tipos de cambio | Una tasa por moneda local para los últimos 3 meses (valores **ilustrativos, marcados como demo** en `source`) | Estimaciones en GTQ y USD; aviso de antigüedad |
+| Adjuntos | 2–3 archivos ficticios pequeños (PDF y PNG generados por el script) en clientes, proyectos y una visita, escritos en `ATTACHMENTS_STORAGE_PATH`; `--purge` borra también sus binarios | Descarga autorizada |
 
 ---
 
@@ -1715,40 +1881,41 @@ Orden propuesto (cada paso deja el repositorio en verde; se pueden fusionar si s
 | # | Migración | Tipo | Contenido |
 |---|---|---|---|
 | 1 | `…_crm_data_scope_country` | **No aditiva** (escrita a mano) | `ALTER TYPE data_scope RENAME VALUE 'TERRITORY' TO 'COUNTRY';` + cambio del enum en `schema.prisma` y en el código y contrato (§4.1). **Rollback:** `ALTER TYPE data_scope RENAME VALUE 'COUNTRY' TO 'TERRITORY';` y revertir el código. Sin pérdida de datos. Requiere el addendum a ADR-018 aprobado |
-| 2 | `…_crm_countries_users` | Aditiva | `countries`; `users.employee_code` (único, nulo), `users.country_id` (FK, nulo) + índice. **Rollback:** `DROP COLUMN` ×2, `DROP TABLE countries` |
+| 2 | `…_crm_countries_users` | Aditiva | `currencies`, `exchange_rates` (+ CHECK), `countries` (con `currency_code` FK); `users.employee_code` (único, nulo), `users.country_id` (FK, nulo) + índice; defaults de `users.locale` = `es-GT` y `users.time_zone` = `America/Guatemala` (`ALTER COLUMN … SET DEFAULT`, C12). **Rollback:** restaurar defaults `es-MX`/`America/Mexico_City`, `DROP COLUMN` ×2, `DROP TABLE countries, exchange_rates, currencies` |
 | 3 | `…_crm_products_units` | Aditiva | Enums `unit_dimension`, `conversion_scope`; `units_of_measure`, `product_families`, `products`, `unit_conversion_rules` + CHECK |
 | 4 | `…_crm_customers_contacts` | Aditiva | `customers` (sin la FK del contacto principal), `contacts`, después `ALTER TABLE customers ADD CONSTRAINT … FOREIGN KEY (primary_contact_id, id) REFERENCES contacts(id, customer_id)` (FK circular: Prisma la ordena; verificar el SQL) + CHECK |
 | 5 | `…_crm_projects_opportunities` | Aditiva | Enums `opportunity_outcome`, `result_change_action`; `projects`, `project_phase_history`, `opportunities`, `opportunity_stage_history`, `opportunity_results`, `opportunity_result_history`, `project_products`, `forecast_lines` + CHECK |
 | 6 | `…_crm_commercial_activity` | Aditiva | Enums `visit_event_type`, `participant_role`; `visits`, `visit_events`, `activities`, `interaction_participants` + CHECK |
 | 7 | `…_crm_attachments_imports_targets` | Aditiva | Enums de importación y `sales_target_metric`; `customer_imports`, `customer_import_rows`, `attachments`, `sales_targets` + CHECK; FK `customers.source_import_id` |
 | 8 | `…_crm_interactions_view` | Aditiva | `CREATE VIEW crm_interactions_v` (§2.12) |
+| 9 | `…_audit_logs_append_only` | Aditiva (SQL a mano) | Función y disparadores de inmutabilidad de `audit_logs` (D-07.11, ADR-025). La entrega el Módulo 7 (F-47; 07 D.1). **Rollback:** `DROP TRIGGER` ×3 y `DROP FUNCTION` |
 
 **Reversibilidad.** Prisma no genera *down*. Para cada migración se guarda su script inverso en `backend/prisma/rollbacks/<nombre>.down.sql` (generado con `prisma migrate diff --from-schema-datamodel <nuevo> --to-schema-datamodel <anterior> --script` y revisado a mano: orden inverso de FK, `DROP VIEW` antes que las tablas, `DROP TYPE` al final). Los pasos 2–8 son reversibles sin pérdida mientras no haya datos del CRM; tras el primer uso real, revertir borra datos comerciales y queda prohibido sin respaldo previo (se documenta en `docs/database/`).
 
-**Sin bloqueos relevantes:** todas las tablas son nuevas; el único `ALTER` sobre una tabla existente con datos es `users` (columnas nulas, sin valor por defecto: operación de metadatos en PostgreSQL) y el `RENAME VALUE` (instantáneo).
+**Sin bloqueos relevantes:** todas las tablas son nuevas; los únicos `ALTER` sobre una tabla existente con datos son `users` (columnas nulas sin valor por defecto y cambio de default de dos columnas: operaciones de metadatos en PostgreSQL) y el `RENAME VALUE` (instantáneo).
 
 **Después de migrar:** semilla esencial (§8.2); actualizar `docs/database/data-model.md` (nuevas secciones CRM, `DataScope`, fechas `date`) y el CHANGELOG; pruebas de repositorio contra base efímera que verifiquen cada `CHECK`, cada FK compuesta y la vista.
 
 ---
 
-## 10. Decisiones pendientes
+## 10. Decisiones (resueltas el 2026-10-10)
 
-Cada una con valor recomendado (se aplica si no se objeta) e impacto. Se consolidan en `decisiones-pendientes.md`.
+Todas las decisiones DM-n quedaron **resueltas por el responsable de negocio el 2026-10-10**. La columna "Valor final" recoge su respuesta cuando la dio expresamente (marcada **Respuesta del responsable**) y, en el resto, el valor recomendado, que quedó aprobado. Se conservan los identificadores; el detalle y el índice están en `decisiones-pendientes.md`.
 
-| # | Pregunta | Recomendación por defecto | Impacto si cambia |
+| # | Pregunta | Valor final (resuelta 2026-10-10) | Impacto si cambia |
 |---|---|---|---|
-| **DM-1** | ¿Qué es la "estimación" de una oportunidad: monto, toneladas o ambos? ¿En qué moneda? | Monto `NUMERIC(19,4)` + `currency_code` (defecto `crm.moneda_por_defecto` = USD) y tonelaje estimado opcional. Sin conversión de monedas: los reportes totalizan por moneda | Si es solo toneladas, se eliminan `estimated_amount`/`currency_code`; si hay multimoneda con totales, hace falta tabla de tipos de cambio (fuera de alcance) |
-| **DM-2** | Lista de países de Grupo AG | GT, SV, HN, NI, CR, PA (supuesto: Centroamérica, por el uso de "NIT" y de toneladas) | Solo datos de la semilla. Además, `users.locale`/`time_zone` tienen por defecto `es-MX`/`America/Mexico_City`: proponer `es-GT`/`America/Guatemala` (cambio de default, migración aditiva) |
+| **DM-1** | ¿Qué es la "estimación" de una oportunidad: monto, toneladas o ambos? ¿En qué moneda? | **Respuesta del responsable:** monto con moneda (USD o la moneda del país del proyecto) + foto del tipo de cambio + equivalente en USD, y tonelaje estimado opcional. Los reportes totalizan en USD (DM-36, §2.7, §2.16) | Solo toneladas: se eliminan las columnas de monto. Sin conversión: se pierden los totales en USD |
+| **DM-2** | Lista de países de Grupo AG | **Respuesta del responsable:** Guatemala, El Salvador, Honduras, Costa Rica, Venezuela y Ecuador (no Nicaragua ni Panamá). Zona y locale por defecto de Guatemala: `crm.zona_horaria_negocio` = `America/Guatemala` y defaults de `users` `es-GT`/`America/Guatemala` para usuarios nuevos (C12) | Solo datos de la semilla; un país nuevo es una fila y su moneda |
 | **DM-3** | Validación de NIT y teléfono por país | Patrones en `countries.tax_id_pattern`/`phone_pattern`; en Fase 0 solo longitud y caracteres permitidos (NIT GT con dígito verificador módulo 11 si se confirma) | Solo datos y una función de validación; sin cambio de esquema |
-| **DM-4** | Reglas de duplicidad de clientes (alcance de unicidad de código y NIT; criterios blandos) | Base: único por país. Parámetros `PAIS`; razón social normalizada → aviso con confirmación | Si debe ser global, solo parámetro. Si no debe haber unicidad de NIT (p. ej. sucursales con el mismo NIT), **hay que quitar el único de la base**: decidirlo antes de migrar |
+| **DM-4** | Reglas de duplicidad de clientes (alcance de unicidad de código y NIT; criterios blandos) | **Respuesta del responsable:** los establecimientos de un mismo cliente **pueden compartir NIT**. Código de cliente único por país (base, `PAIS` endurecible a `GLOBAL`); **NIT sin único**, solo índice; NIT repetido en el mismo país = aviso no bloqueante en alta, edición e importación; razón social normalizada → aviso (§6.2) | Volver a exigir NIT único requeriría depurar datos y un único nuevo |
 | **DM-5** | Duplicidad de contactos | Mismo correo en el mismo cliente → bloqueo (único en base); mismo nombre completo → aviso | Si se permite el mismo correo, se quita `uq_contacts_customer_email` |
 | **DM-6** | Transiciones de etapa permitidas | Desde una etapa abierta a cualquier otra; desde una cerrada solo reabrir, con `oportunidades.administrar` | Solo parámetro |
 | **DM-7** | Umbrales y prioridades de alertas | 48 h por vencer, 48 h sin confirmar, 30 días sin actualizar; prioridades de §8.2 | Solo parámetros |
-| **DM-8** | Backend de almacenamiento de adjuntos (local, Azure Blob…), tamaño, tipos, antivirus | **Requiere ADR**. Propuesta: puerto `FileStorage` con adaptador de sistema de archivos (volumen Docker) en desarrollo y Azure Blob Storage en entornos Azure; 10 MB; lista blanca de tipos; descarga por URL firmada de corta duración | Bloquea toda subida de adjuntos (Clientes, Proyectos, Actividad, Importaciones). El esquema no cambia |
+| **DM-8** | Backend de almacenamiento de adjuntos (local, Azure Blob…), tamaño, tipos, antivirus | **Respuesta del responsable:** carpeta del proyecto mapeada a un almacenamiento del servidor. Puerto `FileStorage` + adaptador de sistema de archivos con ruta base `ATTACHMENTS_STORAGE_PATH`, volumen Docker hacia el almacenamiento del servidor; 10 MB; PDF, imágenes, Word y Excel; descarga solo por la API tras autorizar; claves generadas; respaldo a cargo del servidor ([ADR-021](../../adr/ADR-021-almacenamiento-de-adjuntos-en-sistema-de-archivos-montado.md), §2.11) | Otro almacenamiento (p. ej. Azure Blob) = otro adaptador del mismo puerto; el esquema no cambia |
 | **DM-9** | Metas comerciales: ¿existen?, ¿por usuario, equipo o país?, ¿qué métrica?, ¿quién las carga? | Crear `sales_targets` vacía en Fase 0; métrica `TONNAGE` mensual por usuario; carga por script hasta que haya pantalla | Si no hay metas, se elimina la tabla y la tarjeta queda oculta. Si cambia la granularidad, cambia la tabla antes de usarse |
 | **DM-10** | `TERRITORY` → `COUNTRY` | Renombrar con `RENAME VALUE` + addendum a ADR-018 | Si se reinterpreta, sin migración; solo etiquetas |
 | **DM-11** | Roles: Asesor/Manager/Administrador vs Jefe/Supervisor/Responsable de país (§5.5); qué hacer con `gestor-accesos`, `auditor`, `usuario` | `asesor` (OWN), `manager` (TEAM, cubre jefe y supervisor), `responsable-pais` (COUNTRY), reutilizar `administrador`; conservar los tres existentes | Solo semilla y matriz §5.4 |
-| **DM-12** | Alcance TEAM: ¿miembros o también responsable?, ¿subequipos?, ¿cambiar miembros de un equipo es "asignar acceso" (pregunta abierta de ADR-020)?, ¿foto histórica del equipo en los registros? | Miembros + responsable + subequipos; **sí**, cambiar miembros de un equipo comercial pasa a ser exclusivo del administrador (addendum ADR-020); sin foto histórica | **Bloqueante antes de implementar Clientes.** La foto histórica añadiría `team_id` a 5 tablas |
+| **DM-12** | Alcance TEAM: ¿miembros o también responsable?, ¿subequipos?, ¿cambiar miembros de un equipo es "asignar acceso" (pregunta abierta de ADR-020)?, ¿foto histórica del equipo en los registros? | Miembros + responsable + subequipos; **sí**, cambiar miembros de un equipo comercial pasa a ser exclusivo del administrador (addendum ADR-020); sin foto histórica | **Resuelta (2026-10-10): valor recomendado aprobado** (addendum ADR-020). Ya no bloquea Clientes. La foto histórica, si se pidiera más adelante, añadiría `team_id` a 5 tablas |
 | **DM-13** | Herencia de visibilidad (¿ve el asesor el cliente de su proyecto, o la oportunidad de un proyecto ajeno que él gestiona?) | Herencias de la tabla §4.2 | Solo repositorios; sin cambio de esquema |
 | **DM-14** | ¿Un responsable de país puede cubrir varios países? | Un país por usuario (`users.country_id`) | Varios países → tabla `user_countries` (aditiva) |
 | **DM-15** | Relación etapa ↔ resultado; ¿un parcial cuenta como "ganada" en Inicio y Reportes?; ¿WON implica 100 %? | §3.4: PARTIAL bajo etapa Ganado; "ganadas" = WON + PARTIAL con desglose de parciales; WON sin porcentaje (implícito 100 %) | Fórmulas de indicadores de Inicio y Reportes (deben ser idénticas) |
@@ -1756,7 +1923,7 @@ Cada una con valor recomendado (se aplica si no se objeta) e impacto. Se consoli
 | **DM-17** | Código de proyecto: ¿generado o introducido? (§5.3 pide "nuevo nombre o código" al duplicar) | Generado por `crm.proyecto`; editable solo con `proyectos.administrar` y único | Si es manual, se quita la secuencia; el único se mantiene |
 | **DM-18** | Código de cliente: ¿obligatorio?, ¿de dónde sale (sin SAP)?, ¿editable? | Opcional, introducido por el usuario, editable con `clientes.administrar` | Si es obligatorio, `customer_code` pasa a no nulo (antes de tener datos) |
 | **DM-19** | Ciudad: ¿texto libre o catálogo por país? | Texto libre | Catálogo de ciudades → tabla `cities` con FK y carga de datos por país |
-| **DM-20** | Estados de visita (¿`REPROGRAMADA` es un estado o solo un evento?); ¿quién confirma (el propio asesor o su manager)?; ¿se puede confirmar sin registrar antes la realización? | 5 estados de §3.2; confirma el manager o quien tenga `visitas.cerrar` (asesor sin ese permiso); confirmar exige realización previa (CHECK) | Matriz de permisos y un CHECK |
+| **DM-20** | Estados de visita (¿`REPROGRAMADA` es un estado o solo un evento?); ¿quién confirma (el propio asesor o su manager)?; ¿se puede confirmar sin registrar antes la realización? | **Respuesta del responsable:** 5 estados de §3.2; **confirma el mismo asesor dueño de la visita** (con `visitas.cerrar`, que ahora tiene el asesor), no el manager; confirmar exige realización previa (CHECK `ck_visits_confirm_requires`) y ser el dueño (`ck_visits_confirmed_by_owner`) | Matriz de permisos y dos CHECK |
 | **DM-21** | Resultado de visitas y actividades: ¿catálogo o texto? | Catálogo `crm.resultado_interaccion` opcional + texto; completar exige al menos uno | Solo catálogo y CHECK |
 | **DM-22** | ¿Qué entra en el historial de interacciones: solo realizadas/completadas?, ¿tareas?, ¿cancelaciones y reprogramaciones? | Visitas realizadas/confirmadas y actividades completadas de tipos con `isInteraction=true`; cancelaciones visibles en el historial de la visita, no en interacciones | Solo consulta |
 | **DM-23** | Catálogo real de productos y familias (origen, carga, mantenimiento: el Módulo 7 no tiene pantalla de productos); estados del producto asociado | Carga por script versionado desde un archivo del negocio; mantenimiento con `productos.configurar` en el Módulo 7 como catálogo adicional; estados `PROPUESTO/COTIZADO/ADJUDICADO/DESCARTADO` | Añadir pantalla al Módulo 7; sin cambio de esquema |
@@ -1771,7 +1938,8 @@ Cada una con valor recomendado (se aplica si no se objeta) e impacto. Se consoli
 | **DM-32** | Momento de sembrar el menú del CRM | Permisos y roles en Fase 0; opciones y rutas con cada módulo | Si se siembran todas al inicio, deben ir `isActive=false` (la semilla tendría que gestionar `isActive`) |
 | **DM-33** | Eliminación de clientes, proyectos, oportunidades y actividades: ¿siempre lógica?, ¿bloqueada si hay historia? | Siempre lógica; bloqueada (`409`) si el registro tiene hijos activos (proyectos, oportunidades abiertas, visitas no canceladas) | Solo casos de uso |
 | **DM-34** | Significado de `editar` vs `administrar` | §4.3: `editar` = propios; `administrar` = ajenos dentro del alcance | Matriz de permisos y guardas de los casos de uso |
-| **DM-35** | "Fecha" de la oportunidad (§5.8) | Fecha de identificación (`opportunity_date`) | Renombrar la columna si significa otra cosa |
+| **DM-35** | "Fecha" de la oportunidad (§5.8) | Fecha de identificación (`opportunity_date`); es además la fecha de referencia del tipo de cambio (DM-36) | Renombrar la columna si significa otra cosa |
+| **DM-36** | *(nueva, 2026-10-10)* Moneda base y tipos de cambio | **Respuesta del responsable:** moneda base **USD** con capacidad de usar el tipo de cambio a la moneda del país. Tablas `currencies` y `exchange_rates` (tasa por 1 USD, fecha de vigencia, fuente; única por moneda y fecha); `countries.currency_code`; foto de tasa y equivalente USD en la oportunidad; búsqueda "última vigente ≤ fecha de la oportunidad", sin tasa → `422`; indicadores en USD; mantenimiento en Administración (F-46, extensión aprobada) ([ADR-024](../../adr/ADR-024-moneda-base-usd-y-tipos-de-cambio.md), §2.16) | Cambiar la moneda base exige recalcular todos los equivalentes |
 
 ---
 
@@ -1792,22 +1960,23 @@ Siguiendo ADR-004 (los casos de uso dependen del puerto; Prisma solo en `infrast
 | `DashboardReadModel`, `AlertsReadModel` | Lectura | Inicio | Actividad reciente y alertas; los **conteos** salen de `CommercialMetricsService` (abajo), igual que en Reportes (DM-15, DM-16) |
 | `ReportingRepository` | Lectura (PostgreSQL) | Reportes | ADR-004. **No** usa Snowflake: el alcance exige datos del CRM y nada de BI externo |
 | `CustomerImportRepository` | Transaccional | Integraciones | Reutiliza el caso de uso de alta de clientes |
-| `FileStorage` | Infraestructura | Pendiente de ADR (DM-8) | |
+| `FileStorage` | Infraestructura, transversal | Módulo 2 (primer consumidor) | Adaptador `LocalFileSystemStorage` sobre `ATTACHMENTS_STORAGE_PATH` (ADR-021, §2.11) |
+| `ExchangeRateReader` | Lectura, transversal | Fase 0 | `findApplicable(currencyCode, date)` (§2.16); lo usan Proyectos (oportunidades) y Reportes (moneda local de referencia). El mantenimiento (`ExchangeRateRepository`) es del Módulo 7 |
 | `ParameterReader` | Lectura, transversal | Fase 0 (`backend/src/modules/parameters/parameter-reader.ts`) | `get<T>(key)` tipado; lo define 02 F.6.5 y 07 F.9 le añade la validación del registro de parámetros. Añadido en la consolidación |
 | `CatalogLookupService` | Lectura, transversal | Fase 0 (`backend/src/modules/catalogs/catalog-lookup.service.ts`) | Elementos activos por `key` para los endpoints `form-options` de cada módulo (07 D-07.12, D-02.1). Añadido en la consolidación |
-| `AttachmentsService` | Transaccional, transversal | Módulo 2 (`backend/src/modules/attachments/`) | `owner = { type, id }` sobre `attachments` (§2.11); la autorización la decide el módulo dueño. Su `FileStorage` espera a DM-8 (02 F.6.5) |
+| `AttachmentsService` | Transaccional, transversal | Módulo 2 (`backend/src/modules/attachments/`) | `owner = { type, id }` sobre `attachments` (§2.11); la autorización la decide el módulo dueño. Usa `FileStorage` (ADR-021) |
 | `CommercialMetricsService` + `metric-definitions.ts` | Lectura, transversal | `backend/src/modules/commercial-metrics/`: el Módulo 3 crea `metric-definitions.ts` (DEF-A/B/C/G), el Módulo 1 crea el módulo y el servicio, Reportes lo amplía | Fuente única de los indicadores de Inicio y Reportes (01 F.2, 05 G.3). Resuelto en la consolidación (D-01.2) |
 
 ---
 
 ## 12. Contradicciones detectadas en el alcance
 
-| # | Contradicción | Dónde | Resolución propuesta |
+| # | Contradicción | Dónde | Resolución (aprobada el 2026-10-10) |
 |---|---|---|---|
 | C1 | Las etapas del pipeline incluyen **Ganado** y **Perdido**, y el resultado también tiene **Ganado/Perdido/Parcial**: dos fuentes de verdad para lo mismo, y "Parcial" no tiene etapa | §5.8 vs §5.9 | §3.4 y DM-15: la etapa cerrada y el resultado se registran juntos; Parcial vive bajo la etapa Ganado |
 | C2 | §9.2 fija tres roles iniciales (Asesor, Manager, Administrador) pero §5.5 contempla cinco perfiles (Asesor, Jefe, Supervisor, Responsable de país, Administrador) | §5.5 vs §9.2 | DM-11: tres roles + `responsable-pais`; Jefe y Supervisor = `manager` |
 | C3 | "Los mantenimientos administrativos serán lo último" y "no implementar pantallas administrativas antes del último módulo", pero usuarios, roles, catálogos, parámetros y auditoría **ya están construidos** (PLAN-ADMIN). Además, el mantenimiento de usuarios actual no tiene código de colaborador ni país | §1 regla 7, §11 vs PLAN-ADMIN | El Módulo 7 pasa a ser una **extensión** de lo existente (campos `employeeCode` y país, validación de semántica de catálogos, parámetros del CRM), no una construcción nueva. Lo especifica `07-administracion.md` |
-| C4 | Se habla siempre de **NIT**, que es el identificador de Guatemala y El Salvador; en un modelo multipaís cada país tiene el suyo (RTN, RUC, cédula jurídica) | §4.2, §8.1 | `customers.tax_id` + `countries.tax_id_label` (etiqueta por país); DM-2/DM-3 |
+| C4 | Se habla siempre de **NIT**, que es el identificador de Guatemala y El Salvador; en un modelo multipaís cada país tiene el suyo (RTN, cédula jurídica, RIF, RUC) | §4.2, §8.1 | `customers.tax_id` + `countries.tax_id_label` (etiqueta por país); DM-2/DM-3. El NIT no es único (DM-4) |
 | C5 | Existe `DataScope.TERRITORY`; el alcance pide "País" | §9.2 vs ADR-018 | DM-10 |
 | C6 | "Tipo de autenticación o ingreso permitido" como **parámetro editable**, cuando el proveedor se fija por configuración de despliegue (`AUTH_PROVIDER`, ADR-019) y el propio alcance prohíbe un sistema paralelo | §9.4 | El parámetro solo puede **mostrar** la configuración vigente o ajustar aspectos funcionales del login local (intentos, bloqueo, que ya existen). Cambiar de proveedor sigue siendo un despliegue. Lo detalla `07-administracion.md` |
 | C7 | "Fecha estimada de decisión" en el proyecto y "Fecha de decisión" en el resultado de la oportunidad; el reporte de oportunidades muestra "Fecha de decisión" | §5.1, §5.9, §7.2 | Son dos datos distintos: estimada (proyecto) y real (resultado). El reporte de oportunidades muestra la real y, si no hay resultado, la estimada del proyecto, identificada como tal |
@@ -1815,4 +1984,4 @@ Siguiendo ADR-004 (los casos de uso dependen del puerto; Prisma solo en `infrast
 | C9 | "Eliminar cliente" frente a "no eliminar información histórica" | §4.3 | Eliminación siempre lógica (DM-33) |
 | C10 | La carga masiva debe implementarse completa, pero "requiere confirmación de viabilidad y aprobación para su habilitación productiva" | §8.1 vs §1 regla 9 | Se implementa entera tras el parámetro `crm.importaciones.habilitada` (`false` en producción) (DM-28) |
 | C11 | El forecast tiene "asesor responsable" por línea, distinto del asesor del proyecto, sin regla de cuál manda en visibilidad | §5.11, §2 | DM-25: por defecto el del proyecto; la visibilidad sigue al proyecto |
-| C12 | La plantilla trae por defecto `locale = es-MX` y `time_zone = America/Mexico_City` en `users`, incoherente con una operación centroamericana | `schema.prisma` | DM-2 |
+| C12 | La plantilla trae por defecto `locale = es-MX` y `time_zone = America/Mexico_City` en `users`, incoherente con una operación centroamericana | `schema.prisma` | DM-2 resuelta: defaults `es-GT` / `America/Guatemala` para usuarios nuevos (migración 2) |

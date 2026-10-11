@@ -4,8 +4,8 @@
 - **Contrato de datos:** [`00-modelo-de-datos.md`](00-modelo-de-datos.md) (entidades, catálogos, parámetros, permisos, visibilidad, DM-n). Esta especificación **usa** ese contrato; no crea entidades ni tablas nuevas
 - **Trazabilidad:** F-10 … F-20 de [`matriz-trazabilidad.md`](matriz-trazabilidad.md)
 - **Alineado con:** [`02-clientes-cuentas.md`](02-clientes-cuentas.md) (D-02.1 opciones de formulario por módulo, D-02.10 disponibilidad por menú, D-02.11 área `features/crm`, D-02.12 registro de rutas con parámetro, `CustomerReferenceGuard`, piezas transversales F.6.5, contrato F-08), [`04-actividad-comercial.md`](04-actividad-comercial.md) (puntos de entrada embebidos, `last_activity_at`), [`01-inicio-dashboard.md`](01-inicio-dashboard.md) (predicados DEF-A…G de `commercial-metrics`, filtros de navegación E.3), [`05-reportes.md`](05-reportes.md) (RN-05.15–18, forma de `commercialStatus`)
-- **Decisiones que lo enmarcan:** [ADR-004](../../adr/ADR-004-data-access-abstraction.md), [ADR-005](../../adr/ADR-005-rest-api-standard.md), [ADR-008](../../adr/ADR-008-authorization.md), [ADR-014](../../adr/ADR-014-modular-clean-architecture.md), [ADR-017](../../adr/ADR-017-design-system-grupo-ag.md), [ADR-018](../../adr/ADR-018-identity-access-model.md), [ADR-020](../../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md)
-- **Estado:** especificada (documentación). **No** se ha tocado código, esquema, migraciones ni semillas
+- **Decisiones que lo enmarcan:** [ADR-004](../../adr/ADR-004-data-access-abstraction.md), [ADR-005](../../adr/ADR-005-rest-api-standard.md), [ADR-008](../../adr/ADR-008-authorization.md), [ADR-014](../../adr/ADR-014-modular-clean-architecture.md), [ADR-017](../../adr/ADR-017-design-system-grupo-ag.md), [ADR-018](../../adr/ADR-018-identity-access-model.md), [ADR-020](../../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md), [ADR-021](../../adr/ADR-021-almacenamiento-de-adjuntos-en-sistema-de-archivos-montado.md) (adjuntos), [ADR-024](../../adr/ADR-024-moneda-base-usd-y-tipos-de-cambio.md) (moneda base USD y tipos de cambio)
+- **Estado:** especificada (documentación). **No** se ha tocado código, esquema, migraciones ni semillas. Decisiones del módulo resueltas por el responsable de negocio el 2026-10-10 (estimación en USD o moneda del país, DM-36; adjuntos desbloqueados, ADR-021)
 - **Skills aplicables:** `feature-development`, `requirements-analysis`, `user-story`, `api-design`, `architecture`, `backend-nestjs`, `database`, `prisma`, `authorization`, `access-management`, `security`, `frontend-react`, `design-system`, `testing`, `observability`, `documentation`, `code-review`
 
 > Núcleo de la operación comercial. Once funcionalidades relacionadas entre sí:
@@ -31,7 +31,7 @@
 - [J. Pruebas funcionales](#j-pruebas-funcionales)
 - [K. Dependencias y orden](#k-dependencias-y-orden)
 - [L. Archivos de código a implementar](#l-archivos-de-código-a-implementar)
-- [Decisiones pendientes del módulo](#decisiones-pendientes-del-módulo)
+- [Decisiones del módulo (resueltas el 2026-10-10)](#decisiones-del-módulo-resueltas-el-2026-10-10)
 - [Filas para la matriz](#filas-para-la-matriz)
 
 ---
@@ -47,7 +47,7 @@ cliente** sobre las que se vende, y todo lo comercial que cuelga de ellas:
 | Búsqueda y vista de equipo | Encontrar proyectos con filtros combinables y ver los del equipo según el perfil, distinguiendo **ver** de **editar** |
 | Clasificación | Tipo, sector o uso, unidad de medida y estimación de tonelaje con reglas de conversión configurables (sin factores fijos) |
 | Fase del cliente | Avance de la obra (Diseño → Cotización → Construcción → Finalizado) con porcentaje e historial, **independiente** de las oportunidades |
-| Oportunidades y resultados | Pipeline comercial por oportunidad (etapas configurables con transiciones validadas) y su resultado (Ganado, Perdido, Parcial) con las reglas del alcance, aplicadas en backend **y** en base de datos |
+| Oportunidades y resultados | Pipeline comercial por oportunidad (etapas configurables con transiciones validadas), su estimación (monto en USD o en la moneda del país del proyecto, con equivalente en USD, DM-36) y su resultado (Ganado, Perdido, Parcial) con las reglas del alcance, aplicadas en backend **y** en base de datos |
 | Productos asociados | Cantidades comerciales y tonelajes por producto en el proyecto (y opcionalmente en una oportunidad), separados del maestro de productos |
 | Forecast M+6 | Matriz editable de proyección mensual a seis meses, con línea única por proyecto-producto-período, ventana móvil sin borrar historia y totales solo en toneladas |
 
@@ -71,7 +71,8 @@ Formulario con: identificador único (UUID, generado), código de proyecto
 dirección, descripción, fechas estimadas (inicio y fin), fecha estimada de
 decisión, asesor responsable y archivos adjuntos. Reglas: identificador único,
 cliente válido, obligatorios, coherencia de fechas, asesor asociado, fecha y
-usuario de creación, documentación adjunta (bloqueada por DM-8, ver B.2.9).
+usuario de creación, documentación adjunta (almacenamiento según ADR-021, ver
+B.2 sección 9).
 
 ### B.2 Consultar y editar proyectos (§5.2 → F-11)
 
@@ -83,12 +84,12 @@ rol y permisos, con auditoría de las modificaciones relevantes:
 | 1 | Información general | Código, nombre, cliente, país, ciudad, dirección, descripción, fechas estimadas, fecha estimada de decisión, asesor, estado comercial derivado (DM-16), proyecto de origen si es duplicado, creado/actualizado por y cuándo, última actualización | Módulo 3 |
 | 2 | Clasificación | Tipo, sector o uso, unidad de medida, cantidad estimada, regla de conversión aplicada, factor, tonelaje estimado (calculado o manual, DM-24) | Módulo 3 |
 | 3 | Fase del cliente | Fase actual, porcentaje, fecha de actualización, comentario, historial | Módulo 3 |
-| 4 | Oportunidades | Lista de oportunidades del proyecto con etapa, fecha, asesor, estimación, siguiente acción; crear, editar, cambiar etapa | Módulo 3 |
+| 4 | Oportunidades | Lista de oportunidades del proyecto con etapa, fecha, asesor, estimación (monto original con su moneda y equivalente en USD; tonelaje), siguiente acción; crear, editar, cambiar etapa | Módulo 3 |
 | 5 | Resultados | Resultado vigente de cada oportunidad cerrada (resultado, motivo, % adjudicado, fecha de decisión, comentarios), resumen por resultado, historial de resultados | Módulo 3 |
 | 6 | Productos asociados | SKU, descripción, familia, unidad, cantidad, tonelaje, estado, oportunidad; totales | Módulo 3 |
 | 7 | Forecast | Matriz M+6 del proyecto (misma pieza que la pantalla de forecast, filtrada) | Módulo 3 |
 | 8 | Seguimiento comercial | Última interacción, próxima acción, responsable, fecha de próxima acción, notas, adjuntos, trazabilidad | **Módulo 4** (aquí solo se consulta, §F.4) |
-| 9 | Adjuntos | Archivos del proyecto: listar, subir, descargar, eliminar | Módulo 3 (almacenamiento: DM-8) |
+| 9 | Adjuntos | Archivos del proyecto: listar, subir, descargar, eliminar | Módulo 3 (almacenamiento: `FileStorage`, ADR-021) |
 | 10 | Historial de cambios | Línea de tiempo: historial de fase, de etapas, de resultados y entradas de auditoría del proyecto y sus hijos | Módulo 3 (lee `audit_logs`) |
 
 Además (00 §5.2, DM-33): **eliminación lógica** del proyecto con
@@ -133,7 +134,9 @@ Pipeline con etapas Contactado, Cotizando, Ganado, Perdido (catálogo
 `crm.etapa_oportunidad`); campos identificador, proyecto, etapa, fecha, asesor,
 estimación, siguiente acción; crear, consultar, editar, cambiar etapa, filtrar
 por etapa y asesor, historial; varias por proyecto; transiciones validadas; la
-etapa no modifica la fase.
+etapa no modifica la fase. La estimación (DM-1, DM-36) es un monto en USD o en la
+moneda del país del proyecto, guardado con la foto del tipo de cambio y su
+equivalente en USD (RN-03.38, RN-03.78–RN-03.83), más un tonelaje opcional.
 
 ### B.9 Resultado de oportunidades (§5.9 → F-18)
 
@@ -168,7 +171,8 @@ incompatibles, ventana móvil, historia conservada, auditoría.
 | Visitas, actividades, seguimiento, historial de interacciones | Módulo 4. Aquí solo se consulta su contrato para la sección 8 |
 | Reportes, exportación a Excel, embudo | Módulo 5. Aquí no hay exportación (00 §5.2) |
 | Indicadores y alertas | Módulo 1 (consume `projects.last_activity_at`, etapas, resultados, forecast) |
-| Subida real de archivos | Bloqueada hasta el ADR de almacenamiento (DM-8) |
+| Almacenamiento físico de los adjuntos | Transversal: puerto `FileStorage` + adaptador `LocalFileSystemStorage` (ADR-021), entregado con el Módulo 2; aquí solo se usa a través de `AttachmentsService` |
+| Mantenimiento de monedas y tipos de cambio | Módulo 7, dentro de F-46 (extensión de alcance aprobada, 00 §2.16). Aquí solo se **leen** con `ExchangeRateReader` |
 
 ---
 
@@ -221,7 +225,7 @@ error de negocio claro (la restricción de base es la red de seguridad).
 | RN-03.20 | **Se solicita o confirma** (obligatorio en el diálogo): nombre nuevo (obligatorio, distinto de vacío), cliente (por defecto el del origen; válido según RN-03.2), fechas estimadas de inicio, fin y decisión (por defecto las del origen; RN-03.4), asesor responsable (por defecto el del origen; RN-03.6). El código se genera nuevo; introducirlo a mano exige `proyectos.administrar` (DM-17) |
 | RN-03.21 | **Se copian si el usuario los selecciona** (marcados por defecto): país, ciudad, dirección, descripción y clasificación (tipo, sector, unidad, cantidad estimada). El tonelaje estimado **no** se copia: se recalcula con la regla vigente al duplicar (RN-03.27); si el origen tenía estimación manual, se copia como manual |
 | RN-03.22 | **Se copian solo si el usuario lo marca** (desmarcado por defecto): productos asociados activos, con el estado inicial del catálogo `crm.estado_producto_asociado` (primer elemento activo por `sortOrder`, `PROPUESTO`), **sin oportunidad**, con su cantidad y unidad, y tonelaje recalculado con las reglas vigentes (00 §2.6) |
-| RN-03.23 | **Nunca se copian**: identificador y código; oportunidades, sus etapas e historiales; resultados comerciales; fase, porcentaje e historial de fase (el nuevo arranca en la fase por defecto, RN-03.7); líneas de forecast (ni como confirmadas ni como borrador); visitas realizadas, actividades históricas y confirmaciones (Módulo 4); adjuntos (D-03.9); auditoría; `lastActivityAt`, `createdAt`/`createdById` (son los del nuevo alta); `deletedAt` |
+| RN-03.23 | **Nunca se copian**: identificador y código; oportunidades (y con ellas sus estimaciones, monedas y fotos de tipo de cambio), sus etapas e historiales; resultados comerciales; fase, porcentaje e historial de fase (el nuevo arranca en la fase por defecto, RN-03.7); líneas de forecast (ni como confirmadas ni como borrador); visitas realizadas, actividades históricas y confirmaciones (Módulo 4); adjuntos (D-03.9); auditoría; `lastActivityAt`, `createdAt`/`createdById` (son los del nuevo alta); `deletedAt` |
 | RN-03.24 | El nuevo proyecto guarda `duplicatedFromId` = origen (solo trazabilidad, [BD] no autorreferencia). Exige `proyectos.crear` **y** que el origen sea visible (`proyectos.ver` dentro del alcance). Auditoría `crm.project.duplicated` con `metadata.sourceProjectId` |
 
 ### C.5 Clasificación y conversión
@@ -255,7 +259,7 @@ Errores: `422 INVALID_PROGRESS` (fuera de rango, también [BD]
 | ID | Regla |
 |---|---|
 | RN-03.37 | Identificador UUID + código `OPO-{year}-{seq}` de `Sequence 'crm.oportunidad'`, inmutable. Pertenece a un proyecto visible y no eliminado. Un proyecto puede tener varias |
-| RN-03.38 | Campos: etapa (`crm.etapa_oportunidad`), fecha (fecha de identificación, `opportunityDate`, DM-35; por defecto hoy en `crm.zona_horaria_negocio`), asesor (por defecto el usuario; otro exige `oportunidades.administrar`), estimación (monto ≥ 0 + moneda obligatoria si hay monto, por defecto `crm.moneda_por_defecto`; tonelaje estimado ≥ 0 opcional; DM-1), descripción, siguiente acción y su fecha |
+| RN-03.38 | Campos: etapa (`crm.etapa_oportunidad`), fecha (fecha de identificación, `opportunityDate`, DM-35; por defecto hoy en `crm.zona_horaria_negocio`), asesor (por defecto el usuario; otro exige `oportunidades.administrar`), estimación (DM-1, DM-36: el cliente envía solo monto ≥ 0 y moneda; el servidor resuelve y guarda `exchangeRate`, `exchangeRateDate` y `estimatedAmountUsd`; los cinco campos de monto van juntos o ninguno, [BD] `ck_opportunities_amount_set`; un monto sin moneda → `422 CURRENCY_REQUIRED`; la moneda que el formulario propone por defecto es la del país del proyecto; tonelaje estimado ≥ 0 opcional e independiente del monto, no se convierte), descripción, siguiente acción y su fecha. Reglas de la estimación: RN-03.78–RN-03.83 |
 | RN-03.39 | Etapa inicial = `crm.valores_por_defecto["opportunity.stageId"]` [P] (`CONTACTADO`) o la que elija el usuario entre las **abiertas** (`isClosed = false`). No se crea una oportunidad directamente en etapa cerrada (D-03.7) → `422 INVALID_INITIAL_STAGE`. El alta inserta la primera fila de `opportunity_stage_history` (`fromStageId = null`) |
 | RN-03.40 | **Transiciones** (DM-6) configurables en `crm.oportunidades.transiciones_etapa` [P], mapa `{codigoOrigen: [codigosDestino]}` por **código** de etapa. Valor por defecto recomendado: `{"CONTACTADO":["COTIZANDO","GANADO","PERDIDO"],"COTIZANDO":["CONTACTADO","GANADO","PERDIDO"],"GANADO":[],"PERDIDO":[]}`. Una transición no listada → `422 INVALID_STAGE_TRANSITION`. El cambio de parámetro rige sin desplegar |
 | RN-03.41 | **Regla de respaldo** para etapas nuevas que el administrador añada al catálogo y no figuren como origen en el mapa: desde una etapa abierta se permite ir a cualquier etapa activa; desde una cerrada, ninguna (equivale a la recomendación de DM-6). Destinos inactivos o inexistentes en el catálogo se ignoran |
@@ -317,6 +321,21 @@ Conteos derivados (para Inicio y Reportes, mismas fórmulas, DM-15): oportunidad
 | RN-03.75 | "Fecha de actualización" = `updatedAt` de cada línea (y `updatedById`); se muestra por celda y la más reciente por fila | [BD] | — |
 | RN-03.76 | Auditoría por línea **cambiada** (`crm.forecast_line.created/updated`, diferencia de cantidad, unidad y tonelaje, `metadata.projectId`); las líneas sin cambios no auditan | [CU] | — |
 
+### C.11 Estimación de la oportunidad: moneda y tipo de cambio (DM-1, DM-36, ADR-024)
+
+Resolución del responsable (2026-10-10): moneda base **USD**, con la capacidad de
+capturar la estimación en la moneda del país del proyecto. Contrato de datos: 00 §2.7
+y §2.16. Todo total e indicador se expresa en USD sobre `estimated_amount_usd`.
+
+| ID | Regla | Garantía | Error |
+|---|---|---|---|
+| RN-03.78 | **Monedas admitidas**: `USD` (moneda base, `crm.moneda_base` [P], de solo lectura) o `countries.currency_code` del **país del proyecto** (`projects.country_id`). Si el país usa USD (El Salvador, Ecuador), la única moneda admitida es USD. Cualquier otra moneda, o una moneda inexistente o inactiva en `currencies`, se rechaza. La moneda que el formulario propone por defecto es la del país del proyecto (`/opportunities/form-options?projectId=`, F.2). La comprobación se hace cuando se escribe la estimación (alta o cambio de monto, moneda o fecha); un cambio posterior del país del proyecto no reescribe estimaciones ya guardadas (foto, RN-03.82) | [BD] FK `currency_code → currencies` + [CU] | `422 CURRENCY_NOT_ALLOWED` |
+| RN-03.79 | **Resolución del tipo de cambio** con `ExchangeRateReader.findApplicable(currencyCode, opportunityDate)` (puerto de Fase 0, 00 §2.16): en `USD`, `exchangeRate = 1`, `exchangeRateDate` nula y `estimatedAmountUsd = estimatedAmount`; en otra moneda, la fila de `exchange_rates` de esa moneda con **mayor `effective_date` ≤ `opportunityDate`**, cuyo valor (`exchangeRate`, unidades de la moneda por 1 USD) y fecha de vigencia (`exchangeRateDate`) se copian en la oportunidad. Sin fila aplicable → error con `details: { currencyCode, date }`, y no se guarda nada (el usuario puede registrar la estimación en USD) | [BD] `ck_opportunities_usd_identity`, `ck_opportunities_rate_date`, `ck_opportunities_exchange_rate` + [CU] | `422 EXCHANGE_RATE_NOT_FOUND` |
+| RN-03.80 | **Conversión**: `estimatedAmountUsd = round(estimatedAmount / exchangeRate, 4, HALF_UP)`, con aritmética decimal en backend (nunca `number` de JavaScript), en la **misma transacción** del alta o edición. La API transporta los cinco campos como cadenas decimales (fechas `YYYY-MM-DD`) | [BD] `ck_opportunities_amount_usd` + [CU] | — |
+| RN-03.81 | **Aviso de antigüedad**: si la fecha de vigencia de la tasa aplicada es anterior a `opportunityDate` en más de `crm.tipos_cambio.dias_aviso_antiguedad` [P] días (31 por defecto), la estimación **se guarda** y la respuesta de la mutación incluye `warnings: [{ code: "EXCHANGE_RATE_STALE", message, details: { currencyCode, exchangeRateDate, referenceDate, ageDays, thresholdDays } }]`. Es un aviso no bloqueante: no es un error ni cambia el status (`201`/`200`) | [CU] [P] | — (aviso `EXCHANGE_RATE_STALE`) |
+| RN-03.82 | **Foto y recálculo**: el tipo de cambio y el equivalente en USD se recalculan **solo** cuando cambian `estimatedAmount`, `currencyCode` u `opportunityDate`; cualquier otra edición (etapa, resultado, siguiente acción, descripción, asesor, tonelaje) conserva la foto. Corregir o añadir después una tasa en `exchange_rates` no altera estimaciones guardadas ni totales históricos; para revaluar se edita el monto, la moneda o la fecha. Enviar `estimatedAmount: null` y `currencyCode: null` borra los cinco campos. `exchangeRate`, `exchangeRateDate` y `estimatedAmountUsd` **nunca** se aceptan del cliente (`forbidNonWhitelisted` → `400 VALIDATION_FAILED`). La auditoría `crm.opportunity.updated` registra la diferencia de los cinco campos cuando se recalculan | [CU] | `400 VALIDATION_FAILED` |
+| RN-03.83 | **Presentación**: toda lista o detalle que muestra un monto concreto (sección 4 de la ficha, lista y tablero del pipeline, detalle de oportunidad) enseña el **monto original con su moneda** y el **equivalente en USD** (con la tasa y su fecha en el detalle). Todo total o agregado de montos se expresa en USD sobre `estimated_amount_usd`; nunca se suman monedas distintas. El orden por monto usa el equivalente en USD (`sortBy=estimatedAmountUsd`) | [CU] | — |
+
 ---
 
 ## D. Modelo de datos utilizado
@@ -330,20 +349,21 @@ nueva**; ningún modelo Prisma redefinido.
 |---|---|---|
 | `Project` (`projects`) | §2.6 | Proyecto, clasificación, fase vigente, duplicado, `lastActivityAt`, borrado lógico |
 | `ProjectPhaseHistory` (`project_phase_history`) | §2.6 | Historial de fase (solo inserción) |
-| `Opportunity` (`opportunities`) | §2.7 | Oportunidad, etapa vigente, estimación, siguiente acción, `closedAt`, borrado lógico |
+| `Opportunity` (`opportunities`) | §2.7 | Oportunidad, etapa vigente, estimación (`estimatedAmount`, `currencyCode`, `exchangeRate`, `exchangeRateDate`, `estimatedAmountUsd`, `estimatedTonnage`; C.11), siguiente acción, `closedAt`, borrado lógico |
 | `OpportunityStageHistory` (`opportunity_stage_history`) | §2.7 | Historial de etapas (solo inserción) |
 | `OpportunityResult` (`opportunity_results`) | §2.7 | Resultado vigente 0..1 |
 | `OpportunityResultHistory` (`opportunity_result_history`) | §2.7 | Versiones del resultado (solo inserción) |
 | `ProjectProduct` (`project_products`) | §2.8 | Productos asociados |
 | `ForecastLine` (`forecast_lines`) | §2.9 | Forecast M+6 |
-| `Attachment` (`attachments`, columna `project_id`) + `StoredFile` | §2.11 | Adjuntos del proyecto, siempre a través de `AttachmentsService` (02 F.6.5) con `owner = { type: 'project', id }`; almacenamiento bloqueado por DM-8 |
+| `Attachment` (`attachments`, columna `project_id`) + `StoredFile` | §2.11 | Adjuntos del proyecto, siempre a través de `AttachmentsService` (02 F.6.5) con `owner = { type: 'project', id }`; binario en `FileStorage` / `LocalFileSystemStorage` (ADR-021, 00 §2.11) |
 
 ### D.2 Entidades compartidas (solo lectura, salvo lo indicado)
 
 | Entidad | Dueño | Uso |
 |---|---|---|
 | `Customer` | Módulo 2 | Cliente del proyecto; validación RN-03.2 vía `CustomerReferenceGuard`; nombre en listados |
-| `Country` | Fase 0 | País del proyecto |
+| `Country` | Fase 0 | País del proyecto; `currencyCode` = moneda local admitida en la estimación (RN-03.78) |
+| `Currency`, `ExchangeRate` | Fase 0 (semilla) / Módulo 7 (mantenimiento, F-46) | Monedas admitidas y tipo de cambio aplicable, solo lectura a través de `ExchangeRateReader` (00 §2.16, ADR-024). El módulo no escribe en ellas |
 | `User`, `TeamMember`, `Team` | Plantilla / Módulo 7 | Asesor responsable, equipo principal (vista de equipo), alcance `TEAM` |
 | `Product`, `ProductFamily`, `UnitOfMeasure`, `UnitConversionRule` | Fase 0 / Módulo 7 (DM-23) | Maestro de productos y conversión (solo lectura aquí) |
 | `Catalog`, `CatalogItem` | Plantilla / Módulo 7 | Listas de formulario (§D.4) |
@@ -369,6 +389,7 @@ UnitConversionRule 0..1 ── N ProjectProduct / ForecastLine / Project
 Project  1 ── N ForecastLine ── N..1 Product ; ForecastLine N..1 User (owner)
 Project  0..1 ── N Project             (duplicated_from_id, SetNull)
 Project  1 ── N Attachment             (attachments.project_id)
+Currency 1 ── N Opportunity            (opportunities.currency_code, Restrict; tasa copiada como foto, sin FK a exchange_rates)
 Project  1 ── N Visit / Activity       (Módulo 4; FK compuesta (project_id, customer_id) → projects(id, customer_id))
 ```
 
@@ -397,11 +418,12 @@ El código nunca compara etiquetas ni UUID: pregunta la semántica (00 §3.3).
 | `crm.valores_por_defecto` (`project.phaseId`, `opportunity.stageId`) | RN-03.7, RN-03.39 |
 | `crm.proyectos.reglas_avance` | RN-03.34 |
 | `crm.oportunidades.transiciones_etapa` | RN-03.40 (DM-6) |
-| `crm.moneda_por_defecto` | RN-03.38 (DM-1) |
+| `crm.moneda_base` | RN-03.78, RN-03.83 (DM-36): moneda base `USD`, de solo lectura; sustituye a `crm.moneda_por_defecto` |
+| `crm.tipos_cambio.dias_aviso_antiguedad` | RN-03.81 (aviso `EXCHANGE_RATE_STALE`) |
 | `crm.forecast.horizonte_meses` | RN-03.66 |
 | `crm.forecast.unidad_tonelaje` | RN-03.27, RN-03.58, RN-03.69 |
 | `crm.zona_horaria_negocio` | Ventana del forecast, "hoy" por defecto |
-| `crm.adjuntos.max_mb`, `crm.adjuntos.tipos_permitidos` | Adjuntos (DM-8) |
+| `crm.adjuntos.max_mb`, `crm.adjuntos.tipos_permitidos` | Adjuntos (DM-8 resuelta, ADR-021): 10 MB; PDF, JPEG, PNG, `.docx`, `.xlsx` |
 
 ### D.6 Restricciones de integridad de las que depende el módulo
 
@@ -410,7 +432,7 @@ Todas definidas en 00; el módulo **no** añade SQL. Las pruebas de integración
 
 - `projects`: `ck_projects_phase_progress`, `ck_projects_estimated_dates`, `ck_projects_quantity`, `ck_projects_tonnage`, `ck_projects_conversion`, `ck_projects_not_self_duplicate`; FK compuesta de conversión; `uq_projects_id_customer`; `code @unique`.
 - `project_phase_history`: `ck_project_phase_history_progress`.
-- `opportunities`: `ck_opportunities_amount`, `ck_opportunities_currency`, `ck_opportunities_tonnage`; `uq_opportunities_id_project`.
+- `opportunities`: `ck_opportunities_amount`, `ck_opportunities_amount_set`, `ck_opportunities_exchange_rate`, `ck_opportunities_amount_usd`, `ck_opportunities_usd_identity`, `ck_opportunities_rate_date`, `ck_opportunities_tonnage`; FK `currency_code → currencies`; `uq_opportunities_id_project`.
 - `opportunity_results`: `ck_opportunity_results_lost_reason`, `ck_opportunity_results_partial_percent`, `ck_opportunity_results_percent_range`; `opportunity_id @unique`.
 - `opportunity_result_history`: `ck_opportunity_result_history_payload`, `ck_opportunity_result_history_percent`.
 - `project_products`: `ck_project_products_quantity`, `ck_project_products_tonnage`, `ck_project_products_conversion`; FK compuestas de oportunidad y de conversión.
@@ -421,7 +443,8 @@ Reglas que la base **no** puede expresar y quedan en el caso de uso:
 pertenencia del elemento a su catálogo (00 §3.5), transiciones de etapa,
 etapa ↔ resultado, unicidad de producto activo por par (proyecto, oportunidad),
 destino `TON` de la regla, ventana del forecast, producto asociado en el
-forecast.
+forecast, moneda admitida según el país del proyecto (RN-03.78) y resolución del
+tipo de cambio vigente (RN-03.79).
 
 ---
 
@@ -476,7 +499,7 @@ Formulario en `FormSection`s:
 1. **Datos generales:** nombre*, cliente* (autocompletar; muestra "Cliente inactivo" deshabilitado), país* (por defecto el del cliente), ciudad o ubicación, dirección, descripción.
 2. **Fechas:** inicio estimado, fin estimado (validación cliente fin ≥ inicio), decisión estimada.
 3. **Responsable:** asesor* (por defecto el usuario; editable solo con `proyectos.administrar`). Código: generado (campo visible solo con `proyectos.administrar`, opcional).
-4. **Adjuntos:** zona de archivos en cola que se suben **después** del alta (dos pasos). Mientras DM-8 no esté resuelto: deshabilitada con el texto "La carga de archivos estará disponible próximamente".
+4. **Adjuntos:** zona de archivos en cola que se suben **después** del alta (dos pasos: `POST /projects` y luego `POST /projects/{id}/attachments` por archivo). Valida en cliente tamaño (`crm.adjuntos.max_mb`) y tipo (lista de `crm.adjuntos.tipos_permitidos`) como ayuda; la decisión es del servidor (`413` / `422 ATTACHMENT_TYPE_NOT_ALLOWED`, ADR-021). Si falla la subida de un archivo, el proyecto queda creado y la ficha lo indica para reintentar desde la sección Adjuntos.
 
 Obligatorios adicionales: el formulario los lee de `GET /projects/form-options`
 (`requiredFields` = base + `crm.campos_obligatorios.project`) y marca los campos;
@@ -503,7 +526,7 @@ tiene sus propios cuatro estados, de modo que el fallo de una no rompe la ficha.
 | 1 General | `ProjectGeneralSection` | Datos de B.2 #1; "Proyecto duplicado de PRY-…" con enlace; diálogo de edición (`PATCH /projects/{id}`) | — | Solo lectura, sin botón Editar |
 | 2 Clasificación | `ProjectClassificationSection` | Tipo, sector, unidad, cantidad, modo (`Por regla`/`Manual`/`Sin estimación`), regla aplicada (ámbito y factor), tonelaje. Diálogo con **vista previa** de la regla (`GET /unit-conversions/resolve`) antes de guardar; aviso si no hay regla aplicable | "Sin clasificar" + "Clasificar" | Solo lectura |
 | 3 Fase | `ProjectPhaseSection` | Indicador de pasos con las fases del catálogo (orden `metadata.order`), barra de % (con texto, accesible), fecha y comentario; diálogo "Actualizar fase" (fase, %, comentario; propone `defaultProgress`; muestra la regla de avance); historial en línea de tiempo | — (siempre hay fase) | Solo lectura |
-| 4 Oportunidades | `ProjectOpportunitiesSection` | Tabla: código, etapa (chip), fecha, asesor, estimación (monto + moneda, t), siguiente acción y fecha (aviso si abierta sin siguiente acción). Acciones: Nueva oportunidad, Editar, Cambiar etapa (`StageChangeDialog`), Ver detalle | "Sin oportunidades" + "Nueva oportunidad" | Sin acciones |
+| 4 Oportunidades | `ProjectOpportunitiesSection` | Tabla: código, etapa (chip), fecha, asesor, estimación (monto original + moneda, equivalente en USD y t; RN-03.83), siguiente acción y fecha (aviso si abierta sin siguiente acción). Acciones: Nueva oportunidad, Editar, Cambiar etapa (`StageChangeDialog`), Ver detalle | "Sin oportunidades" + "Nueva oportunidad" | Sin acciones |
 | 5 Resultados | `ProjectResultsSection` | Resumen (ganadas, parciales, perdidas) y tabla de oportunidades cerradas: resultado, motivo, % adjudicado, fecha de decisión, comentarios; historial de resultado desplegable; acción "Modificar resultado" | "Ninguna oportunidad tiene resultado" | Sin acciones |
 | 6 Productos | `ProjectProductsSection` | Tabla: SKU, descripción, familia, unidad, cantidad, tonelaje (o "Sin conversión" con icono y ayuda), estado, oportunidad. Pie: **total en toneladas** (solo estados activos) y **cantidades por unidad**; contador de líneas sin conversión. Acciones: Asociar producto (`ProductPicker` + formulario), Editar, Quitar | "Sin productos asociados" + "Asociar producto" | Sin acciones |
 | 7 Forecast | `ForecastMatrix` filtrada por `projectId` | La misma matriz de E.7, sin el filtro de proyecto | "Sin forecast. Asocia productos para proyectar" | Celdas de solo lectura |
@@ -519,9 +542,9 @@ comercial estará disponible con el módulo de Actividad comercial" **sin**
 llamar a endpoints inexistentes; sin ninguno de esos permisos, la sección se
 oculta (§G.3). Hasta que exista el Módulo 4, `ProjectFollowUpSection` no importa
 nada de `features/crm/commercial-activity` (la importación la añade el Módulo 4
-al entregar sus puntos de entrada). **Mientras DM-8 no esté resuelto**,
-`AttachmentsSection` lista (vacío) y deshabilita la subida con su estado "no
-disponible".
+al entregar sus puntos de entrada). `AttachmentsSection` funciona completa
+(DM-8 resuelta, ADR-021): la descarga abre `GET …/attachments/{attachmentId}/content`,
+que transmite el archivo como `attachment`; no hay vista previa en línea.
 
 En la ficha y en el detalle de oportunidad también aparece `NewActivityButton`
 (`customerId`, `projectId`, `opportunityId`) cuando el Módulo 4 está disponible.
@@ -545,10 +568,11 @@ En la ficha y en el detalle de oportunidad también aparece `NewActivityButton`
 
 ### E.7 Pipeline de oportunidades (`/proyectos/oportunidades`) — F-17, F-18
 
-- **Vista lista** (por defecto): filtros etapa, asesor, proyecto, cliente, abiertas/cerradas, resultado, rango de fechas (de la oportunidad o de decisión), búsqueda por código; columnas código · proyecto · cliente · etapa · fecha · asesor · estimación · siguiente acción · resultado.
-- **Vista tablero**: una columna por etapa activa (orden `metadata.order`), cabecera con **conteo**, tarjetas (código, proyecto, cliente, estimación, asesor, siguiente acción); "Ver más" por columna (paginación por etapa). El cambio de etapa se hace con la acción "Cambiar etapa" de la tarjeta (sin arrastrar: arrastrar exigiría una librería nueva y ADR).
+- **Vista lista** (por defecto): filtros etapa, asesor, proyecto, cliente, abiertas/cerradas, resultado, rango de fechas (de la oportunidad o de decisión), búsqueda por código; columnas código · proyecto · cliente · etapa · fecha · asesor · estimación (monto original + moneda y equivalente en USD; orden por el equivalente en USD) · siguiente acción · resultado.
+- **Vista tablero**: una columna por etapa activa (orden `metadata.order`), cabecera con **conteo**, tarjetas (código, proyecto, cliente, estimación —monto original + moneda y equivalente en USD—, asesor, siguiente acción); "Ver más" por columna (paginación por etapa). El cambio de etapa se hace con la acción "Cambiar etapa" de la tarjeta (sin arrastrar: arrastrar exigiría una librería nueva y ADR).
 - **`StageChangeDialog`**: etapas destino permitidas (las calcula el backend, `allowedTransitions` en el detalle); comentario; si el destino es cerrado, **`ResultForm`** embebido: resultado (opciones filtradas por el `outcome` de la etapa: Ganado → Ganado/Parcial; Perdido → Perdido), motivo (obligatorio si Perdido; filtrado por `appliesTo`), % adjudicado (obligatorio si Parcial, 0–100), fecha de decisión*, comentarios. Reabrir: visible solo con `oportunidades.administrar`, con comentario obligatorio y aviso de que se anula el resultado.
-- **Detalle `/proyectos/oportunidades/:id`**: datos, edición, historial de etapas (línea de tiempo), resultado vigente e historial, productos asociados a la oportunidad, enlace al proyecto.
+- **`OpportunityFormDialog`** (alta y edición): etapa inicial, fecha, asesor, **estimación** (monto con `DecimalField` + selector de moneda con solo las monedas admitidas para el proyecto, de `GET /opportunities/form-options?projectId=`, preseleccionada la del país del proyecto; RN-03.78), tonelaje estimado, descripción, siguiente acción y fecha. El formulario **no** calcula la conversión: muestra el texto "El equivalente en USD se calcula al guardar con el tipo de cambio vigente a la fecha de la oportunidad". Tras guardar, si la respuesta trae `warnings` con `EXCHANGE_RATE_STALE`, muestra un aviso no bloqueante con la fecha de la tasa aplicada; `422 EXCHANGE_RATE_NOT_FOUND` se pinta bajo el selector de moneda sugiriendo registrar en USD; `422 CURRENCY_NOT_ALLOWED`, bajo el mismo selector.
+- **Detalle `/proyectos/oportunidades/:id`**: datos, estimación (monto original + moneda, tipo de cambio aplicado y su fecha de vigencia, equivalente en USD; tonelaje), edición, historial de etapas (línea de tiempo), resultado vigente e historial, productos asociados a la oportunidad, enlace al proyecto.
 - Estados: los cuatro, en lista, tablero (por columna) y detalle.
 
 ### E.8 Forecast M+6 (`/proyectos/forecast`) — F-20
@@ -594,7 +618,7 @@ Todo bajo `/api/v1`, autenticado (`Authorization: Bearer`), con el formato de
 error de API-STANDARDS §8 (`statusCode`, `code`, `message`, `details`,
 `correlationId`). Colecciones: `{ data, pagination: { page, pageSize, totalItems, totalPages } }`,
 `pageSize` ≤ 100, `sortBy` contra lista blanca, `sortOrder` ∈ `asc|desc`.
-Decimales como cadena (`"12.5000"`); dinero `{ "amount": "1500.2500", "currency": "USD" }`;
+Decimales como cadena (`"12.5000"`); la estimación de una oportunidad viaja como los cinco campos planos de RN-03.38 (`estimatedAmount`, `currencyCode`, `exchangeRate`, `exchangeRateDate`, `estimatedAmountUsd`; DM-36);
 fechas de calendario `YYYY-MM-DD`; instantes ISO 8601 UTC. DTOs con
 `class-validator`, `whitelist` y `forbidNonWhitelisted`. OpenAPI con
 `@ApiTags`, respuestas y errores documentados. Todos los endpoints responden
@@ -628,8 +652,8 @@ existencia, ADR-008). Los errores de forma del DTO usan `400 VALIDATION_FAILED`
 | DELETE | `/projects/{id}/products/{projectProductId}` | `proyectos.editar` / `administrar` | Quitar asociación (lógico) | 204 | 403, 404, 409 `PRODUCT_HAS_FORECAST` |
 | GET | `/projects/{id}/opportunities` | `oportunidades.ver` | Oportunidades del proyecto (sección 4 y selector del Módulo 4); mismos filtros que `GET /opportunities` salvo `projectId` | 200 `Paginated<OpportunityListItemDto>` | 404 (proyecto) |
 | GET | `/projects/{id}/attachments` | `proyectos.ver` | Listar adjuntos | 200 `Paginated<AttachmentDto>` | 404 |
-| POST | `/projects/{id}/attachments` | `proyectos.editar` / `administrar` | Subir (`multipart/form-data`) — **bloqueado por DM-8** | 201 `AttachmentDto` | 403, 404, 413/422 `ATTACHMENT_TOO_LARGE`, 422 `ATTACHMENT_TYPE_NOT_ALLOWED` |
-| GET | `/projects/{id}/attachments/{attachmentId}/content` | `proyectos.ver` | Descargar (URL firmada o flujo, según DM-8) | 200 / 302 | 404 |
+| POST | `/projects/{id}/attachments` | `proyectos.editar` / `administrar` | Subir (`multipart/form-data`: `file`, `description?` ≤ 300) al `FileStorage` (ADR-021); tipo detectado por firma, clave `<año>/<mes>/<uuid>` generada | 201 `AttachmentDto` + `Location` | 400, 403, 404, 413 `ATTACHMENT_TOO_LARGE`, 422 `ATTACHMENT_TYPE_NOT_ALLOWED` |
+| GET | `/projects/{id}/attachments/{attachmentId}/content` | `proyectos.ver` | Descargar: flujo transmitido por la API tras autorizar (ADR-021, DC-2), con `Content-Type` guardado, `Content-Disposition: attachment` y `X-Content-Type-Options: nosniff`; nunca servido como estático ni con URL firmada | 200 (binario) | 404 |
 | DELETE | `/projects/{id}/attachments/{attachmentId}` | `proyectos.editar` / `administrar` | Eliminar (lógico, `attachments` + `stored_files`) | 204 | 403, 404 |
 
 > **Nota de forma (`/projects/{id}/products`, `/forecast/totals`):** la respuesta
@@ -654,11 +678,12 @@ fase (`phase.label`, `phase.progress`), estado comercial
 (`commercialStatus.kind/label/stage`), asesor, fecha estimada de decisión— y
 `id` para navegar a `/proyectos/:id`. Solo proyectos visibles para el usuario.
 
-**`ProjectFormOptionsDto`:** `countries[]`, `projectTypes[]`, `sectors[]`,
+**`ProjectFormOptionsDto`:** `countries[]` (con `currencyCode`), `projectTypes[]`, `sectors[]`,
 `phases[]` (con `order`, `isFinal`, `defaultProgress`), `stages[]` (con `order`,
 `isClosed`, `outcome`), `units[]` (con `dimension`), `productStatuses[]` (con
 `isActive`), `requiredFields[]` (base + parámetro), `defaults`
-(`phaseId`, `stageId`, `currencyCode`), `progressRules` (de
+(`phaseId`, `stageId`), `baseCurrencyCode` (`crm.moneda_base`, `USD`; sustituye a
+la antigua `defaults.currencyCode`, que leía `crm.moneda_por_defecto`), `progressRules` (de
 `crm.proyectos.reglas_avance`), `tonnageUnit`. Solo elementos activos (el valor
 desactivado de un registro existente llega en su propio DTO, como en 02).
 
@@ -762,11 +787,11 @@ funcional).
 | Método | Ruta | Permiso | Propósito | Éxito | Errores específicos |
 |---|---|---|---|---|---|
 | GET | `/opportunities` | `oportunidades.ver` | Listar/filtrar pipeline | 200 `Paginated<OpportunityListItemDto>` | 400, 422 `INVALID_DATE_RANGE` |
-| GET | `/opportunities/form-options` | `oportunidades.ver` | Etapas (con semántica), resultados (etiquetas del conjunto cerrado y `stageOutcome`), motivos (con `appliesTo`), moneda por defecto, monedas admitidas | 200 `OpportunityFormOptionsDto` | — |
+| GET | `/opportunities/form-options` | `oportunidades.ver` | Etapas (con semántica), resultados (etiquetas del conjunto cerrado y `stageOutcome`), motivos (con `appliesTo`), moneda base; con `?projectId=` además las monedas admitidas para ese proyecto y la moneda por defecto (RN-03.78) | 200 `OpportunityFormOptionsDto` | 400 (`projectId` no UUID), 404 (`projectId` no visible) |
 | GET | `/opportunities/stage-summary` | `oportunidades.ver` | Conteo por etapa con los mismos filtros (cabeceras del tablero) | 200 `{ stages: [{ stage, count }] }` | 400 |
-| POST | `/projects/{projectId}/opportunities` | `oportunidades.crear` + proyecto propio o `oportunidades.administrar` | Crear | 201 `OpportunityDetailDto` + `Location` | 400, 403, 404 (proyecto), 422 `INVALID_INITIAL_STAGE`, `INVALID_CATALOG_VALUE`, `INVALID_OWNER`, `CURRENCY_REQUIRED` |
+| POST | `/projects/{projectId}/opportunities` | `oportunidades.crear` + proyecto propio o `oportunidades.administrar` | Crear | 201 `OpportunityMutationResponseDto` (`OpportunityDetailDto` + `warnings?`) + `Location` | 400, 403, 404 (proyecto), 422 `INVALID_INITIAL_STAGE`, `INVALID_CATALOG_VALUE`, `INVALID_OWNER`, `CURRENCY_REQUIRED`, `CURRENCY_NOT_ALLOWED`, `EXCHANGE_RATE_NOT_FOUND` |
 | GET | `/opportunities/{id}` | `oportunidades.ver` | Detalle (+ `allowedTransitions`, resultado vigente, `capabilities`) | 200 `OpportunityDetailDto` | 404 |
-| PATCH | `/opportunities/{id}` | `oportunidades.editar` (propia) / `administrar` | Editar datos (no etapa) | 200 `OpportunityDetailDto` | 400, 403, 404, 422 `CURRENCY_REQUIRED`, `INVALID_OWNER` |
+| PATCH | `/opportunities/{id}` | `oportunidades.editar` (propia) / `administrar` | Editar datos (no etapa); recalcula la estimación solo si cambian monto, moneda o fecha (RN-03.82) | 200 `OpportunityMutationResponseDto` (`OpportunityDetailDto` + `warnings?`) | 400, 403, 404, 422 `CURRENCY_REQUIRED`, `CURRENCY_NOT_ALLOWED`, `EXCHANGE_RATE_NOT_FOUND`, `INVALID_OWNER` |
 | POST | `/opportunities/{id}/stage-changes` | `oportunidades.editar` / `administrar`; a cerrada + `oportunidades.cerrar`; reabrir: `oportunidades.administrar` | Cambiar etapa (con resultado si cierra) | 201 `OpportunityDetailDto` | 400, 403, 404, 422 `INVALID_STAGE_TRANSITION`, `STAGE_UNCHANGED`, `RESULT_REQUIRED`, `RESULT_NOT_ALLOWED`, `RESULT_STAGE_MISMATCH`, `RESULT_REASON_REQUIRED`, `RESULT_PERCENT_REQUIRED`, `INVALID_PROGRESS`, `COMMENT_REQUIRED`, `INVALID_CATALOG_VALUE` |
 | PUT | `/opportunities/{id}/result` | `oportunidades.cerrar` (propia) / `administrar` | Modificar el resultado vigente sin cambiar de etapa | 200 `OpportunityResultDto` | 400, 403, 404, 409 `OPPORTUNITY_NOT_CLOSED`, 422 (reglas de resultado) |
 | GET | `/opportunities/{id}/history` | `oportunidades.ver` | Historial de etapas y de resultados | 200 `{ stages: StageHistoryItemDto[], results: ResultHistoryItemDto[] }` | 404 |
@@ -778,13 +803,16 @@ funcional).
 `decisionFrom`/`decisionTo` (fecha de decisión del resultado, los que usa Inicio
 en 01 E.3), `dateField` ∈ `opportunityDate|nextActionDate|updatedAt` con
 `dateFrom`/`dateTo`, paginación, `sortBy` ∈ {`code`, `opportunityDate`, `stageOrder`,
-`nextActionDate`, `updatedAt`, `estimatedAmount`}.
+`nextActionDate`, `updatedAt`, `estimatedAmountUsd`} (el orden por monto usa siempre el equivalente en USD, RN-03.83).
 
 ```text
 OpportunityListItemDto {
   id, code, project: { id, code, name }, customer: { id, legalName },
   stage: CatalogRefDto & { order, isClosed, outcome? }, opportunityDate,
-  owner: UserRefDto, estimatedAmount?: Money, estimatedTonnage?,
+  owner: UserRefDto,
+  estimatedAmount?: "7750.0000", currencyCode?: "GTQ", exchangeRate?: "7.75000000",   // DM-36: los cinco juntos o ninguno
+  exchangeRateDate?: "2026-10-01" (null si USD), estimatedAmountUsd?: "1000.0000",
+  estimatedTonnage?,
   nextAction?, nextActionDate?, result?: { outcome, awardedPercent?, decisionDate },
   updatedAt, capabilities: { canEdit, canClose, canReopen, canDelete }
 }
@@ -793,9 +821,21 @@ OpportunityDetailDto = OpportunityListItemDto + {
   allowedTransitions: CatalogRefDto[],       // destinos válidos para este usuario ahora
   productLines: number, createdAt, createdBy?, updatedBy?
 }
-CreateOpportunityDto { stageId?, opportunityDate?, ownerId?, estimatedAmount?: decimal-string,
-  currencyCode?: char(3), estimatedTonnage?, description? (≤2000), nextAction? (≤300), nextActionDate? }
-UpdateOpportunityDto = Partial<Omit<CreateOpportunityDto, "stageId">>
+CreateOpportunityDto { stageId?, opportunityDate?, ownerId?,
+  estimatedAmount?: decimal-string (≥0), currencyCode?: char(3) (obligatorio si hay monto; USD o moneda del país del proyecto),
+  estimatedTonnage?, description? (≤2000), nextAction? (≤300), nextActionDate? }
+  // exchangeRate, exchangeRateDate y estimatedAmountUsd NO se aceptan: los resuelve el servidor (RN-03.79–RN-03.82)
+UpdateOpportunityDto = Partial<Omit<CreateOpportunityDto, "stageId">>   // estimatedAmount y currencyCode null = borrar la estimación
+OpportunityMutationResponseDto = OpportunityDetailDto + {
+  warnings?: [{ code: "EXCHANGE_RATE_STALE", message,
+                details: { currencyCode, exchangeRateDate, referenceDate, ageDays, thresholdDays } }]   // RN-03.81, solo en POST/PATCH
+}
+OpportunityFormOptionsDto {
+  stages[], outcomes[], reasons[],
+  baseCurrencyCode: "USD",                                   // crm.moneda_base
+  currencies?: { allowed: [{ code, name, symbol, decimals }],   // solo con ?projectId=: USD + moneda del país del proyecto (sin repetir)
+                 defaultCode }                                // moneda del país del proyecto
+}
 CreateStageChangeDto { toStageId: uuid, comment?: string (≤1000), result?: OpportunityResultInputDto }
 OpportunityResultInputDto { outcome: "WON"|"LOST"|"PARTIAL", reasonId?: uuid,
   awardedPercent?: decimal-string, decisionDate: YYYY-MM-DD, comments?: string (≤2000) }
@@ -873,7 +913,7 @@ lote completo. La operación es idempotente: repetir el mismo cuerpo devuelve
 |---|---|---|---|
 | Buscar y validar clientes (selector, RN-03.2) | Módulo 2 (implementado antes) | Frontend: `CustomerPicker` exportado por `features/crm/customers/index.ts` (que usa `GET /api/v1/customers`, `clientes.ver`). Backend: `CustomerReferenceGuard.assertUsableCustomer(customerId, actor, { requireActive })` exportado por `CustomersModule` (02 F.6.3), nunca HTTP interno | No aplica: el orden de implementación lo garantiza |
 | Opciones de formulario (catálogos, países, unidades, obligatorios, valores por defecto, asesores, equipos) | Este módulo, por D-02.1 | **No** hay endpoint genérico: `GET /projects/form-options`, `/projects/owner-options`, `/projects/team-options`, `/opportunities/form-options` (F.1, F.2). Construidos con `CatalogReferenceValidator`/lectura de catálogos, `ParameterReader` y `VisibilityScopeResolver` | — |
-| Piezas transversales | Fase 0 / Módulo 2 (02 F.6.5) | `SequenceGenerator.next(key, tx)`, `CatalogReferenceValidator.assertItem(...)`, `VisibilityScopeResolver.resolve(principal)`, `ParameterReader.get<T>(key)`, `AttachmentsService` (`owner = { type: 'project', id }`; la autorización sobre el proyecto la decide este módulo), `AuditService.record(...)` | Ya entregadas por el Módulo 2 |
+| Piezas transversales | Fase 0 / Módulo 2 (02 F.6.5) | `SequenceGenerator.next(key, tx)`, `CatalogReferenceValidator.assertItem(...)`, `VisibilityScopeResolver.resolve(principal)`, `ParameterReader.get<T>(key)`, `ExchangeRateReader.findApplicable(currencyCode, date)` (Fase 0), `AttachmentsService` (`owner = { type: 'project', id }`; la autorización sobre el proyecto la decide este módulo), `AuditService.record(...)` | Ya entregadas por el Módulo 2 |
 | Predicados de métricas | Módulo 1 (dueño), creados aquí primero (RN-03.77) | `metric-definitions.ts`: DEF-A, DEF-B, DEF-C, DEF-G | Este módulo los crea en la ruta de 01 |
 | Productos, familias, unidades y resolución de reglas | Fase 0 (maestro) / Módulo 7 (mantenimiento) | Lectura que expone este módulo (abajo), porque el Módulo 7 aún no existe | — |
 | Seguimiento comercial del proyecto (sección 8) | **Módulo 4** | Componente `CommercialActivitySection projectId` y botones `NewActivityButton`/`PlanVisitButton` (04 E.11, `features/crm/commercial-activity/entry-points`), que consumen `GET /api/v1/follow-ups/trace?projectId={id}` → `FollowUpTraceDto { row: FollowUpRowDto (lastInteraction, nextAction, nextActionDate, nextActionSource, responsible, notes, attachmentCount), interactions, upcoming, attachments }` y `GET /api/v1/interactions?projectId=`. Visibilidad y permisos: los del Módulo 4 (`actividades.ver`/`visitas.ver` + alcance). Este módulo no llama a esos endpoints directamente | Estado informativo por disponibilidad (D-02.10, §G.3); ninguna llamada |
@@ -898,7 +938,8 @@ el Módulo 7 añadirá las escrituras con `productos.configurar`, DM-23):
 | `ProjectProductRepository` | `listByProject(id, page)`, `totalsByProject(id)`, `findActiveDuplicate(projectId, opportunityId?, productId)`, `create`, `update`, `softDelete`, `hasForecastInWindow(projectId, productId, window)` |
 | `ForecastRepository` | `listRows(filters, scope, window, page)`, `totals(filters, scope, periods)`, `lockLines(keys, tx)`, `upsertLines(lines, tx)` |
 | `ProductCatalogReader` | `searchProducts`, `listFamilies`, `listUnits`, `findProduct(id)` |
-| Transversales de Fase 0 | `SequenceGenerator`, `CatalogReferenceValidator`, `VisibilityScopeResolver`, `UnitConversionResolver`, `AuditService` (existente), `ParameterReader.get<T>(key)` (02 F.6.5) |
+| Transversales de Fase 0 | `SequenceGenerator`, `CatalogReferenceValidator`, `VisibilityScopeResolver`, `UnitConversionResolver`, `ExchangeRateReader.findApplicable(currencyCode, date)` (00 §2.16, ADR-024; estimación de oportunidades, C.11), `AuditService` (existente), `ParameterReader.get<T>(key)` (02 F.6.5) |
+| Transversales del Módulo 2 | `AttachmentsService` sobre `FileStorage` (`LocalFileSystemStorage`, ADR-021) |
 
 Los casos de uso reciben un `VisibilityScope` resuelto (no Prisma) y nunca
 importan `@prisma/client`.
@@ -913,7 +954,7 @@ importan `@prisma/client`.
 |---|---|---|
 | Módulo 2 Clientes | Cliente del proyecto (existencia, eliminado, estado activo, visibilidad, país, nombre) | `customers.id` |
 | Plantilla / Módulo 7 | Usuarios (asesor), equipos y pertenencia (alcance `TEAM`, equipo principal), roles, permisos, `dataScope` (vía `/me` y el resolvedor) | `users.id`, `teams.id` |
-| Fase 0 / Módulo 7 | Catálogos §D.4, parámetros §D.5, países, productos, familias, unidades, reglas de conversión, secuencias | `catalog_items.id` (+ `code` para semántica), `countries.id`, `products.id`, `units_of_measure.id`, `unit_conversion_rules.id` |
+| Fase 0 / Módulo 7 | Catálogos §D.4, parámetros §D.5, países (con su moneda), monedas y tipos de cambio (`ExchangeRateReader`), productos, familias, unidades, reglas de conversión, secuencias | `catalog_items.id` (+ `code` para semántica), `countries.id`, `products.id`, `units_of_measure.id`, `unit_conversion_rules.id` |
 | Módulo 4 | Seguimiento e interacciones del proyecto (solo consulta); existencia de visitas/actividades para bloqueos | `projects.id` en `visits.project_id`, `activities.project_id`, `activities.opportunity_id` |
 
 ### G.2 Qué proporciona
@@ -923,7 +964,7 @@ importan `@prisma/client`.
 | Módulo 2 (§4.4 Proyectos del cliente) | Código, nombre, ubicación, fase, estado comercial, asesor, fecha estimada de decisión; buscar, filtrar, ordenar, navegar | `GET /projects?customerId=…` con los filtros y orden de F.1; navegación a `/proyectos/:id`. Respeta la visibilidad del usuario. El Módulo 2 no administra ni duplica proyectos |
 | Módulo 4 | Proyectos y oportunidades a los que vincular visitas y actividades; validación "proyecto de este cliente" (FK compuesta) | `GET /projects?customerId=` y `GET /opportunities?projectId=&status=OPEN` para selectores; ids `projects.id`, `opportunities.id`. El Módulo 4 actualiza `projects.last_activity_at` en su propia transacción (00 §2.6) |
 | Módulo 1 Inicio | Proyectos activos (RN-03.15), oportunidades abiertas/ganadas/perdidas (C.8), forecast M+6 en toneladas (RN-03.74), alerta "proyecto sin actualizar" (`last_activity_at` + `crm.alertas.proyecto_sin_actualizar_dias`), alerta "oportunidad abierta sin siguiente acción", actividad reciente (`project_phase_history`, `opportunity_stage_history`) | Lectura directa de las tablas por `DashboardReadModel`/`AlertsReadModel` con **las mismas fórmulas** de esta especificación; navegación a `/proyectos?…` con filtros en la URL, `/proyectos/:id?seccion=…` y `/proyectos/oportunidades/:id` |
-| Módulo 5 Reportes | Proyectos (§7.1), oportunidades (§7.2, conteos sobre `opportunities`, nunca sobre el `JOIN` con productos), forecast (§7.3, totales por unidad y en toneladas), embudo (`metadata.inFunnel`, `order`) | `ReportingRepository`; mismas fórmulas (DM-15, DM-16) |
+| Módulo 5 Reportes | Proyectos (§7.1), oportunidades (§7.2, conteos sobre `opportunities`, nunca sobre el `JOIN` con productos; montos agregados en USD sobre `estimated_amount_usd`, DM-36), forecast (§7.3, totales por unidad y en toneladas), embudo (`metadata.inFunnel`, `order`) | `ReportingRepository`; mismas fórmulas (DM-15, DM-16) |
 | Módulo 7 | Uso real de catálogos y parámetros que administra | Los elementos usados no se eliminan (FK `Restrict`) |
 
 ### G.3 Comportamiento mientras otros módulos no existen
@@ -933,7 +974,8 @@ importan `@prisma/client`.
 | Módulo 4 (Actividad comercial) | Sección 8 "Seguimiento comercial" con estado informativo (disponibilidad por `/me/menu`, D-02.10), sin llamadas. Los bloqueos por visitas/actividades consultan tablas vacías (no bloquean). Al entregarse, el Módulo 4 monta `CommercialActivitySection`, `NewActivityButton` y `PlanVisitButton` dentro de `ProjectFollowUpSection` y del detalle de oportunidad; este módulo no cambia su API |
 | Módulo 1 / Módulo 5 | Nada que hacer: consumen después. Este módulo garantiza `last_activity_at` y las fórmulas documentadas |
 | Módulo 7 (mantenimiento de productos, reglas, catálogos) | Productos, familias y reglas se cargan por semilla/script (DM-23, DM-24); catálogos y parámetros se editan con la pantalla genérica existente (PLAN-ADMIN). Si no hay productos cargados, "Asociar producto" muestra "No hay productos en el catálogo" y el forecast queda vacío |
-| ADR de almacenamiento (DM-8) | Endpoints de adjuntos no se exponen (o responden `503` documentado, a decidir en el ADR); la UI deshabilita la subida con texto explicativo. Ninguna funcionalidad se elimina: F-10 y F-11 quedan `bloqueada` solo en su parte de adjuntos |
+| Almacenamiento de adjuntos (DM-8) | **Resuelto** (ADR-021): `FileStorage` y `AttachmentsService` llegan con el Módulo 2; los endpoints de adjuntos se exponen completos. Sin comportamiento degradado |
+| Tipos de cambio sin cargar (00 §8.2: los valores iniciales los entrega el negocio) | Una estimación en moneda local sin tasa aplicable devuelve `422 EXCHANGE_RATE_NOT_FOUND`; la estimación en USD funciona siempre |
 | Equipos reales (DM-12) | El alcance `TEAM` funciona con los equipos de demostración; sin equipos, un manager ve solo lo propio |
 
 ---
@@ -983,8 +1025,9 @@ caso de uso (no en el guard), con prueba de `401`, `403` y `404` por endpoint.
 exige `.editar` + propiedad, o `.administrar`. Un rol propio (creado por el
 administrador, ADR-020) con alcance `TEAM` y solo `proyectos.ver`/`editar` ve
 los proyectos del equipo **en solo lectura** salvo los suyos: el backend
-devuelve `capabilities.canEdit = false` y rechaza el `PATCH` con `403`. Si el
-alcance funcional del asesor debe incluir ver a sus compañeros, ver D-03.10.
+devuelve `capabilities.canEdit = false` y rechaza el `PATCH` con `403`. D-03.10
+resuelta (2026-10-10): el rol `asesor` conserva el alcance `OWN` (DM-11) y no ve
+los proyectos de sus compañeros.
 
 ### H.3 Otros controles
 
@@ -992,12 +1035,12 @@ alcance funcional del asesor debe incluir ver a sus compañeros, ver D-03.10.
 |---|---|
 | Validación de entrada | DTOs con lista blanca, `forbidNonWhitelisted`, longitudes máximas, UUID con `ParseUUIDPipe`, decimales por patrón (`^\d{1,15}(\.\d{1,4})?$`; porcentajes `^\d{1,3}(\.\d{1,2})?$`), fechas `YYYY-MM-DD` |
 | Inyección | Prisma con parámetros; `sortBy` contra lista blanca; búsquedas con `contains`/`mode: insensitive` o `$queryRaw` con plantilla (nunca `Unsafe`) |
-| Asignación masiva | `ownerId`, `code`, `phaseId` solo por sus endpoints/permisos; `lastActivityAt`, `duplicatedFromId`, `conversionFactor`, `tonnage`, `closedAt` nunca se aceptan del cliente |
+| Asignación masiva | `ownerId`, `code`, `phaseId` solo por sus endpoints/permisos; `lastActivityAt`, `duplicatedFromId`, `conversionFactor`, `tonnage`, `closedAt`, `exchangeRate`, `exchangeRateDate`, `estimatedAmountUsd` nunca se aceptan del cliente |
 | Lotes | `PUT /forecast/lines` ≤ 500 líneas; límite de tamaño de cuerpo global; `pageSize` ≤ 100 |
 | Concurrencia | Folios con bloqueo de fila; cambio de etapa con `FOR UPDATE`; unicidad de producto asociado con bloqueo consultivo; forecast con `FOR UPDATE` + `expectedUpdatedAt` |
 | Datos sensibles | El módulo no maneja PII de contactos. Nombres de usuarios solo como `displayName`. Logs estructurados sin cuerpos de petición ni valores comerciales; correlation ID en todo error |
 | Auditoría | Toda mutación relevante (C.1 RN-03.13). Compromiso existente: la fila de auditoría se escribe tras la transacción (PLAN-ADMIN §10); si se resuelve la unidad de trabajo, se adopta |
-| Adjuntos (DM-8) | Lista blanca de tipos y tamaño (`crm.adjuntos.*`), nombre saneado, descarga solo tras comprobar visibilidad del proyecto, sin rutas de almacenamiento en la respuesta |
+| Adjuntos (DM-8, ADR-021) | Lista blanca de tipos por firma del contenido y tamaño (`crm.adjuntos.*`, corte en streaming); nombre original saneado solo para mostrar; `storageKey` generado `<año>/<mes>/<uuid>` sin datos del usuario y protegido frente a *path traversal* por el adaptador; descarga solo por la API tras comprobar visibilidad y permiso del proyecto, con `Content-Disposition: attachment` y `nosniff`; nunca servido como estático; sin rutas ni claves de almacenamiento en la respuesta; sin antivirus (mitigación de 00 §2.11) |
 | Enumeración | `404` idéntico para inexistente, eliminado y fuera de alcance |
 | Rate limiting | El global de la API; `429` documentado |
 
@@ -1016,7 +1059,7 @@ verifica con al menos una prueba de §J.
 - **AC-03.4 (F-10)** — *Given* fin estimado anterior al inicio estimado, *When* crea o edita, *Then* recibe `422 INVALID_DATE_RANGE`; una inserción directa en base con esas fechas falla por `ck_projects_estimated_dates`.
 - **AC-03.5 (F-10)** — *Given* un asesor sin `proyectos.administrar`, *When* indica como responsable a otro usuario, *Then* recibe `403 FIELD_NOT_EDITABLE`; *Given* un manager con `administrar`, *When* indica un usuario inactivo o fuera de su alcance, *Then* recibe `422 INVALID_OWNER`; con un miembro activo de su equipo, `201`.
 - **AC-03.6 (F-10)** — *Given* un usuario sin `proyectos.administrar` que envía `code`, *Then* recibe `403 FIELD_NOT_EDITABLE`; *Given* un administrador que envía un código ya usado, *Then* recibe `409 PROJECT_CODE_TAKEN`.
-- **AC-03.7 (F-10, F-11; bloqueado por DM-8)** — *Given* el almacenamiento disponible, *When* el usuario adjunta un PDF permitido de tamaño válido al proyecto recién creado, *Then* aparece en la sección de adjuntos con nombre, tamaño, autor y fecha; un tipo no permitido devuelve `422 ATTACHMENT_TYPE_NOT_ALLOWED` y uno mayor que `crm.adjuntos.max_mb`, `ATTACHMENT_TOO_LARGE`. *Given* DM-8 sin resolver, *Then* la zona de adjuntos está deshabilitada con el texto explicativo y el alta funciona sin adjuntos.
+- **AC-03.7 (F-10, F-11)** — *Given* el almacenamiento de ADR-021 configurado, *When* el usuario adjunta un PDF permitido de tamaño válido al proyecto recién creado, *Then* aparece en la sección de adjuntos con nombre, tamaño, autor y fecha y el binario queda bajo `ATTACHMENTS_STORAGE_PATH` con una clave generada `<año>/<mes>/<uuid>`; un tipo no permitido (detectado por la firma, aunque la extensión diga otra cosa) devuelve `422 ATTACHMENT_TYPE_NOT_ALLOWED` y uno mayor que `crm.adjuntos.max_mb`, `413 ATTACHMENT_TOO_LARGE`; en ambos casos no queda fila ni binario. El alta del proyecto funciona también sin adjuntos.
 - **AC-03.8 (F-10)** — *Given* una petición sin token, *Then* `401`; *Given* un usuario sin `proyectos.crear`, *Then* `403` y la ruta `/proyectos/nuevo` muestra "Acceso denegado".
 
 ### F-11 — Consultar y editar proyectos
@@ -1029,6 +1072,7 @@ verifica con al menos una prueba de §J.
 - **AC-03.14 (F-11)** — *Given* un usuario con `proyectos.eliminar` y un proyecto sin oportunidades abiertas ni hijos activos, *When* lo elimina, *Then* recibe `204`, el proyecto deja de aparecer en búsqueda, vista de equipo y Clientes §4.4, `GET` responde `404` y sus historiales siguen en base; *Given* oportunidades abiertas, *Then* recibe `409 PROJECT_HAS_ACTIVE_CHILDREN` con el detalle de bloqueos.
 - **AC-03.15 (F-11)** — *Given* un proyecto con visitas o actividades vinculadas, *When* se intenta cambiar su cliente, *Then* recibe `409 PROJECT_CUSTOMER_LOCKED`; sin vínculos, el cambio se acepta con un cliente válido.
 - **AC-03.16 (F-11)** — *Given* que `GET /me/menu` no trae opciones de `actividad-comercial` y el usuario tiene `actividades.ver`, *When* se abre la sección Seguimiento, *Then* muestra el estado informativo y no se emite ninguna petición a `/follow-ups` ni `/interactions`; sin `actividades.ver` ni `visitas.ver`, la sección no aparece; *Given* el Módulo 4 implementado, *Then* `CommercialActivitySection` muestra última interacción, próxima acción, responsable, fecha, notas, adjuntos y las interacciones con enlace al registro de origen, y los botones de nueva actividad y planificar visita llevan el cliente y el proyecto preseleccionados.
+- **AC-03.95 (F-10, F-11)** — *Given* un adjunto de un proyecto visible, *When* el usuario con `proyectos.ver` pide `GET /projects/{id}/attachments/{attachmentId}/content`, *Then* recibe `200` con el `Content-Type` guardado, `Content-Disposition: attachment` (nombre saneado) y `X-Content-Type-Options: nosniff`, y ninguna respuesta de la API contiene la ruta ni la clave de almacenamiento; *Given* un proyecto fuera del alcance, un adjunto de otro proyecto o un adjunto eliminado, *Then* `404`; no existe ninguna URL estática que sirva el archivo.
 
 ### F-12 — Duplicar proyecto
 
@@ -1073,7 +1117,7 @@ verifica con al menos una prueba de §J.
 
 - **AC-03.41 (F-17)** — *Given* un proyecto propio, *When* el asesor crea una oportunidad sin etapa, *Then* recibe `201` con código `OPO-<año>-<5 dígitos>`, etapa `CONTACTADO` (parámetro), fecha = hoy en la zona de negocio, asesor = él, y una fila de historial de etapa con origen nulo; el proyecto actualiza `lastActivityAt`.
 - **AC-03.42 (F-17)** — *Given* una etapa cerrada (`GANADO`) como etapa inicial, *Then* `422 INVALID_INITIAL_STAGE`.
-- **AC-03.43 (F-17)** — *Given* una oportunidad propia, *When* edita estimación, siguiente acción y fecha, *Then* `200` y auditoría de los campos cambiados; un monto sin moneda (y sin moneda por defecto aplicable) devuelve `422 CURRENCY_REQUIRED`; un monto o tonelaje negativo, `400`/`422` y falla en base por `ck_opportunities_amount`/`_tonnage`.
+- **AC-03.43 (F-17)** — *Given* una oportunidad propia, *When* edita estimación, siguiente acción y fecha, *Then* `200` y auditoría de los campos cambiados; un monto sin moneda devuelve `422 CURRENCY_REQUIRED` (el servidor no aplica moneda por defecto: la propone el formulario, RN-03.78); un monto o tonelaje negativo, `400`/`422` y falla en base por `ck_opportunities_amount`/`_tonnage`.
 - **AC-03.44 (F-17)** — *Given* el parámetro de transiciones por defecto, *When* se pide `CONTACTADO → COTIZANDO`, *Then* `201` e historial; *When* se pide `PERDIDO → COTIZANDO` sin `administrar`, *Then* `403`/`422 INVALID_STAGE_TRANSITION`; *When* se pide la misma etapa, *Then* `422 STAGE_UNCHANGED`.
 - **AC-03.45 (F-17)** — *Given* que el administrador quita `GANADO` de los destinos de `CONTACTADO` en `crm.oportunidades.transiciones_etapa`, *When* se pide `CONTACTADO → GANADO`, *Then* `422 INVALID_STAGE_TRANSITION` sin redesplegar, y `allowedTransitions` del detalle ya no lo ofrece; *Given* una etapa nueva `NEGOCIANDO` abierta no listada en el mapa, *Then* desde ella se puede ir a cualquier etapa activa (regla de respaldo).
 - **AC-03.46 (F-17)** — *Given* oportunidades de varios asesores y etapas, *When* se filtra por etapa y asesor, *Then* solo aparecen las que cumplen ambos; el tablero muestra una columna por etapa activa ordenada por `metadata.order` con el conteo correcto (`/opportunities/stage-summary`).
@@ -1081,6 +1125,14 @@ verifica con al menos una prueba de §J.
 - **AC-03.48 (F-17)** — *Given* un proyecto, *When* se crean tres oportunidades, *Then* las tres aparecen en la sección Oportunidades de la ficha con etapas independientes.
 - **AC-03.49 (F-17, F-18)** — *Given* una oportunidad `GANADO` con resultado, *When* un usuario con `oportunidades.administrar` la reabre a `COTIZANDO` con comentario, *Then* el resultado vigente desaparece, el historial de resultado registra `CLEARED`, `closedAt` queda nulo y la etapa cambia; sin comentario, `422 COMMENT_REQUIRED`; sin `administrar`, `403`.
 - **AC-03.50 (F-17)** — *Given* una oportunidad abierta sin productos activos ni actividades abiertas, *When* se elimina con `oportunidades.eliminar`, *Then* `204` y desaparece de listas y conteos; *Given* una oportunidad cerrada, *Then* `409 OPPORTUNITY_CLOSED`; *Given* productos asociados activos, *Then* `409 OPPORTUNITY_HAS_DEPENDENCIES`.
+- **AC-03.87 (F-17)** — *Given* un proyecto de Guatemala y una tasa `GTQ` de 7,75 con vigencia 2026-10-01, *When* el asesor crea una oportunidad con fecha 2026-10-10, `estimatedAmount = "7750"` y `currencyCode = "GTQ"`, *Then* recibe `201` con `currencyCode = "GTQ"`, `exchangeRate = "7.75000000"`, `exchangeRateDate = "2026-10-01"`, `estimatedAmountUsd = "1000.0000"` y sin `warnings`; *When* la crea con `currencyCode = "USD"`, *Then* `exchangeRate = "1.00000000"`, `exchangeRateDate` nula y `estimatedAmountUsd` igual al monto.
+- **AC-03.88 (F-17)** — *Given* un proyecto de Guatemala, *When* se envía una estimación en `HNL` (o en una moneda inexistente), *Then* `422 CURRENCY_NOT_ALLOWED` y no se guarda nada; *Given* un proyecto de El Salvador (moneda del país `USD`), *When* se envía `GTQ`, *Then* `422 CURRENCY_NOT_ALLOWED` y solo se admite `USD`.
+- **AC-03.89 (F-17)** — *Given* que no existe ninguna tasa `GTQ` con vigencia ≤ la fecha de la oportunidad, *When* se crea o edita la estimación en `GTQ`, *Then* `422 EXCHANGE_RATE_NOT_FOUND` con `details.currencyCode` y `details.date`, la oportunidad no se crea (ni se modifica) y la misma estimación en `USD` se acepta.
+- **AC-03.90 (F-17)** — *Given* `crm.tipos_cambio.dias_aviso_antiguedad = 31` y una tasa `GTQ` vigente desde hace 45 días respecto a la fecha de la oportunidad, *When* se guarda la estimación, *Then* `201`/`200` con los cinco campos guardados y `warnings: [{ code: "EXCHANGE_RATE_STALE", details: { ageDays: 45, thresholdDays: 31, … } }]`, y el formulario muestra un aviso no bloqueante; con una tasa de hace 10 días, sin `warnings`.
+- **AC-03.91 (F-17)** — *Given* una oportunidad guardada en `GTQ` con tasa 7,75, *When* se añade después una tasa nueva 7,80 con vigencia anterior a su fecha o se corrige la fila aplicada, *Then* la oportunidad conserva `exchangeRate`, `exchangeRateDate` y `estimatedAmountUsd`; *When* se edita solo la siguiente acción, la descripción o la etapa, *Then* la foto no cambia; *When* se edita el monto, la moneda o la fecha de la oportunidad, *Then* se vuelve a resolver la tasa y a calcular el equivalente, y la auditoría registra la diferencia.
+- **AC-03.92 (F-17)** — *Given* un cuerpo que incluye `exchangeRate`, `exchangeRateDate` o `estimatedAmountUsd`, *When* se crea o edita la oportunidad, *Then* `400 VALIDATION_FAILED` (`forbidNonWhitelisted`); *Given* `estimatedAmount` y `currencyCode` a `null` en un `PATCH`, *Then* se borran los cinco campos; una inserción directa en base con monto sin equivalente en USD, o en USD con tasa distinta de 1, falla por `ck_opportunities_amount_set` / `ck_opportunities_usd_identity`.
+- **AC-03.93 (F-17)** — *Given* un proyecto visible de Guatemala, *When* el formulario pide `GET /opportunities/form-options?projectId={id}`, *Then* `currencies.allowed` contiene exactamente `GTQ` y `USD` y `currencies.defaultCode = "GTQ"`, y el formulario de nueva oportunidad preselecciona `GTQ`; *Given* un proyecto de Ecuador, *Then* `allowed` es solo `USD` y `defaultCode = "USD"`; *Given* un proyecto no visible, *Then* `404`; sin `projectId`, la respuesta trae `baseCurrencyCode = "USD"` y no trae `currencies`.
+- **AC-03.94 (F-17, F-11)** — *Given* oportunidades en `GTQ` y en `USD`, *When* se ven en la sección Oportunidades de la ficha, en la lista y en el tablero del pipeline y en el detalle, *Then* cada una muestra el monto original con su moneda y el equivalente en USD (el detalle muestra además la tasa y su fecha); *When* se ordena por `sortBy=estimatedAmountUsd`, *Then* el orden sigue el equivalente en USD, no el monto original.
 
 ### F-18 — Resultado de oportunidades
 
@@ -1153,8 +1205,8 @@ Niveles (TESTING.md, ADR-013): **U** = unitaria backend (Jest, puro, sin base);
 | PF-03.8 | D | − | Inserción con fin < inicio viola `ck_projects_estimated_dates` | AC-03.4 |
 | PF-03.9 | I | − | Asesor ajeno sin `administrar` → 403 `FIELD_NOT_EDITABLE`; usuario inactivo/fuera de alcance → 422 `INVALID_OWNER`; miembro del equipo con `administrar` → 201 | AC-03.5 |
 | PF-03.10 | I | − | `code` sin `administrar` → 403 `FIELD_NOT_EDITABLE`; código repetido → 409 | AC-03.6 |
-| PF-03.11 | I | + | (Tras DM-8) subir, listar, descargar y eliminar un adjunto; tipo/tamaño inválidos → 422 | AC-03.7 |
-| PF-03.12 | C | + | Con DM-8 sin resolver la zona de adjuntos está deshabilitada y el alta envía sin archivos | AC-03.7 |
+| PF-03.11 | I | + | Subir, listar, descargar y eliminar (lógico) un adjunto con `LocalFileSystemStorage` sobre una carpeta temporal; tipo no admitido por firma → 422 `ATTACHMENT_TYPE_NOT_ALLOWED`; exceso de tamaño → 413 `ATTACHMENT_TOO_LARGE`; sin fila ni binario residual | AC-03.7 |
+| PF-03.12 | C | + | Alta con archivos en cola: se suben tras el `201` del proyecto; validación local de tamaño y tipo; `413`/`422` del servidor pintados por archivo; sin archivos el alta funciona igual | AC-03.7 |
 | PF-03.13 | I | − | `POST /projects` sin token → 401; sin `proyectos.crear` → 403 | AC-03.8 |
 | PF-03.14 | C | + | Ficha: diez secciones, `?seccion=` abre la sección, error en una sección no afecta a las demás | AC-03.9 |
 | PF-03.15 | I | + | `PATCH` por el responsable: 200, `updatedById`, `lastActivityAt`, auditoría con solo los campos cambiados; `PATCH` sin cambios sin auditoría | AC-03.10 |
@@ -1200,8 +1252,8 @@ Niveles (TESTING.md, ADR-013): **U** = unitaria backend (Jest, puro, sin base);
 | PF-03.55 | I | − | Retroceso y cambio solo de porcentaje registrados; cambio sin diferencias → 422 `PHASE_UNCHANGED` | AC-03.40 |
 | PF-03.56 | I | + | Crear oportunidad: código, etapa por defecto, fecha de negocio, historial inicial, `lastActivityAt` del proyecto | AC-03.41 |
 | PF-03.57 | I | − | Etapa inicial cerrada → 422 `INVALID_INITIAL_STAGE`; proyecto ajeno sin `administrar` → 403 | AC-03.42 |
-| PF-03.58 | I | − | Monto sin moneda → 422; negativos → 400/422 | AC-03.43 |
-| PF-03.59 | D | − | `ck_opportunities_amount`, `ck_opportunities_currency`, `ck_opportunities_tonnage` | AC-03.43 |
+| PF-03.58 | I | − | Monto sin moneda → 422 `CURRENCY_REQUIRED` (sin moneda por defecto en el servidor); negativos → 400/422 | AC-03.43 |
+| PF-03.59 | D | − | `ck_opportunities_amount`, `ck_opportunities_amount_set`, `ck_opportunities_exchange_rate`, `ck_opportunities_amount_usd`, `ck_opportunities_usd_identity`, `ck_opportunities_rate_date`, `ck_opportunities_tonnage`; FK `currency_code → currencies` | AC-03.43, AC-03.92 |
 | PF-03.60 | U | + | Política de transiciones: mapa por defecto, transición no listada, misma etapa, regla de respaldo para etapas no listadas, destinos inactivos ignorados, reapertura | AC-03.44, AC-03.45, AC-03.49 |
 | PF-03.61 | I | + | Transiciones permitidas y prohibidas con el parámetro por defecto | AC-03.44 |
 | PF-03.62 | I | ∫ | Modificar el parámetro de transiciones y comprobar efecto inmediato y `allowedTransitions` | AC-03.45 |
@@ -1263,6 +1315,19 @@ Niveles (TESTING.md, ADR-013): **U** = unitaria backend (Jest, puro, sin base);
 | PF-03.118 | I | ∫ | Contrato F-08: `GET /projects?customerId=` con `search`, `phaseId`, `ownerId`, `commercialStatus`, `active`, orden y paginación; forma de `ProjectListItemDto`; visibilidad | AC-03.86 |
 | PF-03.119 | U | + | `metric-definitions.ts`: DEF-A, DEF-B (todas las combinaciones de abiertas/WON/PARTIAL/LOST/sin oportunidades), DEF-G (cambio de año) | AC-03.86, AC-03.69 |
 | PF-03.120 | C | ∫ | `/proyectos/oportunidades?status=OPEN&outcome=WON,PARTIAL&decisionFrom=&decisionTo=` y `/proyectos?active=true` inicializan los filtros desde la URL | AC-03.86 |
+| PF-03.121 | U | + | `opportunity-estimate.ts`: `round(monto / tasa, 4, HALF_UP)` con aritmética decimal (tasas de 8 decimales, montos grandes, casos de redondeo .5), identidad en USD (tasa 1, fecha nula), monedas admitidas por país (incluido país con moneda USD) | AC-03.87, AC-03.88 |
+| PF-03.122 | I | + | Alta en `GTQ` y en `USD`: los cinco campos guardados y devueltos, tasa = la de mayor vigencia ≤ fecha de la oportunidad (con varias filas sembradas) | AC-03.87 |
+| PF-03.123 | I | − | `HNL` en proyecto de Guatemala y `GTQ` en proyecto de El Salvador → 422 `CURRENCY_NOT_ALLOWED`; nada guardado | AC-03.88 |
+| PF-03.124 | I | − | Sin tasa ≤ fecha → 422 `EXCHANGE_RATE_NOT_FOUND` con `details`; en alta no se crea la oportunidad ni su historial, en edición no cambia nada; la misma estimación en USD → 201 | AC-03.89 |
+| PF-03.125 | I | + | Tasa con antigüedad mayor que `crm.tipos_cambio.dias_aviso_antiguedad` → guardada con `warnings` `EXCHANGE_RATE_STALE`; dentro del umbral, sin `warnings`; cambiar el parámetro por la API de parámetros cambia el resultado sin reiniciar | AC-03.90 |
+| PF-03.126 | U | + | Política de recálculo: solo cambios de `estimatedAmount`, `currencyCode` u `opportunityDate` disparan la resolución; el resto conserva la foto | AC-03.91 |
+| PF-03.127 | I | ∫ | Foto: añadir o corregir una tasa en `exchange_rates` no altera oportunidades guardadas; editar siguiente acción o etapa no recalcula; editar la fecha recalcula y audita la diferencia | AC-03.91 |
+| PF-03.128 | I | − | Cuerpo con `exchangeRate`/`exchangeRateDate`/`estimatedAmountUsd` → 400 `VALIDATION_FAILED`; `PATCH` con monto y moneda nulos borra los cinco campos | AC-03.92 |
+| PF-03.129 | I | + | `GET /opportunities/form-options?projectId=` para proyectos de Guatemala (`GTQ`, `USD`; defecto `GTQ`) y Ecuador (`USD`); proyecto no visible → 404; sin `projectId`, solo `baseCurrencyCode` | AC-03.93 |
+| PF-03.130 | C | + | `OpportunityFormDialog`: preselecciona la moneda por defecto del proyecto, ofrece solo las admitidas, no calcula la conversión, muestra el aviso `EXCHANGE_RATE_STALE` y pinta `EXCHANGE_RATE_NOT_FOUND` / `CURRENCY_NOT_ALLOWED` bajo el selector de moneda | AC-03.90, AC-03.93 |
+| PF-03.131 | C | + | Sección Oportunidades, lista, tablero y detalle muestran monto original + moneda y equivalente en USD (detalle: tasa y fecha) | AC-03.94 |
+| PF-03.132 | I | + | `sortBy=estimatedAmountUsd` ordena por el equivalente en USD con oportunidades en `GTQ` y `USD` mezcladas | AC-03.94 |
+| PF-03.133 | I | − | Descarga de adjunto: cabeceras `Content-Disposition: attachment` y `nosniff`, sin clave de almacenamiento en ninguna respuesta; proyecto fuera de alcance, adjunto de otro proyecto o eliminado → 404 | AC-03.95 |
 
 ---
 
@@ -1273,16 +1338,17 @@ Niveles (TESTING.md, ADR-013): **U** = unitaria backend (Jest, puro, sin base);
 | # | Dependencia | Estado | Si falta |
 |---|---|---|---|
 | 1 | **Fase 0**: migraciones 1–5 de 00 §9 (`DataScope.COUNTRY`, países, productos/unidades/reglas, clientes, proyectos/oportunidades/forecast + CHECK) | Pendiente | Bloquea todo |
-| 2 | **Fase 0**: puertos transversales `SequenceGenerator`, `CatalogReferenceValidator`, `VisibilityScopeResolver`, `UnitConversionResolver`; registro de semántica de catálogos | Pendiente | Bloquea todo |
-| 3 | **Fase 0**: semilla esencial (catálogos §D.4, parámetros §D.5, secuencias `crm.proyecto`/`crm.oportunidad`, unidades y reglas genéricas, permisos `proyectos.*`, `oportunidades.*`, `productos.ver`, `forecast.*`, acciones `cerrar`/`administrar`, roles `asesor`/`manager`/`responsable-pais`) | Pendiente | Bloquea todo |
+| 2 | **Fase 0**: puertos transversales `SequenceGenerator`, `CatalogReferenceValidator`, `VisibilityScopeResolver`, `UnitConversionResolver`, `ExchangeRateReader` (ADR-024); registro de semántica de catálogos | Pendiente | Bloquea todo |
+| 3 | **Fase 0**: semilla esencial (catálogos §D.4, parámetros §D.5 —incluidos `crm.moneda_base` y `crm.tipos_cambio.dias_aviso_antiguedad`—, monedas, países con su moneda, tipos de cambio iniciales —valores entregados por el negocio, 00 §8.2—, secuencias `crm.proyecto`/`crm.oportunidad`, unidades y reglas genéricas, permisos `proyectos.*`, `oportunidades.*`, `productos.ver`, `forecast.*`, acciones `cerrar`/`administrar`, roles `asesor`/`manager`/`responsable-pais`) | Pendiente | Bloquea todo |
 | 4 | **Módulo 2** implementado (clientes visibles, `CustomerRepository` de lectura, selector) | Previo en el orden §11 | Sin clientes no hay proyectos |
 | 5 | DM-12 resuelta (alcance `TEAM` y equipos) | Bloqueante antes de Clientes (00) | La vista de equipo funciona con lo propio |
-| 6 | Piezas del Módulo 2: D-02.11 (componentes compartidos fuera de `features/admin`, área `features/crm`), D-02.12 (registro de rutas con parámetro), D-02.10 (`use-module-availability`), `CustomerReferenceGuard`, `AttachmentsService`, `ParameterReader` | Entregadas con el Módulo 2 | Si alguna faltara, se construye al inicio de este módulo **en su ubicación transversal** según 02, nunca dentro de `projects` |
+| 6 | Piezas del Módulo 2: D-02.11 (componentes compartidos fuera de `features/admin`, área `features/crm`), D-02.12 (registro de rutas con parámetro), D-02.10 (`use-module-availability`), `CustomerReferenceGuard`, `AttachmentsService` sobre `FileStorage` (ADR-021), `ParameterReader` | Entregadas con el Módulo 2 | Si alguna faltara, se construye al inicio de este módulo **en su ubicación transversal** según 02, nunca dentro de `projects` |
 | 7 | Demo: familias, productos, reglas de demo, equipos y usuarios de demostración (00 §8.3) | Fase 0 | Sin productos no hay asociaciones ni forecast (comportamiento vacío correcto) |
 
 ### K.2 No bloqueantes
 
-- **DM-8** (adjuntos): se implementa todo salvo la subida; queda `bloqueada` la parte de adjuntos de F-10/F-11.
+- **DM-8** (adjuntos): **resuelta** (ADR-021); ya no bloquea nada. Los adjuntos de F-10/F-11 se implementan completos.
+- **Tipos de cambio reales** (00 §8.2): los entrega el negocio antes del primer despliegue; sin ellos solo se pueden registrar estimaciones en USD (`EXCHANGE_RATE_NOT_FOUND` en moneda local).
 - **DM-23 / DM-24** (catálogo real de productos y factores): el módulo funciona con datos de demo; los reales son datos.
 
 ### K.3 Orden interno de implementación
@@ -1294,12 +1360,12 @@ Cada paso deja el repositorio en verde (build, typecheck, lint, tests).
 3. **Fase del cliente** (F-16).
 4. **Clasificación** (F-15) + lectura de unidades y `resolve`.
 5. **Vista de equipo** (F-14).
-6. **Oportunidades** (F-17) con política de transiciones.
+6. **Oportunidades** (F-17) con política de transiciones y estimación con moneda y tipo de cambio (C.11).
 7. **Resultados** (F-18) dentro de `stage-changes` y `PUT /result`.
 8. **Productos asociados** (F-19) + lectura de productos y familias.
 9. **Forecast** (F-20): ventana, filas, totales, guardado en lote, matriz.
 10. **Duplicado** (F-12) (necesita clasificación y productos).
-11. **Ficha completa** (secciones 5, 7, 8 —estado informativo por disponibilidad—, 9 —`AttachmentsSection`, según DM-8—, 10 completo).
+11. **Ficha completa** (secciones 5, 7, 8 —estado informativo por disponibilidad—, 9 —`AttachmentsSection` completa, ADR-021—, 10 completo).
 12. **E2E, OpenAPI, documentación**, actualización de la matriz (`en desarrollo` → `completada` solo con pruebas en verde).
 
 ### K.4 Dependencias futuras (quién depende de este módulo)
@@ -1308,7 +1374,7 @@ Cada paso deja el repositorio en verde (build, typecheck, lint, tests).
 |---|---|
 | 4 Actividad comercial | `GET /projects?customerId=`, `GET /projects/{id}/opportunities?status=OPEN`; actualizar `last_activity_at` (RN-04.11); montar `CommercialActivitySection`, `NewActivityButton`, `PlanVisitButton` en la ficha |
 | 1 Inicio | Fórmulas RN-03.14/15, C.8, RN-03.74; rutas con filtros en URL; `/proyectos/oportunidades/:id` |
-| 5 Reportes | Mismas fórmulas; navegación a fichas |
+| 5 Reportes | Mismas fórmulas; montos en USD sobre `estimated_amount_usd` y columnas de exportación (monto original, moneda, tasa, fecha de la tasa, monto USD); navegación a fichas |
 | 6 Integraciones | Ninguna directa |
 | 7 Administración | Mantenimiento de productos, familias, unidades y reglas (DM-23) usando las mismas tablas; las lecturas de §F.4 siguen vigentes |
 
@@ -1333,7 +1399,7 @@ backend/src/modules/projects/
   project-phase.controller.ts            /projects/{id}/phase-changes, /phase-history
   project-classification.controller.ts   /projects/{id}/classification
   project-products.controller.ts         /projects/{id}/products
-  project-attachments.controller.ts      /projects/{id}/attachments → AttachmentsService (owner project; FileStorage tras DM-8)
+  project-attachments.controller.ts      /projects/{id}/attachments → AttachmentsService (owner project; FileStorage, ADR-021)
   project-options.controller.ts          /projects/form-options, /owner-options, /team-options
   projects.service.ts (+ .spec.ts)       alta, edición, eliminación, búsqueda, vista de equipo
   project-duplication.service.ts (+ .spec.ts)
@@ -1359,6 +1425,7 @@ backend/src/modules/opportunities/
   opportunities.service.ts (+ .spec.ts)
   stage-transition-policy.ts (+ .spec.ts)   RN-03.40–43 (mapa + respaldo + reabrir)
   opportunity-result-rules.ts (+ .spec.ts)  RN-03.46–52
+  opportunity-estimate.ts (+ .spec.ts)      RN-03.78–83 (monedas admitidas, conversión, aviso de antigüedad, recálculo) sobre ExchangeRateReader
   dto/opportunity.dto.ts  dto/opportunity-query.dto.ts
   dto/stage-change.dto.ts  dto/opportunity-result.dto.ts
   ports/opportunities.repository.port.ts
@@ -1504,7 +1571,7 @@ Unitarias junto al código (`*.spec.ts`), según §L.1 y §L.3.
 
 ### L.6 Documentación al cerrar
 
-`docs/api/README.md` (endpoints y códigos de error nuevos), OpenAPI generado,
+`docs/api/README.md` (endpoints, códigos de error nuevos y el aviso `EXCHANGE_RATE_STALE`), OpenAPI generado,
 `CHANGELOG.md`, `docs/database/data-model.md` (sin cambios de esquema; solo
 reglas de uso si aplica), `matriz-trazabilidad.md` (F-10…F-20) y este archivo
 (sección de desviaciones, como PLAN-ADMIN §10).
@@ -1523,76 +1590,87 @@ reglas de uso si aplica), `matriz-trazabilidad.md` (F-10…F-20) y este archivo
 `OPPORTUNITY_NOT_IN_PROJECT`, `PROJECT_PRODUCT_DUPLICATE` (409),
 `PRODUCT_HAS_FORECAST` (409), `FORECAST_PERIOD_OUT_OF_WINDOW`,
 `PRODUCT_NOT_ASSOCIATED`, `FORECAST_DUPLICATE_IN_BATCH`,
-`FORECAST_LINE_STALE` (409), `ATTACHMENT_TYPE_NOT_ALLOWED`,
-`ATTACHMENT_TOO_LARGE`. Sin marca = `422`. Reutilizados: `RESOURCE_NOT_FOUND`,
+`FORECAST_LINE_STALE` (409), `CURRENCY_NOT_ALLOWED`, `EXCHANGE_RATE_NOT_FOUND`
+(DM-36), `ATTACHMENT_TYPE_NOT_ALLOWED`, `ATTACHMENT_TOO_LARGE` (413, DC-4). Sin marca = `422`.
+Aviso no bloqueante (no es error; viaja en `warnings` con `200`/`201`):
+`EXCHANGE_RATE_STALE`. Reutilizados: `RESOURCE_NOT_FOUND`,
 `PERMISSION_DENIED`, `UNAUTHENTICATED`, `VALIDATION_FAILED` (400), `UNKNOWN_REFERENCE`, `CUSTOMER_INACTIVE` y `FIELD_NOT_EDITABLE` (403) de 02,
 `INVALID_CATALOG_VALUE` (Fase 0). Cada uno con mensaje en español en
 `describeApiError` (overrides por área).
 
 ---
 
-## Decisiones pendientes del módulo
+## Decisiones del módulo (resueltas el 2026-10-10)
 
-### Decisiones de 00 que este módulo aplica (valor por defecto adoptado)
+Todas las decisiones de esta sección quedaron resueltas por el responsable de
+negocio el 2026-10-10: las marcadas **Respuesta del responsable** con su
+respuesta expresa y el resto con el valor recomendado, que quedó aprobado. Se
+conservan los identificadores.
 
-| DM | Tema | Cómo se aplica aquí |
+### Decisiones de 00 que este módulo aplica
+
+| DM | Tema | Cómo se aplica aquí (valor final) |
 |---|---|---|
-| DM-1 | Estimación de la oportunidad | Monto + moneda (defecto `crm.moneda_por_defecto`) + tonelaje opcional (RN-03.38) |
-| DM-6 | Transiciones de etapa | Parámetro configurable con el valor recomendado, regla de respaldo y reapertura con `administrar` (RN-03.40–42) |
-| DM-8 | Almacenamiento de adjuntos | Bloquea solo la subida/descarga de adjuntos de F-10/F-11 (§G.3) |
-| DM-11 | Roles y perfiles de §5.5 | Asesor→`asesor`, Jefe/Supervisor→`manager`, Responsable de país→`responsable-pais`, Administrador→`administrador` (H.2) |
-| DM-12 | Alcance TEAM | Miembros + responsables + subequipos; equipo = equipo principal del asesor, sin foto histórica |
-| DM-13 | Herencia de visibilidad | Oportunidades y forecast heredan la visibilidad del proyecto; cliente visible si se ve un proyecto suyo |
-| DM-14 | País por usuario | Un país (`users.country_id`) |
-| DM-15 | Etapa ↔ resultado | Se registran juntos; Parcial bajo Ganado; ganadas = WON + PARTIAL (C.8) |
-| DM-16 | Proyecto activo, estado comercial, última actualización, fecha de decisión | RN-03.14, RN-03.15, RN-03.9, RN-03.4 |
-| DM-17 | Código de proyecto | Generado; manual/editable solo con `proyectos.administrar` |
-| DM-19 | Ciudad | Texto libre |
-| DM-23 | Catálogo de productos y estados del producto asociado | Lectura aquí; mantenimiento en Módulo 7; estados `PROPUESTO/COTIZADO/ADJUDICADO/DESCARTADO` |
-| DM-24 | Factores y tonelaje manual | Tonelaje manual solo en el proyecto; nunca en líneas |
-| DM-25 | Forecast: asociación, asesor, meses pasados | Producto asociado obligatorio; asesor = el del proyecto salvo `forecast.administrar`; pasados de solo lectura |
-| DM-31 | Fechas `date` | Todas las fechas de calendario del módulo |
-| DM-32 | Siembra del menú | Opciones y rutas con este módulo |
-| DM-33 | Eliminación | Lógica, bloqueada con hijos activos (RN-03.12, RN-03.45) |
-| DM-34 | `editar` vs `administrar` | Propios vs ajenos dentro del alcance (H.1) |
-| DM-35 | "Fecha" de la oportunidad | Fecha de identificación |
+| DM-1 | Estimación de la oportunidad | **Resuelta (2026-10-10).** **Respuesta del responsable:** monto en USD o en la moneda del país del proyecto + foto del tipo de cambio + equivalente en USD, y tonelaje opcional (RN-03.38, C.11). Sin `crm.moneda_por_defecto`: la sustituye `crm.moneda_base` (`USD`); la moneda por defecto del formulario es la del país del proyecto |
+| DM-6 | Transiciones de etapa | **Resuelta (2026-10-10).** Parámetro configurable con el valor recomendado, regla de respaldo y reapertura con `administrar` (RN-03.40–42) |
+| DM-8 | Almacenamiento de adjuntos | **Resuelta (2026-10-10).** **Respuesta del responsable:** carpeta mapeada a un almacenamiento del servidor (`FileStorage` + `LocalFileSystemStorage`, ADR-021). Los adjuntos de F-10/F-11 quedan **desbloqueados**: rutas por dueño con `/content` (DC-2), `413` por tamaño y `422 ATTACHMENT_TYPE_NOT_ALLOWED` por tipo (DC-4) |
+| DM-10 | `TERRITORY` → `COUNTRY` | **Resuelta (2026-10-10).** Valor recomendado aprobado: el perfil Responsable de país usa `DataScope.COUNTRY` (addendum ADR-018; H.2) |
+| DM-11 | Roles y perfiles de §5.5 | **Resuelta (2026-10-10).** Roles de sistema con permisos fijos. Asesor→`asesor` (alcance `OWN`), Jefe/Supervisor→`manager`, Responsable de país→`responsable-pais`, Administrador→`administrador` (H.2) |
+| DM-12 | Alcance TEAM | **Resuelta (2026-10-10).** Miembros + responsables + subequipos; equipo = equipo principal del asesor, sin foto histórica |
+| DM-13 | Herencia de visibilidad | **Resuelta (2026-10-10).** Oportunidades y forecast heredan la visibilidad del proyecto; cliente visible si se ve un proyecto suyo |
+| DM-14 | País por usuario | **Resuelta (2026-10-10).** Un país (`users.country_id`) |
+| DM-15 | Etapa ↔ resultado | **Resuelta (2026-10-10).** Se registran juntos; Parcial bajo Ganado; ganadas = WON + PARTIAL (C.8) |
+| DM-16 | Proyecto activo, estado comercial, última actualización, fecha de decisión | **Resuelta (2026-10-10).** RN-03.14, RN-03.15, RN-03.9, RN-03.4 |
+| DM-17 | Código de proyecto | **Resuelta (2026-10-10).** Generado; manual/editable solo con `proyectos.administrar` |
+| DM-19 | Ciudad | **Resuelta (2026-10-10).** Texto libre |
+| DM-23 | Catálogo de productos y estados del producto asociado | **Resuelta (2026-10-10).** Lectura aquí; mantenimiento en Módulo 7; estados `PROPUESTO/COTIZADO/ADJUDICADO/DESCARTADO` |
+| DM-24 | Factores y tonelaje manual | **Resuelta (2026-10-10).** Tonelaje manual solo en el proyecto; nunca en líneas |
+| DM-25 | Forecast: asociación, asesor, meses pasados | **Resuelta (2026-10-10).** Producto asociado obligatorio; asesor = el del proyecto salvo `forecast.administrar`; pasados de solo lectura |
+| DM-31 | Fechas `date` | **Resuelta (2026-10-10).** Todas las fechas de calendario del módulo |
+| DM-32 | Siembra del menú | **Resuelta (2026-10-10).** Opciones y rutas con este módulo |
+| DM-33 | Eliminación | **Resuelta (2026-10-10).** Lógica, bloqueada con hijos activos (RN-03.12, RN-03.45) |
+| DM-34 | `editar` vs `administrar` | **Resuelta (2026-10-10).** Propios vs ajenos dentro del alcance (H.1) |
+| DM-35 | "Fecha" de la oportunidad | **Resuelta (2026-10-10).** Fecha de identificación; es además la fecha de referencia del tipo de cambio (RN-03.79) |
+| DM-36 | Moneda base y tipos de cambio *(nueva, 2026-10-10)* | **Resuelta (2026-10-10).** **Respuesta del responsable:** moneda base USD; estimación en USD o en la moneda del país del proyecto (`422 CURRENCY_NOT_ALLOWED`), tasa = la de mayor vigencia ≤ fecha de la oportunidad vía `ExchangeRateReader` (`422 EXCHANGE_RATE_NOT_FOUND`), aviso `EXCHANGE_RATE_STALE` (31 días), foto recalculada solo si cambian monto, moneda o fecha; totales en USD (C.11, ADR-024) |
 
 ### Decisiones nuevas del módulo
 
-| # | Pregunta | Valor por defecto (se aplica si no se objeta) | Impacto si cambia |
+| # | Pregunta | Valor final (resuelta 2026-10-10: valor recomendado aprobado) | Impacto si cambia |
 |---|---|---|---|
-| **D-03.1** | Opciones de formulario para usuarios no administradores (`/catalogs`, `/users`, `/teams`, `/parameters` exigen permisos de administración). Aplicación de **D-02.1** a este módulo | Endpoints de opciones **del módulo**, con el permiso de ver del módulo: `GET /projects/form-options`, `/projects/owner-options`, `/projects/team-options` (`proyectos.ver`) y `/opportunities/form-options` (`oportunidades.ver`); unidades y productos por `/units-of-measure` y `/products` (F.4). Sin endpoint genérico | Si D-02.1 cambia a un endpoint genérico, estos se sustituyen por él (contrato público; se ajustan los `*.api.ts`) |
-| **D-03.2** | Rutas con parámetro frente al registro de rutas (PLAN-ADMIN D6). Aplicación de **D-02.12** | Se registran las 7 rutas (incluidas `/proyectos/nuevo`, `/proyectos/:projectId`, `/proyectos/oportunidades/:opportunityId`); el servicio de opciones de menú rechaza destinos con `:` (lo entrega 02) | Si D-02.12 cambia a excluir rutas con parámetro del cotejo, solo se quitan del registro |
-| **D-03.3** | Ubicación del frontend y de los componentes compartidos. Aplicación de **D-02.11** | Submódulos `frontend/src/features/crm/{projects,opportunities,forecast}/`, rutas en `crm-routes.ts`; genéricos importados de su ubicación compartida fuera de `features/admin` | Sigue a D-02.11 si cambia |
-| **D-03.4** | ¿Un cliente inactivo (estado con `isActive = false`) admite proyectos nuevos? ¿Y un prospecto? | Inactivo no (`422 CUSTOMER_INACTIVE`); prospecto sí. Se alinea con D-02.16 (`requireActive` de `CustomerReferenceGuard`) | Solo caso de uso; si D-02.16 cambia, este también |
-| **D-03.5** | ¿El mes en curso (M) es editable en el forecast? | No: ventana editable M+1…M+6 (literal del alcance); M y pasados de solo lectura | Solo `forecast-window.ts` y pruebas |
-| **D-03.6** | Concurrencia en la matriz de forecast (dos personas editando el mismo proyecto) | Optimista por línea con `expectedUpdatedAt` y `409 FORECAST_LINE_STALE` | Sin control: "gana el último" sin aviso |
-| **D-03.7** | ¿Se puede crear una oportunidad directamente en etapa cerrada (p. ej. registrar una venta ya ganada)? | No (`INVALID_INITIAL_STAGE`); se crea abierta y se cierra a continuación | Permitirlo exigiría el resultado en el alta |
-| **D-03.8** | Reapertura de oportunidades: destino, permiso y justificación | Cualquier etapa abierta activa, con `oportunidades.administrar` y comentario obligatorio; anula el resultado (historial `CLEARED`) | Solo política de transiciones |
-| **D-03.9** | Duplicar: ¿se copian adjuntos? ¿productos por defecto? | Adjuntos nunca; productos solo si se marca (desmarcado) | Copiar adjuntos duplicaría binarios (depende de DM-8) |
-| **D-03.10** | ¿El asesor ve en "Proyectos del equipo" los proyectos de sus compañeros en solo lectura? | No: el asesor tiene alcance `OWN` (00 §4.4); la vista le muestra los suyos | Si sí: dar `dataScope = TEAM` al rol `asesor`; DM-34 ya garantiza que solo edita los propios. Solo semilla y pruebas |
-| **D-03.11** | Cambio de cliente de un proyecto existente | Permitido con `proyectos.editar`/`administrar` solo sin visitas ni actividades vinculadas (`409 PROJECT_CUSTOMER_LOCKED`) | Prohibirlo siempre simplifica; permitirlo con vínculos rompería la historia (la base lo impide) |
-| **D-03.12** | ¿Se pueden eliminar oportunidades cerradas? | No (`409 OPPORTUNITY_CLOSED`): conservan el resultado para reportes | Permitirlo alteraría conteos históricos |
-| **D-03.13** | Redondeo del tonelaje calculado | 4 decimales, `HALF_UP`, aritmética decimal en backend | Afecta a totales de Inicio y Reportes (deben usar el valor guardado, nunca recalcular) |
-| **D-03.14** | Unidades admitidas en una asociación o línea de forecast | Cualquier unidad activa; si no hay regla, sin tonelaje | Restringir a la dimensión de la unidad base del producto añade una validación |
-| **D-03.15** | ¿Se permite retroceder de fase (p. ej. de Construcción a Cotización)? | Sí, queda en el historial | Prohibirlo añade una regla con `metadata.order` |
-| **D-03.16** | ¿A quién se puede asignar como asesor responsable? | Usuario `ACTIVE`, con rol del CRM, dentro del alcance de quien asigna | Ampliarlo (cualquier usuario) cambia `INVALID_OWNER` |
+| **D-03.1** | Opciones de formulario para usuarios no administradores (`/catalogs`, `/users`, `/teams`, `/parameters` exigen permisos de administración). Aplicación de **D-02.1** a este módulo | **Resuelta (2026-10-10).** Endpoints de opciones **del módulo**, con el permiso de ver del módulo: `GET /projects/form-options`, `/projects/owner-options`, `/projects/team-options` (`proyectos.ver`) y `/opportunities/form-options` (`oportunidades.ver`); unidades y productos por `/units-of-measure` y `/products` (F.4). Sin endpoint genérico | Si D-02.1 cambia a un endpoint genérico, estos se sustituyen por él (contrato público; se ajustan los `*.api.ts`) |
+| **D-03.2** | Rutas con parámetro frente al registro de rutas (PLAN-ADMIN D6). Aplicación de **D-02.12** | **Resuelta (2026-10-10).** Se registran las 7 rutas (incluidas `/proyectos/nuevo`, `/proyectos/:projectId`, `/proyectos/oportunidades/:opportunityId`); el servicio de opciones de menú rechaza destinos con `:` (lo entrega 02) | Si D-02.12 cambia a excluir rutas con parámetro del cotejo, solo se quitan del registro |
+| **D-03.3** | Ubicación del frontend y de los componentes compartidos. Aplicación de **D-02.11** | **Resuelta (2026-10-10).** Submódulos `frontend/src/features/crm/{projects,opportunities,forecast}/`, rutas en `crm-routes.ts`; genéricos importados de su ubicación compartida fuera de `features/admin` | Sigue a D-02.11 si cambia |
+| **D-03.4** | ¿Un cliente inactivo (estado con `isActive = false`) admite proyectos nuevos? ¿Y un prospecto? | **Resuelta (2026-10-10).** Inactivo no (`422 CUSTOMER_INACTIVE`); prospecto sí. Se alinea con D-02.16 (`requireActive` de `CustomerReferenceGuard`) | Solo caso de uso; si D-02.16 cambia, este también |
+| **D-03.5** | ¿El mes en curso (M) es editable en el forecast? | **Resuelta (2026-10-10).** No: ventana editable M+1…M+6 (literal del alcance); M y pasados de solo lectura | Solo `forecast-window.ts` y pruebas |
+| **D-03.6** | Concurrencia en la matriz de forecast (dos personas editando el mismo proyecto) | **Resuelta (2026-10-10).** Optimista por línea con `expectedUpdatedAt` y `409 FORECAST_LINE_STALE` | Sin control: "gana el último" sin aviso |
+| **D-03.7** | ¿Se puede crear una oportunidad directamente en etapa cerrada (p. ej. registrar una venta ya ganada)? | **Resuelta (2026-10-10).** No (`INVALID_INITIAL_STAGE`); se crea abierta y se cierra a continuación | Permitirlo exigiría el resultado en el alta |
+| **D-03.8** | Reapertura de oportunidades: destino, permiso y justificación | **Resuelta (2026-10-10).** Cualquier etapa abierta activa, con `oportunidades.administrar` y comentario obligatorio; anula el resultado (historial `CLEARED`) | Solo política de transiciones |
+| **D-03.9** | Duplicar: ¿se copian adjuntos? ¿productos por defecto? | **Resuelta (2026-10-10).** Adjuntos nunca; productos solo si se marca (desmarcado) | Copiar adjuntos duplicaría binarios en el almacenamiento de ADR-021 |
+| **D-03.10** | ¿El asesor ve en "Proyectos del equipo" los proyectos de sus compañeros en solo lectura? | **Resuelta (2026-10-10).** No: el asesor tiene alcance `OWN` (00 §4.4, DM-11 aprobada); la vista le muestra los suyos | Si sí: dar `dataScope = TEAM` al rol `asesor`; DM-34 ya garantiza que solo edita los propios. Solo semilla y pruebas |
+| **D-03.11** | Cambio de cliente de un proyecto existente | **Resuelta (2026-10-10).** Permitido con `proyectos.editar`/`administrar` solo sin visitas ni actividades vinculadas (`409 PROJECT_CUSTOMER_LOCKED`) | Prohibirlo siempre simplifica; permitirlo con vínculos rompería la historia (la base lo impide) |
+| **D-03.12** | ¿Se pueden eliminar oportunidades cerradas? | **Resuelta (2026-10-10).** No (`409 OPPORTUNITY_CLOSED`): conservan el resultado para reportes | Permitirlo alteraría conteos históricos |
+| **D-03.13** | Redondeo del tonelaje calculado | **Resuelta (2026-10-10).** 4 decimales, `HALF_UP`, aritmética decimal en backend | Afecta a totales de Inicio y Reportes (deben usar el valor guardado, nunca recalcular) |
+| **D-03.14** | Unidades admitidas en una asociación o línea de forecast | **Resuelta (2026-10-10).** Cualquier unidad activa; si no hay regla, sin tonelaje | Restringir a la dimensión de la unidad base del producto añade una validación |
+| **D-03.15** | ¿Se permite retroceder de fase (p. ej. de Construcción a Cotización)? | **Resuelta (2026-10-10).** Sí, queda en el historial | Prohibirlo añade una regla con `metadata.order` |
+| **D-03.16** | ¿A quién se puede asignar como asesor responsable? | **Resuelta (2026-10-10).** Usuario `ACTIVE`, con rol del CRM, dentro del alcance de quien asigna | Ampliarlo (cualquier usuario) cambia `INVALID_OWNER` |
 
 ---
 
 ## Filas para la matriz
 
+Estado de F-10 … F-20: `especificada` (ninguna bloqueada; DM-8 resuelta por ADR-021).
+
 | F-xx | Entidades | Dependencias | Criterios | Pruebas |
 |---|---|---|---|---|
-| F-10 | `projects`, `project_phase_history`, `sequences`, `customers`, `countries`, `users`, `catalog_items` (`crm.fase_cliente`), `system_parameters`, `attachments`/`stored_files`, `audit_logs` | Fase 0 (migraciones, semillas, `SequenceGenerator`, `CatalogReferenceValidator`, `VisibilityScopeResolver`), Módulo 2 (`CustomerReferenceGuard`, `CustomerPicker`, `AttachmentsService`, `ParameterReader`), D-03.1 (= D-02.1), D-03.4, D-03.16; adjuntos: DM-8 | AC-03.1 – AC-03.8 | PF-03.1 – PF-03.13, PF-03.113, PF-03.114 |
-| F-11 | `projects`, `project_phase_history`, `opportunities`, `opportunity_stage_history`, `opportunity_results`, `opportunity_result_history`, `project_products`, `forecast_lines`, `attachments`, `audit_logs`, `visits`/`activities` (bloqueos) | F-10, Módulo 4 (`CommercialActivitySection`, `NewActivityButton`, `PlanVisitButton`; disponibilidad D-02.10), DM-8, DM-16, DM-33, DM-34, D-03.2 (= D-02.12), D-03.11 | AC-03.9 – AC-03.16, AC-03.81, AC-03.85 | PF-03.14 – PF-03.24, PF-03.107, PF-03.112, PF-03.113 |
+| F-10 | `projects`, `project_phase_history`, `sequences`, `customers`, `countries`, `users`, `catalog_items` (`crm.fase_cliente`), `system_parameters`, `attachments`/`stored_files`, `audit_logs` | Fase 0 (migraciones, semillas, `SequenceGenerator`, `CatalogReferenceValidator`, `VisibilityScopeResolver`), Módulo 2 (`CustomerReferenceGuard`, `CustomerPicker`, `AttachmentsService` sobre `FileStorage`, `ParameterReader`), D-03.1 (= D-02.1), D-03.4, D-03.16; adjuntos: DM-8 resuelta (ADR-021) | AC-03.1 – AC-03.8, AC-03.95 | PF-03.1 – PF-03.13, PF-03.113, PF-03.114, PF-03.133 |
+| F-11 | `projects`, `project_phase_history`, `opportunities`, `opportunity_stage_history`, `opportunity_results`, `opportunity_result_history`, `project_products`, `forecast_lines`, `attachments`, `audit_logs`, `visits`/`activities` (bloqueos) | F-10, Módulo 4 (`CommercialActivitySection`, `NewActivityButton`, `PlanVisitButton`; disponibilidad D-02.10), DM-8 (ADR-021), DM-16, DM-33, DM-34, D-03.2 (= D-02.12), D-03.11 | AC-03.9 – AC-03.16, AC-03.81, AC-03.85, AC-03.94, AC-03.95 | PF-03.14 – PF-03.24, PF-03.107, PF-03.112, PF-03.113, PF-03.131, PF-03.133 |
 | F-12 | `projects`, `project_phase_history`, `project_products`, `unit_conversion_rules`, `audit_logs` | F-10, F-15, F-19, DM-17, D-03.9 | AC-03.17 – AC-03.20 | PF-03.25 – PF-03.29, PF-03.115 |
 | F-13 | `projects`, `customers`, `countries`, `users`, `opportunities`, `catalog_items` | F-10, Fase 0 (`VisibilityScopeResolver`), D-03.1, D-03.3 (= D-02.11), `metric-definitions.ts` (DEF-A/B) | AC-03.21 – AC-03.25, AC-03.86 | PF-03.30 – PF-03.35, PF-03.117 – PF-03.120 |
-| F-14 | `projects`, `users`, `team_members`, `teams`, `roles` (`dataScope`) | F-10, DM-10, DM-11, DM-12, DM-13, DM-34, D-03.10 | AC-03.26 – AC-03.29 | PF-03.34, PF-03.36 – PF-03.39, PF-03.115 |
+| F-14 | `projects`, `users`, `team_members`, `teams`, `roles` (`dataScope`: `OWN`, `TEAM`, `COUNTRY`, `ORGANIZATION`) | F-10, DM-10 (`COUNTRY`), DM-11 (asesor `OWN`), DM-12, DM-13, DM-34, D-03.10 | AC-03.26 – AC-03.29 | PF-03.34, PF-03.36 – PF-03.39, PF-03.115 |
 | F-15 | `projects`, `catalog_items` (`crm.tipo_proyecto`, `crm.sector_proyecto`), `units_of_measure`, `unit_conversion_rules` | Fase 0 (`UnitConversionResolver`, reglas genéricas), DM-24, D-03.13 | AC-03.30 – AC-03.35 | PF-03.40 – PF-03.48 |
 | F-16 | `projects`, `project_phase_history`, `catalog_items` (`crm.fase_cliente`), `system_parameters` (`crm.proyectos.reglas_avance`) | F-10, D-03.15 | AC-03.36 – AC-03.40 | PF-03.49 – PF-03.55 |
-| F-17 | `opportunities`, `opportunity_stage_history`, `catalog_items` (`crm.etapa_oportunidad`), `sequences`, `system_parameters` (`crm.oportunidades.transiciones_etapa`, `crm.valores_por_defecto`, `crm.moneda_por_defecto`) | F-10, DM-1, DM-6, DM-33, DM-35, D-03.7, D-03.8, D-03.12 | AC-03.41 – AC-03.50 | PF-03.56 – PF-03.69 |
-| F-18 | `opportunity_results`, `opportunity_result_history`, `opportunities`, `catalog_items` (`crm.resultado_oportunidad`, `crm.motivo_resultado`) | F-17, DM-15, D-03.8 | AC-03.51 – AC-03.58 | PF-03.70 – PF-03.79 |
+| F-17 | `opportunities`, `opportunity_stage_history`, `catalog_items` (`crm.etapa_oportunidad`), `sequences`, `countries` (`currency_code`), `currencies`, `exchange_rates` (lectura), `system_parameters` (`crm.oportunidades.transiciones_etapa`, `crm.valores_por_defecto`, `crm.moneda_base`, `crm.tipos_cambio.dias_aviso_antiguedad`) | F-10, Fase 0 (`ExchangeRateReader`, semilla de monedas y tipos de cambio), DM-1, DM-6, DM-33, DM-35, DM-36 (ADR-024), D-03.7, D-03.8, D-03.12 | AC-03.41 – AC-03.50, AC-03.87 – AC-03.94 | PF-03.56 – PF-03.69, PF-03.121 – PF-03.132 |
+| F-18 | `opportunity_results`, `opportunity_result_history`, `opportunities`, `catalog_items` (`crm.resultado_oportunidad`, `crm.motivo_resultado`) | F-17, DM-15 (parcial cuenta como ganada), D-03.8 | AC-03.51 – AC-03.58 | PF-03.70 – PF-03.79 |
 | F-19 | `project_products`, `products`, `product_families`, `units_of_measure`, `unit_conversion_rules`, `catalog_items` (`crm.estado_producto_asociado`) | F-10, F-17, Fase 0 (maestro y reglas), DM-23, DM-24, D-03.13, D-03.14 | AC-03.59 – AC-03.68 | PF-03.80 – PF-03.91 |
 | F-20 | `forecast_lines`, `project_products`, `products`, `units_of_measure`, `unit_conversion_rules`, `users`, `system_parameters` (`crm.forecast.*`, `crm.zona_horaria_negocio`) | F-19, DM-24, DM-25, D-03.5, D-03.6, D-03.13 | AC-03.69 – AC-03.83 | PF-03.92 – PF-03.109, PF-03.114 |
 

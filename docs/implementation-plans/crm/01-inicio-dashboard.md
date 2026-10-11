@@ -3,9 +3,9 @@
 - **Fuente del alcance:** [`ALCANCE-CRM.md`](../../requirements/crm/ALCANCE-CRM.md) §3 (3.1–3.4), con §1, §2, §7 (fórmulas compartidas), §10–§13
 - **Contrato de datos:** [`00-modelo-de-datos.md`](00-modelo-de-datos.md) (entidades, catálogos, `DataScope`, permisos, parámetros y decisiones `DM-n`)
 - **Funcionalidades:** F-01 Dashboard general · F-02 Indicadores clave · F-03 Resumen de actividad · F-04 Alertas y pendientes ([matriz](matriz-trazabilidad.md))
-- **Decisiones que lo enmarcan:** [ADR-004](../../adr/ADR-004-data-access-abstraction.md), [ADR-005](../../adr/ADR-005-rest-api-standard.md), [ADR-008](../../adr/ADR-008-authorization.md), [ADR-017](../../adr/ADR-017-design-system-grupo-ag.md), [ADR-018](../../adr/ADR-018-identity-access-model.md), [ADR-020](../../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md)
+- **Decisiones que lo enmarcan:** [ADR-004](../../adr/ADR-004-data-access-abstraction.md), [ADR-005](../../adr/ADR-005-rest-api-standard.md), [ADR-008](../../adr/ADR-008-authorization.md), [ADR-017](../../adr/ADR-017-design-system-grupo-ag.md), [ADR-018](../../adr/ADR-018-identity-access-model.md), [ADR-020](../../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md), addendum [ADR-008](../../adr/ADR-008-authorization.md) (`@RequireAnyPermission`, D-01.1), [ADR-024](../../adr/ADR-024-moneda-base-usd-y-tipos-de-cambio.md) (moneda base USD)
 - **Orden de implementación:** 5.º (después de Fase 0, Clientes, Proyectos y Actividad comercial; antes de Reportes)
-- **Estado:** especificación. **No se ha tocado código, esquema, migraciones ni seeds.**
+- **Estado:** especificación; decisiones del módulo resueltas por el responsable de negocio el 2026-10-10. **No se ha tocado código, esquema, migraciones ni seeds.**
 - **Skills aplicados:** `requirements-analysis`, `user-story`, `api-design`, `authorization`, `access-management`, `database`, `frontend-react`, `design-system`, `security`, `testing`, `documentation`
 
 > Inicio es un **módulo de lectura**. No es dueño de ningún registro comercial
@@ -30,7 +30,7 @@
 - [J. Pruebas funcionales](#j-pruebas-funcionales)
 - [K. Dependencias y orden](#k-dependencias-y-orden)
 - [L. Archivos de código a implementar](#l-archivos-de-código-a-implementar)
-- [Decisiones pendientes del módulo](#decisiones-pendientes-del-módulo)
+- [Decisiones del módulo (resueltas el 2026-10-10)](#decisiones-del-módulo-resueltas-el-2026-10-10)
 - [Filas para la matriz](#filas-para-la-matriz)
 
 ---
@@ -173,8 +173,9 @@ actualizan cuando cambia el origen (RN-01.29).
 | RN-01.15 | El período de ganadas/perdidas es por defecto el **mes en curso** de la zona `crm.zona_horaria_negocio`; el usuario puede elegir mes, trimestre o año en curso (D-01.3). El rango máximo admitido por la API es 366 días. |
 | RN-01.16 | **Forecast:** la ventana es M+1…M+H, con M = mes actual en `crm.zona_horaria_negocio` y H = `crm.forecast.horizonte_meses` (6). Solo se suma `tonnage` (expresado en `crm.forecast.unidad_tonelaje`); las cantidades se informan agrupadas por unidad y **nunca se suman entre unidades** (00 §2.3). Las líneas con cantidad > 0 y sin conversión se cuentan como "sin conversión" y no entran en el total. |
 | RN-01.17 | **Actividades pendientes y vencidas son disjuntas** (D-01.6): pendiente = abierta y no vencida; vencida = abierta y `dueAt < ahora`. "Por vencer" es un subconjunto de pendientes con `dueAt` dentro de `crm.alertas.actividad_por_vencer_horas`. |
-| RN-01.18 | **Metas** (DM-9): la tarjeta solo existe con `metas.ver`. Con permiso y sin metas aplicables al ámbito y período, muestra "Sin metas configuradas" y ningún número. Con metas, muestra objetivo, logrado y cumplimiento = logrado / objetivo × 100 (dos decimales; `null` si el objetivo es 0). El logrado usa las fórmulas KPI de D.4 (D-01.8). |
+| RN-01.18 | **Metas** (DM-9 resuelta: tabla `sales_targets` vacía en Fase 0, metas mensuales de toneladas por persona, carga por script): la tarjeta solo existe con `metas.ver`. Con permiso y sin metas aplicables al ámbito y período, muestra "Sin metas configuradas" y ningún número. Con metas, muestra objetivo, logrado y cumplimiento = logrado / objetivo × 100 (dos decimales; `null` si el objetivo es 0). El logrado usa las fórmulas KPI de D.4 (D-01.8). |
 | RN-01.19 | Cada tarjeta navega al listado del módulo dueño con el filtro equivalente a su fórmula (tabla E.3). Si la ruta de destino aún no está registrada en el router (módulo no implementado) o el usuario no tiene su permiso, la tarjeta se muestra sin enlace y con la nota "Listado disponible cuando se habilite el módulo". |
+| RN-01.32 | **Moneda** (DM-36, ADR-024): todo importe que muestre Inicio está en **USD**, la moneda base (`crm.moneda_base`). Hoy el único importe es el logrado y el objetivo de una meta `AMOUNT` (KPI-10): `sales_targets` no tiene columna de moneda y el objetivo `AMOUNT` se expresa en USD; el logrado suma `opportunities.estimated_amount_usd`, nunca `estimated_amount` en moneda local. Una oportunidad ganada sin monto (`estimated_amount_usd` nulo) no suma. |
 
 ### C.3 Resumen de actividad (F-03)
 
@@ -218,12 +219,12 @@ Tampoco escribe en `audit_logs` (no hay mutaciones).
 | `Country` | Ámbito `COUNTRY` (`users.country_id`) | Fase 0 |
 | `Customer` | Nombre del cliente relacionado; vigencia (RN-01.13); país de visitas y actividades | Clientes |
 | `Project`, `ProjectPhaseHistory` | KPI-01, AL-3, eventos de proyecto, país de oportunidades y forecast | Proyectos |
-| `Opportunity`, `OpportunityStageHistory`, `OpportunityResult`, `OpportunityResultHistory` | KPI-02…04, AL-4, eventos de oportunidad | Proyectos |
+| `Opportunity`, `OpportunityStageHistory`, `OpportunityResult`, `OpportunityResultHistory` | KPI-02…04, KPI-10 (`estimated_tonnage`, `estimated_amount_usd`), AL-4, eventos de oportunidad | Proyectos |
 | `ForecastLine`, `UnitOfMeasure` | KPI-05 | Proyectos / Fase 0 |
 | `Visit`, `VisitEvent` | KPI-06/07, AL-2, próximas visitas, interacciones | Actividad comercial |
 | `Activity` | KPI-08/09, AL-1, eventos de actividad | Actividad comercial |
 | Vista `crm_interactions_v` | Últimas interacciones (00 §2.12) | Actividad comercial (vista de Fase 0) |
-| `SalesTarget` | KPI-10 (pendiente DM-9) | Fase 0 (sin pantalla) |
+| `SalesTarget` | KPI-10 (DM-9 resuelta: metas mensuales de toneladas por persona; tabla vacía; `AMOUNT` en USD, sin columna de moneda) | Fase 0 (sin pantalla) |
 | `Catalog`, `CatalogItem` | Semántica de estados, etapas, fases y prioridades | Administración |
 | `SystemParameter` | `crm.alertas.*`, `crm.forecast.*`, `crm.zona_horaria_negocio`, `crm.inicio.visitas_proximas_dias` | Administración |
 
@@ -259,7 +260,7 @@ Tampoco escribe en `audit_logs` (no hay mutaciones).
 | `crm.alertas.proyecto_sin_actualizar_dias` | AL-3 |
 | `crm.alertas.oportunidad_sin_siguiente_accion` | Habilita AL-4 |
 | `crm.alertas.prioridades` | Prioridad de AL-1…AL-4 |
-| `crm.inicio.visitas_proximas_dias` | KPI-07 y próximas visitas. **Nuevo, propuesto** (D-01.5): requiere añadirse a 00 §8.2 |
+| `crm.inicio.visitas_proximas_dias` | KPI-07 y próximas visitas (D-01.5 aprobada; en 00 §8.2: 7, rango 1–60) |
 
 ### D.4 Definiciones compartidas de indicadores (contrato con Reportes)
 
@@ -277,7 +278,7 @@ Notación: `ahora` = instante actual (UTC); `hoy`, `mes actual` = calendario en
 | KPI-07 | Visitas próximas | Pendientes con `scheduled_start_at ∈ [ahora, ahora + N días]`, N = `crm.inicio.visitas_proximas_dias` | Igual que KPI-06 |
 | KPI-08 | Actividades pendientes | `COUNT(activities)` con `vigente`, estado `isOpen = true` y (`due_at IS NULL` o `due_at ≥ ahora`). Subconteo `dueSoonCount` = `due_at ∈ [ahora, ahora + crm.alertas.actividad_por_vencer_horas]` | `activities.owner_id` / `customers.country_id` + herencia del proyecto |
 | KPI-09 | Actividades vencidas | `COUNT(activities)` con `vigente`, estado `isOpen = true` y `due_at < ahora` | Igual que KPI-08 |
-| KPI-10 | Metas y cumplimiento | Por cada meta aplicable (D-01.8): objetivo `target_value`; logrado según `metric`: `WON_OPPORTUNITIES` = KPI-03 del período de la meta; `VISITS` = visitas con estado `isDone` o `isConfirmed` y `actual_start_at` en el período; `ACTIVITIES` = actividades `isCompleted` con `completed_at` en el período; `TONNAGE` = Σ `opportunities.estimated_tonnage` de las ganadas del período (WON × 1, PARTIAL × `awarded_percent`/100); `AMOUNT` = ídem con `estimated_amount` en la moneda de la meta. Cumplimiento = logrado / objetivo × 100 | Meta del sujeto que corresponde al ámbito (D-01.8) |
+| KPI-10 | Metas y cumplimiento | Por cada meta aplicable (D-01.8): objetivo `target_value`; logrado según `metric`: `WON_OPPORTUNITIES` = KPI-03 del período de la meta; `VISITS` = visitas con estado `isDone` o `isConfirmed` y `actual_start_at` en el período; `ACTIVITIES` = actividades `isCompleted` con `completed_at` en el período; `TONNAGE` = Σ `opportunities.estimated_tonnage` de las ganadas del período (WON × 1, PARTIAL × `awarded_percent`/100); `AMOUNT` = Σ `opportunities.estimated_amount_usd` de las ganadas del período (WON × 1, PARTIAL × `awarded_percent`/100), en USD (DM-36, RN-01.32). Ganadas = WON + PARTIAL (DM-15). Cumplimiento = logrado / objetivo × 100 | Meta del sujeto que corresponde al ámbito (D-01.8) |
 
 Definiciones auxiliares que también se publican en el servicio compartido y
 que Reportes reutiliza:
@@ -315,7 +316,7 @@ oportunidad son "relevantes" es D-01.10.
 | ID | Tipo | Condición (sobre registros `vigente` y dentro del ámbito) | Fecha de referencia | Responsable | Registro relacionado | Descripción (plantilla) |
 |---|---|---|---|---|---|---|
 | AL-1 | `ACTIVIDAD_VENCIDA` | Actividad con estado `isOpen` y `due_at < ahora` (DEF-D) | `due_at` | `activities.owner_id` | Actividad (código, asunto) + cliente + proyecto | "Actividad {código} «{asunto}» vencida hace {n} días" |
-| AL-2 | `VISITA_SIN_CONFIRMAR` | Visita DEF-E y `COALESCE(actual_end_at, actual_start_at, completion_recorded_at) < ahora − crm.alertas.visita_sin_confirmar_horas` | Esa misma fecha | `visits.owner_id` (D-01.14) | Visita (código, objetivo) + cliente + proyecto | "Visita {código} realizada el {fecha} pendiente de confirmación" |
+| AL-2 | `VISITA_SIN_CONFIRMAR` | Visita DEF-E y `COALESCE(actual_end_at, actual_start_at, completion_recorded_at) < ahora − crm.alertas.visita_sin_confirmar_horas` | Esa misma fecha | `visits.owner_id`: el dueño de la visita, que es quien la confirma (D-01.14, DM-20) | Visita (código, objetivo) + cliente + proyecto | "Visita {código} realizada el {fecha} pendiente de confirmación" |
 | AL-3 | `PROYECTO_SIN_ACTUALIZAR` | Proyecto activo (KPI-01) y `last_activity_at < ahora − crm.alertas.proyecto_sin_actualizar_dias` | `last_activity_at` | `projects.owner_id` | Proyecto (código, nombre) + cliente | "Proyecto {código} sin actualizaciones desde hace {n} días" |
 | AL-4 | `OPORTUNIDAD_SIN_SIGUIENTE_ACCION` | Solo si `crm.alertas.oportunidad_sin_siguiente_accion = true`. Oportunidad abierta (DEF-A) con `next_action` nulo o vacío tras recortar espacios (D-01.11) | `stage_changed_at` | `opportunities.owner_id` | Oportunidad (código) + proyecto + cliente | "Oportunidad {código} en etapa {etapa} sin siguiente acción" |
 
@@ -326,6 +327,7 @@ Identidad: `id = "{tipo}:{sourceId}"` (RN-01.28).
 
 Inicio no añade restricciones: se apoya en las del contrato (CHECK de
 `activities.ck_activities_completion`, `visits.ck_visits_confirm_requires`,
+`visits.ck_visits_confirmed_by_owner`,
 FK compuestas cliente–proyecto–oportunidad) que garantizan que sus fórmulas no
 encuentren combinaciones imposibles. Índices que usan sus consultas (ya en 00):
 `idx_projects_last_activity_at`, `idx_projects_phase_id`, `idx_opportunities_owner_id_stage_id`,
@@ -391,7 +393,7 @@ movimiento con `prefers-reduced-motion`), con: icono, etiqueta, valor, pie
 | K6 Visitas | `visitas.ver` | KPI-06 pendientes | "{n} próximas en {N} días · {m} atrasadas" | `/actividad/visitas?statusGroup=PENDING` (y `&from=…&to=…` desde el pie) |
 | K7 Actividades pendientes | `actividades.ver` | KPI-08 | "{n} por vencer en {h} h" | `/actividad/pendientes?bucket=DUE_SOON&bucket=PENDING` |
 | K8 Actividades vencidas | `actividades.ver` | KPI-09 | — | `/actividad/pendientes?bucket=OVERDUE` |
-| K9 Metas y cumplimiento | `metas.ver` | Cumplimiento principal (%) | Objetivo / logrado por métrica | Sin destino (RN-01.19) |
+| K9 Metas y cumplimiento | `metas.ver` | Cumplimiento principal (%) | Objetivo / logrado por métrica (toneladas en t; importes `AMOUNT` en USD, RN-01.32) | Sin destino (RN-01.19) |
 
 - **Filtro de período** (solo afecta K3, K4 y K9): `Mes en curso` (defecto), `Trimestre en curso`, `Año en curso` (D-01.3). Se guarda en la URL (`?period=MONTH`).
 - **Estados por tarjeta:** cargando (`Skeleton` del tamaño de la tarjeta); error (mensaje de `describeApiError` + botón Reintentar + `correlationId`); vacío/no calculable (RN-01.11); sin permiso (no se pinta). Si el usuario no tiene ninguna tarjeta: aviso RN-01.7.
@@ -532,7 +534,7 @@ pageSize ≤ 100 (defecto 10)
     "subject": { "type": "USER", "id": "uuid", "label": "Nombre visible" },
     "targetValue": "500.0000", "achievedValue": "320.0000",
     "compliancePercent": "64.00",          // null si targetValue = 0
-    "unit": { "code": "TON", "symbol": "t" }, "currencyCode": null
+    "unit": { "code": "TON", "symbol": "t" }, "currencyCode": null   // "USD" si metric = AMOUNT (unit = null); null en el resto (DM-36)
   } ],
   "generatedAt": "…"
 }
@@ -710,7 +712,7 @@ administrador, `*`).
 
 ### H.3 Aplicación en backend
 
-- Cada controlador declara `@RequirePermission(...)` (o el mecanismo de D-01.1); `PermissionsGuard` deniega por defecto.
+- Cada controlador declara `@RequirePermission(...)` (endpoints 1–7) o `@RequireAnyPermission(...)` (endpoints 8–10; D-01.1 aprobada, addendum ADR-008); `PermissionsGuard` deniega por defecto.
 - Los filtros de ámbito se aplican en el adaptador de lectura con parámetros (`$queryRaw` con plantilla o consultas Prisma tipadas); **nunca** SQL concatenado. `sortBy` con whitelist.
 - Límites duros: `pageSize` máximo por endpoint (F.1), `sinceDays` ≤ 90, rango de período ≤ 366 días.
 - Las respuestas no incluyen PII de contactos ni campos no listados en los DTO.
@@ -776,7 +778,7 @@ medido en la prueba de integración de rendimiento ligera (PF-01.44).
 | ID | Criterio |
 |---|---|
 | AC-01.27 | **Given** una actividad propia abierta con vencimiento ayer, **When** se consulta la bandeja, **Then** existe una alerta `ACTIVIDAD_VENCIDA` con la prioridad de `crm.alertas.prioridades`, fecha de referencia = vencimiento y responsable = dueño. (F-04, AL-1) |
-| AC-01.28 | **Given** `visita_sin_confirmar_horas = 48` y dos visitas `REALIZADA` sin confirmar, una realizada hace 50 h y otra hace 10 h, **When** se consulta la bandeja, **Then** solo la primera genera `VISITA_SIN_CONFIRMAR`. (F-04, AL-2) |
+| AC-01.28 | **Given** `visita_sin_confirmar_horas = 48` y dos visitas `REALIZADA` sin confirmar, una realizada hace 50 h y otra hace 10 h, **When** se consulta la bandeja, **Then** solo la primera genera `VISITA_SIN_CONFIRMAR`, con responsable = dueño de la visita (quien debe confirmarla, DM-20). (F-04, AL-2) |
 | AC-01.29 | **Given** `proyecto_sin_actualizar_dias = 30`, un proyecto activo con `last_activity_at` hace 31 días y otro `FINALIZADO` hace 60 días, **When** se consulta la bandeja, **Then** solo el primero genera `PROYECTO_SIN_ACTUALIZAR`. (F-04, AL-3) |
 | AC-01.30 | **Given** una oportunidad `COTIZANDO` sin siguiente acción (o solo espacios) y otra `GANADO` sin siguiente acción, **When** se consulta la bandeja, **Then** solo la primera genera `OPORTUNIDAD_SIN_SIGUIENTE_ACCION`; **and** con `crm.alertas.oportunidad_sin_siguiente_accion = false` no se genera y el resumen muestra el tipo como `DISABLED_BY_PARAMETER`. (F-04, AL-4) |
 | AC-01.31 | **Given** cualquier alerta, **When** se muestra, **Then** incluye tipo, descripción, prioridad, responsable, fecha de referencia, registro relacionado (código y nombre) y un botón "Abrir" que navega a la ficha de origen si su ruta está registrada. (F-04) |
@@ -793,6 +795,8 @@ medido en la prueba de integración de rendimiento ligera (PF-01.44).
 | AC-01.37 | **Given** una petición sin token o con token inválido, **When** se llama a cualquiera de los 10 endpoints, **Then** responde `401 UNAUTHENTICATED`. (F-01…F-04) |
 | AC-01.38 | **Given** datos con contactos y PII, **When** se inspeccionan las respuestas de los 10 endpoints y los logs generados, **Then** no contienen nombre, correo ni teléfono de contactos ni resúmenes en los logs. (F-03, F-04) |
 | AC-01.39 | **Given** el contrato OpenAPI generado, **When** se revisa `/api/docs`, **Then** los 10 endpoints aparecen con su permiso, DTO de consulta y respuesta y códigos 400/401/403. (F-01…F-04) |
+| AC-01.40 | **Given** un asesor con `metas.ver` y una meta mensual `AMOUNT` suya de 10000 (USD) y, en el mes, una oportunidad `WON` en GTQ con `estimated_amount_usd` = 6000 y una `PARTIAL` (50 %) con `estimated_amount_usd` = 2000, **When** consulta K9, **Then** logrado = "7000.0000", cumplimiento = "70.00", `currencyCode` = "USD", y el monto en moneda local no interviene. (F-02, KPI-10, DM-15, DM-36) |
+| AC-01.41 | **Given** una meta mensual `TONNAGE` de 500 t de un asesor y, en el mes, una ganada `WON` con 300 t estimadas y una `PARTIAL` (60 %) con 200 t, **When** el asesor consulta K9, **Then** logrado = "420.0000" t y cumplimiento = "84.00". (F-02, KPI-10, DM-9, DM-15) |
 
 ---
 
@@ -840,7 +844,7 @@ fábricas sobre la base efímera (no dependen de la semilla de demostración).
 | PF-01.32 | Negativo | I | Actividad reciente con solo `actividades.ver` y OWN: ningún evento de otras fuentes ni de otros dueños; sin ningún permiso de fuente → 403 | AC-01.25 |
 | PF-01.33 | Negativo | U (RTL) | Panel de actividad: vacío y error | AC-01.26 |
 | PF-01.34 | Positivo | I | AL-1 con prioridad del parámetro y campos completos | AC-01.27, AC-01.31 |
-| PF-01.35 | Positivo | I | AL-2: umbral de horas (50 h sí, 10 h no); visita confirmada no genera | AC-01.28 |
+| PF-01.35 | Positivo | I | AL-2: umbral de horas (50 h sí, 10 h no); visita confirmada no genera; responsable = `visits.owner_id` | AC-01.28 |
 | PF-01.36 | Positivo | I | AL-3: activo > umbral sí; fase final no; eliminado no | AC-01.29 |
 | PF-01.37 | Positivo | I | AL-4: abierta sin acción o con espacios sí; cerrada no; parámetro `false` → tipo `DISABLED_BY_PARAMETER` | AC-01.30 |
 | PF-01.38 | Positivo | U (RTL) | Alerta muestra todos los campos y "Abrir" navega (o no hay botón si la ruta no existe) | AC-01.31 |
@@ -854,6 +858,8 @@ fábricas sobre la base efímera (no dependen de la semilla de demostración).
 | PF-01.46 | Negativo | I | Respuestas sin campos de contactos (búsqueda de correo/teléfono de contactos sembrados en el JSON) y logs capturados sin resúmenes | AC-01.38 |
 | PF-01.47 | Positivo | I | El documento OpenAPI incluye los 10 endpoints con permisos y códigos | AC-01.39 |
 | PF-01.48 | Integración | E2E | Recorrido: asesor demo entra → ve K1–K8 con cifras, alertas y actividad; usuario `usuario` entra → solo Hero, accesos y aviso | AC-01.1, AC-01.5, AC-01.16 |
+| PF-01.49 | Positivo | I | KPI-10 `AMOUNT`: suma `estimated_amount_usd` (WON × 1, PARTIAL × porcentaje), ignora `estimated_amount` local, ganada sin monto no suma; `currencyCode = "USD"` | AC-01.40 |
+| PF-01.50 | Positivo | I | KPI-10 `TONNAGE` mensual por usuario: WON + PARTIAL ponderada; meta de otro mes no aplica | AC-01.41 |
 
 ---
 
@@ -865,13 +871,13 @@ fábricas sobre la base efímera (no dependen de la semilla de demostración).
 |---|---|---|
 | Fase 0: migraciones 1–8 de 00 §9 (incluida la vista `crm_interactions_v` y `sales_targets`) | Bloqueante | Aplicadas |
 | Fase 0: catálogos `crm.*` con su semántica y registro `catalog-semantics.registry.ts` | Bloqueante | Sembrados |
-| Fase 0: parámetros `crm.alertas.*`, `crm.forecast.*`, `crm.zona_horaria_negocio` (+ `crm.inicio.visitas_proximas_dias` si se aprueba D-01.5) | Bloqueante | Sembrados |
+| Fase 0: parámetros `crm.alertas.*`, `crm.forecast.*`, `crm.zona_horaria_negocio` y `crm.inicio.visitas_proximas_dias` (D-01.5 aprobada) | Bloqueante | Sembrados |
 | Fase 0: permisos `*.ver` y `metas.ver`, roles `asesor`, `manager`, `responsable-pais` | Bloqueante | Sembrados |
 | Fase 0: `VisibilityScopeResolver` | Bloqueante | Implementado |
 | DM-10 (`COUNTRY`) aplicado en backend y frontend | Bloqueante para la etiqueta "País" | Aplicado |
 | DM-12 (alcance `TEAM`) y DM-13 (herencias) | Bloqueante para RN-01.5 | Resueltas (ya lo exige Clientes) |
 | Módulos 2, 3 y 4 implementados | Recomendado (orden §11) | Si faltan, degradación de G.3 |
-| D-01.1 resuelta | Bloqueante solo para endpoints 8–10 | Si no se aprueba, alternativa de D-01.1 |
+| `@RequireAnyPermission` (D-01.1 aprobada, addendum ADR-008) | Bloqueante solo para endpoints 8–10 | Implementado (lo necesita antes el Módulo 4, 04 K.1) |
 
 ### K.2 Orden interno de implementación
 
@@ -905,7 +911,7 @@ Rutas reales del repositorio. "Nuevo" = archivo a crear; "Modificar" = existe ho
 | `backend/src/modules/commercial-metrics/ports/commercial-metrics-read-model.port.ts` | Nuevo | `COMMERCIAL_METRICS_READ_MODEL` y tipos de dominio |
 | `backend/src/infrastructure/database/prisma/repositories/prisma-commercial-metrics.repository.ts` | Nuevo | Adaptador: consultas agregadas con filtros de ámbito parametrizados |
 | `backend/src/modules/dashboard/dashboard.module.ts` | Nuevo | Importa `CommercialMetricsModule`, `PrismaModule`; enlaza `DASHBOARD_READ_MODEL` y `ALERTS_READ_MODEL` |
-| `backend/src/modules/dashboard/dashboard.controller.ts` | Nuevo | Endpoints 1–10 con `@RequirePermission` (o D-01.1), decoradores OpenAPI y mapeo a DTO |
+| `backend/src/modules/dashboard/dashboard.controller.ts` | Nuevo | Endpoints 1–10 con `@RequirePermission` / `@RequireAnyPermission` (D-01.1), decoradores OpenAPI y mapeo a DTO |
 | `backend/src/modules/dashboard/dashboard-indicators.service.ts` (+ `.spec.ts`) | Nuevo | Resuelve ámbito y parámetros; delega en `CommercialMetricsService` |
 | `backend/src/modules/dashboard/dashboard-activity.service.ts` (+ `.spec.ts`) | Nuevo | Actividad reciente y próximas visitas; filtro por permiso de fuente; deduplicación RN-01.23 |
 | `backend/src/modules/dashboard/dashboard-alerts.service.ts` (+ `.spec.ts`) | Nuevo | Bandeja y resumen; filtro por permiso de tipo |
@@ -918,9 +924,9 @@ Rutas reales del repositorio. "Nuevo" = archivo a crear; "Modificar" = existe ho
 | `backend/src/infrastructure/database/prisma/repositories/prisma-dashboard.repository.ts` | Nuevo | Adaptador de `DASHBOARD_READ_MODEL`: `$queryRaw` con plantilla sobre `crm_interactions_v` + historiales, `LIMIT`/`OFFSET` |
 | `backend/src/infrastructure/database/prisma/repositories/prisma-alerts.repository.ts` | Nuevo | Adaptador de `ALERTS_READ_MODEL`: AL-1…AL-4 como consultas parametrizadas |
 | `backend/src/app.module.ts` | Modificar | Registrar `CommercialMetricsModule` y `DashboardModule` |
-| `backend/src/common/decorators/require-any-permission.decorator.ts` + `backend/src/common/guards/permissions.guard.ts` (+ spec) | Nuevo / Modificar | **Solo si se aprueba D-01.1** |
+| `backend/src/common/decorators/require-any-permission.decorator.ts` + `backend/src/common/guards/permissions.guard.ts` (+ spec) | Nuevo / Modificar | D-01.1 aprobada (addendum ADR-008). Si ya lo entregó el Módulo 4, se reutiliza sin cambios |
 | `backend/src/modules/parameters/parameter-value.ts` (+ spec) | Modificar | Rangos de `crm.alertas.*` y `crm.inicio.visitas_proximas_dias` en `PARAMETER_RANGES`, si no los ha añadido la Fase 0 |
-| `backend/prisma/seed/crm-parameters.ts` | Modificar (Fase 0) | `crm.inicio.visitas_proximas_dias = 7` (solo si se aprueba D-01.5; el archivo lo crea la Fase 0) |
+| `backend/prisma/seed/crm-parameters.ts` | Modificar (Fase 0) | `crm.inicio.visitas_proximas_dias = 7` (D-01.5 aprobada; el archivo lo crea la Fase 0) |
 | `backend/test/dashboard.e2e.spec.ts` | Nuevo | Integración de los 10 endpoints: 200/400/401/403, ámbitos, alertas, actividad |
 | `backend/test/commercial-metrics.e2e.spec.ts` | Nuevo | Integración de KPI-01…10 contra PostgreSQL |
 
@@ -929,6 +935,8 @@ Rutas reales del repositorio. "Nuevo" = archivo a crear; "Modificar" = existe ho
 pública) ya existe en `backend/prisma/seed/access-catalog.ts` (DM-32).
 
 ### L.2 Frontend
+
+El feature vive en `frontend/src/features/dashboard/` (DC-7 aprobada).
 
 | Archivo | Acción | Contenido |
 |---|---|---|
@@ -968,46 +976,51 @@ pública) ya existe en `backend/prisma/seed/access-catalog.ts` (DM-32).
 
 ---
 
-## Decisiones pendientes del módulo
+## Decisiones del módulo (resueltas el 2026-10-10)
 
-### Decisiones de 00 que afectan a Inicio
+Todas las decisiones de esta sección quedaron **resueltas por el responsable de negocio el 2026-10-10**. Se conservan los identificadores.
 
-| ID | Efecto en este módulo | Valor con el que se especifica |
+### Decisiones de 00 y transversales que afectan a Inicio
+
+| ID | Efecto en este módulo | Valor final (resuelta 2026-10-10) |
 |---|---|---|
-| DM-1 | Moneda de la estimación: logrado de metas `AMOUNT` | Monto + moneda; meta `AMOUNT` solo suma oportunidades de su moneda |
-| DM-7 | Umbrales y prioridades de alertas | 48 h / 48 h / 30 días / prioridades de 00 §8.2 |
-| DM-9 | Metas: existencia, granularidad, carga | Tabla vacía en Fase 0; K9 con "Sin metas configuradas" (RN-01.18) |
-| DM-10 | Etiqueta del alcance "País" en Hero y "Mi acceso" | `COUNTRY` |
-| DM-12 / DM-13 / DM-14 | Ámbito `TEAM`, herencias, un país por usuario | Valores por defecto de 00 |
-| DM-15 | Ganadas = WON + PARTIAL; WON implica 100 % | Valor de 00 (KPI-03, KPI-10) |
-| DM-16 | Proyecto activo, estado comercial, última actualización | Valor de 00 (KPI-01, DEF-B, DEF-C, AL-3) |
-| DM-20 | Quién confirma visitas (responsable mostrado en AL-2) | Ver D-01.14 |
-| DM-22 | Qué es interacción | DEF-F |
-| DM-26 | Alertas calculadas, sin descarte | Calculadas |
-| DM-27 | Recordatorio de visita como aviso en Inicio | `reminderDue` (RN-01.25) |
-| DM-32 | Menú: la opción `inicio` ya existe | Sin opción nueva |
+| DM-1 / DM-36 | Moneda de la estimación: logrado de metas `AMOUNT` | **Resuelta (respuesta del responsable):** moneda base USD; metas `AMOUNT` en USD (sin columna de moneda en `sales_targets`); el logrado suma `estimated_amount_usd` (RN-01.32, ADR-024) |
+| DM-7 | Umbrales y prioridades de alertas | **Resuelta.** 48 h / 48 h / 30 días / prioridades de 00 §8.2 |
+| DM-9 | Metas: existencia, granularidad, carga | **Resuelta:** metas mensuales de toneladas por persona; tabla vacía en Fase 0, carga por script; K9 con "Sin metas configuradas" (RN-01.18) |
+| DM-10 | Etiqueta del alcance "País" en Hero y "Mi acceso" | **Resuelta.** `COUNTRY` |
+| DM-12 / DM-13 / DM-14 | Ámbito `TEAM`, herencias, un país por usuario | **Resuelta.** Valores por defecto de 00 |
+| DM-15 | Ganadas = WON + PARTIAL; WON implica 100 % | **Resuelta:** el parcial cuenta como ganada (KPI-03, KPI-10) |
+| DM-16 | Proyecto activo, estado comercial, última actualización | **Resuelta.** Valor de 00 (KPI-01, DEF-B, DEF-C, AL-3) |
+| DM-20 | Quién confirma visitas (responsable mostrado en AL-2) | **Resuelta (respuesta del responsable):** confirma el mismo asesor dueño de la visita; AL-2 muestra como responsable al dueño (D-01.14) |
+| DM-22 | Qué es interacción | **Resuelta.** DEF-F |
+| DM-26 | Alertas calculadas, sin descarte | **Resuelta.** Calculadas |
+| DM-27 | Recordatorio de visita como aviso en Inicio | **Resuelta.** `reminderDue` (RN-01.25) |
+| DM-32 | Menú: la opción `inicio` ya existe | **Resuelta.** Sin opción nueva |
+| DC-7 | Ubicación del feature del frontend | **Resuelta:** `frontend/src/features/dashboard/` (L.2) |
 
-### Decisiones nuevas
+### Decisiones propias del módulo
 
-| ID | Pregunta | Recomendación por defecto | Impacto |
+Todas **resueltas el 2026-10-10** con su valor recomendado aprobado.
+
+| ID | Pregunta | Valor final (resuelta 2026-10-10) | Impacto si cambia |
 |---|---|---|---|
-| **D-01.1** | ¿Cómo se autorizan los endpoints que mezclan fuentes (actividad reciente, alertas, resumen)? `@RequirePermission` exige **todos** los permisos indicados | Nuevo decorador `@RequireAnyPermission(...)` en `backend/src/common/decorators` + soporte en `PermissionsGuard` (deny-by-default si no tiene ninguno) y filtro por fuente dentro del caso de uso. Es un patrón de autorización nuevo: **addendum a ADR-008** y escalado según CLAUDE.md §11 | Si no se aprueba: se parte en un endpoint por fuente/tipo (`/dashboard/alerts/activities`, `/visits`, `/projects`, `/opportunities` y equivalentes de actividad reciente), cada uno con `@RequirePermission`, y el frontend fusiona y ordena. El alcance funcional no cambia; aumentan peticiones y la paginación de la bandeja pasa a ser por tipo |
-| **D-01.2** | ¿Dónde viven las fórmulas compartidas con Reportes? 00 §11 nombra `DashboardReadModel` (Inicio) y `ReportingRepository` (Reportes) por separado | **Resuelta en la consolidación:** módulo `backend/src/modules/commercial-metrics/`; el Módulo 3 crea primero `metric-definitions.ts` (DEF-A/B/C/G, RN-03.77), el Módulo 1 crea `CommercialMetricsModule`/`CommercialMetricsService` y completa los predicados, y Reportes lo consume (05 G.3); `DashboardReadModel` queda para actividad reciente y `AlertsReadModel` para alertas. Precisa 00 §11 (sin cambio de esquema) | Si se prefiere que las fórmulas vivan en Reportes, Inicio no podría implementarse antes que Reportes sin duplicarlas |
-| **D-01.3** | Período por defecto de ganadas/perdidas y metas en el panel | Mes en curso (zona de negocio), selector mes / trimestre / año en curso | Solo UI y valor por defecto de la query |
-| **D-01.4** | Nombres de los filtros de destino de las tarjetas (`active`, `status=OPEN`, `outcome`, `decisionFrom/To`, `state=PENDING/OVERDUE`) | Los de E.3. **Alineados en la consolidación** con los contratos de los dueños: 03 F.1/F.2 (`active`, `status`, `outcome`, `decisionFrom/To`) y 04 F.1/F.2 (`statusGroup` en `/visits`, `bucket` repetible en `/activities/pending`). Esos listados deben aplicar la **misma** fórmula (servicio compartido) | Si 03/04 eligen otros nombres, solo cambia `source-routes.ts` |
-| **D-01.5** | Horizonte de "visitas próximas" | Parámetro nuevo `crm.inicio.visitas_proximas_dias` (NUMBER, 7, rango 1–60), añadido a 00 §8.2 como **propuesto** y a la semilla esencial. Reportes lo reutiliza (D-05.6 resuelta en la consolidación) | Si no se aprueba un parámetro nuevo, constante de 7 días documentada en el código (no configurable) |
-| **D-01.6** | ¿"Actividades pendientes" incluye las vencidas? | Disjuntas: pendientes = abiertas no vencidas; vencidas aparte (RN-01.17). Módulo 4 (bandeja) y Módulo 5 (§7.5) usan la misma definición | Si se quieren inclusivas, cambia KPI-08 en el servicio compartido y los textos |
-| **D-01.7** | Metas sin configurar: ¿tarjeta oculta o visible con "Sin metas configuradas"? | Visible con el mensaje si el usuario tiene `metas.ver` (recomendación de 00 §2.15); oculta sin el permiso | Solo UI |
-| **D-01.8** | Fórmula del "logrado" por métrica y sujeto de la meta según el ámbito | KPI-10 de D.4. Sujeto: OWN → meta del usuario; TEAM → metas de los equipos donde es responsable o miembro principal; COUNTRY → meta de su país; ORGANIZATION → suma de metas de país. El logrado se calcula con el mismo ámbito | Depende de DM-9; si cambia la granularidad, cambia solo `targetCompliance` |
-| **D-01.9** | Orden y ventana de la actividad reciente | Pasado descendente (30 días, máx. 90); próximas visitas ascendente en lista separada | Solo consulta y UI |
-| **D-01.10** | ¿Qué cambios de proyecto y oportunidad son "relevantes" para el resumen? | Proyecto: alta y cambio de fase/avance. Oportunidad: alta, cambio de etapa, resultado y "actualizada" genérica (RN-01.23). No se usan `audit_logs` (P6 de 00) | Añadir más tipos (p. ej. reasignación de responsable) exigiría historial funcional o leer `audit_logs` |
-| **D-01.11** | ¿Una siguiente acción con fecha pasada cuenta como "sin siguiente acción"? | No: AL-4 solo cuando falta el texto. Una acción vencida podría ser una quinta alerta futura | Nueva alerta = nuevo parámetro y nueva regla |
-| **D-01.12** | ¿Qué son "funcionalidades frecuentes" en los accesos rápidos? | Las opciones de `/me/menu` de los módulos operativos del CRM primero (máx. 8), sin lista declarada en el frontend (CLAUDE.md §8.11) | Por uso real requeriría registrar navegación en `UserPreference` (fuera de alcance) |
-| **D-01.13** | ¿Se excluyen de indicadores los registros cuyo proyecto o cliente está eliminado lógicamente? | Sí (RN-01.13), en la definición compartida con Reportes | Si Reportes debe conservar históricos de proyectos eliminados, la regla cambia en el servicio compartido para ambos |
-| **D-01.14** | Responsable que se muestra en la alerta de visita sin confirmar (¿el asesor o quien debe confirmar?) | El dueño de la visita (`visits.owner_id`); la alerta la ve también quien tenga `visitas.ver` en su ámbito (p. ej. el manager que confirma, DM-20) | Si se quiere asignar al confirmador, hace falta una regla para determinarlo (DM-20) |
+| **D-01.1** | ¿Cómo se autorizan los endpoints que mezclan fuentes (actividad reciente, alertas, resumen)? `@RequirePermission` exige **todos** los permisos indicados | **Resuelta (2026-10-10): valor recomendado aprobado.** Decorador `@RequireAnyPermission(...)` en `backend/src/common/decorators` + soporte en `PermissionsGuard` (deny-by-default si no tiene ninguno) y filtro por fuente dentro del caso de uso. Patrón aprobado como **addendum a [ADR-008](../../adr/ADR-008-authorization.md)** | Si se revirtiera: se parte en un endpoint por fuente/tipo (`/dashboard/alerts/activities`, `/visits`, `/projects`, `/opportunities` y equivalentes de actividad reciente), cada uno con `@RequirePermission`, y el frontend fusiona y ordena. El alcance funcional no cambia; aumentan peticiones y la paginación de la bandeja pasa a ser por tipo |
+| **D-01.2** | ¿Dónde viven las fórmulas compartidas con Reportes? 00 §11 nombra `DashboardReadModel` (Inicio) y `ReportingRepository` (Reportes) por separado | **Resuelta (consolidación; confirmada el 2026-10-10):** módulo `backend/src/modules/commercial-metrics/`; el Módulo 3 crea primero `metric-definitions.ts` (DEF-A/B/C/G, RN-03.77), el Módulo 1 crea `CommercialMetricsModule`/`CommercialMetricsService` y completa los predicados, y Reportes lo consume (05 G.3); `DashboardReadModel` queda para actividad reciente y `AlertsReadModel` para alertas. Precisa 00 §11 (sin cambio de esquema) | Si se prefiere que las fórmulas vivan en Reportes, Inicio no podría implementarse antes que Reportes sin duplicarlas |
+| **D-01.3** | Período por defecto de ganadas/perdidas y metas en el panel | **Resuelta (2026-10-10): valor recomendado aprobado.** Mes en curso (zona de negocio), selector mes / trimestre / año en curso | Solo UI y valor por defecto de la query |
+| **D-01.4** | Nombres de los filtros de destino de las tarjetas (`active`, `status=OPEN`, `outcome`, `decisionFrom/To`, `state=PENDING/OVERDUE`) | **Resuelta (2026-10-10): valor recomendado aprobado.** Los de E.3. **Alineados en la consolidación** con los contratos de los dueños: 03 F.1/F.2 (`active`, `status`, `outcome`, `decisionFrom/To`) y 04 F.1/F.2 (`statusGroup` en `/visits`, `bucket` repetible en `/activities/pending`). Esos listados deben aplicar la **misma** fórmula (servicio compartido) | Si 03/04 eligen otros nombres, solo cambia `source-routes.ts` |
+| **D-01.5** | Horizonte de "visitas próximas" | **Resuelta (2026-10-10): valor recomendado aprobado.** Parámetro nuevo `crm.inicio.visitas_proximas_dias` (NUMBER, 7, rango 1–60), en 00 §8.2 y en la semilla esencial. Reportes lo reutiliza (D-05.6 resuelta en la consolidación) | Si no se aprueba un parámetro nuevo, constante de 7 días documentada en el código (no configurable) |
+| **D-01.6** | ¿"Actividades pendientes" incluye las vencidas? | **Resuelta (2026-10-10): valor recomendado aprobado.** Disjuntas: pendientes = abiertas no vencidas; vencidas aparte (RN-01.17). Módulo 4 (bandeja) y Módulo 5 (§7.5) usan la misma definición | Si se quieren inclusivas, cambia KPI-08 en el servicio compartido y los textos |
+| **D-01.7** | Metas sin configurar: ¿tarjeta oculta o visible con "Sin metas configuradas"? | **Resuelta (2026-10-10): valor recomendado aprobado.** Visible con el mensaje si el usuario tiene `metas.ver` (recomendación de 00 §2.15); oculta sin el permiso | Solo UI |
+| **D-01.8** | Fórmula del "logrado" por métrica y sujeto de la meta según el ámbito | **Resuelta (2026-10-10): valor recomendado aprobado.** KPI-10 de D.4. Sujeto: OWN → meta del usuario; TEAM → metas de los equipos donde es responsable o miembro principal; COUNTRY → meta de su país; ORGANIZATION → suma de metas de país. El logrado se calcula con el mismo ámbito | Depende de DM-9; si cambia la granularidad, cambia solo `targetCompliance` |
+| **D-01.9** | Orden y ventana de la actividad reciente | **Resuelta (2026-10-10): valor recomendado aprobado.** Pasado descendente (30 días, máx. 90); próximas visitas ascendente en lista separada | Solo consulta y UI |
+| **D-01.10** | ¿Qué cambios de proyecto y oportunidad son "relevantes" para el resumen? | **Resuelta (2026-10-10): valor recomendado aprobado.** Proyecto: alta y cambio de fase/avance. Oportunidad: alta, cambio de etapa, resultado y "actualizada" genérica (RN-01.23). No se usan `audit_logs` (P6 de 00) | Añadir más tipos (p. ej. reasignación de responsable) exigiría historial funcional o leer `audit_logs` |
+| **D-01.11** | ¿Una siguiente acción con fecha pasada cuenta como "sin siguiente acción"? | **Resuelta (2026-10-10): valor recomendado aprobado.** No: AL-4 solo cuando falta el texto. Una acción vencida podría ser una quinta alerta futura | Nueva alerta = nuevo parámetro y nueva regla |
+| **D-01.12** | ¿Qué son "funcionalidades frecuentes" en los accesos rápidos? | **Resuelta (2026-10-10): valor recomendado aprobado.** Las opciones de `/me/menu` de los módulos operativos del CRM primero (máx. 8), sin lista declarada en el frontend (CLAUDE.md §8.11) | Por uso real requeriría registrar navegación en `UserPreference` (fuera de alcance) |
+| **D-01.13** | ¿Se excluyen de indicadores los registros cuyo proyecto o cliente está eliminado lógicamente? | **Resuelta (2026-10-10): valor recomendado aprobado.** Sí (RN-01.13), en la definición compartida con Reportes | Si Reportes debe conservar históricos de proyectos eliminados, la regla cambia en el servicio compartido para ambos |
+| **D-01.14** | Responsable que se muestra en la alerta de visita sin confirmar (¿el asesor o quien debe confirmar?) | **Resuelta (2026-10-10): valor recomendado aprobado.** El dueño de la visita (`visits.owner_id`), que es quien la confirma (DM-20 resuelta, `ck_visits_confirmed_by_owner`); la alerta la ve también quien tenga `visitas.ver` en su ámbito (p. ej. su manager), aunque no puede confirmarla | Ninguno mientras rija DM-20: dueño y confirmador coinciden por regla |
 
-Ninguna decisión pendiente elimina alcance: todas las funcionalidades F-01…F-04
-quedan especificadas con el valor por defecto indicado.
+Ninguna decisión elimina alcance: todas las funcionalidades F-01…F-04 quedan
+especificadas con el valor final indicado.
 
 ---
 
@@ -1015,7 +1028,9 @@ quedan especificadas con el valor por defecto indicado.
 
 | F-xx | Entidades | Dependencias | AC | PF |
 |---|---|---|---|---|
-| F-01 | `User`, `Role`, `UserRole`, `TeamMember`, `Team`, `MenuOption`, `AppModule` (vía `GET /me`, `GET /me/menu`) | Núcleo de acceso (existente), DM-10, DM-32, D-01.12 | AC-01.1–AC-01.6, AC-01.37, AC-01.39 | PF-01.1–PF-01.7, PF-01.45, PF-01.47, PF-01.48 |
-| F-02 | `Project`, `Opportunity`, `OpportunityResult`, `ForecastLine`, `UnitOfMeasure`, `Visit`, `Activity`, `Customer`, `SalesTarget`, `CatalogItem`, `SystemParameter` | Fase 0, Proyectos (3), Actividad (4), `VisibilityScopeResolver`, Reportes (5) consume `CommercialMetricsService`; DM-9, DM-15, DM-16, D-01.2–D-01.8, D-01.13 | AC-01.7–AC-01.20, AC-01.37, AC-01.39 | PF-01.8–PF-01.27, PF-01.44, PF-01.45, PF-01.47, PF-01.48 |
-| F-03 | Vista `crm_interactions_v`, `Activity`, `Visit`, `OpportunityStageHistory`, `OpportunityResultHistory`, `Opportunity`, `Project`, `ProjectPhaseHistory`, `Customer`, `User` | Fase 0 (vista), Actividad (4), Proyectos (3), Clientes (2) para enlaces; DM-22, DM-27, D-01.1, D-01.9, D-01.10 | AC-01.21–AC-01.26, AC-01.37, AC-01.38 | PF-01.28–PF-01.33, PF-01.45, PF-01.46 |
-| F-04 | `Activity`, `Visit`, `Project`, `Opportunity`, `Customer`, `User`, `CatalogItem` (`crm.prioridad`), `SystemParameter` (`crm.alertas.*`) | Fase 0 (parámetros), Actividad (4), Proyectos (3), Administración (7) para mantener parámetros; DM-7, DM-20, DM-26, D-01.1, D-01.11, D-01.14 | AC-01.27–AC-01.36, AC-01.37, AC-01.38 | PF-01.34–PF-01.43, PF-01.45, PF-01.46 |
+| F-01 | `User`, `Role`, `UserRole`, `TeamMember`, `Team`, `MenuOption`, `AppModule` (vía `GET /me`, `GET /me/menu`) | Núcleo de acceso (existente), DM-10, DM-32, D-01.12, DC-7 (resueltas) | AC-01.1–AC-01.6, AC-01.37, AC-01.39 | PF-01.1–PF-01.7, PF-01.45, PF-01.47, PF-01.48 |
+| F-02 | `Project`, `Opportunity`, `OpportunityResult`, `ForecastLine`, `UnitOfMeasure`, `Visit`, `Activity`, `Customer`, `SalesTarget`, `CatalogItem`, `SystemParameter` | Fase 0, Proyectos (3), Actividad (4), `VisibilityScopeResolver`, Reportes (5) consume `CommercialMetricsService`; DM-9, DM-15, DM-16, DM-36, D-01.2–D-01.8, D-01.13 (todas resueltas) | AC-01.7–AC-01.20, AC-01.37, AC-01.39–AC-01.41 | PF-01.8–PF-01.27, PF-01.44, PF-01.45, PF-01.47–PF-01.50 |
+| F-03 | Vista `crm_interactions_v`, `Activity`, `Visit`, `OpportunityStageHistory`, `OpportunityResultHistory`, `Opportunity`, `Project`, `ProjectPhaseHistory`, `Customer`, `User` | Fase 0 (vista), Actividad (4), Proyectos (3), Clientes (2) para enlaces; DM-22, DM-27, D-01.1, D-01.9, D-01.10 (resueltas) | AC-01.21–AC-01.26, AC-01.37, AC-01.38 | PF-01.28–PF-01.33, PF-01.45, PF-01.46 |
+| F-04 | `Activity`, `Visit`, `Project`, `Opportunity`, `Customer`, `User`, `CatalogItem` (`crm.prioridad`), `SystemParameter` (`crm.alertas.*`) | Fase 0 (parámetros), Actividad (4), Proyectos (3), Administración (7) para mantener parámetros; DM-7, DM-20 (confirma el dueño), DM-26, D-01.1, D-01.11, D-01.14 (resueltas) | AC-01.27–AC-01.36, AC-01.37, AC-01.38 | PF-01.34–PF-01.43, PF-01.45, PF-01.46 |
+
+Estado propuesto para las cuatro filas: `especificada`. Todas las decisiones del módulo se resolvieron el 2026-10-10.

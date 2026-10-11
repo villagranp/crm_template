@@ -18,7 +18,7 @@ de esta carpeta redefine arquitectura, autenticación ni convenciones.
 | [`06-integraciones.md`](06-integraciones.md) | Módulo 6 — Integraciones (carga masiva) |
 | [`07-administracion.md`](07-administracion.md) | Módulo 7 — Administración |
 | [`matriz-trazabilidad.md`](matriz-trazabilidad.md) | Las 47 funcionalidades y su estado |
-| [`decisiones-pendientes.md`](decisiones-pendientes.md) | Decisiones de negocio y arquitectura abiertas |
+| [`decisiones-pendientes.md`](decisiones-pendientes.md) | Decisiones de negocio y arquitectura: **todas resueltas el 2026-10-10** (respuesta del responsable, DM-36 nueva) y entregas de datos pendientes |
 
 Cada especificación sigue las secciones A–L del alcance (§10).
 

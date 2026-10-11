@@ -80,9 +80,49 @@ asignación de accesos es del administrador". Gana `equipos.crear` y
 
 ## Open questions
 
-- **Pertenencia a equipos y alcance `TEAM`.** Quien tiene `equipos.editar`
+- **Pertenencia a equipos y alcance `TEAM`.** *Resuelta el 2026-10-10: ver el addendum al final.* Quien tiene `equipos.editar`
   (hoy `gestor-accesos`) cambia miembros, responsable y jerarquía, y con ello
   lo que ve un usuario con alcance `TEAM` (incluye subequipos). Hoy ningún
   módulo de negocio aplica ese alcance, así que no concede nada todavía. Debe
   decidirse si cuenta como "asignar acceso" **antes** de que el primer módulo
   del CRM filtre datos por equipo.
+
+## Addendum 2026-10-10 — Equipos y país del usuario son asignación de acceso
+
+**Estado:** Accepted — 2026-10-10. Origen: DM-12 y D-07.2 del CRM, aprobadas por
+el responsable con su valor recomendado. **Cierra la pregunta abierta** de este
+ADR ("Pertenencia a equipos y alcance `TEAM`") antes de que el primer módulo del
+CRM (Clientes) filtre datos por equipo o por país.
+
+**Contexto.** En el CRM el alcance `TEAM` ve los registros de los miembros y del
+responsable de sus equipos **incluidos los subequipos**, y el alcance `COUNTRY`
+ve los del país del usuario. Cambiar la pertenencia a un equipo, su responsable,
+su jerarquía o el país de un usuario cambia, por tanto, **lo que otra persona
+ve**: es conceder o retirar acceso a datos por otra vía.
+
+**Decisión.** Estas operaciones exigen ser administrador (`403 ADMIN_ONLY`),
+además del permiso propio del endpoint:
+
+| Operación | Endpoint |
+|---|---|
+| Añadir o quitar miembros de un equipo | `PUT /teams/{id}/members` (y equivalentes) |
+| Asignar equipos a un usuario | `PUT /users/{id}/teams` (D-07.4) |
+| Cambiar el responsable de un equipo | `PATCH /teams/{id}` si cambia `managerId` |
+| Cambiar la jerarquía (equipo padre) | `PATCH /teams/{id}` si cambia `parentId` |
+| Eliminar un equipo con miembros o subequipos | `DELETE /teams/{id}` |
+| Fijar o cambiar el país de un usuario | `POST /users` con `countryId` (salvo administrador), `PATCH /users/{id}` si cambia `countryId` |
+
+Siguen con sus permisos `equipos.*` y `usuarios.*` de siempre: crear un equipo
+sin miembros, editar nombre, código o descripción, y editar datos del usuario
+que no cambian su acceso. Cambiar el equipo principal (`isPrimary`) no cambia la
+visibilidad (el alcance `TEAM` usa todas las pertenencias) y no se considera
+asignación de acceso.
+
+**Alternativa descartada.** Que quien tenga `equipos.editar` (hoy
+`gestor-accesos`) también pueda: un no administrador podría ampliar lo que otro
+ve, que es justo lo que este ADR prohíbe para roles y permisos.
+
+**Consecuencias.** `gestor-accesos` conserva la gestión de los datos de equipos
+pero no su composición. La regla se evalúa en el backend; la interfaz oculta las
+acciones. No se guarda foto histórica del equipo en los registros comerciales
+(DM-12): si un asesor cambia de equipo, sus registros se ven desde el nuevo.
