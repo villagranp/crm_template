@@ -12,6 +12,9 @@
  *   fechas (forecast M+1…M+6, vencidas, próximas).
  *
  * Todo respeta los CHECK reales de la base (migraciones 1-8).
+ *
+ * Fuera de alcance por ahora: adjuntos demo (00 §8.3), aplazados hasta que
+ * existan `FileStorage` y `ATTACHMENTS_STORAGE_PATH` (Módulo 2, ADR-021).
  */
 import { Prisma } from '@prisma/client';
 
@@ -145,7 +148,84 @@ export async function purgeDemoMasters(tx: Tx): Promise<void> {
   await tx.teamMember.deleteMany({ where: { team: { code: { startsWith: DEMO_PREFIX } } } });
   await tx.team.deleteMany({ where: { code: { startsWith: DEMO_PREFIX }, parentId: { not: null } } });
   await tx.team.deleteMany({ where: { code: { startsWith: DEMO_PREFIX } } });
-  await tx.user.deleteMany({ where: { emailNormalized: { endsWith: DEMO_EMAIL_DOMAIN } } });
+
+  const demoUsers = await tx.user.findMany({ where: { emailNormalized: { endsWith: DEMO_EMAIL_DOMAIN } }, select: { id: true } });
+  const demoUserIds = demoUsers.map((demo) => demo.id);
+  const blockers = await findUserReferenceBlockers(tx, demoUserIds);
+  if (blockers.length > 0) {
+    throw new DemoPurgeBlockedError(blockers);
+  }
+  await tx.user.deleteMany({ where: { id: { in: demoUserIds } } });
+}
+
+/** Tabla y columna que referencia a `users` con `ON DELETE RESTRICT/NO ACTION`, y cuántas filas apuntan a usuarios demo. */
+export interface UserReferenceBlocker {
+  table: string;
+  column: string;
+  count: number;
+}
+
+/**
+ * `--purge` no puede borrar los usuarios demo porque registros que NO son de la
+ * demo los referencian. El mensaje lista solo tablas, columnas y conteos: nunca
+ * nombres, correos ni ids (sin datos personales).
+ */
+export class DemoPurgeBlockedError extends Error {
+  constructor(readonly blockers: readonly UserReferenceBlocker[]) {
+    super(
+      [
+        'Purga de demostración RECHAZADA; no se borró nada (transacción revertida).',
+        'Hay registros que no son de demostración asociados a usuarios @demo.invalid.',
+        'Reasígnalos a otro usuario o elimínalos y vuelve a ejecutar --purge:',
+        ...blockers.map((blocker) => `  - ${blocker.table}.${blocker.column}: ${blocker.count}`),
+      ].join('\n'),
+    );
+    this.name = 'DemoPurgeBlockedError';
+  }
+}
+
+const SQL_IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
+
+/**
+ * Busca en el catálogo de PostgreSQL TODAS las FK hacia `users.id` que impiden
+ * el borrado (`RESTRICT` o `NO ACTION`) y cuenta las filas que apuntan a los
+ * usuarios demo. Se ejecuta después de purgar los datos comerciales y maestros
+ * demo, así que lo que queda son registros ajenos a la demo. Al leer las FK del
+ * catálogo, una tabla nueva de un módulo futuro queda cubierta sin tocar esto.
+ */
+async function findUserReferenceBlockers(tx: Tx, demoUserIds: string[]): Promise<UserReferenceBlocker[]> {
+  if (demoUserIds.length === 0) {
+    return [];
+  }
+  const references = await tx.$queryRaw<Array<{ table: string; column: string }>>`
+    SELECT DISTINCT cl.relname AS "table", a.attname AS "column"
+    FROM pg_constraint c
+    JOIN pg_class cl ON cl.oid = c.conrelid
+    CROSS JOIN LATERAL unnest(c.conkey, c.confkey) AS k(attnum, fattnum)
+    JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+    JOIN pg_attribute fa ON fa.attrelid = c.confrelid AND fa.attnum = k.fattnum
+    WHERE c.contype = 'f'
+      AND c.confrelid = to_regclass('users')
+      AND c.confdeltype IN ('r', 'a')
+      AND fa.attname = 'id'
+    ORDER BY 1, 2`;
+
+  const blockers: UserReferenceBlocker[] = [];
+  for (const reference of references) {
+    if (!SQL_IDENTIFIER.test(reference.table) || !SQL_IDENTIFIER.test(reference.column)) {
+      throw new Error(`Semilla demo: identificador inesperado en el catálogo (${reference.table}.${reference.column}).`);
+    }
+    // Identificadores validados y leídos del catálogo; los ids van como parámetro.
+    const [row] = await tx.$queryRawUnsafe<Array<{ total: number }>>(
+      `SELECT count(*)::int AS total FROM "${reference.table}" WHERE "${reference.column}" = ANY($1::uuid[])`,
+      demoUserIds,
+    );
+    const count = row?.total ?? 0;
+    if (count > 0) {
+      blockers.push({ table: reference.table, column: reference.column, count });
+    }
+  }
+  return blockers;
 }
 
 // -----------------------------------------------------------------------------
@@ -208,9 +288,39 @@ export async function seedDemo(tx: Tx, options: DemoSeedOptions): Promise<DemoSu
   await seedSalesTargets(ctx);
 
   // 06 D-06.9: fuera de producción la demo habilita la carga masiva.
-  await tx.systemParameter.updateMany({ where: { key: 'crm.importaciones.habilitada' }, data: { value: 'true' } });
+  if (await enableImportsForDemo(tx)) {
+    bump(ctx, 'parametersUpdated');
+  }
 
   return ctx.summary;
+}
+
+export const IMPORTS_PARAMETER_KEY = 'crm.importaciones.habilitada';
+
+/**
+ * Pone `crm.importaciones.habilitada = true` solo si tenía otro valor y lo deja
+ * en la bitácora como cualquier cambio de parámetro (`parameter.updated`, mismo
+ * formato `changes` que `AuditService`), sin actor: lo hizo la semilla
+ * (`correlationId = seed-demo`, `metadata.source = demo-seed`). `--purge` no lo
+ * revierte (ver cabecera de `prisma/seed-demo.ts`).
+ */
+async function enableImportsForDemo(tx: Tx): Promise<boolean> {
+  const parameter = await tx.systemParameter.findUnique({ where: { key: IMPORTS_PARAMETER_KEY }, select: { value: true } });
+  if (!parameter || parameter.value === 'true') {
+    return false;
+  }
+  await tx.systemParameter.update({ where: { key: IMPORTS_PARAMETER_KEY }, data: { value: 'true', updatedById: null } });
+  await tx.auditLog.create({
+    data: {
+      correlationId: 'seed-demo',
+      event: 'parameter.updated',
+      resourceType: 'system_parameter',
+      resourceId: IMPORTS_PARAMETER_KEY,
+      changes: { value: { before: parameter.value, after: 'true' } },
+      metadata: { source: 'demo-seed' },
+    },
+  });
+  return true;
 }
 
 async function loadContext(tx: Tx, clock: Clock): Promise<Context> {

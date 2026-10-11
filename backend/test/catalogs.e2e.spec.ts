@@ -360,6 +360,93 @@ describe('catálogos crm.* (registro de semántica, D-07.6)', () => {
     expect(response.body).toMatchObject({ code: 'CATALOG_INVARIANT', details: [expect.objectContaining({ reason: 'invariant' })] });
   });
 
+  it('dos desactivaciones simultáneas de las dos etapas WON: una pasa y la otra es 409 (bloqueo del catálogo)', async () => {
+    const stages = await crmCatalog('crm.etapa_oportunidad');
+    const won = stages.items.find((item) => item.isActive && item.metadata?.['outcome'] === 'WON');
+    if (!won) throw new Error('crm.etapa_oportunidad sin etapa WON sembrada');
+    const url = `/api/v1/catalogs/${stages.id}/items`;
+
+    const second = await api()
+      .post(url)
+      .set(admin())
+      .send({ code: uniqueCode('GANADO'), label: uniqueCode('Ganado bis'), metadata: { ...won.metadata, order: 99 } })
+      .expect(201);
+    const secondId = second.body.id as string;
+
+    try {
+      // Sin el bloqueo, ambas transacciones verían dos WON activas y las dos desactivarían.
+      const responses = await Promise.all(
+        [won.id, secondId].map((id) => api().patch(`${url}/${id}`).set(admin()).send({ isActive: false })),
+      );
+
+      expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+      expect(responses.find((response) => response.status === 409)?.body).toMatchObject({ code: 'CATALOG_INVARIANT' });
+      const activeWon = await ctx.prisma.catalogItem.count({
+        where: { catalogId: stages.id, isActive: true, metadata: { path: ['outcome'], equals: 'WON' } },
+      });
+      expect(activeWon).toBe(1);
+    } finally {
+      // El catálogo es compartido: se deja como lo dejó la semilla.
+      await ctx.prisma.catalogItem.update({ where: { id: won.id }, data: { isActive: true } });
+      await ctx.prisma.catalogItem.delete({ where: { id: secondId } });
+    }
+  });
+
+  it('la desactivación espera al bloqueo del catálogo y valida contra lo confirmado (determinista)', async () => {
+    const stages = await crmCatalog('crm.etapa_oportunidad');
+    const won = stages.items.find((item) => item.isActive && item.metadata?.['outcome'] === 'WON');
+    if (!won) throw new Error('crm.etapa_oportunidad sin etapa WON sembrada');
+    const url = `/api/v1/catalogs/${stages.id}/items`;
+    const second = await api()
+      .post(url)
+      .set(admin())
+      .send({ code: uniqueCode('GANADO'), label: uniqueCode('Ganado bis'), metadata: { ...won.metadata, order: 98 } })
+      .expect(201);
+    const secondId = second.body.id as string;
+
+    let release: () => void = () => undefined;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let signalLocked: () => void = () => undefined;
+    const lockTaken = new Promise<void>((resolve) => (signalLocked = resolve));
+
+    try {
+      // Otra "escritura" toma el bloqueo, desactiva la segunda WON y no confirma todavía.
+      const holder = ctx.prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT id FROM catalogs WHERE id = ${stages.id}::uuid FOR UPDATE`;
+          await tx.catalogItem.update({ where: { id: secondId }, data: { isActive: false } });
+          signalLocked();
+          await released;
+        },
+        { timeout: 20_000 },
+      );
+      await lockTaken;
+
+      let settled = false;
+      const patch = api()
+        .patch(`${url}/${won.id}`)
+        .set(admin())
+        .send({ isActive: false })
+        .then((response) => {
+          settled = true;
+          return response;
+        });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      // Sin bloqueo la petición ya habría terminado (y con 200: vería dos WON activas).
+      expect(settled).toBe(false);
+
+      release();
+      await holder;
+      const response = await patch;
+      expect(response.status).toBe(409);
+      expect(response.body).toMatchObject({ code: 'CATALOG_INVARIANT', details: [expect.objectContaining({ reason: 'invariant' })] });
+    } finally {
+      release();
+      await ctx.prisma.catalogItem.update({ where: { id: won.id }, data: { isActive: true } });
+      await ctx.prisma.catalogItem.delete({ where: { id: secondId } });
+    }
+  });
+
   it('409 closed_set al crear o desactivar en crm.resultado_oportunidad; la etiqueta sí cambia (AC-07.22)', async () => {
     const results = await crmCatalog('crm.resultado_oportunidad');
     const url = `/api/v1/catalogs/${results.id}/items`;

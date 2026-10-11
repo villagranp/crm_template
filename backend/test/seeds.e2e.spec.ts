@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 
 import { CRM_PERMISSIONS } from '../prisma/seed/crm-access';
-import { evaluateDemoGuards } from '../prisma/seed/demo/demo-guard';
+import { evaluateDemoGuards, resolveDemoPassword } from '../prisma/seed/demo/demo-guard';
 
 import { INTEGRATION_SCHEMA, integrationDatabaseUrl } from './support/integration-database';
 import { INTEGRATION_ENV } from './support/integration-env';
@@ -195,6 +195,15 @@ describe('semilla de demostración (00 §8.1, §8.3)', () => {
     expect(evaluateDemoGuards({ ...ok, parameterValue: null })).toHaveLength(1);
   });
 
+  it('la contraseña demo sale SOLO de SEED_DEMO_PASSWORD (sin caer a AUTH_DEFAULT_PASSWORD)', () => {
+    expect(resolveDemoPassword({ SEED_DEMO_PASSWORD: 'demo-inicial' })).toBe('demo-inicial');
+    expect(resolveDemoPassword({})).toBeUndefined();
+    expect(resolveDemoPassword({ SEED_DEMO_PASSWORD: '  ' })).toBeUndefined();
+    expect(resolveDemoPassword({ SEED_DEMO_PASSWORD: 'demo-inicial', AUTH_PROVIDER: 'entra' })).toBeUndefined();
+    // Aunque el proceso tenga AUTH_DEFAULT_PASSWORD (como en estas pruebas), no se usa.
+    expect(resolveDemoPassword({ ...process.env, ...INTEGRATION_ENV, SEED_DEMO_PASSWORD: '' })).toBeUndefined();
+  });
+
   it('se niega en producción, sin SEED_DEMO o con el parámetro en false, sin escribir nada', async () => {
     const before = await counts();
 
@@ -211,6 +220,34 @@ describe('semilla de demostración (00 §8.1, §8.3)', () => {
     expect(production.output).toContain('NODE_ENV=production');
 
     expect(await counts()).toEqual(before);
+  });
+
+  it('sin SEED_DEMO_PASSWORD las cuentas demo quedan INVITED aunque exista AUTH_DEFAULT_PASSWORD; habilita importaciones con auditoría', async () => {
+    const parameterAudit = { event: 'parameter.updated', resourceId: 'crm.importaciones.habilitada' };
+    expect(await prisma.auditLog.count({ where: parameterAudit })).toBe(0);
+
+    const result = run('prisma/seed-demo.ts', { SEED_DEMO: 'true' });
+    expect(result.status).toBe(0);
+    expect(result.output).toContain('INVITED sin credencial');
+
+    const demoUsers = await prisma.user.findMany({
+      where: { emailNormalized: { endsWith: '@demo.invalid' } },
+      select: { status: true, credential: { select: { id: true } } },
+    });
+    expect(demoUsers).toHaveLength(8);
+    expect(demoUsers.every((entry) => entry.status === 'INVITED' && entry.credential === null)).toBe(true);
+
+    expect((await prisma.systemParameter.findUniqueOrThrow({ where: { key: 'crm.importaciones.habilitada' } })).value).toBe('true');
+    const entries = await prisma.auditLog.findMany({ where: parameterAudit });
+    expect(entries).toEqual([
+      expect.objectContaining({
+        correlationId: 'seed-demo',
+        subjectId: null,
+        resourceType: 'system_parameter',
+        changes: { value: { before: 'false', after: 'true' } },
+        metadata: { source: 'demo-seed' },
+      }),
+    ]);
   });
 
   it('carga datos coherentes que cubren todos los estados y es idempotente', async () => {
@@ -263,14 +300,66 @@ describe('semilla de demostración (00 §8.1, §8.3)', () => {
     const second = run('prisma/seed-demo.ts', { SEED_DEMO: 'true', SEED_DEMO_PASSWORD: 'demo-inicial-pruebas' });
     expect(second.status).toBe(0);
     expect(await counts()).toEqual(afterFirst);
+    // El parámetro ya estaba en true: ni se reescribe ni se vuelve a auditar.
+    expect(await prisma.auditLog.count({ where: { event: 'parameter.updated', resourceId: 'crm.importaciones.habilitada' } })).toBe(1);
   });
 
-  it('--purge borra solo lo marcado como demo', async () => {
+  it('--purge se niega, sin borrar nada ni mostrar datos personales, si un registro ajeno a la demo usa un usuario demo', async () => {
+    const demoOwner = await prisma.user.findFirstOrThrow({ where: { emailNormalized: { endsWith: '@demo.invalid' } } });
+    const blocking = await prisma.customer.create({ data: await realCustomerData(demoOwner.id) });
+    try {
+      const before = await counts();
+
+      const purge = run('prisma/seed-demo.ts', { SEED_DEMO: 'true' }, ['--purge']);
+      expect(purge.status).not.toBe(0);
+      expect(purge.output).toContain('RECHAZADA');
+      expect(purge.output).toContain('customers.sales_owner_id: 1');
+      expect(purge.output).not.toContain(demoOwner.email);
+      expect(purge.output).not.toContain(demoOwner.id);
+      expect(purge.output).not.toMatch(/violates|P2003|foreign key/i);
+      expect(await counts()).toEqual(before);
+    } finally {
+      await prisma.customer.delete({ where: { id: blocking.id } });
+    }
+  });
+
+  it('--purge borra solo lo marcado como demo: cliente, equipo y producto reales sobreviven', async () => {
+    const admin = await prisma.user.findFirstOrThrow({ where: { emailNormalized: { not: { endsWith: '@demo.invalid' } } } });
+    const unit = await prisma.unitOfMeasure.findFirstOrThrow({ where: { code: 'TON' } });
+    const family = await prisma.productFamily.create({ data: { code: 'REAL-FAM', name: 'Familia real' } });
+    const product = await prisma.product.create({ data: { sku: 'REAL-SKU-1', description: 'Producto real', familyId: family.id, baseUnitId: unit.id } });
+    const team = await prisma.team.create({ data: { code: 'REAL-TEAM', name: 'Equipo real', managerId: admin.id } });
+    const customer = await prisma.customer.create({ data: await realCustomerData(admin.id) });
+
     const purge = run('prisma/seed-demo.ts', { SEED_DEMO: 'true' }, ['--purge']);
     expect(purge.status).toBe(0);
 
     const after = await counts();
-    expect(after).toMatchObject({ customers: 0, projects: 0, visits: 0, activities: 0, products: 0, teams: 0, exchangeRates: 0, conversionRules: 4, users: 1 });
+    expect(after).toMatchObject({
+      customers: 1, projects: 0, visits: 0, activities: 0, products: 1, families: 1, teams: 1, exchangeRates: 0, conversionRules: 4, users: 1,
+    });
     expect(after.permissions).toBeGreaterThan(70);
+    expect(await prisma.customer.findUnique({ where: { id: customer.id } })).not.toBeNull();
+    expect(await prisma.team.findUnique({ where: { id: team.id } })).not.toBeNull();
+    expect(await prisma.product.findUnique({ where: { id: product.id } })).not.toBeNull();
+    expect(await prisma.productFamily.findUnique({ where: { id: family.id } })).not.toBeNull();
+    // --purge no revierte el parámetro que habilitó la demo (documentado).
+    expect((await prisma.systemParameter.findUniqueOrThrow({ where: { key: 'crm.importaciones.habilitada' } })).value).toBe('true');
   });
 });
+
+/** Cliente que NO es de demostración (sin prefijo DEMO-), con los maestros que exige la base. */
+async function realCustomerData(salesOwnerId: string) {
+  const [country, status] = await Promise.all([
+    prisma.country.findFirstOrThrow({ where: { isoCode: 'GT' } }),
+    prisma.catalogItem.findFirstOrThrow({ where: { catalog: { key: 'crm.estado_cliente' }, isActive: true } }),
+  ]);
+  return {
+    crmCode: `REAL-${Date.now()}`,
+    legalName: 'Cliente real de prueba',
+    legalNameNormalized: 'cliente real de prueba',
+    countryId: country.id,
+    statusId: status.id,
+    salesOwnerId,
+  };
+}

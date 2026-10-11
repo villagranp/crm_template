@@ -36,3 +36,22 @@ export function evaluateDemoGuards(input: DemoGuardInput): string[] {
 
   return failures;
 }
+
+export interface DemoPasswordEnv {
+  SEED_DEMO_PASSWORD?: string;
+  AUTH_PROVIDER?: string;
+}
+
+/**
+ * Contraseña inicial de los usuarios demo: SOLO `SEED_DEMO_PASSWORD`. No cae a
+ * `AUTH_DEFAULT_PASSWORD` (esa es la de las altas reales): sin la variable
+ * explícita, o con `AUTH_PROVIDER=entra`, devuelve `undefined` y las cuentas
+ * demo quedan `INVITED` sin credencial.
+ */
+export function resolveDemoPassword(env: DemoPasswordEnv): string | undefined {
+  if (env.AUTH_PROVIDER === 'entra') {
+    return undefined;
+  }
+  const password = env.SEED_DEMO_PASSWORD;
+  return password && password.trim().length > 0 ? password : undefined;
+}

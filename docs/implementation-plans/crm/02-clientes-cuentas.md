@@ -1310,7 +1310,7 @@ integración en `backend/test/<x>.e2e.spec.ts`; frontend por área como `feature
 | `backend/src/modules/catalogs/ports/catalog-reference.port.ts`, `backend/src/modules/catalogs/catalog-reference.validator.ts` (+ `.spec.ts`) | 00 §3.5; `CatalogsModule` lo exporta |
 | `backend/src/modules/catalogs/catalog-semantics.registry.ts` | 00 §3.3 (Fase 0) |
 | `backend/src/modules/access/ports/visibility-scope.port.ts`, `backend/src/modules/access/visibility-scope.resolver.ts` (+ `.spec.ts`) | 00 §4.2; `AccessModule` lo exporta |
-| `backend/src/modules/parameters/parameter-reader.ts` (+ `.spec.ts`) | Lectura tipada por clave; `ParametersModule` la exporta |
+| `backend/src/modules/parameters/parameter-reader.ts` (+ `.spec.ts`) | Lectura tipada por clave; la exporta `ParametersCoreModule` (global, `parameters-core.module.ts`): no hace falta importar `ParametersModule` |
 | `backend/src/modules/attachments/attachments.module.ts`, `attachments.service.ts` (+ `.spec.ts`), `attachment-policy.ts` (+ `.spec.ts`), `ports/attachments.repository.port.ts` | Servicio transversal de adjuntos (límites de `crm.adjuntos.*`, nombre saneado, alta/baja coordinada de fila y binario) |
 | `backend/src/modules/attachments/attachment-content-type.ts` (+ `.spec.ts`) | Detección del tipo por firma (PDF, JPEG, PNG; DOCX y XLSX como ZIP con `[Content_Types].xml` y su parte principal) y cotejo con extensión y lista blanca (RN-02.29) |
 | `backend/src/infrastructure/storage/file-storage.port.ts` | `FILE_STORAGE`: `save`, `openRead`, `delete` (00 §2.11, ADR-021) |

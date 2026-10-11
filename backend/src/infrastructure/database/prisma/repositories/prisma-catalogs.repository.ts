@@ -10,15 +10,23 @@ import type {
   CatalogRecord,
   CatalogsRepository,
   CreateCatalogInput,
-  CreateCatalogItemInput,
   ListCatalogsFilter,
+  LockedCatalogScope,
   UpdateCatalogInput,
-  UpdateCatalogItemInput,
 } from '@/modules/catalogs/ports/catalogs.repository.port';
 
 import { PrismaService } from '../prisma.service';
 
 const UNIQUE_VIOLATION = 'P2002';
+/**
+ * Espera máxima por el bloqueo del catálogo y duración máxima de la unidad de
+ * trabajo. La escritura de un elemento son unas pocas sentencias: si se agota,
+ * algo va mal y es mejor fallar que retener el bloqueo.
+ */
+const LOCKED_TRANSACTION_OPTIONS = { maxWait: 5_000, timeout: 10_000 } as const;
+
+/** Cliente sobre el que se lee: el normal o el de una transacción. */
+type Db = Prisma.TransactionClient;
 
 const CATALOG_SELECT = {
   id: true,
@@ -83,6 +91,43 @@ function conflictOnUnique(error: unknown, field: string, message: string): never
   throw error;
 }
 
+async function loadCatalogDetail(db: Db, where: Prisma.CatalogWhereUniqueInput): Promise<CatalogDetailRecord | null> {
+  const row = await db.catalog.findUnique({
+    where,
+    select: { ...CATALOG_SELECT, items: { select: ITEM_SELECT, orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }] } },
+  });
+  if (!row) {
+    return null;
+  }
+  const items = row.items.map(toItemRecord);
+  return { ...toCatalogRecord(row, items.filter((item) => item.isActive).length), items };
+}
+
+function lockedScope(tx: Db, catalog: CatalogDetailRecord): LockedCatalogScope {
+  return {
+    catalog,
+    async createItem(input) {
+      try {
+        const row = await tx.catalogItem.create({
+          data: { ...input, catalogId: catalog.id, metadata: toJsonInput(input.metadata) },
+          select: ITEM_SELECT,
+        });
+        return toItemRecord(row);
+      } catch (error) {
+        return conflictOnUnique(error, 'code', 'An item with this code already exists in the catalog');
+      }
+    },
+    async updateItem(itemId, input) {
+      const row = await tx.catalogItem.update({
+        where: { id: itemId, catalogId: catalog.id },
+        data: { ...input, metadata: toJsonInput(input.metadata) },
+        select: ITEM_SELECT,
+      });
+      return toItemRecord(row);
+    },
+  };
+}
+
 /**
  * Adaptador Prisma de catálogos (ADR-004). Sin reglas de negocio. No expone
  * borrado de elementos: los elementos solo se desactivan (D9).
@@ -125,16 +170,12 @@ export class PrismaCatalogsRepository implements CatalogsRepository {
     );
   }
 
-  async findById(catalogId: string): Promise<CatalogDetailRecord | null> {
-    const row = await this.prisma.catalog.findUnique({
-      where: { id: catalogId },
-      select: { ...CATALOG_SELECT, items: { select: ITEM_SELECT, orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }] } },
-    });
-    if (!row) {
-      return null;
-    }
-    const items = row.items.map(toItemRecord);
-    return { ...toCatalogRecord(row, items.filter((item) => item.isActive).length), items };
+  findById(catalogId: string): Promise<CatalogDetailRecord | null> {
+    return loadCatalogDetail(this.prisma, { id: catalogId });
+  }
+
+  findByKey(key: string): Promise<CatalogDetailRecord | null> {
+    return loadCatalogDetail(this.prisma, { key });
   }
 
   async existsByKey(key: string): Promise<boolean> {
@@ -164,39 +205,20 @@ export class PrismaCatalogsRepository implements CatalogsRepository {
     await this.prisma.catalog.deleteMany({ where: { id: catalogId, items: { none: {} } } });
   }
 
-  async findItem(catalogId: string, itemId: string): Promise<CatalogItemRecord | null> {
-    const row = await this.prisma.catalogItem.findFirst({ where: { id: itemId, catalogId }, select: ITEM_SELECT });
-    return row ? toItemRecord(row) : null;
-  }
-
-  async existsItemCode(catalogId: string, code: string): Promise<boolean> {
-    return (await this.prisma.catalogItem.count({ where: { catalogId, code } })) > 0;
-  }
-
-  async maxItemSortOrder(catalogId: string): Promise<number | null> {
-    const result = await this.prisma.catalogItem.aggregate({ where: { catalogId }, _max: { sortOrder: true } });
-    return result._max.sortOrder;
-  }
-
-  async createItem(input: CreateCatalogItemInput): Promise<CatalogItemRecord> {
-    try {
-      const row = await this.prisma.catalogItem.create({
-        data: { ...input, metadata: toJsonInput(input.metadata) },
-        select: ITEM_SELECT,
-      });
-      return toItemRecord(row);
-    } catch (error) {
-      return conflictOnUnique(error, 'code', 'An item with this code already exists in the catalog');
-    }
-  }
-
-  async updateItem(itemId: string, input: UpdateCatalogItemInput): Promise<CatalogItemRecord> {
-    const row = await this.prisma.catalogItem.update({
-      where: { id: itemId },
-      data: { ...input, metadata: toJsonInput(input.metadata) },
-      select: ITEM_SELECT,
-    });
-    return toItemRecord(row);
+  async withLockedCatalog<T>(catalogId: string, work: (scope: LockedCatalogScope) => Promise<T>): Promise<T | null> {
+    return this.prisma.$transaction(async (tx) => {
+      // Bloqueo de fila: serializa las escrituras de elementos del mismo catálogo
+      // hasta el COMMIT. Los lectores no se bloquean (MVCC).
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM catalogs WHERE id = ${catalogId}::uuid FOR UPDATE`;
+      if (locked.length === 0) {
+        return null;
+      }
+      const catalog = await loadCatalogDetail(tx, { id: catalogId });
+      if (!catalog) {
+        return null;
+      }
+      return work(lockedScope(tx, catalog));
+    }, LOCKED_TRANSACTION_OPTIONS);
   }
 
   private async activeItemCounts(catalogIds: string[]): Promise<Map<string, number>> {

@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import {
   CATALOG_SEMANTICS,
   invariantViolations,
@@ -47,6 +50,19 @@ describe('registro de semántica de catálogos', () => {
     const closed = [...CATALOG_SEMANTICS.values()].filter((entry) => entry.closedSet);
     expect(closed.map((entry) => entry.key)).toEqual(['crm.resultado_oportunidad']);
     expect(closed[0]?.closedCodes).toEqual(['WON', 'LOST', 'PARTIAL']);
+  });
+
+  it('los códigos del conjunto cerrado son exactamente los valores del enum OpportunityOutcome de la base', () => {
+    // Se lee el esquema como texto: la capa de aplicación no importa @prisma/client (CLAUDE.md §8.2).
+    const schema = readFileSync(resolve(__dirname, '../../../prisma/schema.prisma'), 'utf-8');
+    const body = /enum OpportunityOutcome \{([^}]*)\}/.exec(schema)?.[1] ?? '';
+    const values = body
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => /^[A-Z_]+$/.test(line));
+
+    expect(values.length).toBeGreaterThan(0);
+    expect(semanticsFor('crm.resultado_oportunidad')?.closedCodes).toEqual(values);
   });
 
   it('un catálogo que no es crm.* no tiene semántica', () => {

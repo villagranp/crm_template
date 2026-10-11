@@ -121,13 +121,27 @@ SEED_DEMO=true pnpm --filter @app/backend run prisma:seed:demo
 SEED_DEMO=true pnpm --filter @app/backend run prisma:seed:demo -- --purge   # borra solo lo marcado DEMO
 ```
 
-Contraseña de los usuarios demo: `SEED_DEMO_PASSWORD` (o `AUTH_DEFAULT_PASSWORD`),
-con cambio obligatorio en el primer acceso; sin ninguna, quedan `INVITED`. Todo
-dato demo está marcado (códigos `DEMO-…`, correos `@demo.invalid`, `[DEMO]` en
-reglas y metas, fuente `DEMO …` en tipos de cambio) y no consume las secuencias
-reales. Re-ejecutarla no duplica: equipos, usuarios y maestros se actualizan; los
-datos comerciales demo se recrean con fechas relativas a hoy (forecast M+1…M+6,
-vencidas, próximas). También activa `crm.importaciones.habilitada` (06 D-06.9).
+Contraseña de los usuarios demo: **solo** `SEED_DEMO_PASSWORD` (en tu `.env`, nunca
+en el repositorio), con cambio obligatorio en el primer acceso. No se usa
+`AUTH_DEFAULT_PASSWORD`: sin `SEED_DEMO_PASSWORD` las cuentas demo quedan
+`INVITED` sin credencial (si la defines después y vuelves a sembrar, se crea la
+credencial; nunca se pisa una existente). Todo dato demo está marcado (códigos
+`DEMO-…`, correos `@demo.invalid`, `[DEMO]` en reglas y metas, fuente `DEMO …` en
+tipos de cambio) y no consume las secuencias reales. Re-ejecutarla no duplica:
+equipos, usuarios y maestros se actualizan; los datos comerciales demo se recrean
+con fechas relativas a hoy (forecast M+1…M+6, vencidas, próximas).
+
+- **`crm.importaciones.habilitada`** (06 D-06.9): la demo lo pone en `true` solo si
+  tenía otro valor, y deja en la bitácora un `parameter.updated` sin actor
+  (`correlationId = seed-demo`, `metadata.source = demo-seed`). `--purge` **no** lo
+  revierte: vuelve a `false` a mano en Administración → Parámetros si hace falta.
+- **`--purge`** borra solo lo marcado demo. Si un registro que **no** es de la demo
+  referencia a un usuario `@demo.invalid` (p. ej. un cliente real con un asesor
+  demo como responsable), se niega con código 1, no borra nada y lista las tablas
+  y columnas afectadas con su conteo (sin datos personales). Reasigna o elimina
+  esos registros y repite.
+- **Adjuntos demo** (00 §8.3): aplazados hasta que existan el adaptador
+  `FileStorage` y `ATTACHMENTS_STORAGE_PATH` (Módulo 2, ADR-021).
 
 Ninguna tabla se crea a mano. Toda migración es reversible o documenta su irreversibilidad.
 

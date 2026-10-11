@@ -306,10 +306,36 @@ Todo ello está probado contra PostgreSQL en `backend/test/crm-schema.e2e.spec.t
 
 El SQL de tablas, índices y FK lo generó `prisma migrate diff`; los CHECK, la
 vista y el `RENAME VALUE` se escribieron a mano. Prisma no genera *down*: cada
-migración tiene su inverso en `backend/prisma/rollbacks/<migración>.down.sql`,
-que se aplica en **orden inverso** (vista primero, `RENAME VALUE` al final) y
-se marca con `prisma migrate resolve --rolled-back <migración>`. Verificado:
-aplicar las ocho y revertirlas deja el esquema idéntico al anterior.
+migración tiene su inverso en `backend/prisma/rollbacks/<migración>.down.sql`.
+
+**Procedimiento de rollback** (desde `backend/`, con `DATABASE_URL` apuntando a
+la base y esquema que se revierten; respaldo previo obligatorio si hay datos
+reales, ver aviso abajo). Para revertir hasta la migración N, por cada
+migración de la **más reciente a la N, en orden inverso** (vista primero,
+`RENAME VALUE` al final):
+
+```bash
+# 1. Aplicar el script inverso
+pnpm exec prisma db execute --file prisma/rollbacks/<migración>.down.sql --schema prisma/schema.prisma
+# 2. Retirar la migración del historial de Prisma
+pnpm exec prisma db execute --stdin --schema prisma/schema.prisma <<'SQL'
+DELETE FROM "_prisma_migrations" WHERE migration_name = '<migración>';
+SQL
+```
+
+Después se despliega el código anterior (DTOs y frontend incluidos: el enum
+`data_scope` es parte del contrato). Un `prisma migrate deploy` posterior vuelve
+a aplicar lo retirado.
+
+> `prisma migrate resolve --rolled-back <migración>` **no sirve** aquí: solo
+> acepta migraciones en estado *fallido* y, con una aplicada, responde `P3012`
+> (comprobado con Prisma 6.19). Por eso el paso 2 borra la fila del historial.
+
+Verificado por `backend/test/crm-rollbacks.e2e.spec.ts`: en un esquema propio
+aplica las ocho, ejecuta los ocho `.down.sql` en orden inverso con
+`prisma db execute`, retira sus filas y comprueba que no queda ninguna tabla ni
+la vista del CRM, que `data_scope` vuelve a `TERRITORY` y que `users` pierde
+`employee_code` y `country_id`; después `migrate deploy` las aplica de nuevo.
 
 > **Revertir los pasos 2–8 borra datos comerciales.** Mientras no haya datos
 > del CRM es inocuo; tras el primer uso real queda **prohibido sin respaldo

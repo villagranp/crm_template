@@ -21,6 +21,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
     `sistema.permite_datos_demo=true`. Datos ficticios marcados `DEMO-` que cubren
     todos los estados de §8.3; idempotente y purgable (`--purge`).
   - Variables `SEED_DEMO` y `SEED_DEMO_PASSWORD` en `.env.example` (vacías).
+  - Adjuntos demo de 00 §8.3 **aplazados** hasta que existan `FileStorage` y
+    `ATTACHMENTS_STORAGE_PATH` (Módulo 2, ADR-021).
   - Pruebas de integración de ambas semillas (`backend/test/seeds.e2e.spec.ts`).
 - **CRM Fase 0 — protecciones transversales**:
   - Registro de semántica de catálogos (`catalog-semantics.registry.ts`) para los
@@ -49,6 +51,28 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 - Pruebas de integración del esquema CRM (`backend/test/crm-schema.e2e.spec.ts`).
 
 ### Changed
+- Catálogos: el alta y la edición de elementos validan y escriben dentro de una
+  transacción que bloquea la fila del catálogo (`SELECT … FOR UPDATE`). Dos
+  cambios simultáneos ya no pueden romper un invariante ni duplicar una etiqueta
+  (p. ej. desactivar a la vez las dos únicas etapas `WON`: la segunda recibe
+  `409 CATALOG_INVARIANT`). Sin cambios de contrato.
+- Catálogos y parámetros sin dependencia circular: RN-07.26 usa el puerto neutral
+  `ParameterCatalogReferences` (`common/ports`), implementado en el nuevo
+  `ParametersCoreModule` (global), que es el único enlace del repositorio de
+  parámetros. `CatalogLookupService` busca por clave exacta.
+- Semilla de demostración:
+  - La contraseña de los usuarios demo sale **solo** de `SEED_DEMO_PASSWORD`; ya no
+    cae a `AUTH_DEFAULT_PASSWORD`. Sin ella, las cuentas quedan `INVITED`.
+  - `crm.importaciones.habilitada` solo se cambia si no era `true`, y queda en la
+    bitácora (`parameter.updated`, `metadata.source = demo-seed`). `--purge` no lo
+    revierte.
+  - `--purge` se niega, sin borrar nada, si un registro ajeno a la demo referencia
+    a un usuario `@demo.invalid`, y lista tablas/columnas con su conteo.
+- Procedimiento de rollback de las migraciones del CRM corregido
+  (`docs/database/data-model.md` §10.3 y cabecera de cada `.down.sql`): tras cada
+  `.down.sql` se borra su fila de `_prisma_migrations`, porque
+  `prisma migrate resolve --rolled-back` solo acepta migraciones fallidas (P3012).
+  Nueva prueba `backend/test/crm-rollbacks.e2e.spec.ts`.
 - **Contrato:** los errores de validación de DTO responden `400` con código
   `VALIDATION_FAILED` (antes `BAD_REQUEST`) y `details: [{field, issue}]`, sin
   eco del valor recibido. Otros `400` (p. ej. UUID inválido en la ruta) siguen

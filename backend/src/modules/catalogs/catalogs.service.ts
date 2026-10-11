@@ -1,10 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 
 import { BusinessRuleViolationError, ResourceConflictError, ResourceNotFoundError } from '@/common/errors/application-error';
+import {
+  PARAMETER_CATALOG_REFERENCES,
+  type ParameterCatalogReferences,
+} from '@/common/ports/parameter-catalog-references.port';
 import type { Page } from '@/infrastructure/database/ports/pagination';
 import { type AuditContext, AuditService } from '@/modules/audit/audit.service';
-import { applyRule, catalogReferencesOf, rulesReferencingCatalog } from '@/modules/parameters/parameter-rules.registry';
-import { PARAMETERS_REPOSITORY, type ParametersRepository } from '@/modules/parameters/ports/parameters.repository.port';
 
 import {
   type CatalogSemantics,
@@ -23,6 +25,7 @@ import {
   type CatalogsRepository,
   type CreateCatalogInput,
   type ListCatalogsFilter,
+  type LockedCatalogScope,
   type UpdateCatalogInput,
   type UpdateCatalogItemInput,
 } from './ports/catalogs.repository.port';
@@ -90,6 +93,11 @@ function itemAuditState(item: CatalogItemRecord): Record<string, unknown> {
  *   `reason = invariant | closed_set`); no se desactiva un código que usa un
  *   parámetro del CRM (`reason = referenced_by_parameter`, RN-07.26). El resto de
  *   catálogos no tiene esquema ni invariantes (RN-07.28).
+ * - Atomicidad: alta y edición de elementos corren en
+ *   `repository.withLockedCatalog`, que bloquea la fila del catálogo y relee sus
+ *   elementos. Las comprobaciones (duplicados, invariantes) y la escritura no
+ *   tienen carrera: dos desactivaciones simultáneas de las dos únicas etapas WON
+ *   se serializan y la segunda recibe `409 CATALOG_INVARIANT`.
  *
  * Toda mutación deja registro en la bitácora (D11).
  */
@@ -98,7 +106,7 @@ export class CatalogsService {
   constructor(
     @Inject(CATALOGS_REPOSITORY) private readonly repository: CatalogsRepository,
     private readonly audit: AuditService,
-    @Inject(PARAMETERS_REPOSITORY) private readonly parameters: ParametersRepository,
+    @Inject(PARAMETER_CATALOG_REFERENCES) private readonly parameterReferences: ParameterCatalogReferences,
   ) {}
 
   list(filter: ListCatalogsFilter): Promise<Page<CatalogRecord>> {
@@ -178,37 +186,10 @@ export class CatalogsService {
   }
 
   async createItem(catalogId: string, command: CreateItemCommand, context: AuditContext): Promise<CatalogItemRecord> {
-    const catalog = await this.findById(catalogId);
-    const semantics = semanticsFor(catalog.key);
-
-    if (semantics?.closedSet) {
-      throw this.invariantError(catalog.key, 'closed_set', ['Conjunto cerrado: no se crean elementos']);
+    const item = await this.repository.withLockedCatalog(catalogId, (scope) => this.createItemLocked(scope, command));
+    if (!item) {
+      throw new ResourceNotFoundError('Catalog', catalogId);
     }
-    if (await this.repository.existsItemCode(catalogId, command.code)) {
-      throw new ResourceConflictError('An item with this code already exists in the catalog', [
-        { field: 'code', issue: 'duplicated' },
-      ]);
-    }
-    this.assertLabelAvailable(catalog, command.label);
-
-    if (semantics) {
-      this.assertMetadata(semantics, command.metadata);
-      this.assertSemanticChange(semantics, catalog.items, null, {
-        code: command.code,
-        isActive: command.isActive,
-        metadata: command.metadata,
-      });
-    }
-
-    const sortOrder = command.sortOrder ?? ((await this.repository.maxItemSortOrder(catalogId)) ?? 0) + SORT_ORDER_STEP;
-    const item = await this.repository.createItem({
-      catalogId,
-      code: command.code,
-      label: command.label,
-      metadata: command.metadata,
-      sortOrder,
-      isActive: command.isActive,
-    });
 
     await this.audit.record('catalog_item.created', context, {
       resourceType: 'catalog_item',
@@ -226,11 +207,71 @@ export class CatalogsService {
     input: UpdateCatalogItemInput,
     context: AuditContext,
   ): Promise<CatalogItemRecord> {
-    const current = await this.repository.findItem(catalogId, itemId);
+    const result = await this.repository.withLockedCatalog(catalogId, (scope) => this.updateItemLocked(scope, itemId, input));
+    // Catálogo inexistente: el elemento tampoco pertenece a él (mismo 404 que antes).
+    if (!result) {
+      throw new ResourceNotFoundError('CatalogItem', itemId);
+    }
+
+    await this.audit.record('catalog_item.updated', context, {
+      resourceType: 'catalog_item',
+      resourceId: itemId,
+      before: itemAuditState(result.before),
+      after: itemAuditState(result.after),
+      metadata: { catalogId },
+    });
+    return result.after;
+  }
+
+  /** Dentro del bloqueo: `scope.catalog` es el estado confirmado más reciente. */
+  private async createItemLocked(scope: LockedCatalogScope, command: CreateItemCommand): Promise<CatalogItemRecord> {
+    const { catalog } = scope;
+    const semantics = semanticsFor(catalog.key);
+
+    if (semantics?.closedSet) {
+      throw this.invariantError(catalog.key, 'closed_set', [
+        `Conjunto cerrado (${(semantics.closedCodes ?? []).join(', ')}): no se crean elementos`,
+      ]);
+    }
+    if (catalog.items.some((existing) => existing.code === command.code)) {
+      throw new ResourceConflictError('An item with this code already exists in the catalog', [
+        { field: 'code', issue: 'duplicated' },
+      ]);
+    }
+    this.assertLabelAvailable(catalog, command.label);
+
+    if (semantics) {
+      this.assertMetadata(semantics, command.metadata);
+      this.assertSemanticChange(semantics, catalog.items, null, {
+        code: command.code,
+        isActive: command.isActive,
+        metadata: command.metadata,
+      });
+    }
+
+    const maxSortOrder = catalog.items.reduce<number | null>(
+      (max, existing) => (max === null || existing.sortOrder > max ? existing.sortOrder : max),
+      null,
+    );
+    return scope.createItem({
+      code: command.code,
+      label: command.label,
+      metadata: command.metadata,
+      sortOrder: command.sortOrder ?? (maxSortOrder ?? 0) + SORT_ORDER_STEP,
+      isActive: command.isActive,
+    });
+  }
+
+  private async updateItemLocked(
+    scope: LockedCatalogScope,
+    itemId: string,
+    input: UpdateCatalogItemInput,
+  ): Promise<{ before: CatalogItemRecord; after: CatalogItemRecord }> {
+    const { catalog } = scope;
+    const current = catalog.items.find((existing) => existing.id === itemId);
     if (!current) {
       throw new ResourceNotFoundError('CatalogItem', itemId);
     }
-    const catalog = await this.findById(catalogId);
     const semantics = semanticsFor(catalog.key);
 
     if (input.label !== undefined && normalizeLabel(input.label) !== normalizeLabel(current.label)) {
@@ -241,16 +282,7 @@ export class CatalogsService {
       await this.assertSemanticUpdate(semantics, catalog, current, input);
     }
 
-    const updated = await this.repository.updateItem(itemId, input);
-
-    await this.audit.record('catalog_item.updated', context, {
-      resourceType: 'catalog_item',
-      resourceId: itemId,
-      before: itemAuditState(current),
-      after: itemAuditState(updated),
-      metadata: { catalogId },
-    });
-    return updated;
+    return { before: current, after: await scope.updateItem(itemId, input) };
   }
 
   private async assertSemanticUpdate(
@@ -342,17 +374,7 @@ export class CatalogsService {
 
   /** RN-07.26: no se desactiva un código que usa un parámetro del CRM (D-07.6). */
   private async assertNotReferencedByParameters(catalogKey: string, code: string): Promise<void> {
-    const keys: string[] = [];
-    for (const rule of rulesReferencingCatalog(catalogKey)) {
-      const parameter = await this.parameters.findByKey(rule.key);
-      if (!parameter) continue;
-      const result = applyRule(rule, parameter.value);
-      if (!result.ok) continue;
-      const used = catalogReferencesOf(rule, result.value).some(
-        (reference) => reference.catalogKey === catalogKey && reference.code === code,
-      );
-      if (used) keys.push(rule.key);
-    }
+    const keys = await this.parameterReferences.parameterKeysUsing(catalogKey, code);
     if (keys.length > 0) {
       throw new ResourceConflictError(
         'The item code is used by a system parameter: change the parameter first',

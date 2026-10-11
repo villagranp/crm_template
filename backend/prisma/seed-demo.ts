@@ -13,18 +13,35 @@
  *      esencial lo crea con false; se activa a mano en Administración → Parámetros).
  *   4. Este script no se referencia desde `package.json#prisma.seed`, pipelines ni Dockerfile.
  *
- * Contraseña de los usuarios demo: `SEED_DEMO_PASSWORD` (o, si falta,
- * `AUTH_DEFAULT_PASSWORD`), con cambio obligatorio en el primer acceso. Sin
- * ninguna, las cuentas quedan INVITED sin credencial. Nunca se pisa una
- * credencial existente. Con AUTH_PROVIDER=entra no se crean credenciales locales.
+ * Contraseña de los usuarios demo: SOLO `SEED_DEMO_PASSWORD` (sin caída a
+ * `AUTH_DEFAULT_PASSWORD`), con cambio obligatorio en el primer acceso. Sin ella,
+ * las cuentas quedan INVITED sin credencial. Nunca se pisa una credencial
+ * existente. Con AUTH_PROVIDER=entra no se crean credenciales locales.
+ *
+ * Parámetro `crm.importaciones.habilitada` (06 D-06.9): la siembra lo pone en
+ * `true` solo si tenía otro valor, y deja en la bitácora un `parameter.updated`
+ * sin actor (`subjectId` nulo, `correlationId = seed-demo`) con
+ * `metadata.source = demo-seed`. `--purge` NO lo revierte: si hace falta, se
+ * vuelve a `false` en Administración → Parámetros.
+ *
+ * `--purge` borra solo lo marcado demo. Antes de borrar los usuarios
+ * `@demo.invalid` comprueba que ningún registro ajeno a la demo los referencie
+ * por una FK `Restrict` (p. ej. un cliente real asignado a un asesor demo). Si
+ * hay alguno, se niega con código 1, lista las tablas y columnas con su conteo
+ * (sin datos personales) y revierte la transacción: no se purga nada. Hay que
+ * reasignar o eliminar esos registros y repetir.
+ *
+ * Adjuntos demo (00 §8.3): APLAZADOS. Se sembrarán cuando existan el adaptador
+ * `FileStorage` y `ATTACHMENTS_STORAGE_PATH` (Módulo 2, ADR-021); hoy no hay
+ * dónde guardar el archivo.
  */
 import { PrismaClient } from '@prisma/client';
 
 import { PasswordService } from '../src/modules/auth/password.service';
 
 import { DEMO_USERS } from './seed/demo/demo-data';
-import { DEMO_PARAMETER_KEY, evaluateDemoGuards } from './seed/demo/demo-guard';
-import { purgeDemoCommercialData, purgeDemoMasters, seedDemo } from './seed/demo/demo-seeder';
+import { DEMO_PARAMETER_KEY, evaluateDemoGuards, resolveDemoPassword } from './seed/demo/demo-guard';
+import { DemoPurgeBlockedError, purgeDemoCommercialData, purgeDemoMasters, seedDemo } from './seed/demo/demo-seeder';
 
 for (const path of ['.env', '../.env']) {
   try {
@@ -38,8 +55,8 @@ const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 180_000 } as const;
 
 async function hashPasswords(): Promise<Map<string, string>> {
   const hashes = new Map<string, string>();
-  const password = process.env.SEED_DEMO_PASSWORD || process.env.AUTH_DEFAULT_PASSWORD || undefined;
-  if (!password || process.env.AUTH_PROVIDER === 'entra') {
+  const password = resolveDemoPassword(process.env);
+  if (!password) {
     return hashes;
   }
   const service = new PasswordService();
@@ -63,10 +80,17 @@ async function main(prisma: PrismaClient): Promise<void> {
   }
 
   if (process.argv.includes('--purge')) {
-    await prisma.$transaction(async (tx) => {
-      await purgeDemoCommercialData(tx);
-      await purgeDemoMasters(tx);
-    }, TRANSACTION_OPTIONS);
+    try {
+      await prisma.$transaction(async (tx) => {
+        await purgeDemoCommercialData(tx);
+        await purgeDemoMasters(tx);
+      }, TRANSACTION_OPTIONS);
+    } catch (error) {
+      if (!(error instanceof DemoPurgeBlockedError)) throw error;
+      process.stderr.write(`${error.message}\n`);
+      process.exitCode = 1;
+      return;
+    }
     process.stdout.write('Datos de demostración purgados.\n');
     return;
   }
