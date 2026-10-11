@@ -35,7 +35,7 @@ import { sectionLabelSx } from '@/theme/typography';
 const DATA_SCOPE_LABELS: Record<Profile['dataScope'], string> = {
   OWN: 'Propios',
   TEAM: 'Equipo',
-  TERRITORY: 'Territorio',
+  COUNTRY: 'País',
   ORGANIZATION: 'Organización',
 };
 

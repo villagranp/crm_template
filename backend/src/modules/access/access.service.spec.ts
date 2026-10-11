@@ -185,6 +185,11 @@ describe('widestScope', () => {
   it('devuelve OWN cuando el usuario no tiene roles', () => {
     expect(widestScope([])).toBe('OWN');
   });
+
+  it('COUNTRY (antes TERRITORY) queda entre TEAM y ORGANIZATION', () => {
+    expect(widestScope(['OWN', 'COUNTRY', 'TEAM'])).toBe('COUNTRY');
+    expect(widestScope(['COUNTRY', 'ORGANIZATION'])).toBe('ORGANIZATION');
+  });
 });
 
 describe('resolvePermissionOrigins (D5)', () => {

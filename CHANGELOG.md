@@ -5,6 +5,30 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 
 ## [Unreleased]
 
+### Added
+- **CRM Fase 0 — esquema y migraciones** (`docs/implementation-plans/crm/00-modelo-de-datos.md`):
+  monedas, tipos de cambio y países; unidades, familias, productos y reglas de
+  conversión; clientes y contactos; proyectos, oportunidades (estimación en USD
+  o moneda local con foto del tipo de cambio, ADR-024), resultados, historiales,
+  productos asociados y forecast; visitas, eventos, actividades y participantes;
+  adjuntos, importación de clientes y metas comerciales; vista
+  `crm_interactions_v`. Integridad en la base con FK compuestas y 56 `CHECK`.
+  Siete migraciones aditivas (`20261010100100…100700`), cada una con su script
+  inverso en `backend/prisma/rollbacks/`. Sin seeds ni endpoints del CRM todavía.
+- `users.employee_code` (único) y `users.country_id` (FK a `countries`), ambos
+  opcionales en la base.
+- Pruebas de integración del esquema CRM (`backend/test/crm-schema.e2e.spec.ts`).
+
+### Changed
+- **Contrato (rompe compatibilidad):** el alcance de datos `TERRITORY` pasa a
+  llamarse `COUNTRY` (`dataScope` en `/me`, `/roles` y `/users`; addendum de
+  2026-10-10 a ADR-018). Migración `20261010100000_crm_data_scope_country`
+  (`ALTER TYPE … RENAME VALUE`, sin pérdida de datos). En la interfaz se muestra
+  como "Su país" / "País". Ningún rol sembrado usaba `TERRITORY`.
+- Defaults de `users.locale` y `users.time_zone` para usuarios **nuevos**:
+  `es-GT` y `America/Guatemala` (antes `es-MX` y `America/Mexico_City`). Los
+  usuarios existentes conservan su valor.
+
 ## [0.2.0] - 2026-10-09
 
 ### Added

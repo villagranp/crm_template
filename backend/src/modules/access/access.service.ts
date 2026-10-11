@@ -61,7 +61,7 @@ export interface EffectiveAccessWithOrigins extends EffectiveAccess {
   origins: PermissionOrigin[];
 }
 
-const SCOPE_RANK: Record<DataScope, number> = { OWN: 0, TEAM: 1, TERRITORY: 2, ORGANIZATION: 3 };
+const SCOPE_RANK: Record<DataScope, number> = { OWN: 0, TEAM: 1, COUNTRY: 2, ORGANIZATION: 3 };
 
 /**
  * Resuelve qué puede hacer y qué puede ver un usuario.

@@ -131,7 +131,11 @@ En el frontend solo `VITE_*` — y **solo valores públicos**: todo lo que llega
 ## 13. Fechas
 
 - Transporte y almacenamiento: ISO 8601 en **UTC**.
-- Columnas: `timestamptz`.
+- Columnas: `timestamptz` para **instantes** (algo que ocurrió o está agendado a una hora).
+- **Fechas de calendario** sin hora (fecha de una oportunidad, inicio/fin estimados,
+  fecha de decisión, vigencia de un tipo de cambio): columna `date` (`@db.Date`) y
+  `YYYY-MM-DD` en la API. Un `timestamptz` las desplazaría de día según la zona
+  horaria (DM-31, `docs/implementation-plans/crm/00-modelo-de-datos.md` §2).
 - La conversión a zona horaria local ocurre en presentación.
 - Prohibido enviar `22/09/2026` desde la API.
 

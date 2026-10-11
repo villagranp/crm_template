@@ -45,5 +45,5 @@ export interface Profile {
   permissions: string[];
   teams: ProfileTeam[];
   /** Alcance de datos más amplio entre los roles del usuario. */
-  dataScope: 'OWN' | 'TEAM' | 'TERRITORY' | 'ORGANIZATION';
+  dataScope: 'OWN' | 'TEAM' | 'COUNTRY' | 'ORGANIZATION';
 }

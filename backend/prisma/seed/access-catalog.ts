@@ -59,7 +59,7 @@ export interface RoleSeed {
   code: string;
   name: string;
   description: string;
-  dataScope: 'OWN' | 'TEAM' | 'TERRITORY' | 'ORGANIZATION';
+  dataScope: 'OWN' | 'TEAM' | 'COUNTRY' | 'ORGANIZATION';
   /** `'*'` concede todos los permisos del catálogo. */
   permissions: string[] | '*';
   /** `'*'` concede todas las opciones de menú. */
