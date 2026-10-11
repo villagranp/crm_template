@@ -155,4 +155,20 @@ describe('useTableQueryState', () => {
     });
     expect(result.current.table.searchInput).toBe('');
   });
+
+  it('con prefijo lee y escribe sólo sus parámetros y entrega la consulta sin prefijo', () => {
+    const PREFIX_OPTIONS: UseTableQueryStateOptions<Filter> = { ...OPTIONS, paramPrefix: 'projects.' };
+    const { result } = renderTableState('/ficha?page=4&status=OTRO&projects.status=ACTIVE&projects.page=2', PREFIX_OPTIONS);
+
+    expect(result.current.table.state.page).toBe(2);
+    expect(result.current.table.apiQuery).toEqual({ page: 2, pageSize: 20, status: 'ACTIVE' });
+
+    act(() => result.current.table.setFilter('roleId', 'r-1'));
+
+    const params = new URLSearchParams(result.current.location.search);
+    expect(params.get('projects.roleId')).toBe('r-1');
+    expect(params.has('projects.page')).toBe(false);
+    expect(params.get('page')).toBe('4');
+    expect(params.get('status')).toBe('OTRO');
+  });
 });

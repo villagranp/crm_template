@@ -24,7 +24,7 @@ import {
   type Breakpoint,
   type Theme,
 } from '@mui/material';
-import type { ReactNode } from 'react';
+import type { KeyboardEvent, ReactNode, SyntheticEvent } from 'react';
 
 import { subtleSurface } from './surfaces';
 import { EmptyState } from './EmptyState';
@@ -90,6 +90,42 @@ export interface DataTableProps<TRow> {
   rowActions?: (row: TRow) => ReactNode;
   /** Breakpoint desde el que se usa la tabla; por debajo, tarjetas. */
   cardsBelow?: Breakpoint;
+  /**
+   * Fila navegable: clic o `Enter` sobre ella llaman a esto (p. ej. abrir la
+   * ficha). La fila se anuncia como enlace con `getRowLabel`. Los clics en
+   * `rowActions` no la activan.
+   */
+  onRowClick?: (row: TRow) => void;
+  /** Nombre accesible de la fila navegable (p. ej. "Abrir la ficha de …"). */
+  getRowLabel?: (row: TRow) => string;
+}
+
+/** Props de una fila navegable (`role="link"`, foco con teclado, `Enter`). */
+function rowLinkProps<TRow>(
+  row: TRow,
+  onRowClick: ((row: TRow) => void) | undefined,
+  getRowLabel: ((row: TRow) => string) | undefined,
+) {
+  if (!onRowClick) {
+    return {};
+  }
+  return {
+    role: 'link',
+    tabIndex: 0,
+    'aria-label': getRowLabel?.(row),
+    onClick: () => onRowClick(row),
+    onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
+      if (event.key === 'Enter' && event.target === event.currentTarget) {
+        event.preventDefault();
+        onRowClick(row);
+      }
+    },
+  };
+}
+
+/** Evita que un clic o tecla en las acciones de la fila active la fila. */
+function stopRowActivation(event: SyntheticEvent) {
+  event.stopPropagation();
 }
 
 const SKELETON_ROWS = 5;
@@ -155,6 +191,8 @@ export function DataTable<TRow>({
   emptyAction,
   rowActions,
   cardsBelow = 'md',
+  onRowClick,
+  getRowLabel,
 }: DataTableProps<TRow>) {
   const isTableLayout = useMediaQuery((theme: Theme) => theme.breakpoints.up(cardsBelow), {
     noSsr: true,
@@ -272,14 +310,23 @@ export function DataTable<TRow>({
             }}
           >
             {items.map((row) => (
-              <TableRow key={getRowId(row)}>
+              <TableRow
+                key={getRowId(row)}
+                {...rowLinkProps(row, onRowClick, getRowLabel)}
+                sx={onRowClick ? { cursor: 'pointer' } : undefined}
+              >
                 {columns.map((column) => (
                   <TableCell key={column.id} align={column.align}>
                     {column.render(row)}
                   </TableCell>
                 ))}
                 {rowActions ? (
-                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                  <TableCell
+                    align="right"
+                    sx={{ whiteSpace: 'nowrap' }}
+                    onClick={stopRowActivation}
+                    onKeyDown={stopRowActivation}
+                  >
                     <Stack
                       direction="row"
                       spacing={0.25}
@@ -306,6 +353,8 @@ export function DataTable<TRow>({
         rowActions={rowActions}
         sort={sort}
         onSortChange={onSortChange}
+        onRowClick={onRowClick}
+        getRowLabel={getRowLabel}
       />
     );
   }
@@ -416,7 +465,7 @@ function TablePager({
 
 interface DataCardListProps<TRow> extends Pick<
   DataTableProps<TRow>,
-  'label' | 'columns' | 'getRowId' | 'rowActions' | 'sort' | 'onSortChange'
+  'label' | 'columns' | 'getRowId' | 'rowActions' | 'sort' | 'onSortChange' | 'onRowClick' | 'getRowLabel'
 > {
   rows: readonly TRow[];
 }
@@ -434,6 +483,8 @@ function DataCardList<TRow>({
   rowActions,
   sort,
   onSortChange,
+  onRowClick,
+  getRowLabel,
 }: DataCardListProps<TRow>) {
   const primary = columns.find((column) => column.primary) ?? columns[0];
   const visible = [
@@ -477,13 +528,20 @@ function DataCardList<TRow>({
             component="li"
             sx={{ px: 0.5, py: 0.75, boxShadow: 1, borderRadius: 1 }}
           >
-            <Box component="dl" sx={{ m: 0 }}>
-              {visible.map((column) => (
-                <CardRow key={column.id} label={column.header} strong={column === primary}>
-                  {column.render(row)}
-                </CardRow>
-              ))}
-              {rowActions ? (
+            <Box
+              {...rowLinkProps(row, onRowClick, getRowLabel)}
+              sx={onRowClick ? { cursor: 'pointer', borderRadius: 1 } : undefined}
+            >
+              <Box component="dl" sx={{ m: 0 }}>
+                {visible.map((column) => (
+                  <CardRow key={column.id} label={column.header} strong={column === primary}>
+                    {column.render(row)}
+                  </CardRow>
+                ))}
+              </Box>
+            </Box>
+            {rowActions ? (
+              <Box component="dl" sx={{ m: 0 }}>
                 <CardRow label={ACTIONS_HEADER}>
                   <Stack
                     direction="row"
@@ -494,8 +552,8 @@ function DataCardList<TRow>({
                     {rowActions(row)}
                   </Stack>
                 </CardRow>
-              ) : null}
-            </Box>
+              </Box>
+            ) : null}
           </Paper>
         ))}
       </Stack>

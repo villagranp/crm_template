@@ -14,7 +14,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { useId, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useId, useRef, useState, type ChangeEvent } from 'react';
 
 import { ConfirmDialog, DataTable, DEFAULT_PAGE_SIZE, type DataTableColumn } from '@/components/data';
 import { describeApiError } from '@/lib/api-error-view';
@@ -37,6 +37,13 @@ export interface AttachmentsSectionProps {
   title?: string;
   /** Texto del estado vacío (p. ej. "Este cliente no tiene adjuntos"). */
   emptyMessage?: string;
+  /**
+   * Archivos elegidos antes de que existiera el dueño (p. ej. en el alta del
+   * cliente, D-02.15): se llama una vez al montar y lo que devuelve se encola
+   * como una subida más, con su progreso y su error por archivo en esta
+   * sección. Debe "consumir" los archivos para no subirlos dos veces.
+   */
+  takeInitialFiles?: () => readonly File[];
 }
 
 function UploadRow({ upload, onDismiss }: { upload: UploadItem; onDismiss: (key: string) => void }) {
@@ -97,6 +104,7 @@ export function AttachmentsSection({
   limits,
   title = 'Adjuntos',
   emptyMessage = 'Todavía no hay adjuntos.',
+  takeInitialFiles,
 }: AttachmentsSectionProps) {
   const titleId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -108,6 +116,16 @@ export function AttachmentsSection({
   const deletion = useDeleteAttachment(basePath);
   const download = useDownloadAttachment(basePath);
   const { uploads, lastUploaded, enqueue, dismiss } = useAttachmentUploads(basePath, limits);
+
+  // Sólo al montar: `takeInitialFiles` consume los archivos, así que una
+  // segunda ejecución (modo estricto) no encuentra nada que subir.
+  const takeInitialFilesRef = useRef(takeInitialFiles);
+  useEffect(() => {
+    const files = takeInitialFilesRef.current?.() ?? [];
+    if (files.length > 0) {
+      enqueue(files);
+    }
+  }, [enqueue]);
 
   const onFilesSelected = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);

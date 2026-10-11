@@ -56,6 +56,11 @@ export interface UseTableQueryStateOptions<TFilter extends string> {
   defaultPageSize?: number;
   pageSizeOptions?: readonly number[];
   searchDebounceMs?: number;
+  /**
+   * Prefijo de los search params (p. ej. `'projects.'`) cuando una pantalla
+   * tiene varias listas en la URL. `apiQuery` sigue sin prefijo.
+   */
+  paramPrefix?: string;
 }
 
 export interface TableQueryState<TFilter extends string> {
@@ -111,34 +116,35 @@ export function useTableQueryState<TFilter extends string = never>(
     defaultPageSize = DEFAULT_PAGE_SIZE,
     pageSizeOptions = PAGE_SIZE_OPTIONS,
     searchDebounceMs = SEARCH_DEBOUNCE_MS,
+    paramPrefix = '',
   } = options;
 
   const [searchParams, setSearchParams] = useSearchParams();
 
   const state = useMemo<TableQueryState<TFilter>>(() => {
-    const parsedPageSize = parsePositiveInt(searchParams.get(PARAM.pageSize));
+    const parsedPageSize = parsePositiveInt(searchParams.get(paramPrefix + PARAM.pageSize));
     const pageSize = parsedPageSize !== null && pageSizeOptions.includes(parsedPageSize) ? parsedPageSize : defaultPageSize;
 
-    const sortBy = searchParams.get(PARAM.sortBy);
+    const sortBy = searchParams.get(paramPrefix + PARAM.sortBy);
     const isSortAllowed = sortBy !== null && (!sortableFields || sortableFields.includes(sortBy));
-    const direction: SortDirection = searchParams.get(PARAM.sortOrder) === 'desc' ? 'desc' : 'asc';
+    const direction: SortDirection = searchParams.get(paramPrefix + PARAM.sortOrder) === 'desc' ? 'desc' : 'asc';
 
     const filters: Partial<Record<TFilter, string>> = {};
     for (const key of filterKeys) {
-      const value = searchParams.get(key);
+      const value = searchParams.get(paramPrefix + key);
       if (value) {
         filters[key] = value;
       }
     }
 
     return {
-      page: parsePositiveInt(searchParams.get(PARAM.page)) ?? FIRST_PAGE,
+      page: parsePositiveInt(searchParams.get(paramPrefix + PARAM.page)) ?? FIRST_PAGE,
       pageSize,
-      search: searchParams.get(PARAM.search) ?? '',
+      search: searchParams.get(paramPrefix + PARAM.search) ?? '',
       sort: isSortAllowed ? { field: sortBy, direction } : defaultSort,
       filters,
     };
-  }, [searchParams, filterKeys, sortableFields, defaultSort, defaultPageSize, pageSizeOptions]);
+  }, [searchParams, filterKeys, sortableFields, defaultSort, defaultPageSize, pageSizeOptions, paramPrefix]);
   const searchParam = state.search;
 
   const apiQuery = useMemo<ListQuery>(() => {
@@ -166,20 +172,20 @@ export function useTableQueryState<TFilter extends string = never>(
           const next = new URLSearchParams(previous);
           for (const [key, value] of Object.entries(changes)) {
             if (value === null || value === '') {
-              next.delete(key);
+              next.delete(paramPrefix + key);
             } else {
-              next.set(key, value);
+              next.set(paramPrefix + key, value);
             }
           }
           if (resetPage) {
-            next.delete(PARAM.page);
+            next.delete(paramPrefix + PARAM.page);
           }
           return next;
         },
         { replace },
       );
     },
-    [setSearchParams],
+    [setSearchParams, paramPrefix],
   );
 
   // Búsqueda con debounce: el input responde al instante y la URL (y con ella

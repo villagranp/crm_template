@@ -172,3 +172,33 @@ describe('DataTable en móvil', () => {
     expect(props.onPageChange).toHaveBeenCalledWith(2);
   });
 });
+
+describe('DataTable con filas navegables', () => {
+  beforeEach(() => simulateScreen(true));
+
+  it('la fila es un enlace accesible que se activa con clic o Enter, sin que lo hagan sus acciones', async () => {
+    const user = userEvent.setup();
+    const onRowClick = vi.fn();
+    const onEdit = vi.fn();
+    renderTable({
+      onRowClick,
+      getRowLabel: (row) => `Abrir ${row.name}`,
+      rowActions: (row) => (
+        <button type="button" onClick={() => onEdit(row.id)}>
+          {`Editar ${row.name}`}
+        </button>
+      ),
+    });
+
+    await user.click(screen.getByRole('link', { name: 'Abrir Ana Pruebas' }));
+    expect(onRowClick).toHaveBeenCalledWith(PEOPLE[0]);
+
+    screen.getByRole('link', { name: 'Abrir Beto Pruebas' }).focus();
+    await user.keyboard('{Enter}');
+    expect(onRowClick).toHaveBeenCalledWith(PEOPLE[1]);
+
+    await user.click(screen.getByRole('button', { name: 'Editar Ana Pruebas' }));
+    expect(onEdit).toHaveBeenCalledWith('p-1');
+    expect(onRowClick).toHaveBeenCalledTimes(2);
+  });
+});

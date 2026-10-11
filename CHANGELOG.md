@@ -6,6 +6,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 ## [Unreleased]
 
 ### Added
+- **CRM Módulo 2 — Clientes / Cuentas, frontend** (`frontend/src/features/crm/customers/`):
+  búsqueda con filtros y estado en la URL, alta con aviso de duplicados y archivos que se suben
+  tras crear, ficha con edición según `capabilities`, baja y restauración, contactos con
+  contacto principal, adjuntos, proyectos del cliente (informativo hasta el Módulo 3) y
+  `CustomerPicker` reutilizable. Opciones aditivas: `DataTable` `onRowClick`/`getRowLabel`,
+  `useTableQueryState({ paramPrefix })`, `AttachmentsSection takeInitialFiles`.
 - **CRM Módulo 2 — Clientes / Cuentas, backend** (`02-clientes-cuentas.md` §K.3 pasos 2–7;
   F-05, F-06, F-07, F-09 y la parte de backend de F-08 `implementada (backend)`):
   - Endpoints F1–F8 (`/customers`: búsqueda con filtros combinables y búsqueda libre

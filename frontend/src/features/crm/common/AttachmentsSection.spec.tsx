@@ -253,4 +253,17 @@ describe('AttachmentsSection', () => {
 
     expect(await within(dialog).findByText('No tienes permiso para realizar esta acción.')).toBeInTheDocument();
   });
+
+  it('sube una sola vez los archivos iniciales que entrega takeInitialFiles (alta, D-02.15)', async () => {
+    mockApi({ [`GET ${BASE}`]: () => page([]) });
+    const uploads = mockUpload(() => ({ status: 201, body: CONTRACT }));
+    const pending = [file('contrato.pdf', 'application/pdf')];
+    const takeInitialFiles = vi.fn(() => pending.splice(0));
+
+    renderSection({ takeInitialFiles });
+
+    await waitFor(() => expect(uploads).toHaveLength(1));
+    expect(uploads[0]?.path).toBe(BASE);
+    expect(await screen.findByText('Se subió «contrato.pdf».')).toBeInTheDocument();
+  });
 });
