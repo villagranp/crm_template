@@ -66,7 +66,9 @@ function uploadValidationError(issue: string): BadRequestException {
   });
 }
 
-const MulterFileInterceptor = FileInterceptor(ATTACHMENT_FILE_FIELD, { limits: ATTACHMENT_UPLOAD_LIMITS });
+// `defParamCharset: 'utf8'`: busboy decodifica por defecto el `filename` sin `filename*`
+// como latin1, y un nombre con tildes (`Cotización.pdf`) llegaría como mojibake.
+const MulterFileInterceptor = FileInterceptor(ATTACHMENT_FILE_FIELD, { limits: ATTACHMENT_UPLOAD_LIMITS, defParamCharset: 'utf8' });
 
 /**
  * Interceptor de subida para los controladores de los dueños:

@@ -13,10 +13,14 @@
  *
  * Todo respeta los CHECK reales de la base (migraciones 1-8).
  *
- * Fuera de alcance por ahora: adjuntos demo (00 §8.3), aplazados hasta que
- * existan `FileStorage` y `ATTACHMENTS_STORAGE_PATH` (Módulo 2, ADR-021).
+ * Adjuntos demo (00 §8.3): los binarios los escribe ANTES `prisma/seed-demo.ts`
+ * (ver `demo-attachments.ts`); aquí solo se crean sus filas `stored_files` +
+ * `attachments`. La purga devuelve las claves de los `stored_files` demo que
+ * borró para que el orquestador elimine sus binarios DESPUÉS del commit.
  */
 import { Prisma } from '@prisma/client';
+
+import type { PreparedDemoAttachment } from './demo-attachments';
 
 import {
   DEMO_EMAIL_DOMAIN,
@@ -41,9 +45,17 @@ export interface DemoSeedOptions {
   passwordHashes: Map<string, string>;
   /** "Ahora" de referencia; parametrizable para pruebas. */
   now?: Date;
+  /** Binarios demo ya guardados (fuera de la transacción); se crean sus filas. */
+  attachments?: readonly PreparedDemoAttachment[];
 }
 
 export type DemoSummary = Record<string, number>;
+
+export interface DemoSeedResult {
+  summary: DemoSummary;
+  /** Claves de los binarios de los `stored_files` demo purgados: se borran tras el commit. */
+  purgedStorageKeys: string[];
+}
 
 // -----------------------------------------------------------------------------
 // Fechas relativas (día de negocio en America/Guatemala, UTC-6 sin horario de verano)
@@ -109,17 +121,24 @@ function normalizeCode(value: string): string {
 // Purga
 // -----------------------------------------------------------------------------
 
-/** Borra los datos comerciales marcados `DEMO-` (orden inverso de dependencias). */
-export async function purgeDemoCommercialData(tx: Tx): Promise<void> {
+/**
+ * Borra los datos comerciales marcados `DEMO-` (orden inverso de dependencias).
+ * Devuelve las claves de almacenamiento de los `stored_files` borrados: el
+ * llamador elimina esos binarios SOLO después del commit.
+ */
+export async function purgeDemoCommercialData(tx: Tx): Promise<string[]> {
   const customers = await tx.customer.findMany({ where: { crmCode: { startsWith: DEMO_PREFIX } }, select: { id: true } });
   const customerIds = customers.map((customer) => customer.id);
   const byCustomer = { customerId: { in: customerIds } };
   const byProject = { project: byCustomer };
+  // Adjuntos de un cliente demo, directos o de sus proyectos, visitas, eventos y actividades.
+  const demoAttachments: Prisma.AttachmentWhereInput = {
+    OR: [byCustomer, { project: byCustomer }, { visit: byCustomer }, { activity: byCustomer }, { visitEvent: { visit: byCustomer } }],
+  };
 
   await tx.interactionParticipant.deleteMany({ where: byCustomer });
-  await tx.attachment.deleteMany({
-    where: { OR: [byCustomer, { project: byCustomer }, { visit: byCustomer }, { activity: byCustomer }, { visitEvent: { visit: byCustomer } }] },
-  });
+  const demoFiles = await tx.attachment.findMany({ where: demoAttachments, select: { storedFileId: true } });
+  await tx.attachment.deleteMany({ where: demoAttachments });
   await tx.visitEvent.deleteMany({ where: { visit: byCustomer } });
   await tx.visit.deleteMany({ where: byCustomer });
   await tx.activity.deleteMany({ where: byCustomer });
@@ -137,6 +156,25 @@ export async function purgeDemoCommercialData(tx: Tx): Promise<void> {
   await tx.customerImport.deleteMany({ where: { code: { startsWith: DEMO_PREFIX } } });
   await tx.customer.deleteMany({ where: { id: { in: customerIds } } });
   await tx.salesTarget.deleteMany({ where: { notes: { startsWith: DEMO_TAG } } });
+  return purgeDemoStoredFiles(tx, demoFiles.map((file) => file.storedFileId));
+}
+
+/**
+ * Borra los `stored_files` que pertenecían a los adjuntos demo recién borrados
+ * (`attachments.stored_file_id` es único: el archivo era solo de ese adjunto).
+ * Por seguridad, solo los que ya no tienen adjunto ni los usa una importación:
+ * nunca un archivo ajeno a la demo. Devuelve sus claves de almacenamiento.
+ */
+async function purgeDemoStoredFiles(tx: Tx, storedFileIds: string[]): Promise<string[]> {
+  if (storedFileIds.length === 0) {
+    return [];
+  }
+  const files = await tx.storedFile.findMany({
+    where: { id: { in: storedFileIds }, attachment: null, importsAsSource: { none: {} }, importsAsErrors: { none: {} } },
+    select: { id: true, storageKey: true },
+  });
+  await tx.storedFile.deleteMany({ where: { id: { in: files.map((file) => file.id) } } });
+  return files.map((file) => file.storageKey);
 }
 
 /** `--purge`: además de lo comercial, borra maestros, equipos y usuarios demo. */
@@ -268,16 +306,17 @@ function bump(ctx: Context, key: string, by = 1): void {
 const item = (ctx: Context, catalogKey: string, code: string): string => need(ctx.items, `${catalogKey}:${code}`, 'elemento de catálogo');
 const user = (ctx: Context, employeeCode: string): string => need(ctx.users, employeeCode, 'usuario demo');
 
-export async function seedDemo(tx: Tx, options: DemoSeedOptions): Promise<DemoSummary> {
+export async function seedDemo(tx: Tx, options: DemoSeedOptions): Promise<DemoSeedResult> {
   const clock = new Clock(options.now ?? new Date());
   const ctx = await loadContext(tx, clock);
 
-  await purgeDemoCommercialData(tx);
+  const purgedStorageKeys = await purgeDemoCommercialData(tx);
   await seedUsersAndTeams(ctx, options.passwordHashes);
   await seedProducts(ctx);
   await seedExchangeRates(ctx);
 
   const customers = await seedCustomers(ctx);
+  await seedAttachments(ctx, customers, options.attachments ?? []);
   const projects = await seedProjects(ctx, customers);
   const opportunities = await seedOpportunities(ctx, projects);
   await seedProjectProducts(ctx, projects, opportunities);
@@ -292,7 +331,7 @@ export async function seedDemo(tx: Tx, options: DemoSeedOptions): Promise<DemoSu
     bump(ctx, 'parametersUpdated');
   }
 
-  return ctx.summary;
+  return { summary: ctx.summary, purgedStorageKeys };
 }
 
 export const IMPORTS_PARAMETER_KEY = 'crm.importaciones.habilitada';
@@ -654,6 +693,37 @@ async function seedCustomers(ctx: Context): Promise<Map<string, CreatedCustomer>
     created.set(key, { id: customer.id, countryId: customer.countryId, owner: demo.owner, contactIds });
   }
   return created;
+}
+
+// --- Adjuntos ---------------------------------------------------------------------
+
+/**
+ * Filas de los adjuntos demo cuyo binario ya está guardado. Lo sube el
+ * responsable del cliente; `owner_type`/`owner_id` quedan nulos (la pertenencia
+ * la da `attachments.customer_id`, 00 §2.11).
+ */
+async function seedAttachments(ctx: Context, customers: Map<string, CreatedCustomer>, attachments: readonly PreparedDemoAttachment[]): Promise<void> {
+  for (const [index, file] of attachments.entries()) {
+    const customer = need(customers, file.customer, 'cliente demo');
+    const uploaderId = user(ctx, customer.owner);
+    const createdAt = ctx.clock.at(-(20 - index * 5));
+    const stored = await ctx.tx.storedFile.create({
+      data: {
+        storageKey: file.storageKey,
+        fileName: file.fileName,
+        mimeType: file.mimeType,
+        sizeBytes: file.sizeBytes,
+        checksum: file.checksum,
+        uploadedById: uploaderId,
+        createdAt,
+      },
+    });
+    bump(ctx, 'storedFiles');
+    await ctx.tx.attachment.create({
+      data: { storedFileId: stored.id, customerId: customer.id, description: file.description, createdById: uploaderId, createdAt },
+    });
+    bump(ctx, 'attachments');
+  }
 }
 
 // --- Proyectos -------------------------------------------------------------------

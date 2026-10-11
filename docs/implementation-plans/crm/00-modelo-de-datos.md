@@ -1880,7 +1880,7 @@ Datos ficticios (sin nombres reales de clientes ni personas; dominios `.invalid`
 | Interacciones | Salen solas de la vista con lo anterior | Historiales e interacciones |
 | Importación | `DEMO-IMP-0001` `COMPLETED_WITH_ERRORS`: 10 filas (7 importadas, 1 inválida, 1 duplicada en archivo, 1 duplicada con existente) | Historial de cargas |
 | Tipos de cambio | Una tasa por moneda local para los últimos 3 meses (valores **ilustrativos, marcados como demo** en `source`) | Estimaciones en GTQ y USD; aviso de antigüedad |
-| Adjuntos | 2–3 archivos ficticios pequeños (PDF y PNG generados por el script) en clientes, proyectos y una visita, escritos en `ATTACHMENTS_STORAGE_PATH`; `--purge` borra también sus binarios. **Aplazado** (2026-10-11): se siembran cuando existan el adaptador `FileStorage` y `ATTACHMENTS_STORAGE_PATH` (Módulo 2, ADR-021); la semilla de Fase 0 no crea adjuntos | Descarga autorizada |
+| Adjuntos | 2–3 archivos ficticios pequeños (PDF y PNG generados por el script) en clientes, proyectos y una visita, escritos en `ATTACHMENTS_STORAGE_PATH`; `--purge` borra también sus binarios. **Implementado** (2026-10-11, Módulo 2) **solo en clientes**: 3 archivos (2 PDF y 1 PNG, < 10 KiB, con firma real) en los clientes demo `C1`, `C3` y `C6`, subidos por su responsable, descripción `[DEMO] …`; binarios escritos con el adaptador real `LocalFileSystemStorage` (ADR-021) antes de la transacción y borrados si esta falla; re-sembrar y `--purge` borran filas `attachments` + `stored_files` de los clientes demo y sus binarios tras el commit (`prisma/seed/demo/demo-attachments.ts`). Los adjuntos de proyectos y de la visita quedan para los Módulos 3 y 4, dueños de esas rutas | Descarga autorizada |
 
 ---
 

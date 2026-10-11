@@ -55,12 +55,15 @@ export class AuthenticationFailedError extends ApplicationError {
   }
 }
 
-/** 403 con un código propio, cuando no se trata de un permiso `recurso.accion`. */
+/**
+ * 403 con un código propio, cuando no se trata de un permiso `recurso.accion`
+ * (`ADMIN_ONLY`, `FIELD_NOT_EDITABLE` con `details[].field`…).
+ */
 export class AccessDeniedError extends ApplicationError {
   readonly code: string;
 
-  constructor(code: string, message: string) {
-    super(message);
+  constructor(code: string, message: string, details: ReadonlyArray<Record<string, unknown>> = []) {
+    super(message, details);
     this.code = code;
   }
 }

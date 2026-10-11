@@ -31,17 +31,28 @@
  * (sin datos personales) y revierte la transacción: no se purga nada. Hay que
  * reasignar o eliminar esos registros y repetir.
  *
- * Adjuntos demo (00 §8.3): APLAZADOS. Se sembrarán cuando existan el adaptador
- * `FileStorage` y `ATTACHMENTS_STORAGE_PATH` (Módulo 2, ADR-021); hoy no hay
- * dónde guardar el archivo.
+ * Adjuntos demo (00 §8.3, ADR-021): 3 archivos ficticios generados por el script
+ * (2 PDF y 1 PNG, < 10 KiB, con firma real) en clientes demo. Los binarios se
+ * escriben con el adaptador real `LocalFileSystemStorage` en
+ * `ATTACHMENTS_STORAGE_PATH` (por defecto `./storage/attachments`, relativo al
+ * directorio de trabajo del backend) ANTES de la transacción; si la transacción
+ * falla, se borran (compensación). Re-sembrar y `--purge` borran en la
+ * transacción las filas `attachments` + `stored_files` de los clientes demo, y
+ * sus binarios solo DESPUÉS del commit (un binario que ya no existe no es
+ * error). Nunca se toca un archivo que no cuelgue de un cliente `DEMO-`.
  */
+// Primero: alias `@/*` del código de `src/` que reutiliza la semilla.
+import './seed/register-path-aliases';
+
 import { PrismaClient } from '@prisma/client';
 
+import type { FileStorage } from '../src/infrastructure/storage/file-storage.port';
 import { PasswordService } from '../src/modules/auth/password.service';
 
+import { deleteStoredBinaries, openDemoStorage, writeDemoAttachmentFiles } from './seed/demo/demo-attachments';
 import { DEMO_USERS } from './seed/demo/demo-data';
 import { DEMO_PARAMETER_KEY, evaluateDemoGuards, resolveDemoPassword } from './seed/demo/demo-guard';
-import { DemoPurgeBlockedError, purgeDemoCommercialData, purgeDemoMasters, seedDemo } from './seed/demo/demo-seeder';
+import { type DemoSeedResult, DemoPurgeBlockedError, purgeDemoCommercialData, purgeDemoMasters, seedDemo } from './seed/demo/demo-seeder';
 
 for (const path of ['.env', '../.env']) {
   try {
@@ -66,6 +77,14 @@ async function hashPasswords(): Promise<Map<string, string>> {
   return hashes;
 }
 
+/** Borra tras el commit los binarios de filas ya eliminadas; si alguno falla, avisa (sin rutas ni nombres). */
+async function removeBinariesAfterCommit(storage: FileStorage, storageKeys: string[]): Promise<void> {
+  const failed = await deleteStoredBinaries(storage, storageKeys);
+  if (failed > 0) {
+    process.stderr.write(`Aviso: ${failed} binario(s) de adjuntos demo purgados no se pudieron borrar de ATTACHMENTS_STORAGE_PATH; quedan huérfanos.\n`);
+  }
+}
+
 async function main(prisma: PrismaClient): Promise<void> {
   const parameter = await prisma.systemParameter.findUnique({ where: { key: DEMO_PARAMETER_KEY }, select: { value: true } });
   const failures = evaluateDemoGuards({
@@ -79,11 +98,15 @@ async function main(prisma: PrismaClient): Promise<void> {
     return;
   }
 
+  const storage = await openDemoStorage();
+
   if (process.argv.includes('--purge')) {
+    let purgedStorageKeys: string[];
     try {
-      await prisma.$transaction(async (tx) => {
-        await purgeDemoCommercialData(tx);
+      purgedStorageKeys = await prisma.$transaction(async (tx) => {
+        const keys = await purgeDemoCommercialData(tx);
         await purgeDemoMasters(tx);
+        return keys;
       }, TRANSACTION_OPTIONS);
     } catch (error) {
       if (!(error instanceof DemoPurgeBlockedError)) throw error;
@@ -91,17 +114,28 @@ async function main(prisma: PrismaClient): Promise<void> {
       process.exitCode = 1;
       return;
     }
+    await removeBinariesAfterCommit(storage, purgedStorageKeys);
     process.stdout.write('Datos de demostración purgados.\n');
     return;
   }
 
   process.stdout.write('Sembrando datos de demostración…\n');
   const passwordHashes = await hashPasswords();
-  const summary = await prisma.$transaction(async (tx) => {
-    const result = await seedDemo(tx, { passwordHashes });
-    await tx.auditLog.create({ data: { correlationId: 'seed-demo', event: 'system.seed.demo_executed', metadata: result } });
-    return result;
-  }, TRANSACTION_OPTIONS);
+  // Binarios primero, fuera de la transacción; si la transacción falla, se borran (compensación).
+  const attachments = await writeDemoAttachmentFiles(storage);
+  let result: DemoSeedResult;
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      const seeded = await seedDemo(tx, { passwordHashes, attachments });
+      await tx.auditLog.create({ data: { correlationId: 'seed-demo', event: 'system.seed.demo_executed', metadata: seeded.summary } });
+      return seeded;
+    }, TRANSACTION_OPTIONS);
+  } catch (error) {
+    await deleteStoredBinaries(storage, attachments.map((entry) => entry.storageKey));
+    throw error;
+  }
+  await removeBinariesAfterCommit(storage, result.purgedStorageKeys);
+  const { summary } = result;
 
   for (const [key, value] of Object.entries(summary).sort(([a], [b]) => a.localeCompare(b))) {
     process.stdout.write(`  ${key}: ${value}\n`);

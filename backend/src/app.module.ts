@@ -12,6 +12,7 @@ import { AttachmentsModule } from './modules/attachments/attachments.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CatalogsModule } from './modules/catalogs/catalogs.module';
+import { CustomersModule } from './modules/customers/customers.module';
 import { ParametersCoreModule } from './modules/parameters/parameters-core.module';
 import { ParametersModule } from './modules/parameters/parameters.module';
 import { TeamsModule } from './modules/teams/teams.module';
@@ -52,6 +53,8 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     ApprovalsModule,
     // Sin rutas propias; se registra aquí para que la ruta de adjuntos se valide al arrancar (ADR-021).
     AttachmentsModule,
+    // CRM · Módulo 2: clientes, contactos y sus adjuntos (02).
+    CustomersModule,
     HealthModule,
   ],
   providers: [

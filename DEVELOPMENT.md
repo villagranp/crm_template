@@ -117,7 +117,7 @@ pnpm --filter @app/backend run prisma:seed:demo  # semilla de demostración (sol
 | Entrada | `backend/prisma/seed.ts` (+ `prisma/seed/*.ts`) | `backend/prisma/seed-demo.ts` (+ `prisma/seed/demo/*.ts`) |
 | Comando | `prisma:seed` (lo ejecuta el despliegue) | `prisma:seed:demo` (manual; nunca en pipeline ni en el contenedor) |
 | Entornos | Todos, producción incluida | Solo desarrollo y QA |
-| Contenido | Módulos, permisos, roles (incl. `asesor`, `manager`, `responsable-pais`), administrador, monedas, 6 países, unidades, conversiones genéricas, secuencias, 17 catálogos `crm.*`, parámetros `crm.*` | Equipos y usuarios `@demo.invalid`, clientes, contactos, proyectos, oportunidades, productos, forecast, visitas, actividades, una importación, tipos de cambio y metas ficticios |
+| Contenido | Módulos, permisos, roles (incl. `asesor`, `manager`, `responsable-pais`), administrador, monedas, 6 países, unidades, conversiones genéricas, secuencias, 17 catálogos `crm.*`, parámetros `crm.*` | Equipos y usuarios `@demo.invalid`, clientes, contactos, proyectos, oportunidades, productos, forecast, visitas, actividades, una importación, tipos de cambio y metas ficticios; adjuntos demo en clientes (binarios en `ATTACHMENTS_STORAGE_PATH`) |
 
 **Esencial.** Idempotente (`upsert` por clave natural). No pisa lo que un
 administrador ajustó: valores de parámetros, etiquetas/orden/`metadata`/estado
@@ -162,8 +162,16 @@ con fechas relativas a hoy (forecast M+1…M+6, vencidas, próximas).
   demo como responsable), se niega con código 1, no borra nada y lista las tablas
   y columnas afectadas con su conteo (sin datos personales). Reasigna o elimina
   esos registros y repite.
-- **Adjuntos demo** (00 §8.3): aplazados hasta que existan el adaptador
-  `FileStorage` y `ATTACHMENTS_STORAGE_PATH` (Módulo 2, ADR-021).
+- **Adjuntos demo** (00 §8.3, ADR-021): 3 archivos ficticios generados por el
+  script (2 PDF y 1 PNG, < 10 KiB) en clientes demo (`DEMO-CLI-…`), con su fila en
+  `stored_files` (clave `<año>/<mes>/<uuid>`, SHA-256) y en `attachments`
+  (descripción `[DEMO] …`). Los binarios van a `ATTACHMENTS_STORAGE_PATH` (§4.1;
+  por defecto `backend/storage/attachments`) con el mismo adaptador que la API,
+  antes de la transacción; si la transacción falla, se borran. Re-sembrar y
+  `--purge` borran las filas de los adjuntos de clientes demo y, **después** del
+  commit, sus binarios (uno que ya no esté no es error). Nunca se toca un archivo
+  que no cuelgue de un cliente `DEMO-`. Proyectos y visitas aún no tienen adjuntos
+  demo: los sembrarán los Módulos 3 y 4 con sus rutas.
 
 Ninguna tabla se crea a mano. Toda migración es reversible o documenta su irreversibilidad.
 

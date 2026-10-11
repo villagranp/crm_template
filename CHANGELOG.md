@@ -6,6 +6,39 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 ## [Unreleased]
 
 ### Added
+- **CRM Módulo 2 — Clientes / Cuentas, backend** (`02-clientes-cuentas.md` §K.3 pasos 2–7;
+  F-05, F-06, F-07, F-09 y la parte de backend de F-08 `implementada (backend)`):
+  - Endpoints F1–F8 (`/customers`: búsqueda con filtros combinables y búsqueda libre
+    normalizada, `form-options`, `sales-owner-options`, ficha con `access` y `capabilities`,
+    alta con `crmCode` de `crm.cliente`, edición con campos reservados, desactivación por
+    estado, eliminación lógica con bloqueo por dependencias y restauración), F9–F16
+    (contactos y contacto principal) y F17–F20 (adjuntos del cliente por dueño, ADR-021),
+    todos con OpenAPI y `@RequirePermission`.
+  - Visibilidad de clientes (H.1): alcance OWN/TEAM (con subequipos)/COUNTRY/ORGANIZATION
+    más herencia por proyecto visible (`access = INHERITED`, solo lectura); fuera del
+    alcance → `404`. Predicado exportado (`customerVisibilitySql`, `customerVisibilityWhere`)
+    para Inicio y Reportes (D-02.12).
+  - Servicios reutilizables exportados por `CustomersModule`: `CustomerValidationService`
+    (todas las incidencias por campo, modos `BY_ID` y `BY_NATURAL_KEY`),
+    `CustomerCreationService` (único camino de alta, `source = UI | IMPORT`),
+    `CustomerReferenceGuard` (`assertUsableCustomer`, `assertContactOfCustomer`) y
+    `CustomerActorResolver`; funciones puras de normalización (RN-02.17) y de reglas de
+    duplicado (F.6.4).
+  - Reglas: obligatorios de `crm.campos_obligatorios`, valores de `crm.valores_por_defecto`,
+    formatos de teléfono y NIT por país, código de cliente único por país o global
+    (`crm.clientes.unicidad_codigo`, bloqueo consultivo), avisos de duplicado con
+    confirmación explícita (`acknowledgedDuplicateIds`; NIT repetido = aviso `TAX_ID`, nunca
+    bloquea), `FORMULA_NOT_ALLOWED` (D-06.11), auditoría `crm.customer.*`, `crm.contact.*`
+    con datos personales enmascarados (DM-29).
+  - Códigos de error nuevos: `FIELD_NOT_EDITABLE` (403), `CUSTOMER_CODE_TAKEN`,
+    `POSSIBLE_DUPLICATE`, `DUPLICATE_BLOCKED`, `CUSTOMER_HAS_DEPENDENCIES`,
+    `CUSTOMER_NOT_DELETED`, `CONTACT_EMAIL_TAKEN`, `CONTACT_HAS_HISTORY`,
+    `CONTACT_NOT_DELETED` (409), `REQUIRED_FIELD_MISSING`, `INVALID_COUNTRY`,
+    `INVALID_SALES_OWNER`, `INVALID_PHONE_FORMAT`, `INVALID_TAX_ID_FORMAT`,
+    `FORMULA_NOT_ALLOWED`, `CONTACT_INACTIVE`, `INVALID_CONTACT`, `CUSTOMER_INACTIVE` (422).
+    `AccessDeniedError` admite `details`.
+  - Pruebas unitarias del módulo y de integración `customers`, `customers-visibility`,
+    `customer-contacts` y `customer-attachments` (`backend/test/support/crm-fixtures.ts`).
 - **CRM Módulo 2 — piezas transversales** (`02-clientes-cuentas.md` §K.3 pasos 1 y 6, §L.2):
   - `TRANSACTION_RUNNER` + `TransactionContext` opaco para que varios puertos
     compartan una transacción sin conocer Prisma, y `SEQUENCE_GENERATOR`
@@ -50,8 +83,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
     `sistema.permite_datos_demo=true`. Datos ficticios marcados `DEMO-` que cubren
     todos los estados de §8.3; idempotente y purgable (`--purge`).
   - Variables `SEED_DEMO` y `SEED_DEMO_PASSWORD` en `.env.example` (vacías).
-  - Adjuntos demo de 00 §8.3 **aplazados** hasta que existan `FileStorage` y
-    `ATTACHMENTS_STORAGE_PATH` (Módulo 2, ADR-021).
+  - Adjuntos demo (00 §8.3) en clientes `DEMO-`: 2 PDF y 1 PNG generados (< 10 KiB),
+    con filas `stored_files` + `attachments` y binarios en `ATTACHMENTS_STORAGE_PATH`
+    (ADR-021); compensación si la transacción falla; re-sembrar y `--purge` borran filas y
+    binarios demo tras el commit, sin tocar archivos ajenos. Los de proyectos y visitas
+    llegan con los Módulos 3 y 4.
   - Pruebas de integración de ambas semillas (`backend/test/seeds.e2e.spec.ts`).
 - **CRM Fase 0 — protecciones transversales**:
   - Registro de semántica de catálogos (`catalog-semantics.registry.ts`) para los
@@ -80,6 +116,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 - Pruebas de integración del esquema CRM (`backend/test/crm-schema.e2e.spec.ts`).
 
 ### Changed
+- Adjuntos: `AttachmentUploadInterceptor` decodifica el nombre del archivo del
+  `multipart` como UTF-8 (`defParamCharset: 'utf8'`); un nombre con tildes ya no
+  llega como latin1.
 - NGINX: las rutas de subida de adjuntos (`/api/v{n}/{dueño}/{id}/attachments`)
   admiten 11 MiB de cuerpo (10 MiB de archivo + margen de `multipart`); el resto
   de la API sigue en 10 MiB. Sin ninguna `location` que sirva los adjuntos (ADR-021).

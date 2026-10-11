@@ -8,9 +8,12 @@
   [ADR-017](../../adr/ADR-017-design-system-grupo-ag.md), [ADR-018](../../adr/ADR-018-identity-access-model.md),
   [ADR-020](../../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md) (con su addendum de 2026-10-10),
   [ADR-021](../../adr/ADR-021-almacenamiento-de-adjuntos-en-sistema-de-archivos-montado.md)
-- **Estado:** especificación. **No** hay código, esquema ni migraciones de este módulo. Todas las
-  decisiones que lo afectaban quedaron **resueltas por el responsable de negocio el 2026-10-10**
-  (ver [Decisiones del módulo](#decisiones-del-módulo-resueltas-el-2026-10-10)).
+- **Estado:** **backend implementado (2026-10-11)**: endpoints F1–F20, servicios reutilizables de
+  F.6 y pruebas unitarias y de integración (§K.3 pasos 1–7). **Frontend pendiente** (paso 8) y E2E
+  (paso 9). Todas las decisiones que lo afectaban quedaron **resueltas por el responsable de negocio
+  el 2026-10-10** (ver [Decisiones del módulo](#decisiones-del-módulo-resueltas-el-2026-10-10)); las
+  precisiones técnicas de la implementación están en
+  [Precisiones de implementación](#precisiones-de-implementación-2026-10-11).
 - **Skills aplicables:** `feature-development`, `requirements-analysis`, `user-story`, `api-design`, `authorization`,
   `access-management`, `backend-nestjs`, `database`, `prisma`, `frontend-react`, `design-system`, `security`,
   `testing`, `observability`, `documentation`, `code-review`
@@ -43,6 +46,7 @@
 - [J. Pruebas funcionales](#j-pruebas-funcionales)
 - [K. Dependencias y orden](#k-dependencias-y-orden)
 - [L. Archivos de código a implementar](#l-archivos-de-código-a-implementar)
+- [Precisiones de implementación (2026-10-11)](#precisiones-de-implementación-2026-10-11)
 - [Decisiones del módulo (resueltas el 2026-10-10)](#decisiones-del-módulo-resueltas-el-2026-10-10)
 - [Filas para la matriz](#filas-para-la-matriz)
 
@@ -640,7 +644,7 @@ countries:     [{ id, isoCode, name, phonePrefix|null, taxIdLabel, taxIdPattern|
 companyTypes:  [{ id, code, label, sortOrder }]   (activos de crm.tipo_empresa)
 statuses:      [{ id, code, label, sortOrder, isActive }]   (activos de crm.estado_cliente)
 ratings:       [{ id, code, label, sortOrder }]   (activos de crm.calificacion_cliente)
-defaults:      { statusId|null }                  (de crm.valores_por_defecto)
+defaults:      { statusId|null, companyTypeId|null, ratingId|null }   (de crm.valores_por_defecto; un código inactivo → null)
 requiredFields: string[]                          (base + crm.campos_obligatorios.customer)
 attachments:   { enabled: boolean, maxMb, allowedTypes: string[] }   (enabled = true: almacenamiento de ADR-021;
                                                                      maxMb y allowedTypes de crm.adjuntos.*)
@@ -652,6 +656,20 @@ opciones se sirven por módulo.
 
 `SalesOwnerOptionDto`: `{ id, displayName, employeeCode|null, country { id, name }|null }` — sin
 correo ni teléfono.
+
+Semántica de `isActive` en los DTO (implementación, 2026-10-11): en `status` (lista, ficha y
+`form-options.statuses`) es `metadata.isActive` del estado (`false` = cliente desactivado,
+RN-02.21); en `companyType` y `rating` es si el **elemento** del catálogo sigue activo (un valor ya
+desactivado se conserva en el cliente); en `salesOwner` es usuario `ACTIVE` y no eliminado.
+
+`CUSTOMER_CODE_TAKEN` (`409`): `details: [{ field: 'customerCode', customerId: uuid|null, crmCode,
+isDeleted }]`; `customerId` solo si el cliente que ocupa el código es visible para el actor (D-02.3),
+para ofrecer la restauración (D-02.6).
+
+`422` de validación (F5, F6): `details[]` trae **todas** las incidencias `{ field, code, message }`
+(más `catalogKey` y `reason` en `INVALID_CATALOG_VALUE`); el `code` de la respuesta es el de la
+primera según este orden: `FORMULA_NOT_ALLOWED`, `REQUIRED_FIELD_MISSING`, `INVALID_COUNTRY`,
+`INVALID_PHONE_FORMAT`, `INVALID_TAX_ID_FORMAT`, `INVALID_CATALOG_VALUE`, `INVALID_SALES_OWNER`.
 
 `PossibleDuplicateErrorDetails` (en `details` del `409 POSSIBLE_DUPLICATE` / `DUPLICATE_BLOCKED`)
 
@@ -681,7 +699,22 @@ que comparten NIT (es dato de empresa, D-02.3).
 | F16 | POST | `/customers/{customerId}/contacts/{contactId}/restore` | `contactos.eliminar` | — | `200 ContactResponseDto` | 401, 403, 404, 409 `CONTACT_NOT_DELETED` / `CONTACT_EMAIL_TAKEN` |
 
 `ContactResponseDto`: `id, customerId, firstName, lastName, fullName, jobTitle|null, phone|null,
-email|null, isActive, isPrimary, comments|null, hasHistory, createdAt, updatedAt`.
+email|null, isActive, isPrimary, comments|null, hasHistory, isDeleted, createdAt, updatedAt`
+(`isDeleted` añadido en la implementación para la lista de eliminados).
+
+`ListContactsQueryDto` admite además `deleted=true` (solo eliminados), que exige
+`contactos.eliminar` (D-02.6: "listado de eliminados con `deleted=true` y el mismo permiso").
+
+Detalles de error de contactos (implementación, 2026-10-11):
+
+```text
+409 CONTACT_EMAIL_TAKEN   details: [{ field: 'email', contactId: uuid|null, isDeleted: boolean|null }]
+409 POSSIBLE_DUPLICATE /  details: [{ rule: 'nombreCompleto'|'telefono', reason: 'FULL_NAME'|'PHONE',
+    DUPLICATE_BLOCKED               candidate: { id, fullName, jobTitle|null, isDeleted } }]
+```
+
+Los candidatos de contacto son siempre del mismo cliente (que el actor ya ve), así que llevan `id`;
+la confirmación sigue la misma regla que los clientes (RN-02.14).
 `CreateContactDto`: `firstName 1..80`, `lastName 1..80`, `jobTitle? ≤120`, `phone? ≤40`,
 `email? ≤320`, `isActive? (defecto true)`, `comments? ≤1000`, `isPrimary? (defecto false)`,
 `acknowledgedDuplicateIds?`. `UpdateContactDto`: los mismos opcionales salvo `isPrimary` (el
@@ -737,8 +770,12 @@ interface ValidationOutcome {
   blockingDuplicates: DuplicateCandidate[];     // BLOQUEAR o código de cliente ocupado (nunca por NIT, DM-4)
   normalized: NormalizedCustomer | null;        // ids resueltos + valores normalizados si no hay errores
 }
-validate(draft, { mode: CustomerRefMode, actor: Principal, scope: VisibilityScope,
-                  existingCustomerId?: string }): Promise<ValidationOutcome>
+validate(draft, { mode: CustomerRefMode, actor: CustomerActor,
+                  existing?: CustomerRecord, tx?: TransactionContext }): Promise<ValidationOutcome>
+  // implementado (2026-10-11): `existing` es el registro actual (no su id) y el alcance lo
+  // resuelve el servicio con `CustomerActorResolver`; ValidationOutcome añade
+  // `codeConflict: { customerId|null, crmCode, isDeleted } | null` (código de cliente ocupado,
+  // separado de `blockingDuplicates`)
 duplicateKeys(draft): CustomerDuplicateKeys     // claves normalizadas para detectar duplicados dentro de un archivo:
                                                 //   blocking: código de cliente (en el ámbito de unicidad_codigo)
                                                 //   warning:  NIT, solo si la regla 'nit' vale AVISAR (mismo país)
@@ -1401,6 +1438,28 @@ código que la incidencia de la carga masiva), `ATTACHMENT_TOO_LARGE` (**413**, 
 `PERMISSION_DENIED`. `TAX_ID_TAKEN` **se elimina** (DM-4: el NIT no es único).
 
 ---
+
+## Precisiones de implementación (2026-10-11)
+
+Criterios técnicos aplicados al construir el backend donde el contrato no decía nada. Ninguno cambia
+una regla de negocio escrita; los que afinan una regla lo dicen.
+
+| Tema | Precisión |
+|---|---|
+| Herencia de visibilidad (H.1, DM-13) | El `EXISTS` sobre `projects` usa el alcance de **`proyectos.ver`** del usuario (no el de `clientes.ver`): "ve al menos un proyecto" se evalúa con el permiso de proyectos. Para los roles de sistema ambos alcances coinciden; un usuario sin `proyectos.ver` no hereda. El predicado se exporta como `customerVisibilitySql(alias, visibility)` y `customerVisibilityWhere(visibility)` desde `prisma-customers.repository.ts` (D-02.12) |
+| Responsables asignables (D-02.2) | Con `clientes.administrar`, el conjunto asignable es el alcance de **`clientes.administrar`** del actor sobre `users.id` / `users.country_id`; sin él, solo el actor. Elegible = `ACTIVE`, no eliminado y con `clientes.ver` efectivo (roles vigentes y activos, concesiones directas, denegación directa gana) |
+| Valores por defecto (RN-02.4) | En el alta se aplican los tres de `crm.valores_por_defecto` (`customer.statusId`, `customer.companyTypeId`, `customer.ratingId`) cuando el campo se omite o llega nulo; un código inexistente o inactivo se ignora con advertencia en el log |
+| Obligatorios (RN-02.4) | Un campo de `crm.campos_obligatorios.customer` que no existe en la entrada del alta (`primaryContactId`, que se elige después) se ignora con advertencia. En la edición solo se comprueban los campos enviados (enviar vacío un obligatorio → `422`); un cliente antiguo sin un campo que pasó a ser obligatorio se sigue pudiendo editar |
+| Fórmulas (RN-02.32) | Razón social, nombre comercial, ciudad y dirección **no** se recortan en el DTO: el servicio comprueba el valor crudo (ignorando solo espacios iniciales) y después lo recorta para guardarlo. Un valor de solo espacios da `422 REQUIRED_FIELD_MISSING` en lugar de `400` |
+| Validación en la importación | `CustomerValidationService` comprueba también longitudes y formato de correo (código `VALIDATION_FAILED` en `FieldIssue`), que en la API ya rechaza el DTO con `400`; así el modo `BY_NATURAL_KEY` no depende del DTO |
+| Responsable por clave natural (D-02.17) | Se busca por `employee_code` exacto y, si no hay coincidencia, por correo normalizado; después se exige elegibilidad |
+| Edición del país (D-02.5) | Cambiar el país revalida teléfono y NIT existentes con los patrones del país nuevo, la unicidad del código y todas las reglas de duplicado |
+| Edición sin cambios | No escribe ni audita (RN-02.31); tampoco cambia `updatedBy` |
+| Concurrencia del código | Con `PAIS` lo garantiza el índice único (la violación se traduce a `409 CUSTOMER_CODE_TAKEN`); con `GLOBAL`, `pg_advisory_xact_lock(hashtext('crm:customer-code:' || código))` dentro de la transacción del alta, la edición o la restauración |
+| Contacto: correo al restaurar | El índice único incluye eliminados, así que restaurar no puede chocar; la comprobación se conserva por defensa (`409 CONTACT_EMAIL_TAKEN`) |
+| Auditoría de contactos | `crm.contact.updated` lleva los cambios de datos; el cambio de `isActive` va en `crm.contact.activated|deactivated`. Limpiar el principal al desactivar o eliminar registra además `crm.customer.primary_contact_changed` |
+| Nombres de archivo de adjuntos | El interceptor de subida decodifica el `filename` del `multipart` como UTF-8 (`defParamCharset: 'utf8'`); antes, un nombre con tildes llegaba como latin1 |
+| Pruebas | PF-02.19 vive en `customers.e2e.spec.ts` (y no en `customers-visibility.e2e.spec.ts`) porque depende de las reglas de duplicidad que ese archivo cambia y restaura; los ayudantes de L.4 están en `backend/test/support/crm-fixtures.ts` |
 
 ## Decisiones del módulo (resueltas el 2026-10-10)
 
