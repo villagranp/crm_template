@@ -3,8 +3,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { TransactionContext } from '@/infrastructure/database/ports/transaction.port';
 import { isWithinScope } from '@/modules/access/visibility-scope';
 
-import { type CustomerActor, CustomerActorResolver } from './customer-actor.resolver';
-import { CUSTOMER_PERMISSIONS, type CustomerAccess } from './customer-access-policy';
+import { type CustomerAccessScopes, type CustomerActor, CustomerActorResolver } from './customer-actor.resolver';
+import { CUSTOMER_PERMISSIONS, type CustomerAccess, type CustomerPolicySubject } from './customer-access-policy';
 import { customerNotFound } from './customer-errors';
 import {
   CUSTOMERS_REPOSITORY,
@@ -13,16 +13,52 @@ import {
   type CustomerVisibility,
 } from './ports/customers.repository.port';
 
-/** Cliente que el actor ve, con el tipo de acceso (H.1). */
+/** Cliente que el actor ve, con el tipo de acceso (H.1) y lo que la política necesita (H.2). */
 export interface VisibleCustomer {
   readonly record: CustomerRecord;
   readonly access: CustomerAccess;
-  readonly visibility: CustomerVisibility;
+  /** Alcances del actor con los que se calculó `subject`. */
+  readonly scopes: CustomerAccessScopes;
+  /** Sujeto de `CustomerAccessPolicy`: el mismo para hacer cumplir y para las `capabilities`. */
+  readonly subject: CustomerPolicySubject;
+}
+
+/** Dueño y país del cliente, para evaluar alcances en memoria. */
+export interface CustomerScopeRef {
+  readonly salesOwnerId: string;
+  readonly countryId: string;
+}
+
+function scopeRef(record: CustomerScopeRef): { ownerId: string; countryId: string } {
+  return { ownerId: record.salesOwnerId, countryId: record.countryId };
 }
 
 /** `DIRECT` si el cliente cae en el alcance de `clientes.ver`; si no, solo por herencia (DM-13). */
-export function customerAccessFor(visibility: CustomerVisibility, record: { salesOwnerId: string; countryId: string }): CustomerAccess {
-  return isWithinScope(visibility.direct, { ownerId: record.salesOwnerId, countryId: record.countryId }) ? 'DIRECT' : 'INHERITED';
+export function customerAccessFor(visibility: CustomerVisibility, record: CustomerScopeRef): CustomerAccess {
+  return isWithinScope(visibility.direct, scopeRef(record)) ? 'DIRECT' : 'INHERITED';
+}
+
+/**
+ * Sujeto de la política para un cliente ya visible: acceso por `clientes.ver` y
+ * pertenencia al alcance de **cada** permiso operativo (02 "Precisiones de
+ * implementación", M1): con roles combinados, el alcance de ver no concede el de
+ * administrar ni el de eliminar.
+ */
+export function customerPolicySubject(record: CustomerRecord, scopes: CustomerAccessScopes): CustomerPolicySubject {
+  const ref: CustomerScopeRef = { salesOwnerId: record.salesOwner.id, countryId: record.country.id };
+  return {
+    salesOwnerId: record.salesOwner.id,
+    access: customerAccessFor(scopes.visibility, ref),
+    isDeleted: record.deletedAt !== null,
+    inAdministerScope: isWithinScope(scopes.administer, scopeRef(ref)),
+    inDeleteScope: isWithinScope(scopes.delete, scopeRef(ref)),
+  };
+}
+
+/** `VisibleCustomer` de un registro con los alcances del actor ya resueltos. */
+export function toVisibleCustomer(record: CustomerRecord, scopes: CustomerAccessScopes): VisibleCustomer {
+  const subject = customerPolicySubject(record, scopes);
+  return { record, access: subject.access, scopes, subject };
 }
 
 /**
@@ -47,12 +83,12 @@ export class CustomerVisibilityService {
     customerId: string,
     options: { readonly includeDeleted?: boolean; readonly tx?: TransactionContext } = {},
   ): Promise<VisibleCustomer> {
-    const visibility = await this.actors.visibility(actor);
+    const scopes = await this.actors.accessScopes(actor);
     const includeDeleted = (options.includeDeleted ?? false) && actor.permissions.has(CUSTOMER_PERMISSIONS.delete);
-    const record = await this.customers.findById(customerId, { visibility, includeDeleted }, options.tx);
+    const record = await this.customers.findById(customerId, { visibility: scopes.visibility, includeDeleted }, options.tx);
     if (!record) {
       throw customerNotFound(customerId);
     }
-    return { record, access: customerAccessFor(visibility, { salesOwnerId: record.salesOwner.id, countryId: record.country.id }), visibility };
+    return toVisibleCustomer(record, scopes);
   }
 }

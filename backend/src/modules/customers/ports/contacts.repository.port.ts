@@ -119,8 +119,25 @@ export interface ContactsRepository {
   create(input: CreateContactInput, tx: TransactionContext): Promise<string>;
   /** Lanza `ContactEmailConflictError` si el índice único rechaza el correo. */
   update(customerId: string, contactId: string, input: UpdateContactInput, tx: TransactionContext): Promise<void>;
-  /** Fija (o limpia con `null`) `customers.primary_contact_id`. La FK compuesta impide un contacto de otro cliente. */
-  setPrimary(customerId: string, contactId: string | null, actorId: string | null, tx: TransactionContext): Promise<void>;
+  /**
+   * Bloquea la fila del cliente (`FOR UPDATE`) y devuelve su principal actual, o
+   * `null` si el cliente no existe o está eliminado. Toda operación que toca el
+   * principal lo llama primero en su transacción (RN-02.26: como máximo un principal activo).
+   */
+  lockCustomerPrimary(customerId: string, tx: TransactionContext): Promise<{ readonly primaryContactId: string | null } | null>;
+  /**
+   * Bloquea la fila del contacto (`FOR UPDATE` o `FOR SHARE`). `FOR UPDATE` espera a
+   * quien esté insertando una participación que lo referencia (RN-02.27). `false`
+   * si no existe en el cliente.
+   */
+  lockContactRow(customerId: string, contactId: string, mode: 'UPDATE' | 'SHARE', tx: TransactionContext): Promise<boolean>;
+  /**
+   * Fija `customers.primary_contact_id` solo si el contacto es del cliente, está
+   * activo y no eliminado; `false` si no se cumplió. La FK compuesta impide un contacto de otro cliente.
+   */
+  setPrimary(customerId: string, contactId: string, actorId: string | null, tx: TransactionContext): Promise<boolean>;
+  /** Limpia el principal solo si sigue siendo `contactId`; `null` = cualquiera. `true` si limpió. */
+  clearPrimary(customerId: string, contactId: string | null, actorId: string | null, tx: TransactionContext): Promise<boolean>;
   softDelete(customerId: string, contactId: string, actorId: string | null, tx: TransactionContext): Promise<void>;
   restore(customerId: string, contactId: string, actorId: string | null): Promise<void>;
   /** ¿Lo referencia `interaction_participants`? (RN-02.27). */

@@ -534,8 +534,21 @@ export class PrismaCustomersRepository implements CustomersRepository {
     }
   }
 
-  async softDelete(customerId: string, actorId: string | null): Promise<void> {
-    await this.prisma.customer.update({ where: { id: customerId }, data: { deletedAt: new Date(), updatedById: actorId } });
+  async softDelete(customerId: string, actorId: string | null, tx?: TransactionContext): Promise<void> {
+    await prismaClientFor(this.prisma, tx).customer.update({
+      where: { id: customerId },
+      data: { deletedAt: new Date(), updatedById: actorId },
+    });
+  }
+
+  async lockCustomerRow(customerId: string, mode: 'UPDATE' | 'SHARE', tx: TransactionContext): Promise<boolean> {
+    if (!UUID_PATTERN.test(customerId)) return false;
+    const db = prismaClientFor(this.prisma, tx);
+    const rows =
+      mode === 'UPDATE'
+        ? await db.$queryRaw<{ id: string }[]>`SELECT id FROM customers WHERE id = ${customerId}::uuid FOR UPDATE`
+        : await db.$queryRaw<{ id: string }[]>`SELECT id FROM customers WHERE id = ${customerId}::uuid FOR SHARE`;
+    return rows.length > 0;
   }
 
   async restore(customerId: string, actorId: string | null, tx?: TransactionContext): Promise<void> {
@@ -545,14 +558,27 @@ export class PrismaCustomersRepository implements CustomersRepository {
     });
   }
 
-  async countDependencies(customerId: string): Promise<CustomerDependencyCounts> {
+  async countDependencies(customerId: string, tx?: TransactionContext): Promise<CustomerDependencyCounts> {
+    const projectWhere: Prisma.ProjectWhereInput = { customerId, deletedAt: null };
+    const activityWhere: Prisma.ActivityWhereInput = {
+      customerId,
+      deletedAt: null,
+      status: { metadata: { path: ['isOpen'], equals: true } },
+    };
+    // Las visitas no se eliminan (00 §5.2): cuenta toda visita en un estado pendiente.
+    const visitWhere: Prisma.VisitWhereInput = { customerId, status: { metadata: { path: ['isPending'], equals: true } } };
+    if (tx) {
+      // Dentro de la transacción del llamador (eliminación con la fila del cliente bloqueada).
+      const db = prismaClientFor(this.prisma, tx);
+      const projects = await db.project.count({ where: projectWhere });
+      const openActivities = await db.activity.count({ where: activityWhere });
+      const pendingVisits = await db.visit.count({ where: visitWhere });
+      return { projects, openActivities, pendingVisits };
+    }
     const [projects, openActivities, pendingVisits] = await this.prisma.$transaction([
-      this.prisma.project.count({ where: { customerId, deletedAt: null } }),
-      this.prisma.activity.count({
-        where: { customerId, deletedAt: null, status: { metadata: { path: ['isOpen'], equals: true } } },
-      }),
-      // Las visitas no se eliminan (00 §5.2): cuenta toda visita en un estado pendiente.
-      this.prisma.visit.count({ where: { customerId, status: { metadata: { path: ['isPending'], equals: true } } } }),
+      this.prisma.project.count({ where: projectWhere }),
+      this.prisma.activity.count({ where: activityWhere }),
+      this.prisma.visit.count({ where: visitWhere }),
     ]);
     return { projects, openActivities, pendingVisits };
   }

@@ -279,9 +279,15 @@ export interface CustomersRepository {
   create(input: CreateCustomerInput, tx: TransactionContext): Promise<string>;
   /** Lanza `CustomerCodeConflictError` si el índice único rechaza el código. */
   update(customerId: string, input: UpdateCustomerInput, tx: TransactionContext): Promise<void>;
-  softDelete(customerId: string, actorId: string | null): Promise<void>;
+  softDelete(customerId: string, actorId: string | null, tx?: TransactionContext): Promise<void>;
   restore(customerId: string, actorId: string | null, tx?: TransactionContext): Promise<void>;
-  countDependencies(customerId: string): Promise<CustomerDependencyCounts>;
+  /**
+   * Bloquea la fila del cliente hasta el fin de la transacción (`FOR UPDATE` o
+   * `FOR SHARE`), incluido un eliminado. `false` si no existe. Serializa la
+   * eliminación con quien crea registros dependientes (02 RN-02.22).
+   */
+  lockCustomerRow(customerId: string, mode: 'UPDATE' | 'SHARE', tx: TransactionContext): Promise<boolean>;
+  countDependencies(customerId: string, tx?: TransactionContext): Promise<CustomerDependencyCounts>;
   findCountry(lookup: CountryLookup, tx?: TransactionContext): Promise<CountryRecord | null>;
   listActiveCountries(): Promise<CountryRecord[]>;
   /**

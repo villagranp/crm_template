@@ -14,14 +14,45 @@ import type { CatalogDetailRecord, CatalogItemRecord } from '@/modules/catalogs/
 import type { CustomerActorResolver } from './customer-actor.resolver';
 import { customerAuditState } from './customer-audit';
 import type { CustomerCreationService } from './customer-creation.service';
-import type { CustomerValidationService, NormalizedCustomer, ValidationOutcome } from './customer-validation.service';
+import type {
+  CustomerValidationContext,
+  CustomerValidationService,
+  NormalizedCustomer,
+  ValidationOutcome,
+} from './customer-validation.service';
 import type { CustomerVisibilityService } from './customer-visibility.service';
 import { CustomersService, type ListCustomersRequest } from './customers.service';
 import type { CustomerListRecord, CustomerRecord, CustomersRepository } from './ports/customers.repository.port';
-import { AUDIT, CREATED_AT, makeActor, makeCountry, makeCustomer, makeVisibility, makeVisible, TX } from './testing/customer-fixtures';
+import {
+  AUDIT,
+  CREATED_AT,
+  makeActor,
+  makeCountry,
+  makeCustomer,
+  makeScopes,
+  makeVisibility,
+  makeVisible,
+  ownerScope,
+  TX,
+} from './testing/customer-fixtures';
 
 const EDITOR = ['clientes.ver', 'clientes.editar'];
 const ADMIN = ['clientes.ver', 'clientes.editar', 'clientes.administrar'];
+const MANAGER = [...ADMIN, 'clientes.eliminar'];
+
+const PREPARED: CustomerValidationContext = {
+  visibility: makeVisibility(),
+  assignable: null,
+  codeUniqueness: 'PAIS',
+  duplicateRules: { razonSocialNormalizada: 'AVISAR', nombreComercialNormalizado: 'NO', correo: 'NO', telefono: 'NO', nit: 'AVISAR' },
+  requiredFields: [],
+  defaultValues: {},
+};
+
+/** Cliente ajeno visible con acceso DIRECT (p. ej. por un rol de solo lectura ORGANIZATION). */
+const FOREIGN = makeCustomer({ salesOwner: { id: 'user-9', displayName: 'Otro', isActive: true } });
+/** Alcances de un manager TEAM cuyo equipo no incluye a `user-9`. */
+const TEAM_SCOPES = makeScopes({ administer: ownerScope(['user-1', 'user-2']), delete: ownerScope(['user-1', 'user-2']) });
 
 /** Estado normalizado idéntico al registro: la validación no cambia nada. */
 function normalizedFrom(record: CustomerRecord): NormalizedCustomer {
@@ -98,13 +129,20 @@ describe('CustomersService', () => {
     restore: jest.Mock;
     countDependencies: jest.Mock;
     lockCustomerCode: jest.Mock;
+    lockCustomerRow: jest.Mock;
     findCustomerCodeHolder: jest.Mock;
     listActiveCountries: jest.Mock;
   };
   let transactions: { run: jest.Mock };
   let actors: { visibility: jest.Mock; assignableSalesOwners: jest.Mock };
   let visibleCustomers: { findVisible: jest.Mock };
-  let validation: { codeUniqueness: jest.Mock; validate: jest.Mock; defaultCatalogValues: jest.Mock; requiredFieldNames: jest.Mock };
+  let validation: {
+    codeUniqueness: jest.Mock;
+    validate: jest.Mock;
+    prepare: jest.Mock;
+    defaultCatalogValues: jest.Mock;
+    requiredFieldNames: jest.Mock;
+  };
   let catalogs: { findByKey: jest.Mock };
   let attachments: { limits: jest.Mock };
   let audit: { record: jest.Mock };
@@ -119,6 +157,7 @@ describe('CustomersService', () => {
       restore: jest.fn().mockResolvedValue(undefined),
       countDependencies: jest.fn().mockResolvedValue({ projects: 0, openActivities: 0, pendingVisits: 0 }),
       lockCustomerCode: jest.fn().mockResolvedValue(undefined),
+      lockCustomerRow: jest.fn().mockResolvedValue(true),
       findCustomerCodeHolder: jest.fn().mockResolvedValue(null),
       listActiveCountries: jest.fn().mockResolvedValue([makeCountry()]),
     };
@@ -128,6 +167,7 @@ describe('CustomersService', () => {
     validation = {
       codeUniqueness: jest.fn().mockResolvedValue('PAIS'),
       validate: jest.fn().mockResolvedValue(outcome(normalizedFrom(makeCustomer()))),
+      prepare: jest.fn(async () => ({ ...PREPARED, codeUniqueness: await validation.codeUniqueness() })),
       defaultCatalogValues: jest.fn().mockResolvedValue({}),
       requiredFieldNames: jest.fn().mockResolvedValue(['legalName', 'countryId', 'statusId', 'salesOwnerId']),
     };
@@ -280,6 +320,55 @@ describe('CustomersService', () => {
         actor: expect.anything(),
         existing: makeCustomer(),
         tx: TX,
+        context: expect.objectContaining({ visibility: makeVisibility() }),
+      });
+    });
+
+    it('lee alcances y parámetros (prepare) antes de abrir la transacción, reutilizando la visibilidad (m5)', async () => {
+      await service.update(makeActor(EDITOR), 'customer-1', { city: 'Mixco' });
+
+      expect(validation.prepare).toHaveBeenCalledWith(expect.objectContaining({ city: 'Mixco' }), {
+        mode: 'BY_ID',
+        actor: expect.anything(),
+        existing: makeCustomer(),
+        visibility: makeVisibility(),
+      });
+      expect(validation.prepare.mock.invocationCallOrder[0]).toBeLessThan(transactions.run.mock.invocationCallOrder[0] ?? 0);
+      expect(actors.visibility).not.toHaveBeenCalled();
+    });
+
+    it('sin administrar, un código igual normalizado conserva el valor guardado (m2)', async () => {
+      await service.update(makeActor(EDITOR), 'customer-1', { customerCode: 'ab 12', city: 'Mixco' });
+
+      const draft = validation.validate.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(draft['customerCode']).toBeUndefined();
+      expect(draft['city']).toBe('Mixco');
+    });
+
+    it('con administrar, el código enviado se valida tal cual (puede cambiar su presentación)', async () => {
+      await service.update(makeActor(ADMIN), 'customer-1', { customerCode: 'ab 12' });
+
+      expect(validation.validate).toHaveBeenCalledWith(expect.objectContaining({ customerCode: 'ab 12' }), expect.anything());
+    });
+
+    describe('roles combinados: el alcance de clientes.ver no concede el de administrar (M1)', () => {
+      it('cliente ajeno visible pero fuera del alcance de administrar → 403 clientes.administrar', async () => {
+        visibleCustomers.findVisible.mockResolvedValue(makeVisible(FOREIGN, 'DIRECT', TEAM_SCOPES));
+
+        await expect(service.update(makeActor(MANAGER), 'customer-1', { city: 'Mixco' })).rejects.toMatchObject({
+          code: 'PERMISSION_DENIED',
+          details: [{ requiredPermission: 'clientes.administrar' }],
+        });
+        expect(transactions.run).not.toHaveBeenCalled();
+      });
+
+      it('la ficha devuelve capabilities en false para ese cliente', async () => {
+        visibleCustomers.findVisible.mockResolvedValue(makeVisible(FOREIGN, 'DIRECT', TEAM_SCOPES));
+
+        const view = await service.findById(makeActor(MANAGER), 'customer-1');
+
+        expect(view.capabilities).toMatchObject({ canEdit: false, canDelete: false, canManageContacts: false, canReassignOwner: false });
+        expect(view.capabilities.editableFields).toEqual([]);
       });
     });
 
@@ -354,10 +443,35 @@ describe('CustomersService', () => {
       expect(repository.softDelete).not.toHaveBeenCalled();
     });
 
+    it('rechaza un cliente visible fuera del alcance de clientes.eliminar (M1)', async () => {
+      visibleCustomers.findVisible.mockResolvedValue(makeVisible(FOREIGN, 'DIRECT', TEAM_SCOPES));
+
+      await expect(service.remove(makeActor(MANAGER), 'customer-1')).rejects.toMatchObject({
+        code: 'PERMISSION_DENIED',
+        details: [{ requiredPermission: 'clientes.eliminar' }],
+      });
+      expect(transactions.run).not.toHaveBeenCalled();
+    });
+
+    it('cuenta las dependencias y elimina en la misma transacción, tras bloquear la fila (m3)', async () => {
+      await service.remove(makeActor(['clientes.eliminar']), 'customer-1');
+
+      expect(repository.lockCustomerRow).toHaveBeenCalledWith('customer-1', 'UPDATE', TX);
+      expect(repository.countDependencies).toHaveBeenCalledWith('customer-1', TX);
+      expect(repository.lockCustomerRow.mock.invocationCallOrder[0]).toBeLessThan(repository.countDependencies.mock.invocationCallOrder[0] ?? 0);
+    });
+
+    it('404 si el cliente desaparece entre la visibilidad y el bloqueo', async () => {
+      repository.lockCustomerRow.mockResolvedValue(false);
+
+      await expect(service.remove(makeActor(['clientes.eliminar']), 'customer-1')).rejects.toBeInstanceOf(ResourceNotFoundError);
+      expect(repository.softDelete).not.toHaveBeenCalled();
+    });
+
     it('elimina lógicamente y audita crm.customer.deleted', async () => {
       await service.remove(makeActor(['clientes.eliminar']), 'customer-1');
 
-      expect(repository.softDelete).toHaveBeenCalledWith('customer-1', 'user-1');
+      expect(repository.softDelete).toHaveBeenCalledWith('customer-1', 'user-1', TX);
       expect(audit.record).toHaveBeenCalledWith('crm.customer.deleted', AUDIT, {
         resourceType: 'crm.customer',
         resourceId: 'customer-1',
@@ -387,6 +501,13 @@ describe('CustomersService', () => {
       expect(repository.findCustomerCodeHolder).toHaveBeenCalledWith('AB12', { countryId: null, excludeCustomerId: 'customer-1' }, makeVisibility(), TX);
       expect(repository.restore).not.toHaveBeenCalled();
       expect(audit.record).not.toHaveBeenCalled();
+    });
+
+    it('rechaza restaurar un cliente fuera del alcance de clientes.eliminar (M1)', async () => {
+      visibleCustomers.findVisible.mockResolvedValue(makeVisible({ ...FOREIGN, deletedAt: CREATED_AT }, 'DIRECT', TEAM_SCOPES));
+
+      await expect(service.restore(makeActor(MANAGER), 'customer-1')).rejects.toBeInstanceOf(PermissionDeniedError);
+      expect(repository.restore).not.toHaveBeenCalled();
     });
 
     it('restaura, audita crm.customer.restored y devuelve la ficha', async () => {
@@ -458,6 +579,15 @@ describe('CustomersService', () => {
       visibleCustomers.findVisible.mockResolvedValue(makeVisible(makeCustomer(), 'INHERITED'));
 
       await expect(service.assertCanManageAttachments(makeActor(ADMIN), 'customer-1')).rejects.toBeInstanceOf(PermissionDeniedError);
+    });
+
+    it('rechaza un cliente ajeno fuera del alcance de clientes.administrar (M1)', async () => {
+      visibleCustomers.findVisible.mockResolvedValue(makeVisible(FOREIGN, 'DIRECT', TEAM_SCOPES));
+
+      await expect(service.assertCanManageAttachments(makeActor(MANAGER), 'customer-1')).rejects.toMatchObject({
+        code: 'PERMISSION_DENIED',
+        details: [{ requiredPermission: 'clientes.administrar' }],
+      });
     });
   });
 });

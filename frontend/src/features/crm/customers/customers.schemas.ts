@@ -100,6 +100,11 @@ export interface CustomerSchemaContext {
   /** Sólo se exige el responsable si el usuario puede elegirlo (con `clientes.administrar`). */
   canChooseOwner: boolean;
   /**
+   * En el alta el responsable vacío no se envía y el backend asigna al actor
+   * (02 §F.4, `salesOwnerId?` con defecto el actor): no se exige elegirlo.
+   */
+  ownerDefaultsToActor?: boolean;
+  /**
    * Campos que no se validan (deshabilitados en la edición porque el usuario no
    * puede cambiarlos): el backend no los recibe y un dato antiguo no debe
    * bloquear el guardado.
@@ -110,7 +115,7 @@ export interface CustomerSchemaContext {
 const FREE_TEXT_FIELDS: readonly CustomerTextField[] = ['legalName', 'tradeName', 'city', 'address'];
 
 /** Esquema del formulario de cliente para unas opciones concretas. */
-export function buildCustomerFormSchema({ requiredFields, countries, canChooseOwner, skipFields }: CustomerSchemaContext) {
+export function buildCustomerFormSchema({ requiredFields, countries, canChooseOwner, ownerDefaultsToActor = false, skipFields }: CustomerSchemaContext) {
   const required = new Set<string>([...BASE_REQUIRED_FIELDS, ...requiredFields]);
   const isChecked = (field: string) => !skipFields?.has(field);
 
@@ -151,7 +156,7 @@ export function buildCustomerFormSchema({ requiredFields, countries, canChooseOw
         continue;
       }
       if (field === 'salesOwnerId') {
-        if (canChooseOwner && !values.salesOwner) {
+        if (canChooseOwner && !ownerDefaultsToActor && !values.salesOwner) {
           issue('salesOwner', REQUIRED_MESSAGE);
         }
         continue;

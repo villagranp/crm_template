@@ -88,8 +88,15 @@ export function CustomerForm({
     [mode, editableFields],
   );
   const schema = useMemo(
-    () => buildCustomerFormSchema({ requiredFields: options.requiredFields, countries: options.countries, canChooseOwner, skipFields }),
-    [options.requiredFields, options.countries, canChooseOwner, skipFields],
+    () =>
+      buildCustomerFormSchema({
+        requiredFields: options.requiredFields,
+        countries: options.countries,
+        canChooseOwner,
+        ownerDefaultsToActor: mode === 'create',
+        skipFields,
+      }),
+    [options.requiredFields, options.countries, canChooseOwner, mode, skipFields],
   );
 
   const {
@@ -244,7 +251,7 @@ export function CustomerForm({
                 label={CUSTOMER_FIELD_LABELS.salesOwnerId}
                 value={field.value}
                 onChange={field.onChange}
-                required={required.has('salesOwnerId')}
+                required={mode === 'edit' && required.has('salesOwnerId')}
                 disabled={isPending}
                 error={Boolean(errors.salesOwner)}
                 helperText={errors.salesOwner?.message ?? (mode === 'create' ? 'Si lo dejas vacío, serás tú.' : undefined)}

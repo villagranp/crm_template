@@ -111,6 +111,23 @@ describe('CustomerCreatePage (F-06)', () => {
     expect(body).not.toHaveProperty('salesOwnerId');
   });
 
+  it('con clientes.administrar y el responsable obligatorio en form-options, deja crear sin elegirlo y no lo envía (regresión E2E PF-02.53)', async () => {
+    signInWith(['clientes.ver', 'clientes.crear', 'clientes.administrar']);
+    const fetchMock = mockApi({
+      'GET /customers/form-options': () => jsonResponse({ ...FORM_OPTIONS, requiredFields: [...FORM_OPTIONS.requiredFields, 'salesOwnerId'] }),
+      'GET /customers/sales-owner-options': () => jsonResponse({ data: [], pagination: { page: 1, pageSize: 20, totalItems: 0, totalPages: 0 } }),
+      'POST /customers': () => jsonResponse(CREATED, 201),
+    });
+
+    renderPage();
+    await fillMinimum();
+    expect(screen.getByText('Si lo dejas vacío, serás tú.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Crear cliente' }));
+
+    expect(await screen.findByText('Ficha /clientes/c-new · Cliente CLI-000123 creado.')).toBeInTheDocument();
+    expect(bodyOf(callsTo(fetchMock, 'POST', '/customers')[0])).not.toHaveProperty('salesOwnerId');
+  });
+
   it('ante un posible duplicado pide confirmación y reenvía con acknowledgedDuplicateIds, aunque el candidato no sea visible (AC-02.17, AC-02.19)', async () => {
     let posts = 0;
     const fetchMock = mockApi({

@@ -222,11 +222,44 @@ export class PrismaContactsRepository implements ContactsRepository {
     }
   }
 
-  async setPrimary(customerId: string, contactId: string | null, actorId: string | null, tx: TransactionContext): Promise<void> {
-    await prismaClientFor(this.prisma, tx).customer.update({
-      where: { id: customerId },
+  async lockCustomerPrimary(customerId: string, tx: TransactionContext): Promise<{ primaryContactId: string | null } | null> {
+    if (!UUID_PATTERN.test(customerId)) return null;
+    const rows = await prismaClientFor(this.prisma, tx).$queryRaw<{ primary_contact_id: string | null }[]>`
+      SELECT primary_contact_id FROM customers
+      WHERE id = ${customerId}::uuid AND deleted_at IS NULL
+      FOR UPDATE`;
+    const row = rows[0];
+    return row ? { primaryContactId: row.primary_contact_id } : null;
+  }
+
+  async lockContactRow(customerId: string, contactId: string, mode: 'UPDATE' | 'SHARE', tx: TransactionContext): Promise<boolean> {
+    if (!UUID_PATTERN.test(customerId) || !UUID_PATTERN.test(contactId)) return false;
+    const db = prismaClientFor(this.prisma, tx);
+    const rows =
+      mode === 'UPDATE'
+        ? await db.$queryRaw<{ id: string }[]>`
+            SELECT id FROM contacts WHERE id = ${contactId}::uuid AND customer_id = ${customerId}::uuid FOR UPDATE`
+        : await db.$queryRaw<{ id: string }[]>`
+            SELECT id FROM contacts WHERE id = ${contactId}::uuid AND customer_id = ${customerId}::uuid FOR SHARE`;
+    return rows.length > 0;
+  }
+
+  async setPrimary(customerId: string, contactId: string, actorId: string | null, tx: TransactionContext): Promise<boolean> {
+    // Condicional (RN-02.26): nunca apunta a un contacto inactivo o eliminado, aunque el llamador lo leyera antes.
+    const result = await prismaClientFor(this.prisma, tx).customer.updateMany({
+      where: { id: customerId, contacts: { some: { id: contactId, isActive: true, deletedAt: null } } },
       data: { primaryContactId: contactId, updatedById: actorId },
     });
+    return result.count > 0;
+  }
+
+  async clearPrimary(customerId: string, contactId: string | null, actorId: string | null, tx: TransactionContext): Promise<boolean> {
+    // Condicional: solo limpia si el principal sigue siendo ese contacto (no borra uno elegido en paralelo).
+    const result = await prismaClientFor(this.prisma, tx).customer.updateMany({
+      where: { id: customerId, ...(contactId ? { primaryContactId: contactId } : { primaryContactId: { not: null } }) },
+      data: { primaryContactId: null, updatedById: actorId },
+    });
+    return result.count > 0;
   }
 
   async softDelete(customerId: string, contactId: string, actorId: string | null, tx: TransactionContext): Promise<void> {

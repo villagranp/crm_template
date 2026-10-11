@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 
 import type { AppRequest } from '@/common/types/request-context';
 import { AccessService } from '@/modules/access/access.service';
+import { noVisibility, type VisibilityScope } from '@/modules/access/visibility-scope';
 import { VisibilityScopeResolver } from '@/modules/access/visibility-scope.resolver';
 import type { AuditContext } from '@/modules/audit/audit.service';
 
@@ -17,6 +18,20 @@ export const PROJECT_VIEW_PERMISSION = 'proyectos.ver';
  */
 export interface CustomerActor extends CustomerPolicyActor {
   readonly audit: AuditContext;
+}
+
+/**
+ * Alcances que deciden qué puede hacer el actor sobre un cliente (02 H.2,
+ * "Precisiones de implementación"): ver (con herencia), y el alcance **propio**
+ * de cada permiso que permite operar sobre clientes ajenos. Un permiso que el
+ * actor no tiene da un alcance vacío (`NONE`).
+ */
+export interface CustomerAccessScopes {
+  readonly visibility: CustomerVisibility;
+  /** Alcance de `clientes.administrar`: editar ajenos, campos reservados, contactos de ajenos. */
+  readonly administer: VisibilityScope;
+  /** Alcance de `clientes.eliminar`: eliminar y restaurar. */
+  readonly delete: VisibilityScope;
 }
 
 /**
@@ -42,11 +57,29 @@ export class CustomerActorResolver {
 
   /** Visibilidad de clientes: alcance de `clientes.ver` + herencia con el alcance de `proyectos.ver` (DM-13). */
   async visibility(actor: CustomerActor): Promise<CustomerVisibility> {
-    const [direct, inherited] = await Promise.all([
-      this.scopes.resolve(actor.userId, CUSTOMER_PERMISSIONS.view),
-      this.scopes.resolve(actor.userId, PROJECT_VIEW_PERMISSION),
-    ]);
-    return { direct, inherited };
+    const scopes = await this.scopes.resolveMany(actor.userId, [CUSTOMER_PERMISSIONS.view, PROJECT_VIEW_PERMISSION]);
+    return {
+      direct: scopes.get(CUSTOMER_PERMISSIONS.view) ?? noVisibility(actor.userId),
+      inherited: scopes.get(PROJECT_VIEW_PERMISSION) ?? noVisibility(actor.userId),
+    };
+  }
+
+  /**
+   * Visibilidad más los alcances de `clientes.administrar` y `clientes.eliminar`,
+   * resueltos de una vez (una lectura del perfil de acceso). Los permisos que el
+   * actor no tiene ni se consultan.
+   */
+  async accessScopes(actor: CustomerActor): Promise<CustomerAccessScopes> {
+    const operational = [CUSTOMER_PERMISSIONS.administer, CUSTOMER_PERMISSIONS.delete].filter((permission) =>
+      actor.permissions.has(permission),
+    );
+    const scopes = await this.scopes.resolveMany(actor.userId, [CUSTOMER_PERMISSIONS.view, PROJECT_VIEW_PERMISSION, ...operational]);
+    const scopeOf = (permission: string): VisibilityScope => scopes.get(permission) ?? noVisibility(actor.userId);
+    return {
+      visibility: { direct: scopeOf(CUSTOMER_PERMISSIONS.view), inherited: scopeOf(PROJECT_VIEW_PERMISSION) },
+      administer: scopeOf(CUSTOMER_PERMISSIONS.administer),
+      delete: scopeOf(CUSTOMER_PERMISSIONS.delete),
+    };
   }
 
   /**
@@ -56,11 +89,21 @@ export class CustomerActorResolver {
    */
   async assignableSalesOwners(actor: CustomerActor): Promise<SalesOwnerAssignableSet> {
     if (!actor.permissions.has(CUSTOMER_PERMISSIONS.administer)) {
-      return { kind: 'FILTERED', userIds: actor.userId ? [actor.userId] : [], countryIds: [] };
+      return assignableFromScope(actor, null);
     }
-    const scope = await this.scopes.resolve(actor.userId, CUSTOMER_PERMISSIONS.administer);
-    return scope.kind === 'ALL'
-      ? { kind: 'ALL' }
-      : { kind: 'FILTERED', userIds: [...scope.ownerIds], countryIds: [...scope.countryIds] };
+    return assignableFromScope(actor, await this.scopes.resolve(actor.userId, CUSTOMER_PERMISSIONS.administer));
   }
+}
+
+/**
+ * Conjunto asignable a partir del alcance de `clientes.administrar` ya resuelto
+ * (`null` o actor sin el permiso → solo el propio actor), D-02.2.
+ */
+export function assignableFromScope(actor: CustomerActor, administerScope: VisibilityScope | null): SalesOwnerAssignableSet {
+  if (!administerScope || !actor.permissions.has(CUSTOMER_PERMISSIONS.administer)) {
+    return { kind: 'FILTERED', userIds: actor.userId ? [actor.userId] : [], countryIds: [] };
+  }
+  return administerScope.kind === 'ALL'
+    ? { kind: 'ALL' }
+    : { kind: 'FILTERED', userIds: [...administerScope.ownerIds], countryIds: [...administerScope.countryIds] };
 }

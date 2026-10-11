@@ -64,7 +64,11 @@ export class CustomerCreationService {
     }
 
     const codeNormalized = normalizeCustomerCode(draft.customerCode?.trim());
-    const uniqueness = codeNormalized ? await this.validation.codeUniqueness() : 'PAIS';
+    // Alcances, responsables asignables y parámetros se leen ANTES de abrir la
+    // transacción: dentro solo se usa su conexión mientras retiene el bloqueo del
+    // código y el de la secuencia (no se piden conexiones extra al pool).
+    const prepared = await this.validation.prepare(draft, { mode: context.mode, actor });
+    const uniqueness = prepared.codeUniqueness;
 
     let customerId: string;
     try {
@@ -72,7 +76,7 @@ export class CustomerCreationService {
         if (codeNormalized && uniqueness === 'GLOBAL') {
           await this.customers.lockCustomerCode(codeNormalized, tx);
         }
-        const outcome = await this.validation.validate(draft, { mode: context.mode, actor, tx });
+        const outcome = await this.validation.validate(draft, { mode: context.mode, actor, tx, context: prepared });
         assertCustomerOutcome(outcome, context.acknowledgedDuplicateIds);
         const normalized = outcome.normalized;
         if (!normalized) throw new Error('Validation outcome without normalized values');

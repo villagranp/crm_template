@@ -3,18 +3,25 @@ import { BusinessRuleViolationError, ResourceNotFoundError } from '@/common/erro
 import { CustomerReferenceGuard } from './customer-reference.guard';
 import type { CustomerVisibilityService } from './customer-visibility.service';
 import type { ContactsRepository } from './ports/contacts.repository.port';
+import type { CustomersRepository } from './ports/customers.repository.port';
 import { makeActor, makeContact, makeCustomer, makeVisible, TX } from './testing/customer-fixtures';
 
 describe('CustomerReferenceGuard', () => {
   const actor = makeActor(['clientes.ver', 'proyectos.crear']);
   let visibleCustomers: { findVisible: jest.Mock };
-  let contacts: { findById: jest.Mock };
+  let contacts: { findById: jest.Mock; lockContactRow: jest.Mock };
+  let customers: { lockCustomerRow: jest.Mock };
   let guard: CustomerReferenceGuard;
 
   beforeEach(() => {
     visibleCustomers = { findVisible: jest.fn().mockResolvedValue(makeVisible()) };
-    contacts = { findById: jest.fn().mockResolvedValue(makeContact()) };
-    guard = new CustomerReferenceGuard(visibleCustomers as unknown as CustomerVisibilityService, contacts as unknown as ContactsRepository);
+    contacts = { findById: jest.fn().mockResolvedValue(makeContact()), lockContactRow: jest.fn().mockResolvedValue(true) };
+    customers = { lockCustomerRow: jest.fn().mockResolvedValue(true) };
+    guard = new CustomerReferenceGuard(
+      visibleCustomers as unknown as CustomerVisibilityService,
+      contacts as unknown as ContactsRepository,
+      customers as unknown as CustomersRepository,
+    );
   });
 
   describe('assertUsableCustomer', () => {
@@ -28,6 +35,19 @@ describe('CustomerReferenceGuard', () => {
       await guard.assertUsableCustomer('customer-1', actor, { requireActive: false, tx: TX });
 
       expect(visibleCustomers.findVisible).toHaveBeenCalledWith(actor, 'customer-1', { tx: TX });
+    });
+
+    it('con tx, toma FOR SHARE sobre el cliente antes de leerlo (serializa con su eliminación)', async () => {
+      await guard.assertUsableCustomer('customer-1', actor, { requireActive: false, tx: TX });
+
+      expect(customers.lockCustomerRow).toHaveBeenCalledWith('customer-1', 'SHARE', TX);
+      expect(customers.lockCustomerRow.mock.invocationCallOrder[0]).toBeLessThan(visibleCustomers.findVisible.mock.invocationCallOrder[0] ?? 0);
+    });
+
+    it('sin tx no bloquea', async () => {
+      await guard.assertUsableCustomer('customer-1', actor, { requireActive: false });
+
+      expect(customers.lockCustomerRow).not.toHaveBeenCalled();
     });
 
     it('rechaza con 422 CUSTOMER_INACTIVE un cliente cuyo estado no cuenta como activo', async () => {
@@ -69,6 +89,7 @@ describe('CustomerReferenceGuard', () => {
         guard.assertContactOfCustomer('contact-x', 'customer-1', { requireActive: true, field: 'participants[0].contactId', tx: TX }),
       ).rejects.toMatchObject({ code: 'INVALID_CONTACT', details: [{ field: 'participants[0].contactId' }] });
       expect(contacts.findById).toHaveBeenCalledWith('customer-1', 'contact-x', { includeDeleted: false }, TX);
+      expect(contacts.lockContactRow).toHaveBeenCalledWith('customer-1', 'contact-x', 'SHARE', TX);
     });
 
     it('rechaza con 422 CONTACT_INACTIVE un contacto inactivo si se exige activo', async () => {

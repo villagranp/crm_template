@@ -113,6 +113,68 @@ Variables: `E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD` (la contraseña ya cambiada),
 (12+). Cada ejecución deja un rol y un usuario nuevos con sufijo único; vuelve
 al paso 1 de vez en cuando para empezar de una base limpia.
 
+### E2E de Clientes
+
+`frontend/tests/e2e/crm-customers.e2e.spec.ts` (PF-02.52 a PF-02.54 del plan
+`docs/implementation-plans/crm/02-clientes-cuentas.md`) crea clientes y
+contactos con usuarios de la **semilla demo**. Usa su propio esquema,
+`integration_e2e` (nunca `public` ni `integration_test`), que prepara y borra
+`backend/scripts/e2e-stack.ts`. Las contraseñas llegan solo por el entorno;
+elige valores de prueba de 12+ caracteres y no los escribas en archivos del repo.
+
+Variables del recorrido (los valores entre `<>` son de ejemplo):
+
+| Variable | Valor |
+|---|---|
+| `SEED_DEMO_PASSWORD` | `<12+>`: contraseña inicial de los usuarios demo |
+| `ATTACHMENTS_STORAGE_PATH` | `<carpeta temporal>`: adjuntos demo y del recorrido, nunca `backend/storage` |
+| `JWT_ACCESS_TOKEN_SECRET` | `<32+ bytes>` |
+| `AUTH_DEFAULT_PASSWORD` | `<12+>` |
+| `E2E_ASESOR_EMAIL` | `asesor1.gt@demo.invalid` (por defecto del script) |
+| `E2E_ASESOR_PASSWORD` | `<12+>`: contraseña personal que el script le deja |
+| `E2E_MANAGER_EMAIL` | `manager.gt@demo.invalid` (por defecto del script) |
+| `E2E_MANAGER_PASSWORD` | `<12+>`: ídem |
+| `E2E_MANAGER_DEPENDENT_CUSTOMER` | razón social de un cliente del equipo con proyectos (la imprime el script) |
+| `E2E_FOREIGN_CUSTOMER_ID` | id de un cliente que el asesor no ve (lo imprime el script) |
+| `E2E_COUNTRY` | país del alta; por defecto `Guatemala` |
+
+Pasos (Git Bash, desde la raíz; exporta antes las variables de la tabla):
+
+1. Esquema: `cd backend && pnpm exec ts-node --transpile-only scripts/e2e-stack.ts prepare`.
+   Lo borra y recrea, migra, aplica la semilla esencial, pone
+   `sistema.permite_datos_demo = true` **en ese esquema** y siembra la demo.
+2. Backend en el puerto 3100 contra ese esquema, desde `backend/`:
+   `DATABASE_URL=<la de .env con ?schema=integration_e2e> API_PORT=3100
+   NODE_ENV=development AUTH_PROVIDER=local CORS_ALLOWED_ORIGINS=http://localhost:5180
+   TS_NODE_PROJECT=tsconfig.json pnpm exec ts-node -r tsconfig-paths/register src/main.ts`.
+   Se arranca desde el código fuente: `nest build` borra `backend/dist`, que es lo
+   que ejecuta un `pnpm dev` abierto. Sin `pnpm dev` en marcha también vale
+   `pnpm --filter @app/backend build` y `node backend/dist/src/main.js`.
+3. Frontend, desde `frontend/`:
+   `DEV_API_PROXY_TARGET=http://localhost:3100 pnpm exec vite --port 5180 --strictPort`.
+4. Usuarios y clientes: con la misma `DATABASE_URL`,
+   `E2E_API_URL=http://localhost:3100 pnpm exec ts-node --transpile-only scripts/e2e-stack.ts activate`.
+   Cambia por la API (`POST /auth/password/change`) la contraseña inicial del
+   asesor y del manager a `E2E_ASESOR_PASSWORD` / `E2E_MANAGER_PASSWORD`, elige
+   los dos clientes comprobando por la API que el manager ve el primero y el
+   asesor recibe `404` en el segundo, e imprime las variables `E2E_*` sin
+   contraseñas. Es repetible: si la contraseña ya estaba cambiada, solo la comprueba.
+5. `E2E_BASE_URL=http://localhost:5180 pnpm --filter @app/frontend test:e2e crm-customers`
+   con las variables `E2E_*` del paso 4 y las contraseñas.
+6. Limpieza: detén el backend y el Vite de los pasos 2 y 3 (no el `pnpm dev`
+   de 3000/5173), `scripts/e2e-stack.ts drop` y borra la carpeta temporal de adjuntos.
+
+Notas:
+
+- La primera ejecución contra un Vite recién arrancado puede fallar con la
+  pantalla en «Cargando…»: Vite compila bajo demanda cada ruta perezosa y tarda
+  más que los 5 s de espera de Playwright. Repite el paso 5; con las rutas ya
+  compiladas el recorrido tarda unos 25 s.
+- El recorrido se puede repetir sin volver al paso 1 (sufijos únicos); el login
+  admite 10 intentos por minuto por IP y cada ejecución hace 3.
+- `e2e-stack.ts` se niega a trabajar sobre un esquema que no empiece por
+  `integration_` o que sea `integration_test` (`E2E_SCHEMA` cambia el nombre).
+
 ## 9. En el pipeline
 
 `lint → typecheck → unit → integration → build → security checks`.

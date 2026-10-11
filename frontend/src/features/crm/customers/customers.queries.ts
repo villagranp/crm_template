@@ -99,8 +99,12 @@ export function useDeleteCustomer(customerId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => deleteCustomer(customerId),
-    // Quien elimina vuelve a la búsqueda; la ficha no se vuelve a pedir.
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: customerKeys.lists() }),
+    // Quien elimina vuelve a la búsqueda: la ficha se quita de la caché (no se vuelve a pedir
+    // ni se muestra obsoleta si se reabre) y las listas se recargan.
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: customerKeys.detail(customerId) });
+      return queryClient.invalidateQueries({ queryKey: customerKeys.lists() });
+    },
   });
 }
 

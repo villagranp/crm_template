@@ -167,7 +167,8 @@ export class ContentSniffer extends Transform {
 
   override _transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback): void {
     if (this.headBytes.length < SIGNATURE_HEAD_BYTES) {
-      this.headBytes = Buffer.concat([this.headBytes, chunk]).subarray(0, SIGNATURE_HEAD_BYTES);
+      // Copia: un `subarray` retendría en memoria todo el bloque concatenado (hasta 64 KiB por trozo).
+      this.headBytes = Buffer.from(Buffer.concat([this.headBytes, chunk]).subarray(0, SIGNATURE_HEAD_BYTES));
     }
     this.tailChunks.push(chunk);
     this.tailLength += chunk.length;

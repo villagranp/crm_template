@@ -5,7 +5,7 @@ import { expect, test, type Page, type Response } from '@playwright/test';
  *
  * Precondiciones:
  * - Stack aislado con la semilla esencial y la demo aplicadas (ver TESTING.md
- *   §«E2E del acceso local»); nunca la base de desarrollo compartida: el
+ *   §«E2E de Clientes» y `backend/scripts/e2e-stack.ts`); nunca la base de desarrollo compartida: el
  *   recorrido crea clientes y contactos (con sufijo único, así que es repetible).
  * - Regla de duplicidad por defecto `nit = AVISAR` (02 §C.3).
  * - Los usuarios ya tienen contraseña personal (sin cambio pendiente).
@@ -93,7 +93,8 @@ async function createContact(page: Page, firstName: string, lastName: string, pr
   const saved = waitForApi(page, 'POST', /^\/customers\/[^/]+\/contacts$/);
   await dialog.getByRole('button', { name: 'Crear contacto' }).click();
   expect((await saved).status()).toBe(HTTP_CREATED);
-  await expect(contacts.getByText(`${firstName} ${lastName}`)).toBeVisible();
+  // Exacto: el aviso «Contacto … guardado.» también contiene el nombre.
+  await expect(contacts.getByText(`${firstName} ${lastName}`, { exact: true })).toBeVisible();
 }
 
 test.describe.serial('CRM · Clientes', () => {

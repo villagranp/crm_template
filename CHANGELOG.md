@@ -5,6 +5,25 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 
 ## [Unreleased]
 
+### Fixed
+- **CRM Módulo 2 — revisión de código** (`02-clientes-cuentas.md`, "Precisiones de implementación"):
+  - Seguridad: cada operación sobre un cliente usa el alcance de **su** permiso (editar ajenos,
+    campos reservados y contactos → `clientes.administrar`; eliminar/restaurar →
+    `clientes.eliminar`), no el de `clientes.ver`; con roles combinados ya no se administra un
+    cliente solo visible por un rol de lectura. Las `capabilities` salen del mismo cálculo.
+    `VisibilityScopeResolver.resolveMany` resuelve varios permisos con una lectura.
+  - Concurrencia: "como máximo un principal activo" (RN-02.26) con la fila del cliente bloqueada
+    y escrituras condicionales; eliminación de cliente y de contacto sin TOCTOU (conteo y borrado
+    en la misma transacción con bloqueo); `CustomerReferenceGuard` con `tx` toma `FOR SHARE`.
+  - Adjuntos: la autorización se decide antes de leer el `multipart` (guard) y el corte de tamaño
+    usa el `crm.adjuntos.max_mb` vigente en cada petición.
+  - Auditoría: los comentarios del contacto se enmascaran (DM-29). Edición sin
+    `clientes.administrar`: un código igual normalizado conserva el valor guardado. Alta y edición
+    leen alcances y parámetros antes de abrir su transacción. `VALIDATION_FAILED` detectado por un
+    servicio responde `400` (`RequestValidationError`). OpenAPI documenta el `400` de los
+    endpoints con UUID en la ruta. Frontend: eliminar un cliente quita su ficha de la caché.
+  - NGINX: una sola cabecera `Cache-Control: no-store` en las respuestas de la API.
+
 ### Added
 - **CRM Módulo 2 — Clientes / Cuentas, frontend** (`frontend/src/features/crm/customers/`):
   búsqueda con filtros y estado en la URL, alta con aviso de duplicados y archivos que se suben
@@ -122,6 +141,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 - Pruebas de integración del esquema CRM (`backend/test/crm-schema.e2e.spec.ts`).
 
 ### Changed
+- `pnpm test` en la raíz ejecuta los paquetes uno tras otro (`--workspace-concurrency=1`): en
+  paralelo, la carga del backend hacía vencer pruebas del frontend por tiempo. CI no cambia (ya
+  ejecuta cada paquete por separado).
 - Adjuntos: `AttachmentUploadInterceptor` decodifica el nombre del archivo del
   `multipart` como UTF-8 (`defParamCharset: 'utf8'`); un nombre con tildes ya no
   llega como latin1.

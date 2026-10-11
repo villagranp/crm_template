@@ -1,6 +1,7 @@
 import type { ArgumentsHost } from '@nestjs/common';
 import type { ValidationError } from 'class-validator';
 
+import { RequestValidationError } from '@/common/errors/application-error';
 import type { AppLogger } from '@/infrastructure/logging/app-logger.service';
 
 import { AllExceptionsFilter } from './all-exceptions.filter';
@@ -46,5 +47,24 @@ describe('validationExceptionFactory (DC-6)', () => {
       correlationId: 'corr-1',
     });
     expect(JSON.stringify(json.mock.calls)).not.toContain('secreto');
+  });
+
+  it('un RequestValidationError de un servicio responde también 400 VALIDATION_FAILED', () => {
+    const json = jest.fn();
+    const status = jest.fn(() => ({ json }));
+    const host = {
+      switchToHttp: () => ({
+        getRequest: () => ({ correlationId: 'corr-2', originalUrl: '/api/v1/x' }),
+        getResponse: () => ({ status }),
+      }),
+    } as unknown as ArgumentsHost;
+
+    new AllExceptionsFilter({ error: jest.fn() } as unknown as AppLogger).catch(
+      new RequestValidationError('The value does not have a valid format', [{ field: 'email', code: VALIDATION_FAILED }]),
+      host,
+    );
+
+    expect(status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 400, code: VALIDATION_FAILED }));
   });
 });

@@ -135,6 +135,32 @@ describe('VisibilityScopeResolver', () => {
   });
 });
 
+describe('VisibilityScopeResolver.resolveMany', () => {
+  it('resuelve cada permiso con su alcance leyendo una vez el perfil y una vez los equipos', async () => {
+    const access = snapshot([
+      { code: 'manager', dataScope: 'TEAM', permissionCodes: ['clientes.ver', 'clientes.administrar'] },
+      { code: 'lector', dataScope: 'ORGANIZATION', permissionCodes: ['clientes.ver'] },
+    ]);
+    const findTeamScope = jest.fn(async () => ({ teamIds: ['t-1'], userIds: ['user-2'] }));
+    const { resolver } = setup(access, { findTeamScope });
+    const getSnapshot = (resolver as unknown as { accessRepository: { getUserAccessSnapshot: jest.Mock } }).accessRepository
+      .getUserAccessSnapshot;
+
+    const scopes = await resolver.resolveMany(USER, ['clientes.ver', 'clientes.administrar', 'clientes.eliminar']);
+
+    expect(scopes.get('clientes.ver')).toEqual({ kind: 'ALL', userId: USER, dataScope: 'ORGANIZATION' });
+    expect(scopes.get('clientes.administrar')).toMatchObject({ kind: 'FILTERED', dataScope: 'TEAM', ownerIds: [USER, 'user-2'] });
+    expect(scopes.get('clientes.eliminar')).toEqual(noVisibility(USER));
+    expect(getSnapshot).toHaveBeenCalledTimes(1);
+    expect(findTeamScope).toHaveBeenCalledTimes(1);
+  });
+
+  it('sin cuenta local, ningún permiso ve nada', async () => {
+    const scopes = await setup(null).resolver.resolveMany(null, ['clientes.ver']);
+    expect(scopes.get('clientes.ver')).toEqual(noVisibility(null));
+  });
+});
+
 describe('isWithinScope', () => {
   it('evalúa dueño y país igual que el predicado de los adaptadores', () => {
     const team = {

@@ -174,7 +174,10 @@ export class CustomersController {
   })
   @ApiOkResponse({ type: CustomerResponseDto })
   @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED (incl. enviar `crmCode`)' })
-  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'PERMISSION_DENIED (cliente ajeno o heredado) · FIELD_NOT_EDITABLE (`details[].field`)' })
+  @ApiForbiddenResponse({
+    type: ErrorResponseDto,
+    description: 'PERMISSION_DENIED (cliente heredado, o ajeno fuera del alcance de `clientes.administrar`) · FIELD_NOT_EDITABLE (`details[].field`)',
+  })
   @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'RESOURCE_NOT_FOUND' })
   @ApiConflictResponse({ type: ErrorResponseDto, description: CONFLICT_409 })
   @ApiUnprocessableEntityResponse({ type: ErrorResponseDto, description: VALIDATION_422 })
@@ -192,9 +195,10 @@ export class CustomersController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
     summary: 'F7 · Eliminación lógica del cliente',
-    description: 'Conserva contactos, adjuntos e historia; el código sigue ocupado. Alcance directo. Audita `crm.customer.deleted`.',
+    description: 'Conserva contactos, adjuntos e historia; el código sigue ocupado. Cliente en el alcance directo y en el de `clientes.eliminar` (si no, 403). Audita `crm.customer.deleted`.',
   })
   @ApiNoContentResponse()
+  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED: `id` no es UUID' })
   @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'RESOURCE_NOT_FOUND' })
   @ApiConflictResponse({
     type: ErrorResponseDto,
@@ -210,9 +214,10 @@ export class CustomersController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'F8 · Restaura un cliente eliminado',
-    description: 'Alcance directo. Con `unicidad_codigo = GLOBAL` revalida el código. Audita `crm.customer.restored`.',
+    description: 'Cliente en el alcance directo y en el de `clientes.eliminar` (si no, 403). Con `unicidad_codigo = GLOBAL` revalida el código. Audita `crm.customer.restored`.',
   })
   @ApiOkResponse({ type: CustomerResponseDto })
+  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED: `id` no es UUID' })
   @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'RESOURCE_NOT_FOUND' })
   @ApiConflictResponse({ type: ErrorResponseDto, description: 'CUSTOMER_NOT_DELETED · CUSTOMER_CODE_TAKEN' })
   async restore(@Param('id', ParseUUIDPipe) customerId: string, @Req() request: AppRequest): Promise<CustomerResponseDto> {

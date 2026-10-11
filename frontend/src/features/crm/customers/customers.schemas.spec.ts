@@ -48,6 +48,10 @@ describe('buildCustomerFormSchema', () => {
     expect(errorsOf({}, { requiredFields: ['salesOwnerId'], canChooseOwner: false })).toEqual({});
   });
 
+  it('en el alta no exige el responsable aunque el usuario pueda elegirlo: vacío es el propio usuario (02 §F.4)', () => {
+    expect(errorsOf({}, { requiredFields: ['salesOwnerId'], canChooseOwner: true, ownerDefaultsToActor: true })).toEqual({});
+  });
+
   it.each(['=SUMA(A1)', '@cmd', '\tTexto', '\rTexto', '   =1'])('rechaza texto libre que empieza como fórmula: %j (RN-02.32)', (value) => {
     const errors = errorsOf({ legalName: value, tradeName: value, city: value, address: value });
     expect(errors).toMatchObject({ legalName: FORMULA_MESSAGE, tradeName: FORMULA_MESSAGE, city: FORMULA_MESSAGE, address: FORMULA_MESSAGE });

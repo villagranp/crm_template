@@ -1,6 +1,7 @@
 import {
   AccessDeniedError,
   BusinessRuleViolationError,
+  RequestValidationError,
   ResourceConflictError,
   ResourceNotFoundError,
 } from '@/common/errors/application-error';
@@ -52,15 +53,26 @@ export function fieldIssue(field: string, code: string, extra: Record<string, un
 }
 
 /**
- * `422` con todas las incidencias de la entrada (RN-02.12). El código de la
+ * Error con todas las incidencias de la entrada (RN-02.12). El código de la
  * respuesta es el de la primera incidencia (el validador las ordena por
  * gravedad); cada elemento de `details` lleva su propio `code` y `field`.
+ *
+ * Status: `422`, salvo que la primera sea `VALIDATION_FAILED` (longitud o formato
+ * de correo, que el validador comprueba para la importación): entonces `400`,
+ * igual que el `ValidationPipe` (DC-6), para que un mismo código tenga siempre el
+ * mismo status. La importación (Módulo 6) no usa este error: lee las incidencias
+ * por fila de `ValidationOutcome.errors`.
  */
-export function fieldIssuesError(issues: readonly (FieldIssue & Record<string, unknown>)[]): BusinessRuleViolationError {
+export function fieldIssuesError(
+  issues: readonly (FieldIssue & Record<string, unknown>)[],
+): BusinessRuleViolationError | RequestValidationError {
   const first = issues[0];
   const code = first?.code ?? CUSTOMER_ERROR_CODES.validationFailed;
   const message = issues.length === 1 ? (first?.message ?? 'The value is not valid') : 'Some fields are not valid';
-  return new BusinessRuleViolationError(code, message, issues.map((issue) => ({ ...issue })));
+  const details = issues.map((issue) => ({ ...issue }));
+  return code === CUSTOMER_ERROR_CODES.validationFailed
+    ? new RequestValidationError(message, details)
+    : new BusinessRuleViolationError(code, message, details);
 }
 
 export function customerNotFound(customerId: string): ResourceNotFoundError {

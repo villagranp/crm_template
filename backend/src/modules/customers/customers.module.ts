@@ -9,6 +9,7 @@ import { CatalogsModule } from '@/modules/catalogs/catalogs.module';
 
 import { ContactsService } from './contacts.service';
 import { CustomerActorResolver } from './customer-actor.resolver';
+import { CustomerAttachmentWriteGuard } from './customer-attachment-write.guard';
 import { CustomerAttachmentsController } from './customer-attachments.controller';
 import { CustomerContactsController } from './customer-contacts.controller';
 import { CustomerCreationService } from './customer-creation.service';
@@ -43,6 +44,7 @@ import { CUSTOMERS_REPOSITORY } from './ports/customers.repository.port';
     CustomerValidationService,
     CustomerCreationService,
     CustomerReferenceGuard,
+    CustomerAttachmentWriteGuard,
     { provide: CUSTOMERS_REPOSITORY, useClass: PrismaCustomersRepository },
     { provide: CONTACTS_REPOSITORY, useClass: PrismaContactsRepository },
   ],

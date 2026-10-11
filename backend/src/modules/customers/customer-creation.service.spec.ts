@@ -11,7 +11,13 @@ import type { AuditContext, AuditService } from '@/modules/audit/audit.service';
 import type { CustomerActorResolver } from './customer-actor.resolver';
 import { customerAuditState } from './customer-audit';
 import { type CustomerCreationContext, CustomerCreationService } from './customer-creation.service';
-import type { CustomerDraft, CustomerValidationService, NormalizedCustomer, ValidationOutcome } from './customer-validation.service';
+import type {
+  CustomerDraft,
+  CustomerValidationContext,
+  CustomerValidationService,
+  NormalizedCustomer,
+  ValidationOutcome,
+} from './customer-validation.service';
 import { CustomerCodeConflictError, type CustomersRepository } from './ports/customers.repository.port';
 import { AUDIT, makeActor, makeCountry, makeCustomer, makeVisibility, TX } from './testing/customer-fixtures';
 
@@ -36,6 +42,15 @@ const NORMALIZED: NormalizedCustomer = {
 
 const DRAFT: CustomerDraft = { customerCode: 'AB-12', legalName: 'Constructora Peña S.A.', country: 'country-gt', status: 'status-active' };
 
+const PREPARED: CustomerValidationContext = {
+  visibility: makeVisibility(),
+  assignable: null,
+  codeUniqueness: 'PAIS',
+  duplicateRules: { razonSocialNormalizada: 'AVISAR', nombreComercialNormalizado: 'NO', correo: 'NO', telefono: 'NO', nit: 'AVISAR' },
+  requiredFields: [],
+  defaultValues: {},
+};
+
 function outcome(overrides: Partial<ValidationOutcome> = {}): ValidationOutcome {
   return { errors: [], duplicates: [], blockingDuplicates: [], codeConflict: null, normalized: NORMALIZED, ...overrides };
 }
@@ -51,7 +66,7 @@ describe('CustomerCreationService', () => {
   };
   let transactions: { run: jest.Mock };
   let sequences: { next: jest.Mock };
-  let validation: { codeUniqueness: jest.Mock; validate: jest.Mock };
+  let validation: { codeUniqueness: jest.Mock; validate: jest.Mock; prepare: jest.Mock };
   let actors: { visibility: jest.Mock };
   let audit: { record: jest.Mock };
   let service: CustomerCreationService;
@@ -74,7 +89,15 @@ describe('CustomerCreationService', () => {
     };
     transactions = { run: jest.fn((work: (tx: TransactionContext) => Promise<unknown>) => work(TX)) };
     sequences = { next: jest.fn().mockResolvedValue('CLI-000123') };
-    validation = { codeUniqueness: jest.fn().mockResolvedValue('PAIS'), validate: jest.fn().mockResolvedValue(outcome()) };
+    validation = {
+      codeUniqueness: jest.fn().mockResolvedValue('PAIS'),
+      validate: jest.fn().mockResolvedValue(outcome()),
+      // Como el real: la unicidad solo se lee si hay código.
+      prepare: jest.fn(async (draft: CustomerDraft) => ({
+        ...PREPARED,
+        codeUniqueness: draft.customerCode?.trim() ? await validation.codeUniqueness() : 'PAIS',
+      })),
+    };
     actors = { visibility: jest.fn().mockResolvedValue(makeVisibility()) };
     audit = { record: jest.fn().mockResolvedValue(undefined) };
     service = new CustomerCreationService(
@@ -147,9 +170,16 @@ describe('CustomerCreationService', () => {
     it('valida dentro de la transacción y pide el folio después', async () => {
       await service.create(DRAFT, uiContext());
 
-      expect(validation.validate).toHaveBeenCalledWith(DRAFT, { mode: 'BY_ID', actor: ownActor, tx: TX });
+      expect(validation.validate).toHaveBeenCalledWith(DRAFT, { mode: 'BY_ID', actor: ownActor, tx: TX, context: expect.objectContaining({ codeUniqueness: 'PAIS' }) });
       expect(sequences.next).toHaveBeenCalledWith('crm.cliente', TX);
       expect(validation.validate.mock.invocationCallOrder[0]).toBeLessThan(sequences.next.mock.invocationCallOrder[0] ?? 0);
+    });
+
+    it('lee alcances y parámetros (prepare) ANTES de abrir la transacción (m5)', async () => {
+      await service.create(DRAFT, uiContext());
+
+      expect(validation.prepare).toHaveBeenCalledWith(DRAFT, { mode: 'BY_ID', actor: ownActor });
+      expect(validation.prepare.mock.invocationCallOrder[0]).toBeLessThan(transactions.run.mock.invocationCallOrder[0] ?? 0);
     });
 
     it('inserta los valores normalizados con folio, autor y sin importación', async () => {

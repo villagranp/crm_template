@@ -154,6 +154,25 @@ describe('F17–F20 (PF-02.34, PF-02.60)', () => {
     await upload(owner, customerId, PDF_BYTES, 'a.pdf', 'x'.repeat(301)).expect(400);
   });
 
+  it('el corte de tamaño es el crm.adjuntos.max_mb vigente y la autorización va antes de leer el archivo', async () => {
+    const { owner, customerId } = await ownerWithCustomer();
+    const other = await ownerWithCustomer();
+    const inheritor = await crmUser(context, { roleCodes: ['asesor'], countryId: q9 });
+    await insertProject(context.prisma, { customerId, ownerId: inheritor.id, countryId: q9 });
+    // Entre el máximo vigente (1 MiB) y el techo absoluto (10 MiB).
+    const twoMegabytes = Buffer.concat([PDF_BYTES, Buffer.alloc(2 * 1024 * 1024)]);
+
+    await withParameter(context.prisma, MAX_MB, '1', async () => {
+      // Quien puede editar: el interceptor corta en el máximo vigente → 413 con ese máximo.
+      const tooBig = await upload(owner, customerId, twoMegabytes, 'grande.pdf').expect(413);
+      expect(tooBig.body).toMatchObject({ code: 'ATTACHMENT_TOO_LARGE', details: [{ field: 'file', maxBytes: 1024 * 1024 }] });
+      // Sin acceso, la respuesta es 404/403 y no 413: se decide antes de leer el multipart.
+      await upload(owner, other.customerId, twoMegabytes, 'ajeno.pdf').expect(404);
+      await upload(inheritor, customerId, twoMegabytes, 'heredado.pdf').expect(403);
+    });
+    expect(await context.prisma.attachment.count({ where: { customerId: { in: [customerId, other.customerId] } } })).toBe(0);
+  });
+
   it('alta del cliente y subida posterior con fallo parcial: el cliente se conserva (PF-02.24)', async () => {
     const owner = await crmUser(context, { roleCodes: ['asesor'], countryId: q9 });
     const created = await api(context, owner.token)

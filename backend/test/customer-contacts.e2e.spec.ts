@@ -285,7 +285,8 @@ describe('F9/F12 · Lista y edición (PF-02.45, PF-02.46)', () => {
     expect(event?.changes).toEqual({
       lastName: { before: 'L***', after: 'P***' },
       jobTitle: { before: 'Gerente de compras', after: null },
-      comments: { before: null, after: 'Prefiere correo' },
+      // Texto libre que puede contener datos personales: enmascarado como el resto (DM-29).
+      comments: { before: null, after: 'P***' },
     });
     await client.patch(`/customers/${customerId}/contacts/${created.body.id}`).send({ isPrimary: true }).expect(400);
 

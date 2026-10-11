@@ -140,6 +140,34 @@ export interface CustomerValidationOptions {
   readonly existing?: CustomerRecord;
   /** Transacción del llamador: catálogos y unicidad se comprueban dentro de ella (00 §3.5). */
   readonly tx?: TransactionContext;
+  /**
+   * Lecturas previas de `prepare()`. Quien valida dentro de una transacción
+   * interactiva lo pasa para no usar conexiones extra del pool mientras la
+   * transacción retiene sus bloqueos (02 "Precisiones de implementación"). Sin
+   * él, se leen bajo demanda.
+   */
+  readonly context?: CustomerValidationContext;
+}
+
+type DuplicateRuleActions = Readonly<Record<CustomerDuplicateRuleKey, 'NO' | 'AVISAR' | 'BLOQUEAR'>>;
+
+/**
+ * Lo que la validación lee fuera de la transacción del llamador: alcances del
+ * actor, responsables asignables y parámetros. Ninguno necesita leerse dentro para
+ * ser consistente: alcances y parámetros rigen "en la siguiente petición"
+ * (ADR-020, DC-3) y el conjunto asignable solo acota la búsqueda; la elegibilidad
+ * del responsable, los catálogos, el país, la unicidad y los duplicados sí se
+ * comprueban dentro, con el `tx`.
+ */
+export interface CustomerValidationContext {
+  readonly visibility: CustomerVisibility;
+  /** `null` si la entrada no obliga a resolver un responsable. */
+  readonly assignable: SalesOwnerAssignableSet | null;
+  readonly codeUniqueness: 'PAIS' | 'GLOBAL';
+  readonly duplicateRules: DuplicateRuleActions;
+  readonly requiredFields: readonly (keyof CustomerDraft)[];
+  /** Valor de `crm.valores_por_defecto` (solo en el alta; `{}` en la edición). */
+  readonly defaultValues: Readonly<Record<string, string | undefined>>;
 }
 
 /** Claves normalizadas para detectar duplicados dentro de un mismo archivo de importación (F.6.1). */
@@ -239,8 +267,38 @@ export class CustomerValidationService {
     private readonly logger: AppLogger,
   ) {}
 
+  /**
+   * Lee por adelantado lo que `validate()` necesita fuera de la transacción
+   * (`CustomerValidationContext`). `visibility`, si el llamador ya la tiene, se reutiliza.
+   */
+  async prepare(
+    draft: CustomerDraft,
+    options: {
+      readonly mode: CustomerRefMode;
+      readonly actor: CustomerActor;
+      readonly existing?: CustomerRecord;
+      readonly visibility?: CustomerVisibility;
+    },
+  ): Promise<CustomerValidationContext> {
+    const { mode, actor, existing } = options;
+    const isEdit = existing !== undefined;
+    const ownerInput = trimToNull(draft.salesOwner) ?? (isEdit ? undefined : actor.userId);
+    const needsOwner =
+      ownerInput !== undefined && ownerInput !== null && !(existing && mode === 'BY_ID' && ownerInput === existing.salesOwner.id);
+    const [visibility, assignable, codeUniqueness, duplicateRules, requiredFields, defaultValues] = await Promise.all([
+      options.visibility ?? this.actors.visibility(actor),
+      needsOwner ? this.actors.assignableSalesOwners(actor) : null,
+      // Sin código no hay unicidad que comprobar (`findCodeConflict` no la usa).
+      normalizeCustomerCode(trimToNull(draft.customerCode)) ? this.codeUniqueness() : ('PAIS' as const),
+      this.duplicateRules(),
+      this.requiredDraftFields(),
+      isEdit ? {} : this.parameters.get<Record<string, string | undefined>>(CUSTOMER_PARAMETERS.defaultValues),
+    ]);
+    return { visibility, assignable, codeUniqueness, duplicateRules, requiredFields, defaultValues };
+  }
+
   async validate(draft: CustomerDraft, options: CustomerValidationOptions): Promise<ValidationOutcome> {
-    const { existing, tx, mode, actor } = options;
+    const { existing, tx, mode, actor, context } = options;
     const isEdit = existing !== undefined;
     const issues: Issue[] = [];
     const provided = (field: DraftField): boolean => draft[field] !== undefined;
@@ -265,7 +323,7 @@ export class CustomerValidationService {
     }
 
     // Valores por defecto antes de los obligatorios (RN-02.4). Solo en el alta.
-    const defaults = isEdit ? {} : await this.defaultCatalogValues(mode, tx);
+    const defaults = isEdit ? {} : await this.defaultCatalogValues(mode, tx, context?.defaultValues);
     const salesOwnerInput = value('salesOwner') ?? (isEdit ? undefined : actor.userId);
     const resolvedInput: Partial<Record<DraftField, string | null | undefined>> = {
       ...Object.fromEntries((Object.keys(FIELD_NAMES) as DraftField[]).map((field) => [field, value(field)])),
@@ -275,7 +333,7 @@ export class CustomerValidationService {
       salesOwner: salesOwnerInput,
     };
 
-    for (const field of await this.requiredDraftFields()) {
+    for (const field of context?.requiredFields ?? (await this.requiredDraftFields())) {
       const current = resolvedInput[field];
       // Alta: falta el valor. Edición: se envía vacío un campo obligatorio (lo no enviado no cambia).
       const isMissing = isEdit ? current === null : current === null || current === undefined;
@@ -309,7 +367,7 @@ export class CustomerValidationService {
     const ratingId = await this.resolveCatalog('rating', CUSTOMER_CATALOGS.rating, resolvedInput.rating, existing?.rating?.id ?? null, options, issues);
 
     // Responsable (RN-02.10, D-02.2).
-    const salesOwnerId = await this.resolveSalesOwner(resolvedInput.salesOwner, mode, actor, existing, issues, tx);
+    const salesOwnerId = await this.resolveSalesOwner(resolvedInput.salesOwner, mode, actor, existing, issues, tx, context);
 
     if (issues.length > 0) {
       return { errors: [...issues].sort(bySeverity), duplicates: [], blockingDuplicates: [], codeConflict: null, normalized: null };
@@ -338,9 +396,17 @@ export class CustomerValidationService {
       salesOwnerId: pick(salesOwnerId ?? undefined, existing?.salesOwner.id ?? ''),
     };
 
-    const visibility = await this.actors.visibility(actor);
-    const codeConflict = await this.findCodeConflict(normalized, existing, countryChanged, visibility, tx);
-    const { duplicates, blockingDuplicates } = await this.findDuplicates(normalized, existing, countryChanged, actor, visibility, tx);
+    const visibility = context?.visibility ?? (await this.actors.visibility(actor));
+    const codeConflict = await this.findCodeConflict(normalized, existing, countryChanged, visibility, tx, context?.codeUniqueness);
+    const { duplicates, blockingDuplicates } = await this.findDuplicates(
+      normalized,
+      existing,
+      countryChanged,
+      actor,
+      visibility,
+      tx,
+      context?.duplicateRules,
+    );
     return { errors: [], duplicates, blockingDuplicates, codeConflict, normalized };
   }
 
@@ -360,7 +426,7 @@ export class CustomerValidationService {
     return this.parameters.get<'PAIS' | 'GLOBAL'>(CUSTOMER_PARAMETERS.codeUniqueness);
   }
 
-  private async duplicateRules(): Promise<Readonly<Record<CustomerDuplicateRuleKey, 'NO' | 'AVISAR' | 'BLOQUEAR'>>> {
+  private async duplicateRules(): Promise<DuplicateRuleActions> {
     const value = await this.parameters.get<unknown>(CUSTOMER_PARAMETERS.duplicateRules);
     const parsed = parseDuplicateRules(value, CUSTOMER_DUPLICATE_RULE_KEYS, { restrictedActions: CUSTOMER_RESTRICTED_ACTIONS });
     for (const warning of parsed.warnings) {
@@ -395,8 +461,13 @@ export class CustomerValidationService {
    * `customer.companyTypeId`, `customer.ratingId`; códigos de catálogo). Un código
    * inexistente o inactivo se ignora con advertencia. Devuelve id o código según el modo.
    */
-  async defaultCatalogValues(mode: CustomerRefMode, tx?: TransactionContext): Promise<Partial<Record<'status' | 'companyType' | 'rating', string>>> {
-    const value = await this.parameters.get<Record<string, string | undefined>>(CUSTOMER_PARAMETERS.defaultValues);
+  async defaultCatalogValues(
+    mode: CustomerRefMode,
+    tx?: TransactionContext,
+    parameterValue?: Readonly<Record<string, string | undefined>>,
+  ): Promise<Partial<Record<'status' | 'companyType' | 'rating', string>>> {
+    // El parámetro puede llegar leído de antemano (`prepare`); los catálogos se comprueban con el `tx`.
+    const value = parameterValue ?? (await this.parameters.get<Record<string, string | undefined>>(CUSTOMER_PARAMETERS.defaultValues));
     const entries: ['status' | 'companyType' | 'rating', string, string][] = [
       ['status', 'customer.statusId', CUSTOMER_CATALOGS.status],
       ['companyType', 'customer.companyTypeId', CUSTOMER_CATALOGS.companyType],
@@ -469,10 +540,11 @@ export class CustomerValidationService {
     existing: CustomerRecord | undefined,
     issues: Issue[],
     tx?: TransactionContext,
+    context?: CustomerValidationContext,
   ): Promise<string | null | undefined> {
     if (input === undefined || input === null) return undefined;
     if (existing && mode === 'BY_ID' && input === existing.salesOwner.id) return input;
-    const assignable: SalesOwnerAssignableSet = await this.actors.assignableSalesOwners(actor);
+    const assignable: SalesOwnerAssignableSet = context?.assignable ?? (await this.actors.assignableSalesOwners(actor));
     const lookup = mode === 'BY_ID' ? ({ by: 'id', value: input } as const) : ({ by: 'naturalKey', value: input } as const);
     const salesOwnerId = await this.customers.findEligibleSalesOwner(lookup, assignable, CUSTOMER_PERMISSIONS.view, tx);
     if (!salesOwnerId) {
@@ -489,11 +561,12 @@ export class CustomerValidationService {
     countryChanged: boolean,
     visibility: CustomerVisibility,
     tx?: TransactionContext,
+    preparedUniqueness?: 'PAIS' | 'GLOBAL',
   ): Promise<CustomerCodeConflictDetails | null> {
     const code = normalized.customerCodeNormalized;
     if (!code) return null;
     if (existing && code === existing.customerCodeNormalized && !countryChanged) return null;
-    const uniqueness = await this.codeUniqueness();
+    const uniqueness = preparedUniqueness ?? (await this.codeUniqueness());
     const holder = await this.customers.findCustomerCodeHolder(
       code,
       { countryId: uniqueness === 'GLOBAL' ? null : normalized.countryId, excludeCustomerId: existing?.id ?? null },
@@ -514,8 +587,9 @@ export class CustomerValidationService {
     actor: CustomerActor,
     visibility: CustomerVisibility,
     tx?: TransactionContext,
+    preparedRules?: DuplicateRuleActions,
   ): Promise<{ duplicates: DuplicateCandidate[]; blockingDuplicates: DuplicateCandidate[] }> {
-    const rules = await this.duplicateRules();
+    const rules = preparedRules ?? (await this.duplicateRules());
     const values: Record<CustomerDuplicateRuleKey, string | null> = {
       razonSocialNormalizada: normalized.legalNameNormalized || null,
       nombreComercialNormalizado: normalizeName(normalized.tradeName),

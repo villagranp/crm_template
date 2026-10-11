@@ -3,10 +3,10 @@
  * datos: registros con la forma de los puertos y valores ficticios.
  */
 import type { TransactionContext } from '@/infrastructure/database/ports/transaction.port';
-import type { VisibilityScope } from '@/modules/access/visibility-scope';
+import { isWithinScope, type VisibilityScope } from '@/modules/access/visibility-scope';
 import type { AuditContext } from '@/modules/audit/audit.service';
 
-import type { CustomerActor } from '../customer-actor.resolver';
+import type { CustomerAccessScopes, CustomerActor } from '../customer-actor.resolver';
 import type { VisibleCustomer } from '../customer-visibility.service';
 import type { ContactRecord } from '../ports/contacts.repository.port';
 import type { CountryRecord, CustomerRecord, CustomerVisibility } from '../ports/customers.repository.port';
@@ -98,6 +98,32 @@ export function makeVisibility(ownerIds: readonly string[] = ['user-1']): Custom
   return { direct: ownerScope(ownerIds), inherited: ownerScope(ownerIds) };
 }
 
-export function makeVisible(record: CustomerRecord = makeCustomer(), access: VisibleCustomer['access'] = 'DIRECT'): VisibleCustomer {
-  return { record, access, visibility: makeVisibility() };
+/** Alcances del actor; por defecto, administrar y eliminar alcanzan a todos (`ALL`). */
+export function makeScopes(overrides: Partial<CustomerAccessScopes> = {}): CustomerAccessScopes {
+  const all: VisibilityScope = { kind: 'ALL', userId: 'user-1', dataScope: 'ORGANIZATION' };
+  return { visibility: makeVisibility(), administer: all, delete: all, ...overrides };
+}
+
+/**
+ * Cliente visible con el acceso indicado. `subject` se construye a mano para que
+ * `access` mande (las pruebas fijan `INHERITED` sin montar alcances de herencia).
+ */
+export function makeVisible(
+  record: CustomerRecord = makeCustomer(),
+  access: VisibleCustomer['access'] = 'DIRECT',
+  scopes: CustomerAccessScopes = makeScopes(),
+): VisibleCustomer {
+  const ref = { ownerId: record.salesOwner.id, countryId: record.country.id };
+  return {
+    record,
+    access,
+    scopes,
+    subject: {
+      salesOwnerId: record.salesOwner.id,
+      access,
+      isDeleted: record.deletedAt !== null,
+      inAdministerScope: isWithinScope(scopes.administer, ref),
+      inDeleteScope: isWithinScope(scopes.delete, ref),
+    },
+  };
 }

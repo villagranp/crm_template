@@ -22,8 +22,12 @@ export const CONTACT_AUDIT_EVENTS = {
   restored: 'crm.contact.restored',
 } as const;
 
-/** Datos personales del contacto: la auditoría los registra enmascarados (DM-29). */
-export const CONTACT_MASKED_FIELDS = ['firstName', 'lastName', 'email', 'phone'] as const;
+/**
+ * Datos personales del contacto: la auditoría los registra enmascarados (DM-29).
+ * `comments` es texto libre que puede contener datos personales: se enmascara
+ * igual (queda constancia de que cambió, no de su contenido).
+ */
+export const CONTACT_MASKED_FIELDS = ['firstName', 'lastName', 'email', 'phone', 'comments'] as const;
 
 /**
  * Estado auditable de un cliente: ids y valores de empresa (no son PII, 00 §4.5).

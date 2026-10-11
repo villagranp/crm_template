@@ -7,13 +7,19 @@
  * `capabilities` que devuelve la API y hace cumplir las operaciones: el frontend
  * solo oculta (alcance §9.2).
  *
+ * Cada operación exige que el cliente caiga en el alcance **del permiso que la
+ * concede** (no en el de `clientes.ver`): con roles combinados, un rol de solo
+ * lectura con alcance amplio no amplía lo que otro rol deja modificar
+ * (02 "Precisiones de implementación").
+ *
  * Reglas:
- * - Editar: `clientes.editar` **y** (cliente propio, o ajeno con
+ * - Editar: `clientes.editar` **y** (cliente propio, o ajeno dentro del alcance de
  *   `clientes.administrar`), siempre con acceso `DIRECT`. Un cliente visible solo
  *   por herencia es de solo lectura (D-02.9). `administrar` sin `editar` no edita (F.1).
- * - Campos reservados (`customerCode`, `salesOwnerId`, `countryId`): solo con `administrar`.
- * - Eliminar / restaurar: `clientes.eliminar` y acceso `DIRECT`.
- * - Contactos (D-02.7): cliente propio, o ajeno en el alcance directo con
+ * - Campos reservados (`customerCode`, `salesOwnerId`, `countryId`): `administrar`
+ *   con el cliente dentro de su alcance.
+ * - Eliminar / restaurar: `clientes.eliminar`, cliente dentro de su alcance y acceso `DIRECT`.
+ * - Contactos (D-02.7): cliente propio, o ajeno dentro del alcance de
  *   `clientes.administrar`; más el permiso de contactos de la operación.
  * - Adjuntos: subir y eliminar como editar el cliente (RN-02.29).
  */
@@ -65,6 +71,10 @@ export interface CustomerPolicySubject {
   readonly salesOwnerId: string;
   readonly access: CustomerAccess;
   readonly isDeleted: boolean;
+  /** ¿Cae en el alcance de `clientes.administrar` del actor? (`false` sin el permiso). */
+  readonly inAdministerScope: boolean;
+  /** ¿Cae en el alcance de `clientes.eliminar` del actor? (`false` sin el permiso). */
+  readonly inDeleteScope: boolean;
 }
 
 export interface CustomerCapabilities {
@@ -85,15 +95,25 @@ function isDirectAndAlive(customer: CustomerPolicySubject): boolean {
   return customer.access === 'DIRECT' && !customer.isDeleted;
 }
 
+/** `clientes.administrar` y el cliente dentro de SU alcance. */
+function administers(actor: CustomerPolicyActor, customer: CustomerPolicySubject): boolean {
+  return actor.permissions.has(CUSTOMER_PERMISSIONS.administer) && customer.inAdministerScope;
+}
+
+/** `clientes.eliminar` y el cliente dentro de SU alcance, con acceso `DIRECT`. */
+function deletes(actor: CustomerPolicyActor, customer: CustomerPolicySubject): boolean {
+  return customer.access === 'DIRECT' && actor.permissions.has(CUSTOMER_PERMISSIONS.delete) && customer.inDeleteScope;
+}
+
 /** ¿Puede editar campos no reservados del cliente? */
 export function canEditCustomer(actor: CustomerPolicyActor, customer: CustomerPolicySubject): boolean {
   if (!isDirectAndAlive(customer) || !actor.permissions.has(CUSTOMER_PERMISSIONS.edit)) return false;
-  return isOwner(actor, customer) || actor.permissions.has(CUSTOMER_PERMISSIONS.administer);
+  return isOwner(actor, customer) || administers(actor, customer);
 }
 
 /** ¿Puede editar además los campos reservados (código, responsable, país)? */
 export function canAdministerCustomer(actor: CustomerPolicyActor, customer: CustomerPolicySubject): boolean {
-  return canEditCustomer(actor, customer) && actor.permissions.has(CUSTOMER_PERMISSIONS.administer);
+  return canEditCustomer(actor, customer) && administers(actor, customer);
 }
 
 /** Permiso que falta para editar, para el `403 PERMISSION_DENIED`. */
@@ -103,11 +123,11 @@ export function missingEditPermission(actor: CustomerPolicyActor, customer: Cust
 }
 
 export function canDeleteCustomer(actor: CustomerPolicyActor, customer: CustomerPolicySubject): boolean {
-  return isDirectAndAlive(customer) && actor.permissions.has(CUSTOMER_PERMISSIONS.delete);
+  return !customer.isDeleted && deletes(actor, customer);
 }
 
 export function canRestoreCustomer(actor: CustomerPolicyActor, customer: CustomerPolicySubject): boolean {
-  return customer.isDeleted && customer.access === 'DIRECT' && actor.permissions.has(CUSTOMER_PERMISSIONS.delete);
+  return customer.isDeleted && deletes(actor, customer);
 }
 
 /**
@@ -116,7 +136,7 @@ export function canRestoreCustomer(actor: CustomerPolicyActor, customer: Custome
  */
 export function isCustomerWritableForContacts(actor: CustomerPolicyActor, customer: CustomerPolicySubject): boolean {
   if (!isDirectAndAlive(customer)) return false;
-  return isOwner(actor, customer) || actor.permissions.has(CUSTOMER_PERMISSIONS.administer);
+  return isOwner(actor, customer) || administers(actor, customer);
 }
 
 /** Campos editables del cliente para este actor (vacío si no puede editar). */

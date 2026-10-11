@@ -14,7 +14,7 @@
     "lint": "pnpm -r lint",
     "lint:fix": "pnpm -r lint:fix",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
+    "test": "pnpm -r --workspace-concurrency=1 test",
     "test:e2e": "pnpm -r test:e2e",
     "format": "prettier --write \"**/*.{ts,tsx,js,json,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,json,yml,yaml}\"",

@@ -36,7 +36,8 @@ import {
 } from './dto/contact.dto';
 
 const NOT_FOUND = 'RESOURCE_NOT_FOUND: cliente inexistente, fuera de alcance o eliminado; o contacto de otro cliente';
-const NOT_WRITABLE = 'PERMISSION_DENIED: falta el permiso o el cliente no es editable por el usuario (ajeno sin `clientes.administrar`, o heredado)';
+const NOT_WRITABLE =
+  'PERMISSION_DENIED: falta el permiso o el cliente no es editable por el usuario (ajeno fuera del alcance de `clientes.administrar`, o heredado)';
 const DUPLICATES =
   "CONTACT_EMAIL_TAKEN (`details[0]`: `field = email`, `contactId`, `isDeleted`) · POSSIBLE_DUPLICATE (`details[]`: `{ rule, reason: 'FULL_NAME'|'PHONE', " +
   'candidate: { id, fullName, jobTitle, isDeleted } }`, reenviar con `acknowledgedDuplicateIds`) · DUPLICATE_BLOCKED';
@@ -88,6 +89,7 @@ export class CustomerContactsController {
   @RequirePermission(CONTACT_PERMISSIONS.view)
   @ApiOperation({ summary: 'F10 · Detalle de un contacto' })
   @ApiOkResponse({ type: ContactResponseDto })
+  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED: `customerId` o `contactId` no es UUID' })
   async findById(
     @Param('customerId', ParseUUIDPipe) customerId: string,
     @Param('contactId', ParseUUIDPipe) contactId: string,
@@ -167,6 +169,7 @@ export class CustomerContactsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'F14 · Quita el contacto principal', description: 'Audita `crm.customer.primary_contact_changed` si había uno.' })
   @ApiNoContentResponse()
+  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED: `customerId` no es UUID' })
   @ApiForbiddenResponse({ type: ErrorResponseDto, description: NOT_WRITABLE })
   async clearPrimary(@Param('customerId', ParseUUIDPipe) customerId: string, @Req() request: AppRequest): Promise<void> {
     const actor = await this.actors.fromRequest(request);
@@ -181,6 +184,7 @@ export class CustomerContactsController {
     description: 'Si era el principal, el cliente queda sin principal en la misma operación. Audita `crm.contact.deleted`.',
   })
   @ApiNoContentResponse()
+  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED: `customerId` o `contactId` no es UUID' })
   @ApiForbiddenResponse({ type: ErrorResponseDto, description: NOT_WRITABLE })
   @ApiConflictResponse({ type: ErrorResponseDto, description: 'CONTACT_HAS_HISTORY: participa en visitas o actividades; desactivarlo con F12' })
   async remove(
@@ -197,6 +201,7 @@ export class CustomerContactsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'F16 · Restaura un contacto eliminado', description: 'Audita `crm.contact.restored`.' })
   @ApiOkResponse({ type: ContactResponseDto })
+  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED: `customerId` o `contactId` no es UUID' })
   @ApiForbiddenResponse({ type: ErrorResponseDto, description: NOT_WRITABLE })
   @ApiConflictResponse({ type: ErrorResponseDto, description: 'CONTACT_NOT_DELETED · CONTACT_EMAIL_TAKEN' })
   async restore(

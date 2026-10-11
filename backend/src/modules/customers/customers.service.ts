@@ -24,11 +24,11 @@ import {
 } from './customer-access-policy';
 import { CUSTOMER_AUDIT_EVENTS, CUSTOMER_AUDIT_RESOURCE, customerAuditState } from './customer-audit';
 import { CustomerCreationService } from './customer-creation.service';
-import { CUSTOMER_ERROR_CODES, customerCodeTakenError, fieldNotEditableError } from './customer-errors';
+import { CUSTOMER_ERROR_CODES, customerCodeTakenError, customerNotFound, fieldNotEditableError } from './customer-errors';
 import { normalizeCustomerCode, normalizeName, normalizeTaxId, searchTerms } from './customer-normalization';
 import { assertCustomerOutcome } from './customer-outcome';
 import { CUSTOMER_CATALOGS, type CustomerDraft, CustomerValidationService, type NormalizedCustomer } from './customer-validation.service';
-import { customerAccessFor, CustomerVisibilityService, type VisibleCustomer } from './customer-visibility.service';
+import { customerAccessFor, CustomerVisibilityService, toVisibleCustomer, type VisibleCustomer } from './customer-visibility.service';
 import {
   type CountryRecord,
   CustomerCodeConflictError,
@@ -299,29 +299,31 @@ export class CustomersService {
       source: 'UI',
       acknowledgedDuplicateIds: request.acknowledgedDuplicateIds,
     });
-    const visibility = await this.actors.visibility(actor);
-    return this.toView(actor, {
-      record: created,
-      access: customerAccessFor(visibility, { salesOwnerId: created.salesOwner.id, countryId: created.country.id }),
-      visibility,
-    });
+    return this.toView(actor, toVisibleCustomer(created, await this.actors.accessScopes(actor)));
   }
 
-  async update(actor: CustomerActor, customerId: string, request: UpdateCustomerRequest): Promise<CustomerView> {
+  async update(actor: CustomerActor, customerId: string, sent: UpdateCustomerRequest): Promise<CustomerView> {
     const visible = await this.visibleCustomers.findVisible(actor, customerId);
-    const subject = this.policySubject(visible);
+    const { subject } = visible;
     if (!canEditCustomer(actor, subject)) {
       throw new PermissionDeniedError(missingEditPermission(actor, subject));
     }
-    const reserved = this.changedReservedFields(visible.record, request);
-    if (reserved.length > 0 && !canAdministerCustomer(actor, subject)) {
+    const administers = canAdministerCustomer(actor, subject);
+    const reserved = this.changedReservedFields(visible.record, sent);
+    if (reserved.length > 0 && !administers) {
       throw fieldNotEditableError(reserved, CUSTOMER_PERMISSIONS.administer);
     }
+    // Sin `clientes.administrar`, un código "igual" normalizado (`ab-12` = `AB-12`) no cambia nada:
+    // se conserva el valor guardado tal cual, sin reescribir su forma de presentación.
+    const request: UpdateCustomerRequest = !administers && sent.customerCode !== undefined ? { ...sent, customerCode: undefined } : sent;
 
     const draft = draftFromRequest(request);
     const codeNormalized = request.customerCode === undefined ? null : normalizeCustomerCode(request.customerCode?.trim());
-    const uniqueness = codeNormalized ? await this.validation.codeUniqueness() : 'PAIS';
     const before = visible.record;
+    // Alcances, responsables asignables y parámetros se leen ANTES de abrir la transacción
+    // (que puede retener el bloqueo consultivo del código): dentro solo se usa su conexión.
+    const prepared = await this.validation.prepare(draft, { mode: 'BY_ID', actor, existing: before, visibility: visible.scopes.visibility });
+    const uniqueness = codeNormalized ? prepared.codeUniqueness : 'PAIS';
 
     let changes: Partial<NormalizedCustomer> = {};
     try {
@@ -329,7 +331,7 @@ export class CustomersService {
         if (codeNormalized && uniqueness === 'GLOBAL' && codeNormalized !== before.customerCodeNormalized) {
           await this.customers.lockCustomerCode(codeNormalized, tx);
         }
-        const outcome = await this.validation.validate(draft, { mode: 'BY_ID', actor, existing: before, tx });
+        const outcome = await this.validation.validate(draft, { mode: 'BY_ID', actor, existing: before, tx, context: prepared });
         assertCustomerOutcome(outcome, request.acknowledgedDuplicateIds);
         const normalized = outcome.normalized;
         if (!normalized) throw new Error('Validation outcome without normalized values');
@@ -351,7 +353,7 @@ export class CustomersService {
           ? await this.customers.findCustomerCodeHolder(
               codeNormalized,
               { countryId: uniqueness === 'GLOBAL' ? null : (request.countryId ?? before.country.id), excludeCustomerId: customerId },
-              visible.visibility,
+              visible.scopes.visibility,
             )
           : null;
         throw customerCodeTakenError(
@@ -375,34 +377,39 @@ export class CustomersService {
       before: customerAuditState(before),
       after: customerAuditState(after),
     });
-    // Tras reasignar el responsable el actor puede dejar de verlo directamente: se recalcula el acceso.
-    return this.toView(actor, {
-      record: after,
-      access: customerAccessFor(visible.visibility, { salesOwnerId: after.salesOwner.id, countryId: after.country.id }),
-      visibility: visible.visibility,
-    });
+    // Tras reasignar el responsable el actor puede dejar de verlo directamente: se recalculan acceso y capacidades.
+    return this.toView(actor, toVisibleCustomer(after, visible.scopes));
   }
 
+  /**
+   * RN-02.22 sin TOCTOU: conteo de dependencias y borrado lógico en una
+   * transacción con la fila del cliente bloqueada (`FOR UPDATE`). Quien crea un
+   * dependiente toma `FOR SHARE`/`FOR KEY SHARE` sobre esa fila, así que o espera
+   * al borrado (y ve el cliente eliminado) o el borrado espera y lo cuenta.
+   */
   async remove(actor: CustomerActor, customerId: string): Promise<void> {
     const visible = await this.visibleCustomers.findVisible(actor, customerId);
-    if (!canDeleteCustomer(actor, this.policySubject(visible))) {
+    if (!canDeleteCustomer(actor, visible.subject)) {
       throw new PermissionDeniedError(CUSTOMER_PERMISSIONS.delete);
     }
-    const counts = await this.customers.countDependencies(customerId);
-    const dependencies = [
-      { dependency: 'projects', count: counts.projects },
-      { dependency: 'openActivities', count: counts.openActivities },
-      { dependency: 'pendingVisits', count: counts.pendingVisits },
-    ].filter((entry) => entry.count > 0);
-    if (dependencies.length > 0) {
-      throw new ResourceConflictError(
-        'The customer has active dependencies; deactivate it instead',
-        dependencies,
-        CUSTOMER_ERROR_CODES.customerHasDependencies,
-      );
-    }
 
-    await this.customers.softDelete(customerId, actor.userId);
+    await this.transactions.run(async (tx) => {
+      if (!(await this.customers.lockCustomerRow(customerId, 'UPDATE', tx))) throw customerNotFound(customerId);
+      const counts = await this.customers.countDependencies(customerId, tx);
+      const dependencies = [
+        { dependency: 'projects', count: counts.projects },
+        { dependency: 'openActivities', count: counts.openActivities },
+        { dependency: 'pendingVisits', count: counts.pendingVisits },
+      ].filter((entry) => entry.count > 0);
+      if (dependencies.length > 0) {
+        throw new ResourceConflictError(
+          'The customer has active dependencies; deactivate it instead',
+          dependencies,
+          CUSTOMER_ERROR_CODES.customerHasDependencies,
+        );
+      }
+      await this.customers.softDelete(customerId, actor.userId, tx);
+    });
     this.logger.info('customer_deleted', { correlationId: actor.audit.correlationId, customerId });
     await this.audit.record(CUSTOMER_AUDIT_EVENTS.deleted, actor.audit, {
       resourceType: CUSTOMER_AUDIT_RESOURCE,
@@ -413,7 +420,7 @@ export class CustomersService {
 
   async restore(actor: CustomerActor, customerId: string): Promise<CustomerView> {
     const visible = await this.visibleCustomers.findVisible(actor, customerId, { includeDeleted: true });
-    const subject = this.policySubject(visible);
+    const { subject } = visible;
     if (!subject.isDeleted) {
       throw new ResourceConflictError('The customer is not deleted', [], CUSTOMER_ERROR_CODES.customerNotDeleted);
     }
@@ -422,14 +429,16 @@ export class CustomersService {
     }
 
     // RN-02.23: con GLOBAL, otro cliente pudo ocupar el código en otro país mientras estaba eliminado.
+    // El parámetro se lee antes de abrir la transacción (no se piden conexiones extra con el bloqueo tomado).
     const code = visible.record.customerCodeNormalized;
+    const uniqueness = code ? await this.validation.codeUniqueness() : 'PAIS';
     await this.transactions.run(async (tx) => {
-      if (code && (await this.validation.codeUniqueness()) === 'GLOBAL') {
+      if (code && uniqueness === 'GLOBAL') {
         await this.customers.lockCustomerCode(code, tx);
         const holder = await this.customers.findCustomerCodeHolder(
           code,
           { countryId: null, excludeCustomerId: customerId },
-          visible.visibility,
+          visible.scopes.visibility,
           tx,
         );
         if (holder) {
@@ -450,8 +459,7 @@ export class CustomersService {
 
   /** Ficha visible y política de edición, para los adjuntos (RN-02.29). */
   async assertCanManageAttachments(actor: CustomerActor, customerId: string): Promise<void> {
-    const visible = await this.visibleCustomers.findVisible(actor, customerId);
-    const subject = this.policySubject(visible);
+    const { subject } = await this.visibleCustomers.findVisible(actor, customerId);
     if (!canEditCustomer(actor, subject)) {
       throw new PermissionDeniedError(missingEditPermission(actor, subject));
     }
@@ -466,13 +474,9 @@ export class CustomersService {
     return {
       record: visible.record,
       access: visible.access,
-      capabilities: customerCapabilities(actor, this.policySubject(visible)),
+      capabilities: customerCapabilities(actor, visible.subject),
       canSeeContacts: actor.permissions.has(CONTACT_PERMISSIONS.view),
     };
-  }
-
-  private policySubject(visible: VisibleCustomer): { salesOwnerId: string; access: CustomerAccess; isDeleted: boolean } {
-    return { salesOwnerId: visible.record.salesOwner.id, access: visible.access, isDeleted: visible.record.deletedAt !== null };
   }
 
   /**

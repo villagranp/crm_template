@@ -13,6 +13,7 @@ import {
   Res,
   type StreamableFile,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import {
@@ -49,6 +50,7 @@ import type { AttachmentOwner } from '@/modules/attachments/attachment-policy';
 import { AttachmentsService } from '@/modules/attachments/attachments.service';
 
 import { CustomerActorResolver } from './customer-actor.resolver';
+import { CustomerAttachmentWriteGuard } from './customer-attachment-write.guard';
 import { CUSTOMER_PERMISSIONS } from './customer-access-policy';
 import { toAttachmentResponseDto } from './customer.mapper';
 import { CustomersService } from './customers.service';
@@ -108,16 +110,21 @@ export class CustomerAttachmentsController {
 
   @Post()
   @RequirePermission(CUSTOMER_PERMISSIONS.edit)
+  // El guard autoriza sobre el cliente (404/403) ANTES de que el interceptor lea el multipart.
+  @UseGuards(CustomerAttachmentWriteGuard)
   @UseInterceptors(AttachmentUploadInterceptor)
   @ApiConsumes('multipart/form-data')
   @ApiBody({ type: UploadCustomerAttachmentBodyDto })
   @ApiOperation({
     summary: 'F18 · Sube un adjunto',
     description:
-      'Un archivo en `file` y `description` opcional. Exige poder editar el cliente (RN-02.29). Tipo por firma (PDF, JPEG, PNG, DOCX, XLSX). Audita `crm.attachment.added`.',
+      'Un archivo en `file` y `description` opcional. Exige poder editar el cliente (RN-02.29), comprobado antes de leer el cuerpo. Tamaño máximo `crm.adjuntos.max_mb`, vigente en cada petición. Tipo por firma (PDF, JPEG, PNG, DOCX, XLSX). Audita `crm.attachment.added`.',
   })
   @ApiCreatedResponse({ type: AttachmentResponseDto, description: 'Con cabecera `Location`' })
-  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED: falta `file`, más de un archivo o campos extra' })
+  @ApiBadRequestResponse({
+    type: ErrorResponseDto,
+    description: 'VALIDATION_FAILED: `customerId` no es UUID, falta `file`, más de un archivo o campos extra',
+  })
   @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'PERMISSION_DENIED: cliente no editable por el usuario' })
   @ApiPayloadTooLargeResponse({ type: ErrorResponseDto, description: 'ATTACHMENT_TOO_LARGE (supera `crm.adjuntos.max_mb`). El 413 de NGINX puede llegar sin cuerpo JSON' })
   @ApiUnprocessableEntityResponse({ type: ErrorResponseDto, description: 'ATTACHMENT_TYPE_NOT_ALLOWED' })
@@ -130,6 +137,7 @@ export class CustomerAttachmentsController {
     @Res({ passthrough: true }) response: Response,
   ): Promise<AttachmentResponseDto> {
     const actor = await this.actors.fromRequest(request);
+    // Segunda comprobación tras recibir el archivo: el acceso pudo cambiar durante la subida.
     await this.customersService.assertCanManageAttachments(actor, customerId);
     const created = await this.attachments.add(customerOwner(customerId), toAttachmentUpload(file, body.description), {
       userId: actor.userId,
@@ -148,6 +156,7 @@ export class CustomerAttachmentsController {
       'Se transmite tras autorizar, con `Content-Type` = tipo detectado al guardar, `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff` y `Cache-Control: no-store`.',
   })
   @ApiOkResponse({ description: 'Flujo binario del archivo', schema: { type: 'string', format: 'binary' } })
+  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED: `customerId` o `attachmentId` no es UUID' })
   async download(
     @Param('customerId', ParseUUIDPipe) customerId: string,
     @Param('attachmentId', ParseUUIDPipe) attachmentId: string,
@@ -165,6 +174,7 @@ export class CustomerAttachmentsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'F20 · Elimina un adjunto (lógico)', description: 'Exige poder editar el cliente. Audita `crm.attachment.removed`.' })
   @ApiNoContentResponse()
+  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED: `customerId` o `attachmentId` no es UUID' })
   @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'PERMISSION_DENIED: cliente no editable por el usuario' })
   async remove(
     @Param('customerId', ParseUUIDPipe) customerId: string,

@@ -22,6 +22,19 @@ export class ResourceNotFoundError extends ApplicationError {
   }
 }
 
+/**
+ * 400 `VALIDATION_FAILED` detectado por un servicio y no por el `ValidationPipe`
+ * (p. ej. la validación compartida de clientes, 02 F.6.1): mismo status y código
+ * que DC-6 para un mismo defecto de formato, venga de donde venga.
+ */
+export class RequestValidationError extends ApplicationError {
+  readonly code = 'VALIDATION_FAILED';
+
+  constructor(message: string, details: ReadonlyArray<Record<string, unknown>> = []) {
+    super(message, details);
+  }
+}
+
 export class BusinessRuleViolationError extends ApplicationError {
   readonly code: string;
 

@@ -19,7 +19,7 @@ function actor(permissions: string[], userId: string | null = 'me'): CustomerPol
 }
 
 function customer(overrides: Partial<CustomerPolicySubject> = {}): CustomerPolicySubject {
-  return { salesOwnerId: 'me', access: 'DIRECT', isDeleted: false, ...overrides };
+  return { salesOwnerId: 'me', access: 'DIRECT', isDeleted: false, inAdministerScope: true, inDeleteScope: true, ...overrides };
 }
 
 describe('CustomerAccessPolicy (H.2, DM-34, D-02.7, D-02.9; PF-02.28)', () => {
@@ -90,6 +90,49 @@ describe('CustomerAccessPolicy (H.2, DM-34, D-02.7, D-02.9; PF-02.28)', () => {
     expect(isCustomerWritableForContacts(actor(ASESOR), customer({ salesOwnerId: 'other' }))).toBe(false);
     expect(isCustomerWritableForContacts(actor(['clientes.administrar']), customer({ salesOwnerId: 'other' }))).toBe(true);
     expect(customerCapabilities(actor(['clientes.ver', 'clientes.editar', 'contactos.ver']), customer()).canManageContacts).toBe(false);
+  });
+
+  describe('cada operación usa el alcance de SU permiso, no el de clientes.ver (roles combinados)', () => {
+    // Manager TEAM (editar/administrar/eliminar) + rol de solo lectura ORGANIZATION:
+    // ve el cliente ajeno con acceso DIRECT, pero queda fuera de sus alcances operativos.
+    const manager = actor(MANAGER);
+    const outsideScopes = customer({ salesOwnerId: 'other', inAdministerScope: false, inDeleteScope: false });
+
+    it('fuera del alcance de administrar: no edita, no toca reservados ni contactos de un ajeno', () => {
+      expect(canEditCustomer(manager, outsideScopes)).toBe(false);
+      expect(missingEditPermission(manager, outsideScopes)).toBe('clientes.administrar');
+      expect(isCustomerWritableForContacts(manager, outsideScopes)).toBe(false);
+    });
+
+    it('fuera del alcance de eliminar: no elimina ni restaura', () => {
+      expect(canDeleteCustomer(manager, outsideScopes)).toBe(false);
+      expect(canRestoreCustomer(manager, { ...outsideScopes, isDeleted: true })).toBe(false);
+    });
+
+    it('las capabilities salen del mismo cálculo: todo en false', () => {
+      expect(customerCapabilities(manager, outsideScopes)).toEqual({
+        canEdit: false,
+        canDelete: false,
+        canRestore: false,
+        canManageAttachments: false,
+        canManageContacts: false,
+        canReassignOwner: false,
+        editableFields: [],
+      });
+    });
+
+    it('cada alcance es independiente: dentro de administrar pero fuera de eliminar', () => {
+      const capabilities = customerCapabilities(manager, customer({ salesOwnerId: 'other', inDeleteScope: false }));
+      expect(capabilities).toMatchObject({ canEdit: true, canReassignOwner: true, canManageContacts: true, canDelete: false });
+    });
+
+    it('lo propio se edita (y sus contactos) aunque quede fuera del alcance de administrar, sin campos reservados', () => {
+      const own = customer({ inAdministerScope: false, inDeleteScope: false });
+      expect(canEditCustomer(manager, own)).toBe(true);
+      expect(isCustomerWritableForContacts(manager, own)).toBe(true);
+      expect(customerCapabilities(manager, own)).toMatchObject({ canReassignOwner: false, canDelete: false });
+      expect(customerCapabilities(manager, own).editableFields).toEqual([...CUSTOMER_EDITABLE_FIELDS]);
+    });
   });
 
   it('sin usuario local no es dueño de nada', () => {

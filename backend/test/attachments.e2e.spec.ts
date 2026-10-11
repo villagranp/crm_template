@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { Readable } from 'node:stream';
 
 import {
@@ -89,6 +89,31 @@ async function temporaryFiles(): Promise<string[]> {
   return readdir(join(STORAGE_PATH, '.tmp'));
 }
 
+/**
+ * Ningún binario huérfano ni temporal tras una operación fallida. La carpeta es compartida con
+ * otras suites que suben archivos en paralelo, así que se ignoran los binarios nuevos que ya
+ * tienen su fila en `stored_files` y se espera a que los temporales ajenos (transitorios)
+ * desaparezcan; un huérfano o temporal dejado por esta operación persiste y la prueba falla.
+ */
+async function expectNoOrphans(before: string[]): Promise<void> {
+  const deadline = Date.now() + 3000;
+  for (;;) {
+    const known = new Set(before);
+    const added = (await storedFiles()).filter((file) => !known.has(file));
+    const keys = added.map((file) => relative(STORAGE_PATH, file).split(sep).join('/'));
+    const backed = keys.length
+      ? await context.prisma.storedFile.count({ where: { storageKey: { in: keys } } })
+      : 0;
+    const temporary = await temporaryFiles();
+    if (backed === keys.length && temporary.length === 0) return;
+    if (Date.now() > deadline) {
+      expect({ orphans: keys.length - backed, temporary }).toEqual({ orphans: 0, temporary: [] });
+      return;
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+  }
+}
+
 function upload(content: Buffer, fileName: string, description?: string) {
   return { content: Readable.from([content]), fileName, description };
 }
@@ -175,8 +200,7 @@ describe('AttachmentsService (PostgreSQL + sistema de archivos)', () => {
       code: 'ATTACHMENT_TYPE_NOT_ALLOWED',
     });
 
-    expect(await storedFiles()).toEqual(before);
-    expect(await temporaryFiles()).toEqual([]);
+    await expectNoOrphans(before);
     expect(await context.prisma.attachment.count({ where: { customerId: customerA.id } })).toBe(rowsBefore);
   });
 
@@ -188,8 +212,7 @@ describe('AttachmentsService (PostgreSQL + sistema de archivos)', () => {
       code: 'ATTACHMENT_TOO_LARGE',
     });
 
-    expect(await storedFiles()).toEqual(before);
-    expect(await temporaryFiles()).toEqual([]);
+    await expectNoOrphans(before);
   });
 
   it('si falla la escritura en la base, el binario ya guardado se borra (compensación)', async () => {
@@ -199,7 +222,7 @@ describe('AttachmentsService (PostgreSQL + sistema de archivos)', () => {
 
     await expect(attachments.add(ghost, upload(PDF_BYTES, 'huerfano.pdf'), actor)).rejects.toThrow();
 
-    expect(await storedFiles()).toEqual(before);
+    await expectNoOrphans(before);
     expect(await context.prisma.storedFile.count({ where: { fileName: 'huerfano.pdf' } })).toBe(0);
   });
 });
@@ -232,7 +255,11 @@ describe('AttachmentUploadInterceptor y attachmentDownload (HTTP)', () => {
   let probe: INestApplication;
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({ controllers: [AttachmentProbeController] }).compile();
+    // El interceptor lee el límite vigente (crm.adjuntos.max_mb) del servicio real de adjuntos.
+    const moduleRef = await Test.createTestingModule({
+      controllers: [AttachmentProbeController],
+      providers: [{ provide: AttachmentsService, useValue: attachments }],
+    }).compile();
     probe = moduleRef.createNestApplication();
     const logger = { error: jest.fn() } as unknown as AppLogger;
     probe.useGlobalFilters(new AllExceptionsFilter(logger));

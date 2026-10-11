@@ -137,6 +137,8 @@ describe('attachment-content-type', () => {
 
       expect(sniffer.tail.length).toBe(ZIP_TAIL_BYTES);
       expect(sniffer.tail).toEqual(big.subarray(big.length - ZIP_TAIL_BYTES));
+      // La cabecera es una copia propia: no retiene el primer bloque de 64 KiB.
+      expect(sniffer.head.buffer.byteLength).toBeLessThan(65536);
       expect(detectAttachmentMimeType(sniffer.head, sniffer.tail)).toBe(XLSX_MIME_TYPE);
     });
   });

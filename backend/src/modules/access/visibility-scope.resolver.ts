@@ -49,28 +49,51 @@ export class VisibilityScopeResolver {
   ) {}
 
   async resolve(userId: string | null, permission: string): Promise<VisibilityScope> {
-    if (!userId) {
-      return noVisibility(null);
-    }
-    const snapshot = await this.accessRepository.getUserAccessSnapshot(userId);
-    const dataScope = snapshot ? dataScopeForPermission(snapshot, permission) : null;
-
-    switch (dataScope) {
-      case null:
-        return noVisibility(userId);
-      case 'ORGANIZATION':
-        return { kind: 'ALL', userId, dataScope: 'ORGANIZATION' };
-      case 'COUNTRY':
-        return this.countryScope(userId, permission);
-      case 'TEAM':
-        return this.teamScope(userId);
-      case 'OWN':
-        return ownScope(userId);
-    }
+    const scopes = await this.resolveMany(userId, [permission]);
+    return scopes.get(permission) ?? noVisibility(userId);
   }
 
-  private async countryScope(userId: string, permission: string): Promise<VisibilityScope> {
-    const countryId = await this.reader.findUserCountryId(userId);
+  /**
+   * Alcances de varios permisos con **una** lectura del perfil de acceso y, como
+   * mucho, una del país y una de los equipos del usuario (02 H.2: las políticas
+   * comparan el alcance de cada permiso en memoria con `isWithinScope`).
+   */
+  async resolveMany(userId: string | null, permissions: readonly string[]): Promise<ReadonlyMap<string, VisibilityScope>> {
+    const result = new Map<string, VisibilityScope>();
+    if (!userId) {
+      for (const permission of permissions) result.set(permission, noVisibility(null));
+      return result;
+    }
+    const snapshot = await this.accessRepository.getUserAccessSnapshot(userId);
+    let country: Promise<string | null> | null = null;
+    let team: Promise<VisibilityScope> | null = null;
+
+    for (const permission of new Set(permissions)) {
+      const dataScope = snapshot ? dataScopeForPermission(snapshot, permission) : null;
+      switch (dataScope) {
+        case null:
+          result.set(permission, noVisibility(userId));
+          break;
+        case 'ORGANIZATION':
+          result.set(permission, { kind: 'ALL', userId, dataScope: 'ORGANIZATION' });
+          break;
+        case 'COUNTRY':
+          country ??= this.reader.findUserCountryId(userId);
+          result.set(permission, this.countryScope(userId, permission, await country));
+          break;
+        case 'TEAM':
+          team ??= this.teamScope(userId);
+          result.set(permission, await team);
+          break;
+        case 'OWN':
+          result.set(permission, ownScope(userId));
+          break;
+      }
+    }
+    return result;
+  }
+
+  private countryScope(userId: string, permission: string, countryId: string | null): VisibilityScope {
     if (!countryId) {
       // D-02.8: sin país, el alcance COUNTRY no tiene a qué aplicarse.
       this.logger.warn('visibility_scope_country_missing', { userId, permission, degradedTo: 'OWN' });

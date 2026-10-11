@@ -1,4 +1,9 @@
-import { BusinessRuleViolationError, PermissionDeniedError, ResourceConflictError } from '@/common/errors/application-error';
+import {
+  BusinessRuleViolationError,
+  PermissionDeniedError,
+  ResourceConflictError,
+  ResourceNotFoundError,
+} from '@/common/errors/application-error';
 import type { TransactionContext, TransactionRunner } from '@/infrastructure/database/ports/transaction.port';
 import type { AppLogger } from '@/infrastructure/logging/app-logger.service';
 import type { AuditService } from '@/modules/audit/audit.service';
@@ -7,7 +12,18 @@ import type { ParameterReader } from '@/modules/parameters/parameter-reader';
 import { ContactsService, type CreateContactRequest } from './contacts.service';
 import type { CustomerVisibilityService } from './customer-visibility.service';
 import { ContactEmailConflictError, type ContactRecord, type ContactsRepository } from './ports/contacts.repository.port';
-import { AUDIT, CREATED_AT, makeActor, makeContact, makeCountry, makeCustomer, makeVisible, TX } from './testing/customer-fixtures';
+import {
+  AUDIT,
+  CREATED_AT,
+  makeActor,
+  makeContact,
+  makeCountry,
+  makeCustomer,
+  makeScopes,
+  makeVisible,
+  ownerScope,
+  TX,
+} from './testing/customer-fixtures';
 
 const WRITER = ['contactos.ver', 'contactos.crear', 'contactos.editar'];
 const NEW_CONTACT: CreateContactRequest = { firstName: ' Ana ', lastName: ' Peña ', email: ' Ana@Example.com ', phone: '2222 3333' };
@@ -15,6 +31,8 @@ const NEW_CONTACT: CreateContactRequest = { firstName: ' Ana ', lastName: ' Peñ
 describe('ContactsService', () => {
   let rules: unknown;
   let stored: Map<string, ContactRecord>;
+  /** `customers.primary_contact_id` del cliente simulado. */
+  let primary: string | null;
   let repository: {
     list: jest.Mock;
     findById: jest.Mock;
@@ -22,7 +40,10 @@ describe('ContactsService', () => {
     findDuplicateCandidates: jest.Mock;
     create: jest.Mock;
     update: jest.Mock;
+    lockCustomerPrimary: jest.Mock;
+    lockContactRow: jest.Mock;
     setPrimary: jest.Mock;
+    clearPrimary: jest.Mock;
     softDelete: jest.Mock;
     restore: jest.Mock;
   };
@@ -37,6 +58,7 @@ describe('ContactsService', () => {
   beforeEach(() => {
     rules = {};
     stored = new Map([['contact-1', makeContact()]]);
+    primary = null;
     repository = {
       list: jest.fn().mockResolvedValue({ items: [], totalItems: 0, page: 1, pageSize: 20 }),
       findById: jest.fn(async (_customerId: string, contactId: string) => stored.get(contactId) ?? null),
@@ -47,7 +69,21 @@ describe('ContactsService', () => {
         return 'contact-new';
       }),
       update: jest.fn().mockResolvedValue(undefined),
-      setPrimary: jest.fn().mockResolvedValue(undefined),
+      lockCustomerPrimary: jest.fn(async () => ({ primaryContactId: primary })),
+      lockContactRow: jest.fn(async (_customerId: string, contactId: string) => stored.has(contactId)),
+      // Como el adaptador: condicional a contacto activo y no eliminado.
+      setPrimary: jest.fn(async (_customerId: string, contactId: string) => {
+        const contact = stored.get(contactId);
+        if (!contact?.isActive || contact.deletedAt !== null) return false;
+        primary = contactId;
+        return true;
+      }),
+      // Como el adaptador: solo limpia si el principal sigue siendo ese contacto.
+      clearPrimary: jest.fn(async (_customerId: string, contactId: string | null) => {
+        if (primary === null || (contactId !== null && primary !== contactId)) return false;
+        primary = null;
+        return true;
+      }),
       softDelete: jest.fn().mockResolvedValue(undefined),
       restore: jest.fn().mockResolvedValue(undefined),
     };
@@ -82,6 +118,19 @@ describe('ContactsService', () => {
       visibleCustomers.findVisible.mockResolvedValue(makeVisible(otherOwner));
 
       await expect(service.create(makeActor([...WRITER, 'clientes.administrar']), 'customer-1', NEW_CONTACT)).resolves.toBeDefined();
+    });
+
+    it('con administrar, rechaza un ajeno visible pero fuera del alcance de clientes.administrar (M1)', async () => {
+      const teamScopes = makeScopes({ administer: ownerScope(['user-1', 'user-2']) });
+      visibleCustomers.findVisible.mockResolvedValue(makeVisible(otherOwner, 'DIRECT', teamScopes));
+
+      const error = await service
+        .create(makeActor([...WRITER, 'clientes.administrar']), 'customer-1', NEW_CONTACT)
+        .catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(PermissionDeniedError);
+      expect(error).toMatchObject({ details: [{ requiredPermission: 'clientes.administrar' }] });
+      expect(repository.create).not.toHaveBeenCalled();
     });
 
     it('rechaza un cliente visible solo por herencia aunque sea propio', async () => {
@@ -221,7 +270,7 @@ describe('ContactsService', () => {
           resourceId: 'contact-new',
           before: null,
           metadata: { customerId: 'customer-1' },
-          maskedFields: ['firstName', 'lastName', 'email', 'phone'],
+          maskedFields: ['firstName', 'lastName', 'email', 'phone', 'comments'],
         }),
       );
       expect(repository.setPrimary).not.toHaveBeenCalled();
@@ -229,13 +278,12 @@ describe('ContactsService', () => {
     });
 
     it('como principal lo fija en la misma transacción y audita el cambio de principal', async () => {
-      visibleCustomers.findVisible.mockResolvedValue(
-        makeVisible(makeCustomer({ primaryContact: { id: 'contact-1', firstName: 'Ana', lastName: 'Peña' } })),
-      );
+      primary = 'contact-1';
 
       await service.create(writer, 'customer-1', { ...NEW_CONTACT, isPrimary: true });
 
       expect(transactions.run).toHaveBeenCalledTimes(1);
+      expect(repository.lockCustomerPrimary).toHaveBeenCalledWith('customer-1', TX);
       expect(repository.create).toHaveBeenCalledWith(expect.anything(), TX);
       expect(repository.setPrimary).toHaveBeenCalledWith('customer-1', 'contact-new', 'user-1', TX);
       expect(audit.record).toHaveBeenCalledWith('crm.customer.primary_contact_changed', AUDIT, {
@@ -286,6 +334,7 @@ describe('ContactsService', () => {
 
     it('desactivar el principal lo limpia en la misma transacción y audita los tres eventos', async () => {
       stored.set('contact-1', makeContact({ isPrimary: true }));
+      primary = 'contact-1';
       repository.update.mockImplementation(async () => {
         stored.set('contact-1', makeContact({ isPrimary: false, isActive: false }));
       });
@@ -293,13 +342,29 @@ describe('ContactsService', () => {
       await service.update(writer, 'customer-1', 'contact-1', { isActive: false });
 
       expect(transactions.run).toHaveBeenCalledTimes(1);
+      expect(repository.lockCustomerPrimary).toHaveBeenCalledWith('customer-1', TX);
+      expect(repository.lockCustomerPrimary.mock.invocationCallOrder[0]).toBeLessThan(repository.update.mock.invocationCallOrder[0] ?? 0);
       expect(repository.update).toHaveBeenCalledWith('customer-1', 'contact-1', { isActive: false, updatedById: 'user-1' }, TX);
-      expect(repository.setPrimary).toHaveBeenCalledWith('customer-1', null, 'user-1', TX);
+      expect(repository.clearPrimary).toHaveBeenCalledWith('customer-1', 'contact-1', 'user-1', TX);
       expect(auditEvents()).toEqual(['crm.contact.updated', 'crm.contact.deactivated', 'crm.customer.primary_contact_changed']);
       expect(audit.record).toHaveBeenLastCalledWith('crm.customer.primary_contact_changed', AUDIT, expect.objectContaining({
         before: { primaryContactId: 'contact-1' },
         after: { primaryContactId: null },
       }));
+    });
+
+    it('desactivar un contacto que ya no es el principal no limpia el elegido en paralelo (RN-02.26)', async () => {
+      // Leído como principal fuera de la transacción, pero otro ya lo sustituyó.
+      stored.set('contact-1', makeContact({ isPrimary: true }));
+      primary = 'contact-2';
+      repository.update.mockImplementation(async () => {
+        stored.set('contact-1', makeContact({ isActive: false }));
+      });
+
+      await service.update(writer, 'customer-1', 'contact-1', { isActive: false });
+
+      expect(primary).toBe('contact-2');
+      expect(auditEvents()).toEqual(['crm.contact.updated', 'crm.contact.deactivated']);
     });
 
     it('valida el teléfono enviado con el patrón del país', async () => {
@@ -321,15 +386,41 @@ describe('ContactsService', () => {
     it('fija el principal y audita el cambio', async () => {
       const result = await service.setPrimary(writer, 'customer-1', 'contact-1');
 
+      expect(repository.lockCustomerPrimary).toHaveBeenCalledWith('customer-1', TX);
+      expect(repository.findById).toHaveBeenCalledWith('customer-1', 'contact-1', { includeDeleted: false }, TX);
       expect(repository.setPrimary).toHaveBeenCalledWith('customer-1', 'contact-1', 'user-1', TX);
       expect(auditEvents()).toEqual(['crm.customer.primary_contact_changed']);
       expect(result.isPrimary).toBe(true);
     });
 
+    it('relee el contacto con la fila del cliente bloqueada: desactivado en paralelo → 422 sin escribir (RN-02.26)', async () => {
+      // Fuera de la transacción se ve activo; dentro, tras el bloqueo, ya está inactivo.
+      repository.lockCustomerPrimary.mockImplementation(async () => {
+        stored.set('contact-1', makeContact({ isActive: false }));
+        return { primaryContactId: primary };
+      });
+
+      await expect(service.setPrimary(writer, 'customer-1', 'contact-1')).rejects.toMatchObject({ code: 'CONTACT_INACTIVE' });
+      expect(repository.setPrimary).not.toHaveBeenCalled();
+      expect(primary).toBeNull();
+      expect(audit.record).not.toHaveBeenCalled();
+    });
+
+    it('si la escritura condicional no fija el principal, responde 422 CONTACT_INACTIVE', async () => {
+      repository.setPrimary.mockResolvedValue(false);
+
+      await expect(service.setPrimary(writer, 'customer-1', 'contact-1')).rejects.toMatchObject({ code: 'CONTACT_INACTIVE' });
+      expect(audit.record).not.toHaveBeenCalled();
+    });
+
+    it('404 si el cliente se elimina entre la visibilidad y el bloqueo', async () => {
+      repository.lockCustomerPrimary.mockResolvedValue(null);
+
+      await expect(service.setPrimary(writer, 'customer-1', 'contact-1')).rejects.toBeInstanceOf(ResourceNotFoundError);
+    });
+
     it('no escribe si ya es el principal', async () => {
-      visibleCustomers.findVisible.mockResolvedValue(
-        makeVisible(makeCustomer({ primaryContact: { id: 'contact-1', firstName: 'Ana', lastName: 'Peña' } })),
-      );
+      primary = 'contact-1';
 
       await service.setPrimary(writer, 'customer-1', 'contact-1');
 
@@ -340,18 +431,16 @@ describe('ContactsService', () => {
     it('quitar el principal no hace nada si no hay', async () => {
       await service.clearPrimary(writer, 'customer-1');
 
-      expect(transactions.run).not.toHaveBeenCalled();
+      expect(repository.clearPrimary).not.toHaveBeenCalled();
       expect(audit.record).not.toHaveBeenCalled();
     });
 
-    it('quita el principal existente y lo audita', async () => {
-      visibleCustomers.findVisible.mockResolvedValue(
-        makeVisible(makeCustomer({ primaryContact: { id: 'contact-1', firstName: 'Ana', lastName: 'Peña' } })),
-      );
+    it('quita el principal existente (leído con la fila bloqueada) y lo audita', async () => {
+      primary = 'contact-1';
 
       await service.clearPrimary(writer, 'customer-1');
 
-      expect(repository.setPrimary).toHaveBeenCalledWith('customer-1', null, 'user-1', TX);
+      expect(repository.clearPrimary).toHaveBeenCalledWith('customer-1', 'contact-1', 'user-1', TX);
       expect(auditEvents()).toEqual(['crm.customer.primary_contact_changed']);
     });
   });
@@ -373,21 +462,45 @@ describe('ContactsService', () => {
       expect(repository.softDelete).not.toHaveBeenCalled();
     });
 
+    it('comprueba la historia dentro de la transacción, con cliente y contacto bloqueados (m3)', async () => {
+      // La participación llega después de la lectura previa pero antes del bloqueo.
+      repository.lockContactRow.mockImplementation(async () => {
+        stored.set('contact-1', makeContact({ hasHistory: true }));
+        return true;
+      });
+
+      await expect(service.remove(deleter, 'customer-1', 'contact-1')).rejects.toMatchObject({ code: 'CONTACT_HAS_HISTORY' });
+      expect(repository.lockCustomerPrimary).toHaveBeenCalledWith('customer-1', TX);
+      expect(repository.lockContactRow).toHaveBeenCalledWith('customer-1', 'contact-1', 'UPDATE', TX);
+      expect(repository.findById).toHaveBeenCalledWith('customer-1', 'contact-1', { includeDeleted: false }, TX);
+      expect(repository.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('404 si el contacto ya no existe al bloquearlo', async () => {
+      repository.lockContactRow.mockResolvedValue(false);
+
+      await expect(service.remove(deleter, 'customer-1', 'contact-1')).rejects.toBeInstanceOf(ResourceNotFoundError);
+    });
+
     it('elimina el principal limpiándolo en la misma transacción', async () => {
       stored.set('contact-1', makeContact({ isPrimary: true }));
+      primary = 'contact-1';
 
       await service.remove(deleter, 'customer-1', 'contact-1');
 
       expect(transactions.run).toHaveBeenCalledTimes(1);
-      expect(repository.setPrimary).toHaveBeenCalledWith('customer-1', null, 'user-1', TX);
+      expect(repository.clearPrimary).toHaveBeenCalledWith('customer-1', 'contact-1', 'user-1', TX);
+      expect(primary).toBeNull();
       expect(repository.softDelete).toHaveBeenCalledWith('customer-1', 'contact-1', 'user-1', TX);
       expect(auditEvents()).toEqual(['crm.contact.deleted', 'crm.customer.primary_contact_changed']);
     });
 
     it('elimina un contacto que no es principal sin tocar el principal', async () => {
+      primary = 'contact-2';
+
       await service.remove(deleter, 'customer-1', 'contact-1');
 
-      expect(repository.setPrimary).not.toHaveBeenCalled();
+      expect(primary).toBe('contact-2');
       expect(auditEvents()).toEqual(['crm.contact.deleted']);
     });
   });

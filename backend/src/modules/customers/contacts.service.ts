@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import { PermissionDeniedError, ResourceConflictError } from '@/common/errors/application-error';
 import type { Page } from '@/infrastructure/database/ports/pagination';
-import { TRANSACTION_RUNNER, type TransactionRunner } from '@/infrastructure/database/ports/transaction.port';
+import { TRANSACTION_RUNNER, type TransactionContext, type TransactionRunner } from '@/infrastructure/database/ports/transaction.port';
 import { AppLogger } from '@/infrastructure/logging/app-logger.service';
 import { AuditService } from '@/modules/audit/audit.service';
 import { ParameterReader } from '@/modules/parameters/parameter-reader';
@@ -21,6 +21,7 @@ import {
   contactInactiveError,
   contactNotFound,
   CUSTOMER_ERROR_CODES,
+  customerNotFound,
   duplicateBlockedError,
   fieldIssue,
   fieldIssuesError,
@@ -172,17 +173,20 @@ export class ContactsService {
     await this.assertNoDuplicates(customerId, values, null, request.acknowledgedDuplicateIds);
 
     let contactId: string;
+    let previousPrimary: string | null;
     try {
-      contactId = await this.transactions.run(async (tx) => {
+      ({ contactId, previousPrimary } = await this.transactions.run(async (tx) => {
+        // RN-02.26: el principal anterior se lee con la fila del cliente bloqueada.
+        const previous = request.isPrimary ? (await this.lockCustomerPrimary(customerId, tx)).primaryContactId : null;
         const id = await this.contacts.create(
           { customerId, ...values, emailNormalized: normalizeEmail(values.email), createdById: actor.userId },
           tx,
         );
-        if (request.isPrimary) {
-          await this.contacts.setPrimary(customerId, id, actor.userId, tx);
+        if (request.isPrimary && !(await this.contacts.setPrimary(customerId, id, actor.userId, tx))) {
+          throw contactInactiveError('isPrimary');
         }
-        return id;
-      });
+        return { contactId: id, previousPrimary: previous };
+      }));
     } catch (error) {
       if (error instanceof ContactEmailConflictError) throw await this.emailTakenError(customerId, values.email, null);
       throw error;
@@ -199,7 +203,7 @@ export class ContactsService {
       maskedFields: CONTACT_MASKED_FIELDS,
     });
     if (request.isPrimary) {
-      await this.recordPrimaryChange(actor, customerId, customer.record.primaryContact?.id ?? null, contactId);
+      await this.recordPrimaryChange(actor, customerId, previousPrimary, contactId);
     }
     return created;
   }
@@ -229,15 +233,19 @@ export class ContactsService {
       return before;
     }
     if ('email' in changes) changes['emailNormalized'] = normalizeEmail(values.email);
-    const clearsPrimary = before.isPrimary && !values.isActive;
+    const deactivates = 'isActive' in changes && !values.isActive;
 
+    let clearsPrimary: boolean;
     try {
-      await this.transactions.run(async (tx) => {
-        await this.contacts.update(customerId, contactId, { ...(changes as Partial<UpdateContactInput>), updatedById: actor.userId }, tx);
-        if (clearsPrimary) {
-          // RN-02.26: desactivar el principal deja al cliente sin principal en la misma transacción.
-          await this.contacts.setPrimary(customerId, null, actor.userId, tx);
+      clearsPrimary = await this.transactions.run(async (tx) => {
+        if (deactivates) {
+          // RN-02.26: con la fila del cliente bloqueada, una elección de principal en
+          // paralelo espera y después ve el contacto inactivo (422).
+          await this.lockCustomerPrimary(customerId, tx);
         }
+        await this.contacts.update(customerId, contactId, { ...(changes as Partial<UpdateContactInput>), updatedById: actor.userId }, tx);
+        // Desactivar el principal deja al cliente sin principal en la misma transacción (solo si aún lo es).
+        return deactivates ? this.contacts.clearPrimary(customerId, contactId, actor.userId, tx) : false;
       });
     } catch (error) {
       if (error instanceof ContactEmailConflictError) throw await this.emailTakenError(customerId, values.email, contactId);
@@ -252,41 +260,64 @@ export class ContactsService {
     return after;
   }
 
+  /**
+   * RN-02.26 bajo concurrencia: bloquea la fila del cliente, vuelve a leer el
+   * contacto dentro de la transacción y fija el principal con una escritura
+   * condicional (activo y no eliminado).
+   */
   async setPrimary(actor: CustomerActor, customerId: string, contactId: string): Promise<ContactRecord> {
-    const customer = await this.writableCustomer(actor, customerId);
-    const contact = await this.contacts.findById(customerId, contactId, { includeDeleted: false });
-    if (!contact) throw contactNotFound(contactId);
-    if (!contact.isActive) throw contactInactiveError();
-    const previous = customer.record.primaryContact?.id ?? null;
+    await this.writableCustomer(actor, customerId);
+    const { contact, previous } = await this.transactions.run(async (tx) => {
+      const locked = await this.lockCustomerPrimary(customerId, tx);
+      const current = await this.contacts.findById(customerId, contactId, { includeDeleted: false }, tx);
+      if (!current) throw contactNotFound(contactId);
+      if (!current.isActive) throw contactInactiveError();
+      if (locked.primaryContactId !== contactId && !(await this.contacts.setPrimary(customerId, contactId, actor.userId, tx))) {
+        throw contactInactiveError();
+      }
+      return { contact: current, previous: locked.primaryContactId };
+    });
     if (previous !== contactId) {
-      await this.transactions.run((tx) => this.contacts.setPrimary(customerId, contactId, actor.userId, tx));
       await this.recordPrimaryChange(actor, customerId, previous, contactId);
     }
     return { ...contact, isPrimary: true };
   }
 
   async clearPrimary(actor: CustomerActor, customerId: string): Promise<void> {
-    const customer = await this.writableCustomer(actor, customerId);
-    const previous = customer.record.primaryContact?.id ?? null;
+    await this.writableCustomer(actor, customerId);
+    const previous = await this.transactions.run(async (tx) => {
+      const locked = await this.lockCustomerPrimary(customerId, tx);
+      if (locked.primaryContactId === null) return null;
+      await this.contacts.clearPrimary(customerId, locked.primaryContactId, actor.userId, tx);
+      return locked.primaryContactId;
+    });
     if (previous === null) return;
-    await this.transactions.run((tx) => this.contacts.setPrimary(customerId, null, actor.userId, tx));
     await this.recordPrimaryChange(actor, customerId, previous, null);
   }
 
+  /**
+   * RN-02.27 sin TOCTOU: con las filas del cliente y del contacto bloqueadas
+   * (`FOR UPDATE` espera a quien esté insertando una participación), se vuelve a
+   * leer el contacto y su historia, se limpia el principal si lo es y se elimina.
+   */
   async remove(actor: CustomerActor, customerId: string, contactId: string): Promise<void> {
     await this.writableCustomer(actor, customerId, CONTACT_PERMISSIONS.delete);
-    const contact = await this.contacts.findById(customerId, contactId, { includeDeleted: false });
-    if (!contact) throw contactNotFound(contactId);
-    if (contact.hasHistory) {
-      // RN-02.27: un contacto con visitas o actividades se desactiva, no se elimina.
-      throw new ResourceConflictError('The contact takes part in visits or activities; deactivate it instead', [], CUSTOMER_ERROR_CODES.contactHasHistory);
-    }
-
-    await this.transactions.run(async (tx) => {
-      if (contact.isPrimary) {
-        await this.contacts.setPrimary(customerId, null, actor.userId, tx);
+    const wasPrimary = await this.transactions.run(async (tx) => {
+      await this.lockCustomerPrimary(customerId, tx);
+      if (!(await this.contacts.lockContactRow(customerId, contactId, 'UPDATE', tx))) throw contactNotFound(contactId);
+      const contact = await this.contacts.findById(customerId, contactId, { includeDeleted: false }, tx);
+      if (!contact) throw contactNotFound(contactId);
+      if (contact.hasHistory) {
+        // RN-02.27: un contacto con visitas o actividades se desactiva, no se elimina.
+        throw new ResourceConflictError(
+          'The contact takes part in visits or activities; deactivate it instead',
+          [],
+          CUSTOMER_ERROR_CODES.contactHasHistory,
+        );
       }
+      const cleared = await this.contacts.clearPrimary(customerId, contactId, actor.userId, tx);
       await this.contacts.softDelete(customerId, contactId, actor.userId, tx);
+      return cleared;
     });
 
     this.logger.info('contact_deleted', { correlationId: actor.audit.correlationId, customerId, contactId });
@@ -295,7 +326,7 @@ export class ContactsService {
       resourceId: contactId,
       metadata: { customerId },
     });
-    if (contact.isPrimary) {
+    if (wasPrimary) {
       await this.recordPrimaryChange(actor, customerId, contactId, null);
     }
   }
@@ -333,11 +364,17 @@ export class ContactsService {
     if (permission && !actor.permissions.has(permission)) {
       throw new PermissionDeniedError(permission);
     }
-    const subject = { salesOwnerId: visible.record.salesOwner.id, access: visible.access, isDeleted: visible.record.deletedAt !== null };
-    if (!isCustomerWritableForContacts(actor, subject)) {
+    if (!isCustomerWritableForContacts(actor, visible.subject)) {
       throw new PermissionDeniedError(CUSTOMER_PERMISSIONS.administer);
     }
     return visible;
+  }
+
+  /** Bloquea la fila del cliente; si se eliminó entretanto, `404` como en la visibilidad. */
+  private async lockCustomerPrimary(customerId: string, tx: TransactionContext): Promise<{ readonly primaryContactId: string | null }> {
+    const locked = await this.contacts.lockCustomerPrimary(customerId, tx);
+    if (!locked) throw customerNotFound(customerId);
+    return locked;
   }
 
   private assertPhone(phone: string | null, customer: VisibleCustomer): void {

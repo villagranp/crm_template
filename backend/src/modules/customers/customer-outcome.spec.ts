@@ -1,3 +1,5 @@
+import { RequestValidationError } from '@/common/errors/application-error';
+
 import { assertCustomerOutcome } from './customer-outcome';
 import type { DuplicateCandidate, ValidationOutcome } from './customer-validation.service';
 
@@ -35,6 +37,19 @@ describe('assertCustomerOutcome', () => {
         undefined,
       ),
     ).toThrow(expect.objectContaining({ code: 'INVALID_PHONE_FORMAT', details: [expect.objectContaining({ field: 'phone' }), expect.objectContaining({ field: 'taxId' })] }));
+  });
+
+  it('VALIDATION_FAILED como primera incidencia es 400 (mismo status que el ValidationPipe, DC-6)', () => {
+    const error = (() => {
+      try {
+        assertCustomerOutcome(outcome({ errors: [{ field: 'email', code: 'VALIDATION_FAILED', message: 'x' }] }), undefined);
+      } catch (caught) {
+        return caught;
+      }
+      return null;
+    })();
+    expect(error).toBeInstanceOf(RequestValidationError);
+    expect(error).toMatchObject({ code: 'VALIDATION_FAILED', details: [expect.objectContaining({ field: 'email' })] });
   });
 
   it('código ocupado antes que los duplicados', () => {
