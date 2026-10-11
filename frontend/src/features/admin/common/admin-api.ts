@@ -1,4 +1,8 @@
-import { ApiError, NETWORK_ERROR_CODE } from '@/services/api/api-error';
+import {
+  describeApiError as describeCommonApiError,
+  type ApiErrorView,
+} from '@/lib/api-error-view';
+import { createScopedQueryKeys, type ListQuery } from '@/lib/query-keys';
 import type { PaginatedResponse } from '@/types/api';
 
 /**
@@ -7,8 +11,12 @@ import type { PaginatedResponse } from '@/types/api';
  * Cada área tiene su propio `<area>.api.ts` (llamadas con `httpClient`) y su
  * propio `<area>.queries.ts` (hooks de TanStack Query). Aquí sólo vive lo que
  * comparten: la forma de una colección, la convención de claves de consulta y
- * la traducción de errores a mensajes para el usuario.
+ * los mensajes de los códigos de PLAN-ADMIN §3. La traducción genérica de
+ * errores y la fábrica de claves viven en `@/lib` (D-02.11) para que otras
+ * áreas las usen sin importar de la administración.
  */
+
+export type { ApiErrorView, ListQuery };
 
 /**
  * Colección paginada tal como la devuelve el backend
@@ -17,11 +25,8 @@ import type { PaginatedResponse } from '@/types/api';
  */
 export type Paginated<TItem> = PaginatedResponse<TItem>;
 
-/** Parámetros de una consulta de lista, listos para `httpClient.get(path, { query })`. */
-export type ListQuery = Record<string, string | number | undefined>;
-
 /**
- * Fábrica de claves de consulta de un área.
+ * Fábrica de claves de consulta de un área de administración.
  *
  * Todas las claves de administración empiezan por `['admin', <área>]`, así que
  * una mutación invalida lo suyo con `invalidateQueries({ queryKey: keys.all })`
@@ -33,14 +38,7 @@ export type ListQuery = Record<string, string | number | undefined>;
  * useQuery({ queryKey: roleKeys.list(apiQuery), queryFn: () => listRoles(apiQuery) });
  */
 export function createQueryKeys<TArea extends string>(area: TArea) {
-  const all = ['admin', area] as const;
-  return {
-    all,
-    lists: () => [...all, 'list'] as const,
-    list: (query: ListQuery) => [...all, 'list', query] as const,
-    details: () => [...all, 'detail'] as const,
-    detail: (id: string) => [...all, 'detail', id] as const,
-  };
+  return createScopedQueryKeys('admin', area);
 }
 
 /** Códigos de error de negocio de la administración (PLAN-ADMIN §3). */
@@ -75,7 +73,7 @@ export const ADMIN_ERROR_CODES = {
  */
 export const ADMIN_ONLY_NOTE = 'La asignación de accesos es exclusiva del administrador (ADR-020).';
 
-const MESSAGES_BY_CODE: Readonly<Record<string, string>> = {
+const ADMIN_MESSAGES_BY_CODE: Readonly<Record<string, string>> = {
   [ADMIN_ERROR_CODES.systemResourceReadOnly]: 'Es un elemento del sistema y no se puede modificar desde la interfaz.',
   [ADMIN_ERROR_CODES.roleInUse]: 'El rol tiene usuarios asignados. Reasígnalos antes de eliminarlo.',
   [ADMIN_ERROR_CODES.lastAdmin]: 'Debe quedar al menos un administrador activo.',
@@ -96,68 +94,16 @@ const MESSAGES_BY_CODE: Readonly<Record<string, string>> = {
     'El cambio dejaría el catálogo incoherente, es un conjunto cerrado o un parámetro usa este valor.',
 };
 
-const NETWORK_ERROR_MESSAGE = 'No se pudo conectar con el servidor. Comprueba tu conexión e inténtalo de nuevo.';
-
-const MESSAGES_BY_STATUS: Readonly<Record<number, string>> = {
-  400: 'Revisa los datos del formulario.',
-  401: 'Tu sesión ha caducado. Vuelve a iniciar sesión.',
-  403: 'No tienes permiso para realizar esta acción.',
-  404: 'El elemento ya no existe. Actualiza la lista.',
-  409: 'El cambio entra en conflicto con el estado actual. Actualiza y vuelve a intentarlo.',
-  422: 'La operación no cumple una regla de negocio.',
-  429: 'Demasiadas solicitudes. Espera un momento antes de volver a intentarlo.',
-};
-
-const SERVER_ERROR_MESSAGE = 'Ha ocurrido un error en el servidor. Inténtalo de nuevo más tarde.';
-const UNEXPECTED_ERROR_MESSAGE = 'Ha ocurrido un error inesperado. Inténtalo de nuevo.';
-const SERVER_ERROR_MIN_STATUS = 500;
-
-export interface ApiErrorView {
-  /** Mensaje en español para el usuario. Nunca es el `message` crudo del backend. */
-  message: string;
-  /** Motivos de `details[].issue` (validación de campos, política de contraseñas…). */
-  issues: string[];
-  /** Código estable del contrato, para ramificar (p. ej. resaltar un campo). `null` si no es un `ApiError`. */
-  code: string | null;
-  statusCode: number | null;
-  /** ID de correlación para soporte; se puede mostrar como "Referencia". */
-  correlationId?: string;
-}
-
-function extractIssues(details: unknown[]): string[] {
-  return details.flatMap((detail) => {
-    if (typeof detail === 'object' && detail !== null && 'issue' in detail) {
-      const { issue } = detail as { issue: unknown };
-      return typeof issue === 'string' && issue.trim() ? [issue] : [];
-    }
-    return [];
-  });
-}
-
 /**
- * Traduce cualquier error de una consulta o mutación a un mensaje para el
- * usuario. Se elige por `code` y, si no hay uno específico, por `statusCode`.
+ * Traduce cualquier error de una consulta o mutación de administración a un
+ * mensaje para el usuario: `describeApiError` de `@/lib/api-error-view` con
+ * los mensajes de PLAN-ADMIN §3. Se elige por `code` y, si no hay uno
+ * específico, por `statusCode`.
  *
  * @param overrides Mensajes propios de la pantalla por código (p. ej.
  *   `{ RESOURCE_CONFLICT: 'Ya existe un usuario con ese correo.' }`); ganan
  *   sobre los comunes.
  */
 export function describeApiError(error: unknown, overrides: Readonly<Record<string, string>> = {}): ApiErrorView {
-  if (!(error instanceof ApiError)) {
-    return { message: UNEXPECTED_ERROR_MESSAGE, issues: [], code: null, statusCode: null };
-  }
-
-  const statusMessage =
-    error.code === NETWORK_ERROR_CODE
-      ? NETWORK_ERROR_MESSAGE
-      : (MESSAGES_BY_STATUS[error.statusCode] ??
-        (error.statusCode >= SERVER_ERROR_MIN_STATUS ? SERVER_ERROR_MESSAGE : UNEXPECTED_ERROR_MESSAGE));
-
-  return {
-    message: overrides[error.code] ?? MESSAGES_BY_CODE[error.code] ?? statusMessage,
-    issues: extractIssues(error.details),
-    code: error.code,
-    statusCode: error.statusCode,
-    correlationId: error.correlationId,
-  };
+  return describeCommonApiError(error, { ...ADMIN_MESSAGES_BY_CODE, ...overrides });
 }

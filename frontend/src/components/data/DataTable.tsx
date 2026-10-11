@@ -26,7 +26,7 @@ import {
 } from '@mui/material';
 import type { ReactNode } from 'react';
 
-import { subtleSurface } from './admin-surfaces';
+import { subtleSurface } from './surfaces';
 import { EmptyState } from './EmptyState';
 import { PAGE_SIZE_OPTIONS, type SortDirection, type TableSort } from './use-table-query-state';
 

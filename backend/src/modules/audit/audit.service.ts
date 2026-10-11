@@ -30,6 +30,12 @@ export interface AuditEventOptions {
   before?: Record<string, unknown> | null;
   after?: Record<string, unknown> | null;
   metadata?: Record<string, string | number | boolean | null>;
+  /**
+   * Campos de `before`/`after` con datos personales (DM-29): la diferencia los
+   * registra enmascarados (`a***@d***.com`, `A***`). P. ej. contactos:
+   * `['firstName', 'lastName', 'email', 'phone']`.
+   */
+  maskedFields?: readonly string[];
 }
 
 /**
@@ -61,7 +67,7 @@ export class AuditService {
   async record(event: string, context: AuditContext, options: AuditEventOptions): Promise<void> {
     const tracksChanges = options.before !== undefined || options.after !== undefined;
     const changes: AuditChanges | null = tracksChanges
-      ? auditDiff(options.before ?? null, options.after ?? null)
+      ? auditDiff(options.before ?? null, options.after ?? null, { maskedFields: options.maskedFields })
       : null;
 
     if (changes && Object.keys(changes).length === 0) {

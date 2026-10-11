@@ -22,7 +22,7 @@ import {
   type DirectAssignmentRequest,
   type UpdateUserRequest,
 } from './users.api';
-import { saveFile } from '@/features/admin/common/save-file';
+import { saveFile } from '@/lib/save-file';
 
 export const userKeys = createQueryKeys('users');
 const accessKey = (id: string) => [...userKeys.detail(id), 'access'] as const;

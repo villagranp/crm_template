@@ -6,6 +6,35 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 ## [Unreleased]
 
 ### Added
+- **CRM Módulo 2 — piezas transversales** (`02-clientes-cuentas.md` §K.3 pasos 1 y 6, §L.2):
+  - `TRANSACTION_RUNNER` + `TransactionContext` opaco para que varios puertos
+    compartan una transacción sin conocer Prisma, y `SEQUENCE_GENERATOR`
+    (`SELECT … FOR UPDATE` sobre `sequences`; `prefix`, `pattern`, `padding`,
+    `resetPolicy`; dentro de la transacción del llamador) (00 §6.1).
+  - `CatalogReferenceValidator` exportado por `CatalogsModule` (00 §3.5):
+    `assertItem`/`check` por id o código, activo en el alta y valor desactivado
+    conservado en la edición; `422 INVALID_CATALOG_VALUE` con `details[].field`,
+    `catalogKey` y `reason` (`NOT_FOUND | INACTIVE`).
+  - `VisibilityScopeResolver` exportado por `AccessModule` (00 §4.2): alcance por
+    permiso (el más amplio de los roles que lo conceden) como descriptor neutral
+    `ALL | FILTERED { ownerIds, teamIds, countryIds }`; `TEAM` con subequipos
+    recursivos (CTE), `COUNTRY` sin país degradado a `OWN` con aviso (D-02.8).
+  - Adjuntos (ADR-021): puerto `FILE_STORAGE` y adaptador `LocalFileSystemStorage`
+    (clave `<año>/<mes>/<uuid>`, ruta contenida en la base sin seguir enlaces,
+    temporal + `rename`, corte por tamaño en streaming, SHA-256);
+    `AttachmentsModule`/`AttachmentsService` (`list`, `add`, `open`, `remove`
+    acotados a `owner = { type, id }`; límites de `crm.adjuntos.*`; tipo por firma
+    PDF/JPEG/PNG/DOCX/XLSX cotejado con extensión y lista blanca; compensación del
+    binario si falla la base; auditoría `crm.attachment.added|removed`);
+    `AttachmentUploadInterceptor` y `attachmentDownload` para los controladores de
+    los dueños. Errores `413 ATTACHMENT_TOO_LARGE` y `422 ATTACHMENT_TYPE_NOT_ALLOWED`.
+  - Configuración `ATTACHMENTS_STORAGE_PATH` (defecto `./storage/attachments`,
+    creada y verificada al arrancar) en `env.schema.ts`, `.env.example`,
+    `.gitignore`, volumen `attachments-data` en `docker-compose.yml` y punto de
+    montaje con dueño `node` en la imagen del backend.
+  - `AuditService.record(..., { maskedFields })`: los campos indicados se
+    registran enmascarados en `changes` (`a***@d***.com`, `A***`) (DM-29).
+  - `PayloadTooLargeError` (413) en los errores de aplicación y en el filtro global.
 - **CRM Fase 0 — semillas** (`00-modelo-de-datos.md` §8):
   - Semilla esencial ampliada (`prisma/seed.ts`, `prisma/seed/crm-*.ts`): monedas
     (USD, GTQ, HNL, CRC, VES), países GT, SV, HN, CR, VE y EC, 9 unidades de
@@ -51,6 +80,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 - Pruebas de integración del esquema CRM (`backend/test/crm-schema.e2e.spec.ts`).
 
 ### Changed
+- NGINX: las rutas de subida de adjuntos (`/api/v{n}/{dueño}/{id}/attachments`)
+  admiten 11 MiB de cuerpo (10 MiB de archivo + margen de `multipart`); el resto
+  de la API sigue en 10 MiB. Sin ninguna `location` que sirva los adjuntos (ADR-021).
+- Opciones de menú: `POST/PATCH /menu-options` rechazan una ruta con parámetro
+  (`:`) con `422 INVALID_MENU_STRUCTURE` (`details[].field = 'path'`), y
+  `GET /menu-options/routes` ya no las ofrece como destino (D-02.12).
 - Catálogos: el alta y la edición de elementos validan y escriben dentro de una
   transacción que bloquea la fila del catálogo (`SELECT … FOR UPDATE`). Dos
   cambios simultáneos ya no pueden romper un invariante ni duplicar una etiqueta

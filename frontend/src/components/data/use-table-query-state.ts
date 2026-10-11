@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-import type { ListQuery } from './admin-api';
+import type { ListQuery } from '@/lib/query-keys';
 
 /**
  * Estado de una tabla paginada en el servidor, guardado en la URL.

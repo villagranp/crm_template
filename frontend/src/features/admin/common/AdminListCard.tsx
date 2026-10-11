@@ -2,7 +2,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import { Box, IconButton, Paper, Stack, Tooltip, Typography, type Theme } from '@mui/material';
 import { useId, type ReactNode } from 'react';
 
-import { brandSoft, ICON_TILE_SIZE, subtleSurface, TILE_RADIUS } from './admin-surfaces';
+import { brandSoft, ICON_TILE_SIZE, subtleSurface, TILE_RADIUS } from '@/components/data/surfaces';
 
 export interface AdminListCardProps {
   /** Icono del área (decorativo), en el mosaico de la cabecera. */

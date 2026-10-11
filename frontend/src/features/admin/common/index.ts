@@ -1,40 +1,63 @@
-/** Piezas compartidas por las pantallas de administración. Ver `features/admin/README.md`. */
-export { adminBreadcrumbs } from './admin-breadcrumbs';
-export { ADMIN_ERROR_CODES, ADMIN_ONLY_NOTE, createQueryKeys, describeApiError } from './admin-api';
-export type { ApiErrorView, ListQuery, Paginated } from './admin-api';
-export { AdminDialog, DialogFooter, RequiredNote } from './AdminDialog';
-export type { AdminDialogProps, DialogFooterProps } from './AdminDialog';
-export { AdminDrawer } from './AdminDrawer';
-export type { AdminDrawerProps } from './AdminDrawer';
-export { initialsOf, recordsSubtitle } from './admin-format';
-export { AdminListCard, ListCardTool, RefreshTool } from './AdminListCard';
-export type { AdminListCardProps, ListCardToolProps } from './AdminListCard';
-export { brandSoft, neutralSoft, subtleSurface } from './admin-surfaces';
-export { ConfirmDialog, REASON_MIN_LENGTH } from './ConfirmDialog';
-export type { ConfirmDialogProps, ConfirmDialogReasonOptions } from './ConfirmDialog';
-export { DataTable } from './DataTable';
-export type { DataTableColumn, DataTableProps } from './DataTable';
-export { EmptyState } from './EmptyState';
-export type { EmptyStateProps } from './EmptyState';
-export { DetailList, DetailSection, FormSection, FullRow } from './FormSection';
-export type { DetailListProps, DetailSectionProps, FormSectionProps } from './FormSection';
-export { FilterChips, ListToolbar } from './ListToolbar';
-export type { FilterChipOption, FilterChipsProps, ListToolbarProps } from './ListToolbar';
-export { RowIdentity } from './RowIdentity';
-export type { RowIdentityProps } from './RowIdentity';
-export { useFilterCounts } from './use-filter-counts';
-export type { UseFilterCountsOptions } from './use-filter-counts';
-export { UnderConstruction } from './UnderConstruction';
+/**
+ * Piezas compartidas por las pantallas de administración. Ver `features/admin/README.md`.
+ *
+ * Las piezas que no son propias de la administración viven en
+ * `@/components/data` y `@/lib` (D-02.11); este barril las reexporta con los
+ * nombres de siempre para que las áreas de administración no cambien.
+ * `AdminDialog`/`AdminDrawer` son alias de `EntityDialog`/`EntityDrawer`.
+ */
 export {
+  brandSoft,
+  ConfirmDialog,
+  DataTable,
   DEFAULT_PAGE_SIZE,
+  DetailList,
+  DetailSection,
+  DialogFooter,
+  EmptyState,
+  EntityDialog as AdminDialog,
+  EntityDrawer as AdminDrawer,
+  FilterChips,
+  FormSection,
+  FullRow,
+  ListToolbar,
+  neutralSoft,
   PAGE_SIZE_OPTIONS,
+  REASON_MIN_LENGTH,
+  RequiredNote,
   SEARCH_DEBOUNCE_MS,
+  subtleSurface,
   useTableQueryState,
-} from './use-table-query-state';
+} from '@/components/data';
 export type {
+  ConfirmDialogProps,
+  ConfirmDialogReasonOptions,
+  DataTableColumn,
+  DataTableProps,
+  DetailListProps,
+  DetailSectionProps,
+  DialogFooterProps,
+  EmptyStateProps,
+  EntityDialogProps as AdminDialogProps,
+  EntityDrawerProps as AdminDrawerProps,
+  FilterChipOption,
+  FilterChipsProps,
+  FormSectionProps,
+  ListToolbarProps,
   SortDirection,
   TableQueryState,
   TableSort,
   UseTableQueryStateOptions,
   UseTableQueryStateResult,
-} from './use-table-query-state';
+} from '@/components/data';
+export { adminBreadcrumbs } from './admin-breadcrumbs';
+export { ADMIN_ERROR_CODES, ADMIN_ONLY_NOTE, createQueryKeys, describeApiError } from './admin-api';
+export type { ApiErrorView, ListQuery, Paginated } from './admin-api';
+export { initialsOf, recordsSubtitle } from './admin-format';
+export { AdminListCard, ListCardTool, RefreshTool } from './AdminListCard';
+export type { AdminListCardProps, ListCardToolProps } from './AdminListCard';
+export { RowIdentity } from './RowIdentity';
+export type { RowIdentityProps } from './RowIdentity';
+export { useFilterCounts } from './use-filter-counts';
+export type { UseFilterCountsOptions } from './use-filter-counts';
+export { UnderConstruction } from './UnderConstruction';

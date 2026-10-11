@@ -4,17 +4,17 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { renderWithProviders } from '@/test/render-with-providers';
 
-import { AdminDialog, DialogFooter } from './AdminDialog';
+import { EntityDialog, DialogFooter } from './EntityDialog';
 import { FormSection } from './FormSection';
 
-describe('AdminDialog', () => {
+describe('EntityDialog', () => {
   it('pinta cabecera con título accesible, subtítulo, nota de obligatorios y secciones numeradas', () => {
     renderWithProviders(
-      <AdminDialog open onClose={vi.fn()} title="Nuevo equipo" subtitle="Equipos" requiredNote>
+      <EntityDialog open onClose={vi.fn()} title="Nuevo equipo" subtitle="Equipos" requiredNote>
         <FormSection number={1} title="Datos generales">
           <input aria-label="Nombre" />
         </FormSection>
-      </AdminDialog>,
+      </EntityDialog>,
     );
 
     const dialog = screen.getByRole('dialog', { name: 'Nuevo equipo' });
@@ -28,7 +28,7 @@ describe('AdminDialog', () => {
     const onClose = vi.fn();
     const onSubmit = vi.fn();
     renderWithProviders(
-      <AdminDialog
+      <EntityDialog
         open
         onClose={onClose}
         title="Editar rol"
@@ -36,7 +36,7 @@ describe('AdminDialog', () => {
         actions={<DialogFooter onCancel={onClose} submitLabel="Guardar cambios" />}
       >
         contenido
-      </AdminDialog>,
+      </EntityDialog>,
     );
 
     await user.click(screen.getByRole('button', { name: 'Cerrar' }));
@@ -49,7 +49,7 @@ describe('AdminDialog', () => {
 
   it('con una mutación en curso no se puede cerrar ni volver a enviar', () => {
     renderWithProviders(
-      <AdminDialog
+      <EntityDialog
         open
         onClose={undefined}
         title="Editar rol"
@@ -57,7 +57,7 @@ describe('AdminDialog', () => {
         actions={<DialogFooter onCancel={vi.fn()} submitLabel="Guardar cambios" pending />}
       >
         contenido
-      </AdminDialog>,
+      </EntityDialog>,
     );
 
     expect(screen.getByRole('button', { name: 'Cerrar' })).toBeDisabled();

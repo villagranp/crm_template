@@ -1,7 +1,7 @@
 import { Box, Typography, type SxProps, type Theme } from '@mui/material';
 import { useId, type ReactNode } from 'react';
 
-import { brandSoft, SECTION_NUMBER_SIZE } from './admin-surfaces';
+import { brandSoft, SECTION_NUMBER_SIZE } from './surfaces';
 
 export interface FormSectionProps {
   /** Número de la sección ("1", "2"…); sin él, sólo el título. */

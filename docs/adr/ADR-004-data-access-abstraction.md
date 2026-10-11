@@ -36,3 +36,35 @@ CustomerRepository (port)
 ## Security Considerations
 El adaptador es el único lugar donde se construyen consultas, concentrando la superficie de
 inyección y facilitando su revisión.
+
+## Addendum 2026-10-11 — Transacciones entre puertos (`TransactionRunner`)
+
+**Estado:** Accepted — 2026-10-11. Origen: Módulo 2 del CRM (02 F.6, `SequenceGenerator.next(key, tx)`
+y `CustomersRepository.create(tx)`), donde un caso de uso debe escribir en varios puertos de forma
+atómica (número de secuencia + cliente + contacto principal + auditoría).
+
+**Decisión.** Se añade un puerto mínimo de unidad de trabajo en
+`backend/src/infrastructure/database/ports/transaction.port.ts`:
+
+```ts
+interface TransactionContext { /* opaco */ }
+interface TransactionRunner {
+  run<T>(work: (tx: TransactionContext) => Promise<T>, options?: { timeoutMs?: number }): Promise<T>;
+}
+```
+
+- La aplicación solo **pasa** el `TransactionContext` a los métodos de puerto que lo aceptan
+  (`tx?` opcional); nunca lo inspecciona ni conoce su tipo real.
+- El adaptador Prisma (`prisma-transaction.ts`) lo implementa con `$transaction` interactivo y
+  `prismaClientFor(prisma, tx)` resuelve el cliente dentro de los adaptadores.
+- Un puerto solo acepta `tx` cuando un caso de uso real lo necesita (regla anti-overengineering).
+
+**Alternativas descartadas.**
+- *Pasar el `Prisma.TransactionClient` a la aplicación:* rompe §8.2 de CLAUDE.md.
+- *Métodos de repositorio "gordos" que hacen todo dentro (p. ej. `createCustomerWithContact`):*
+  mezclan agregados y obligan a duplicar la generación de secuencias en cada adaptador.
+- *Contexto implícito (AsyncLocalStorage / CLS):* menos explícito y más difícil de probar.
+
+**Consecuencias.** Los casos de uso siguen probándose sin base de datos (un `TransactionRunner`
+falso que invoca `work` con un contexto ficticio). Cambiar de motor exige reimplementar solo el
+adaptador del runner.

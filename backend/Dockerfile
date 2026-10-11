@@ -57,6 +57,11 @@ COPY --from=build --chown=node:node /repo/backend/dist ./dist
 COPY --from=build --chown=node:node /repo/backend/prisma ./prisma
 COPY --from=build --chown=node:node /repo/backend/package.json ./package.json
 
+# Punto de montaje de los adjuntos (ADR-021). Se crea en la imagen con dueño
+# `node` para que un volumen con nombre herede ese dueño; la imagen nunca
+# contiene adjuntos.
+RUN mkdir -p /app/storage/attachments && chown -R node:node /app/storage
+
 USER node
 EXPOSE 3000
 

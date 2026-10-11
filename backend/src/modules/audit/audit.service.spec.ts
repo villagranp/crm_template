@@ -55,4 +55,25 @@ describe('AuditService', () => {
 
     expect(repository.record).toHaveBeenCalledWith(expect.objectContaining({ changes: null, metadata: { rows: 3 } }));
   });
+
+  it('enmascara los campos indicados en maskedFields (DM-29)', async () => {
+    const { service, repository } = setup();
+
+    await service.record('crm.contact.updated', CONTEXT, {
+      resourceType: 'crm.contact',
+      resourceId: 'contact-1',
+      before: { email: 'ana@dominio.com', jobTitle: 'Compras' },
+      after: { email: 'ana.p@dominio.com', jobTitle: 'Gerencia' },
+      maskedFields: ['email'],
+    });
+
+    expect(repository.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changes: {
+          email: { before: 'a***@d***.com', after: 'a***@d***.com' },
+          jobTitle: { before: 'Compras', after: 'Gerencia' },
+        },
+      }),
+    );
+  });
 });

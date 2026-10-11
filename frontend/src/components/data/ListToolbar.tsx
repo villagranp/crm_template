@@ -3,7 +3,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import { Box, Button, InputAdornment, Stack, TextField, type Theme } from '@mui/material';
 import type { ReactNode } from 'react';
 
-import { neutralSoft, PILL_RADIUS } from './admin-surfaces';
+import { neutralSoft, PILL_RADIUS } from './surfaces';
 
 export interface FilterChipOption {
   /** Valor del filtro; `''` = "Todos". */

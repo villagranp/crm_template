@@ -15,7 +15,7 @@ import {
 } from '@mui/material';
 import { useId, type FormEvent, type ReactNode } from 'react';
 
-export interface AdminDialogProps {
+export interface EntityDialogProps {
   open: boolean;
   /** `undefined` mientras hay una mutación en curso: bloquea el cierre. */
   onClose: (() => void) | undefined;
@@ -44,7 +44,7 @@ export interface AdminDialogProps {
  *
  * El estilo de los campos lo pone el tema global: aquí sólo hay estructura.
  */
-export function AdminDialog({
+export function EntityDialog({
   open,
   onClose,
   title,
@@ -56,7 +56,7 @@ export function AdminDialog({
   requiredNote = false,
   actions,
   children,
-}: AdminDialogProps) {
+}: EntityDialogProps) {
   const titleId = useId();
   const fullScreen = useMediaQuery((theme: Theme) => theme.breakpoints.down(fullScreenBelow));
 

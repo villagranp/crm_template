@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { PrismaModule } from '@/infrastructure/database/prisma/prisma.module';
 import { PrismaAccessRepository } from '@/infrastructure/database/prisma/repositories/prisma-access.repository';
+import { PrismaVisibilityScopeRepository } from '@/infrastructure/database/prisma/repositories/prisma-visibility-scope.repository';
 import { AuthCoreModule } from '@/modules/auth/auth-core.module';
 
 import { AccessService } from './access.service';
@@ -9,10 +10,12 @@ import { MeController } from './me.controller';
 import { MenuOptionsController } from './menu-options.controller';
 import { MenuOptionsService } from './menu-options.service';
 import { ACCESS_REPOSITORY } from './ports/access.repository.port';
+import { VISIBILITY_SCOPE_READER } from './ports/visibility-scope.port';
 import { RolesController } from './roles.controller';
 import { RolesService } from './roles.service';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
+import { VisibilityScopeResolver } from './visibility-scope.resolver';
 
 /**
  * Módulo de acceso: identidad local, autorización y opciones de menú.
@@ -20,6 +23,10 @@ import { UsersService } from './users.service';
  * Exporta `AccessService` porque el resolutor de permisos global lo necesita
  * (ver `AuthenticationModule`). El puerto `ACCESS_REPOSITORY` se enlaza aquí a
  * su adaptador Prisma; ningún servicio de este módulo importa Prisma.
+ *
+ * Exporta también `VisibilityScopeResolver` (00 §4.2): los módulos del CRM lo
+ * inyectan para obtener el alcance de datos del usuario y filtran con él en sus
+ * repositorios.
  */
 @Module({
   imports: [PrismaModule, AuthCoreModule],
@@ -29,8 +36,10 @@ import { UsersService } from './users.service';
     UsersService,
     RolesService,
     MenuOptionsService,
+    VisibilityScopeResolver,
     { provide: ACCESS_REPOSITORY, useClass: PrismaAccessRepository },
+    { provide: VISIBILITY_SCOPE_READER, useClass: PrismaVisibilityScopeRepository },
   ],
-  exports: [AccessService],
+  exports: [AccessService, VisibilityScopeResolver],
 })
 export class AccessModule {}

@@ -2,7 +2,7 @@ import InboxOutlinedIcon from '@mui/icons-material/InboxOutlined';
 import { Box, Stack, Typography } from '@mui/material';
 import type { ReactNode } from 'react';
 
-import { brandSoft, EMPTY_ICON_SIZE } from './admin-surfaces';
+import { brandSoft, EMPTY_ICON_SIZE } from './surfaces';
 
 export interface EmptyStateProps {
   title: string;

@@ -4,7 +4,7 @@ import { useEffect, useId, useMemo, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 
-import { AdminDialog, DialogFooter } from './AdminDialog';
+import { EntityDialog, DialogFooter } from './EntityDialog';
 
 /** Longitud mínima de la razón de una asignación directa (ADR-018 §4, PLAN-ADMIN D5). */
 export const REASON_MIN_LENGTH = 10;
@@ -98,7 +98,7 @@ export function ConfirmDialog({
   const submit = handleSubmit((values) => onConfirm(requiresReason ? values.reason : undefined));
 
   return (
-    <AdminDialog
+    <EntityDialog
       open={open}
       onClose={isPending ? undefined : onClose}
       title={title}
@@ -146,6 +146,6 @@ export function ConfirmDialog({
           {errorMessage}
         </Alert>
       ) : null}
-    </AdminDialog>
+    </EntityDialog>
   );
 }

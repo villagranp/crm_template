@@ -20,4 +20,10 @@ export const ROUTE_PATHS = {
     approvals: '/administracion/aprobaciones',
     audit: '/administracion/auditoria',
   },
+  crm: {
+    customers: '/clientes',
+    customerNew: '/clientes/nuevo',
+    /** Ruta con parámetro (D-02.12): se registra, pero no puede ser destino de una opción de menú. */
+    customerDetail: '/clientes/:customerId',
+  },
 } as const;

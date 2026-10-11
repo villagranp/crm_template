@@ -8,6 +8,7 @@ import { PrismaModule } from './infrastructure/database/prisma/prisma.module';
 import { AuthenticationModule } from './infrastructure/authentication/authentication.module';
 import { AccessModule } from './modules/access/access.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
+import { AttachmentsModule } from './modules/attachments/attachments.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CatalogsModule } from './modules/catalogs/catalogs.module';
@@ -49,6 +50,8 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     CatalogsModule,
     ParametersModule,
     ApprovalsModule,
+    // Sin rutas propias; se registra aquí para que la ruta de adjuntos se valide al arrancar (ADR-021).
+    AttachmentsModule,
     HealthModule,
   ],
   providers: [

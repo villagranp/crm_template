@@ -22,3 +22,17 @@ export function listRegisteredRoutes(): readonly RegisteredRoute[] {
 export function isRegisteredRoute(path: string): boolean {
   return PATHS.has(path);
 }
+
+/**
+ * ¿La ruta lleva un parámetro (`/clientes/:customerId`)? Esas rutas se registran
+ * porque la prueba del router compara el árbol entero con el registro, pero no
+ * pueden ser destino de una opción de menú: no hay un valor con el que navegar (D-02.12).
+ */
+export function hasRouteParameter(path: string): boolean {
+  return path.includes(':');
+}
+
+/** Rutas a las que puede apuntar una opción `LINK`: registradas y sin parámetros (D6, D-02.12). */
+export function listMenuTargetRoutes(): readonly RegisteredRoute[] {
+  return ROUTES.filter((route) => !hasRouteParameter(route.path));
+}

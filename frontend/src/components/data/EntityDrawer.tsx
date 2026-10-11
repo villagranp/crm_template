@@ -5,7 +5,7 @@ import { useId, type ReactNode } from 'react';
 /** Ancho del panel lateral en escritorio, en unidades de espaciado (560 px). */
 const DRAWER_WIDTH = 70;
 
-export interface AdminDrawerProps {
+export interface EntityDrawerProps {
   open: boolean;
   onClose: () => void;
   /** Nombre accesible del panel. */
@@ -20,7 +20,7 @@ export interface AdminDrawerProps {
  * del CRUD: título, subtítulo y botón de cerrar sobre una línea divisoria.
  * En móvil ocupa todo el ancho.
  */
-export function AdminDrawer({ open, onClose, title, subtitle, children }: AdminDrawerProps) {
+export function EntityDrawer({ open, onClose, title, subtitle, children }: EntityDrawerProps) {
   const titleId = useId();
 
   return (

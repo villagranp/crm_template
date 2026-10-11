@@ -1,7 +1,7 @@
 import ConstructionOutlinedIcon from '@mui/icons-material/ConstructionOutlined';
 import { Card } from '@mui/material';
 
-import { EmptyState } from './EmptyState';
+import { EmptyState } from '@/components/data/EmptyState';
 
 /** Marcador temporal de un área cuya pantalla todavía no se ha construido. */
 export function UnderConstruction() {

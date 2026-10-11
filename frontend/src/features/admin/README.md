@@ -30,6 +30,11 @@ features/admin/
 - Lo que sólo usa tu área vive en tu carpeta. Un área **no importa** de otra área; si algo
   hace falta en dos, se propone para `common/`.
 - Importa lo compartido desde el barril: `import { DataTable, … } from '@/features/admin/common';`.
+- Las piezas que no son propias de la administración (`DataTable`, `ConfirmDialog`, `ListToolbar`,
+  `EmptyState`, `FormSection`, `EntityDialog`/`EntityDrawer`, `useTableQueryState`) viven en
+  `@/components/data`, y `describeApiError`, `createScopedQueryKeys` y `saveFile` en `@/lib`
+  (D-02.11). El barril de `common/` las reexporta con los nombres de siempre
+  (`AdminDialog`/`AdminDrawer` son alias), así que las áreas de administración no cambian.
 
 ## 2. API y estado de servidor
 
@@ -126,4 +131,4 @@ const users = useUsers(table.apiQuery);
 - Cuatro estados en cada pantalla: cargando, vacío, error y sin permiso.
 - Pruebas con React Testing Library por comportamiento (`renderWithProviders`, `mockApi` de
   `@/test/api-mocks`): formularios, mapeo de errores y acciones ocultas sin permiso. Para la
-  vista de tabla en jsdom simula `matchMedia` (ver `common/DataTable.spec.tsx`).
+  vista de tabla en jsdom simula `matchMedia` (ver `src/components/data/DataTable.spec.tsx`).

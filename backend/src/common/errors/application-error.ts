@@ -72,3 +72,16 @@ export class PermissionDeniedError extends ApplicationError {
     super('Insufficient permissions', [{ requiredPermission: permission }]);
   }
 }
+
+/**
+ * 413: el archivo o el cuerpo supera el tamaño admitido (API-STANDARDS §3). El
+ * código lo decide quien lanza (`ATTACHMENT_TOO_LARGE`, DC-4).
+ */
+export class PayloadTooLargeError extends ApplicationError {
+  readonly code: string;
+
+  constructor(code: string, message: string, details: ReadonlyArray<Record<string, unknown>> = []) {
+    super(message, details);
+    this.code = code;
+  }
+}

@@ -151,7 +151,16 @@ describe('semilla esencial (00 §8.2)', () => {
     expect(administrator._count.permissions).toBe(afterFirstRun.permissions);
 
     // DM-32: ninguna opción del CRM sin pantalla registrada.
-    expect(await prisma.menuOption.count({ where: { key: { in: ['clientes-buscar', 'actividad-agenda', 'admin-tipos-cambio'] } } })).toBe(0);
+    expect(await prisma.menuOption.count({ where: { key: { in: ['actividad-agenda', 'admin-tipos-cambio'] } } })).toBe(0);
+    // Módulo 2 registró /clientes: su opción existe y llega a los roles del CRM.
+    const customersOption = await prisma.menuOption.findUnique({
+      where: { key: 'clientes-buscar' },
+      include: { roles: { include: { role: { select: { code: true } } } } },
+    });
+    expect(customersOption?.path).toBe('/clientes');
+    expect(customersOption?.roles.map((r) => r.role.code)).toEqual(
+      expect.arrayContaining(['asesor', 'manager', 'responsable-pais']),
+    );
 
     const parameters = await prisma.systemParameter.findMany({
       where: { key: { in: ['crm.moneda_base', 'crm.importaciones.habilitada', 'sistema.permite_datos_demo', 'crm.clientes.reglas_duplicidad'] } },

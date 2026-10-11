@@ -1538,6 +1538,16 @@ Una FK a `catalog_items` no puede comprobar **a qué catálogo** pertenece el el
 
 El "Equipo" que muestra Proyectos del equipo (§5.5) es el equipo principal (`team_members.is_primary`) del asesor responsable: se deriva, no se copia en `projects`. Si el asesor cambia de equipo, sus registros "se mueven" con él (comportamiento habitual en un CRM; DM-12 resuelta **sin** foto histórica del equipo).
 
+**Precisiones de implementación (2026-10-11, `VisibilityScopeResolver`).** Criterios técnicos
+aplicados donde el contrato no decía nada; no cambian ninguna regla escrita:
+
+- El alcance efectivo es el **más amplio** entre los roles que conceden el permiso; un permiso
+  concedido directamente al usuario, sin rol, da `OWN`.
+- `TEAM` y `COUNTRY` incluyen siempre los registros propios del usuario.
+- `TEAM` cubre al usuario, a los miembros y responsables de sus equipos y de todos sus subequipos
+  (consulta recursiva). Un equipo inactivo o eliminado no concede nada ni hereda a sus subequipos.
+- Un principal sin usuario local no ve nada.
+
 ### 4.3 Visibilidad ≠ edición
 
 ALCANCE §5.5: "un usuario autorizado para consultar proyectos del equipo no necesariamente debe poder modificarlos". Regla aprobada (DM-34):

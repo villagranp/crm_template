@@ -77,3 +77,88 @@ export function deferred<T>() {
   });
   return { promise, resolve };
 }
+
+export interface UploadReply {
+  status: number;
+  body?: unknown;
+  /** Progreso que se notifica antes de responder, como `[cargado, total]`. */
+  progress?: [loaded: number, total: number][];
+  /** Si se indica, la respuesta espera a esta promesa después de notificar el progreso. */
+  hold?: Promise<unknown>;
+}
+
+export interface RecordedUpload {
+  method: string;
+  /** Ruta sin el prefijo `/api/v1`. */
+  path: string;
+  headers: Record<string, string>;
+  body: unknown;
+}
+
+export type UploadHandler = (request: RecordedUpload) => UploadReply | Promise<UploadReply>;
+
+/**
+ * Sustituye `XMLHttpRequest` (el borde de `httpClient.upload`, que lo usa para
+ * informar del progreso) y responde con `handler`. Devuelve las subidas
+ * registradas. Una respuesta sin `body` llega sin JSON, como un `413` de NGINX.
+ */
+export function mockUpload(handler: UploadHandler): RecordedUpload[] {
+  const recorded: RecordedUpload[] = [];
+
+  class FakeXhr {
+    status = 0;
+    statusText = '';
+    responseText = '';
+    timeout = 0;
+    upload: { onprogress: ((event: ProgressEvent) => void) | null } = { onprogress: null };
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    ontimeout: (() => void) | null = null;
+    onabort: (() => void) | null = null;
+    private request: RecordedUpload = { method: 'GET', path: '', headers: {}, body: null };
+    private responseHeaders = '';
+    private aborted = false;
+
+    open(method: string, url: string) {
+      this.request.method = method;
+      this.request.path = new URL(url, 'http://localhost').pathname.replace(/^\/api\/v1/, '');
+    }
+
+    setRequestHeader(name: string, value: string) {
+      this.request.headers[name] = value;
+    }
+
+    getAllResponseHeaders() {
+      return this.responseHeaders;
+    }
+
+    abort() {
+      this.aborted = true;
+      this.onabort?.();
+    }
+
+    send(body: unknown) {
+      this.request.body = body;
+      recorded.push(this.request);
+      void Promise.resolve(handler(this.request)).then(async (reply) => {
+        if (this.aborted) {
+          return;
+        }
+        for (const [loaded, total] of reply.progress ?? []) {
+          this.upload.onprogress?.({ lengthComputable: true, loaded, total } as ProgressEvent);
+        }
+        await reply.hold;
+        if (this.aborted) {
+          return;
+        }
+        this.status = reply.status;
+        this.responseText = reply.body === undefined ? '' : JSON.stringify(reply.body);
+        this.responseHeaders = reply.body === undefined ? 'content-type: text/html\r\n' : 'content-type: application/json\r\n';
+        this.onload?.();
+      });
+    }
+  }
+
+  vi.stubGlobal('XMLHttpRequest', FakeXhr);
+  return recorded;
+}

@@ -248,3 +248,167 @@ describe('fileNameFromContentDisposition', () => {
     expect(fileNameFromContentDisposition(header)).toBe(expected);
   });
 });
+
+describe('httpClient.upload', () => {
+  interface FakeReply {
+    status: number;
+    body?: unknown;
+    headers?: string;
+  }
+
+  /** Doble mínimo de `XMLHttpRequest`: registra la petición y responde con la siguiente respuesta de la cola. */
+  class FakeXhr {
+    static instances: FakeXhr[] = [];
+    static replies: (FakeReply | 'network-error')[] = [];
+
+    method = '';
+    url = '';
+    timeout = 0;
+    status = 0;
+    statusText = '';
+    responseText = '';
+    requestHeaders: Record<string, string> = {};
+    body: unknown = null;
+    responseHeaders = '';
+    upload: { onprogress: ((event: ProgressEvent) => void) | null } = { onprogress: null };
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    ontimeout: (() => void) | null = null;
+    onabort: (() => void) | null = null;
+
+    constructor() {
+      FakeXhr.instances.push(this);
+    }
+
+    open(method: string, url: string) {
+      this.method = method;
+      this.url = url;
+    }
+
+    setRequestHeader(name: string, value: string) {
+      this.requestHeaders[name] = value;
+    }
+
+    getAllResponseHeaders() {
+      return this.responseHeaders;
+    }
+
+    abort() {
+      this.onabort?.();
+    }
+
+    send(body: unknown) {
+      this.body = body;
+      const reply = FakeXhr.replies.shift();
+      queueMicrotask(() => {
+        if (!reply || reply === 'network-error') {
+          this.onerror?.();
+          return;
+        }
+        this.upload.onprogress?.({ lengthComputable: true, loaded: 50, total: 200 } as ProgressEvent);
+        this.upload.onprogress?.({ lengthComputable: true, loaded: 200, total: 200 } as ProgressEvent);
+        this.status = reply.status;
+        this.responseText = reply.body === undefined ? '' : JSON.stringify(reply.body);
+        this.responseHeaders = reply.headers ?? 'content-type: application/json\r\n';
+        this.onload?.();
+      });
+    }
+  }
+
+  beforeEach(() => {
+    FakeXhr.instances = [];
+    FakeXhr.replies = [];
+    vi.stubGlobal('XMLHttpRequest', FakeXhr);
+    configureHttpClient({
+      getAccessToken: () => Promise.resolve('test-token'),
+      onUnauthorized: () => undefined,
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function formData(): FormData {
+    const data = new FormData();
+    data.append('file', new Blob(['x']), 'a.pdf');
+    return data;
+  }
+
+  it('envía el FormData con token y correlación, informa del progreso y devuelve el JSON', async () => {
+    FakeXhr.replies.push({ status: 201, body: { id: 'att-1' } });
+    const onProgress = vi.fn();
+    const body = formData();
+
+    await expect(httpClient.upload('/customers/c-1/attachments', body, { onProgress })).resolves.toEqual({
+      id: 'att-1',
+    });
+
+    const [xhr] = FakeXhr.instances;
+    expect(xhr?.method).toBe('POST');
+    expect(xhr?.url).toContain('/customers/c-1/attachments');
+    expect(xhr?.body).toBe(body);
+    expect(xhr?.requestHeaders.Authorization).toBe('Bearer test-token');
+    expect(xhr?.requestHeaders[CORRELATION_ID_HEADER]).toBeTruthy();
+    expect(xhr?.requestHeaders['Content-Type']).toBeUndefined();
+    expect(onProgress).toHaveBeenNthCalledWith(1, { loaded: 50, total: 200, percent: 25 });
+    expect(onProgress).toHaveBeenLastCalledWith({ loaded: 200, total: 200, percent: 100 });
+  });
+
+  it('traduce el error de la API igual que el resto de llamadas', async () => {
+    FakeXhr.replies.push({
+      status: 422,
+      body: { statusCode: 422, code: 'ATTACHMENT_TYPE_NOT_ALLOWED', message: 'x', details: [], correlationId: 'c-9' },
+    });
+
+    await expect(httpClient.upload('/x', formData())).rejects.toMatchObject({
+      statusCode: 422,
+      code: 'ATTACHMENT_TYPE_NOT_ALLOWED',
+      correlationId: 'c-9',
+    });
+  });
+
+  it('un 413 sin cuerpo JSON (NGINX) llega como ApiError con su estado', async () => {
+    FakeXhr.replies.push({ status: 413, headers: 'content-type: text/html\r\n' });
+
+    await expect(httpClient.upload('/x', formData())).rejects.toMatchObject({ statusCode: 413, code: 'HTTP_ERROR' });
+  });
+
+  it('ante un 401 renueva el token y repite la subida una vez', async () => {
+    let currentToken = 'expired-token';
+    configureHttpClient({
+      getAccessToken: (options) => {
+        if (options?.forceRefresh) {
+          currentToken = 'fresh-token';
+        }
+        return Promise.resolve(currentToken);
+      },
+    });
+    FakeXhr.replies.push(
+      { status: 401, body: { statusCode: 401, code: 'UNAUTHORIZED', message: 'expired' } },
+      { status: 201, body: { id: 'att-2' } },
+    );
+
+    await expect(httpClient.upload('/x', formData())).resolves.toEqual({ id: 'att-2' });
+    expect(FakeXhr.instances.map((xhr) => xhr.requestHeaders.Authorization)).toEqual([
+      'Bearer expired-token',
+      'Bearer fresh-token',
+    ]);
+  });
+
+  it('convierte un fallo de red en NETWORK_ERROR', async () => {
+    FakeXhr.replies.push('network-error');
+
+    await expect(httpClient.upload('/x', formData())).rejects.toMatchObject({ statusCode: 0, code: 'NETWORK_ERROR' });
+  });
+
+  it('no envía nada si la señal ya está abortada', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(httpClient.upload('/x', formData(), { signal: controller.signal })).rejects.toMatchObject({
+      code: 'NETWORK_ERROR',
+    });
+    expect(FakeXhr.instances[0]?.body).toBeNull();
+  });
+});

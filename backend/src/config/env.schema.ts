@@ -65,6 +65,20 @@ export const envSchema = z
     RATE_LIMIT_TTL_SECONDS: z.coerce.number().int().positive().default(60),
     RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(120),
 
+    // ADJUNTOS (ADR-021)
+    // Ruta base del almacenamiento de adjuntos (relativa al directorio de trabajo
+    // del backend o absoluta). Se crea al arrancar si no existe; si no se puede
+    // crear o no es escribible, el backend no arranca. En Docker es un volumen.
+    ATTACHMENTS_STORAGE_PATH: z.preprocess(
+      (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+      z
+        .string()
+        .trim()
+        .max(1024)
+        .refine((value) => !value.includes('\u0000'), 'ATTACHMENTS_STORAGE_PATH contiene caracteres no validos')
+        .default('./storage/attachments'),
+    ),
+
     // SNOWFLAKE (opcional)
     SNOWFLAKE_ENABLED: z
       .string()

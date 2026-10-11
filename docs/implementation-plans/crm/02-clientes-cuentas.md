@@ -254,6 +254,11 @@ quedaron resueltas el 2026-10-10 (ver la sección de decisiones).
     `acknowledgedDuplicateIds`, que debe contener **todos** los candidatos devueltos. Si aparece un
     candidato nuevo no reconocido, vuelve el `409`. Es el mismo mecanismo para la razón social y
     para el NIT.
+  - *Aclaración (2026-10-11, implementación):* los candidatos fuera del alcance llegan con
+    `id = null` (RN-02.15) y no pueden enumerarse. La confirmación es la **presencia** de
+    `acknowledgedDuplicateIds` (puede ser `[]`): debe contener todos los candidatos **visibles**;
+    los no visibles quedan confirmados por la presencia del campo. Un candidato visible nuevo no
+    incluido devuelve el `409`.
   - `BLOQUEAR` → `409 DUPLICATE_BLOCKED` sin opción de confirmar (nunca para `nit`).
   - Clave desconocida en el parámetro → se ignora con advertencia en el log.
   - En la carga masiva el aviso de NIT repetido es la advertencia `DUPLICATE_TAX_ID` de la fila
@@ -495,7 +500,7 @@ opción de menú (D-02.12).
 |---|---|
 | Encabezado | Razón social, `crmCode`, chip de estado, responsable. Acciones según `capabilities`: "Editar" (`canEdit`), "Eliminar" (`canDelete`), "Nueva actividad" (G.4), "Restaurar" si está eliminado y `canRestore` |
 | Sección General (`CustomerGeneralSection`) | `DetailList` con todos los campos de B.2 y sus etiquetas; NIT con la etiqueta del país; trazabilidad: creado por/el, actualizado por/el; origen "Carga masiva IMP-…" si `sourceImportId`. Acceso heredado: aviso "Lo ves porque participas en un proyecto de este cliente" (solo lectura) |
-| Editar (`CustomerEditDrawer`) | `AdminDrawer` con `CustomerForm` en modo edición; campos fuera de `capabilities.editableFields` deshabilitados con explicación. Mismo manejo de duplicados que el alta: el aviso de NIT repetido aparece solo si se cambia el NIT o el país (RN-02.14) |
+| Editar (`CustomerEditDrawer`) | `EntityDrawer` (`@/components/data`) con `CustomerForm` en modo edición; campos fuera de `capabilities.editableFields` deshabilitados con explicación. Mismo manejo de duplicados que el alta: el aviso de NIT repetido aparece solo si se cambia el NIT o el país (RN-02.14) |
 | Eliminar | `ConfirmDialog` `destructive` que explica que la eliminación es lógica y conserva la historia. Ante `409 CUSTOMER_HAS_DEPENDENCIES` muestra los conteos (proyectos, actividades abiertas, visitas pendientes) y sugiere desactivar |
 | Sección Contactos (`CustomerContactsSection`) | Ver E.5 |
 | Sección Proyectos (`CustomerProjectsSection`) | Ver E.6 |
@@ -507,7 +512,7 @@ opción de menú (D-02.12).
 | Parte | Contenido |
 |---|---|
 | Lista | Nombre completo (con insignia "Principal") · Cargo · Teléfono · Correo · Estado. Búsqueda (nombre, apellidos, correo, cargo) y filtro Activos/Inactivos/Todos (por defecto Activos). Paginada en el servidor |
-| Crear / editar (`ContactFormDialog`, `AdminDialog`) | Nombre, apellidos, cargo, teléfono, correo, estado, comentarios, "Marcar como principal". Cliente fijo (el de la ficha), mostrado como texto |
+| Crear / editar (`ContactFormDialog`, `EntityDialog` (`@/components/data`)) | Nombre, apellidos, cargo, teléfono, correo, estado, comentarios, "Marcar como principal". Cliente fijo (el de la ficha), mostrado como texto |
 | Elegir principal | Acción de fila "Marcar como principal" (deshabilitada en inactivos, con explicación) |
 | Activar / desactivar | Acción de fila; desactivar el principal avisa de que quedará sin principal |
 | Eliminar | Con `contactos.eliminar`; `ConfirmDialog` `destructive`. Ante `409 CONTACT_HAS_HISTORY`: "Este contacto participa en visitas o actividades; puedes desactivarlo" con botón "Desactivar" |
@@ -1371,7 +1376,7 @@ integración en `backend/test/<x>.e2e.spec.ts`; frontend por área como `feature
 | `frontend/src/features/crm/customers/components/CustomerPicker.tsx` (+ `.spec.tsx`) | E.7 |
 | `frontend/src/features/crm/customers/index.ts` | Barril público: `CustomerPicker` y tipos para otros módulos |
 | `frontend/src/components/layout/MaterialSymbol.tsx` | Icono `business` si no existe |
-| Componentes compartidos (D-02.11) | `DataTable`, `ConfirmDialog`, `ListToolbar`, `EmptyState`, `FormSection`, `AdminDialog`, `AdminDrawer`, `use-table-query-state`, `describeApiError`/`createQueryKeys` accesibles fuera de `features/admin` |
+| Componentes compartidos (D-02.11) | `DataTable`, `ConfirmDialog`, `ListToolbar`, `EmptyState`, `FormSection`, `EntityDialog` (`@/components/data`), `EntityDrawer` (`@/components/data`), `use-table-query-state`, `describeApiError`/`createQueryKeys` accesibles fuera de `features/admin` |
 | `frontend/tests/e2e/crm-customers.e2e.spec.ts` | PF-02.52–54 |
 
 ### L.6 Documentación

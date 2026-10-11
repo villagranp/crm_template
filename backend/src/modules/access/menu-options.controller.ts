@@ -44,7 +44,8 @@ import {
 import { MenuOptionsService } from './menu-options.service';
 import type { MenuOptionRecord } from './ports/access.repository.port';
 
-const SHAPE_ERRORS = 'ROUTE_NOT_REGISTERED · MENU_CYCLE · INVALID_MENU_STRUCTURE · UNKNOWN_REFERENCE';
+const SHAPE_ERRORS =
+  'ROUTE_NOT_REGISTERED · MENU_CYCLE · INVALID_MENU_STRUCTURE (también: ruta con parámetro `:`, D-02.12) · UNKNOWN_REFERENCE';
 
 /**
  * Catálogo de opciones de menú y módulos (PLAN-ADMIN D6, D7).
@@ -75,7 +76,7 @@ export class MenuOptionsController {
   // Antes de cualquier ruta con parámetro.
   @Get('menu-options/routes')
   @RequirePermission('opciones.ver')
-  @ApiOperation({ summary: 'Rutas registradas a las que puede apuntar una opción LINK (D6)' })
+  @ApiOperation({ summary: 'Rutas registradas a las que puede apuntar una opción LINK (D6); sin rutas con parámetro (D-02.12)' })
   @ApiOkResponse({ type: [RegisteredRouteDto] })
   listRoutes(): RegisteredRouteDto[] {
     return this.menuOptionsService.listRoutes().map((route) => ({ path: route.path, label: route.label }));

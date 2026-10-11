@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AppEnvironment } from './env.schema';
@@ -27,6 +29,11 @@ export class AppConfigService {
   get isEntraEnabled(): boolean {
     const provider = this.get('AUTH_PROVIDER');
     return provider === 'entra' || provider === 'hybrid';
+  }
+
+  /** Ruta base absoluta de los adjuntos (ADR-021). La valida y crea `LocalFileSystemStorage` al arrancar. */
+  get attachmentsStoragePath(): string {
+    return resolve(this.get('ATTACHMENTS_STORAGE_PATH'));
   }
 
   get isLocalAuthEnabled(): boolean {

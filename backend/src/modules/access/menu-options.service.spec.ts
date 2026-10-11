@@ -62,6 +62,12 @@ describe('validateMenuOptionShape (D6)', () => {
     expect(validateMenuOptionShape({ ...shape, path: '/no-existe' }, null)?.code).toBe('ROUTE_NOT_REGISTERED');
   });
 
+  it('rechaza una ruta con parámetro aunque esté registrada (D-02.12)', () => {
+    const error = validateMenuOptionShape({ ...shape, path: '/clientes/:customerId' }, null);
+    expect(error?.code).toBe('INVALID_MENU_STRUCTURE');
+    expect(error?.details).toEqual([expect.objectContaining({ field: 'path' })]);
+  });
+
   it('exige ruta en un LINK y la prohíbe en un GROUP', () => {
     expect(validateMenuOptionShape({ ...shape, path: null }, null)?.code).toBe('INVALID_MENU_STRUCTURE');
     expect(validateMenuOptionShape({ ...shape, kind: 'GROUP' }, null)?.code).toBe('INVALID_MENU_STRUCTURE');

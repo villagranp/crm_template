@@ -78,6 +78,28 @@ La aplicación falla al arrancar si falta una variable obligatoria: eso es inten
 
 En el frontend solo `VITE_*`, y solo valores públicos: el bundle es visible para cualquiera.
 
+### 4.1 Almacenamiento de adjuntos (`ATTACHMENTS_STORAGE_PATH`, ADR-021)
+
+Los binarios de los adjuntos del CRM se guardan en disco, detrás del puerto
+`FileStorage` (`backend/src/infrastructure/storage/`). La base solo guarda sus
+metadatos (`stored_files`, `attachments`).
+
+| Entorno | Valor | Notas |
+|---|---|---|
+| Local (`pnpm dev`) | `./storage/attachments` (por defecto) | Relativo al directorio del backend: `backend/storage/attachments`, ignorado por Git |
+| Docker Compose | `/app/storage/attachments` | Volumen con nombre `attachments-data`; la imagen crea el punto de montaje con dueño `node` |
+| Servidor | Ruta del volumen montado | El volumen apunta al almacenamiento definitivo; el usuario `node` del contenedor necesita lectura y escritura. Respaldo coordinado con el de PostgreSQL |
+| Pruebas de integración | Directorio temporal por esquema | Lo fija `backend/test/setup-env.ts`; nunca la carpeta de desarrollo |
+
+- Al arrancar, la API crea la ruta si no existe; si no puede crearla o no es
+  escribible, **no arranca** (mensaje `ATTACHMENTS_STORAGE_PATH is not a usable writable directory`).
+- Dentro de la ruta: `<año>/<mes>/<uuid>` (clave generada por el servidor) y
+  `.tmp/` (escrituras en curso; un `.part` antiguo es un resto de un proceso
+  interrumpido y puede borrarse con la API parada).
+- **Nunca** se sirve como estático (ni NGINX ni `express.static`): los adjuntos se
+  descargan por la API tras autorizar. Varias réplicas de la API deben montar el
+  mismo almacenamiento compartido.
+
 ## 5. Base de datos
 
 ```bash
