@@ -15,7 +15,9 @@
  *     Con el backend ya levantado en E2E_API_URL (p. ej. http://localhost:3100),
  *     cambia la contraseña inicial del asesor y del manager demo y escoge los
  *     clientes de los recorridos. Exige SEED_DEMO_PASSWORD, E2E_ASESOR_PASSWORD y
- *     E2E_MANAGER_PASSWORD. Imprime las variables E2E_* (sin contraseñas).
+ *     E2E_MANAGER_PASSWORD. Imprime las variables E2E_* (sin contraseñas), también
+ *     las de Proyectos (E2E_ASESOR_CUSTOMER, E2E_MANAGER_TEAM_PROJECT,
+ *     E2E_FOREIGN_PROJECT_ID, E2E_PRODUCT_SKU, E2E_RULE_UNIT).
  *
  *   pnpm exec ts-node --transpile-only scripts/e2e-stack.ts drop
  *     Borra el esquema.
@@ -189,6 +191,62 @@ async function activate(): Promise<void> {
   console.log(`E2E_MANAGER_EMAIL=${managerEmail}`);
   console.log(`E2E_MANAGER_DEPENDENT_CUSTOMER=${dependent}`);
   console.log(`E2E_FOREIGN_CUSTOMER_ID=${foreign}`);
+
+  // Proyectos (03 §J, PF-03.114–PF-03.116). Se eligen por la API para respetar el alcance real.
+  for (const line of await projectVariables(baseUrl, asesorToken, managerToken)) {
+    console.log(line);
+  }
+}
+
+interface ApiProject {
+  id: string;
+  code: string;
+  owner: { id: string };
+  capabilities: { canAdminister: boolean };
+}
+
+/** Variables E2E_* de los recorridos de Proyectos; las que no se encuentran se omiten (su prueba se salta). */
+async function projectVariables(baseUrl: string, asesorToken: string, managerToken: string): Promise<string[]> {
+  const lines: string[] = [];
+  const json = async <T>(path: string, token: string): Promise<T | null> => {
+    const response = await api(baseUrl, path, {}, token);
+    return response.status === HTTP_OK ? ((await response.json()) as T) : null;
+  };
+
+  // Cliente activo del asesor para el alta (lo ofrece el selector: visible y activo).
+  const asesorCustomers = await json<{ data: { legalName: string }[] }>('/customers?activeOnly=true&pageSize=1&sortBy=legalName&sortOrder=asc', asesorToken);
+  const asesorCustomer = asesorCustomers?.data[0]?.legalName;
+  if (asesorCustomer) lines.push(`E2E_ASESOR_CUSTOMER=${asesorCustomer}`);
+
+  // Proyecto de otro asesor del equipo que el manager puede administrar (reasignar, duplicar).
+  const managerProjects = await json<{ data: ApiProject[] }>('/projects?pageSize=100', managerToken);
+  const managerMe = await json<{ id: string }>('/me', managerToken);
+  const teamProject = managerProjects?.data.find((project) => project.owner.id !== managerMe?.id && project.capabilities.canAdminister);
+  if (teamProject) lines.push(`E2E_MANAGER_TEAM_PROJECT=${teamProject.code}`);
+
+  // Proyecto que el asesor no ve (404 idéntico a inexistente, AC-03.12).
+  const allProjects = await withPrisma((prisma) =>
+    prisma.project.findMany({ where: { deletedAt: null }, select: { id: true }, orderBy: { code: 'asc' } }),
+  );
+  for (const candidate of allProjects) {
+    if ((await api(baseUrl, `/projects/${candidate.id}`, {}, asesorToken)).status === HTTP_NOT_FOUND) {
+      lines.push(`E2E_FOREIGN_PROJECT_ID=${candidate.id}`);
+      break;
+    }
+  }
+
+  // Producto activo del catálogo y una unidad con regla GLOBAL activa hacia la unidad de tonelaje.
+  const product = await withPrisma((prisma) => prisma.product.findFirst({ where: { isActive: true }, select: { sku: true }, orderBy: { sku: 'asc' } }));
+  if (product) lines.push(`E2E_PRODUCT_SKU=${product.sku}`);
+  const rule = await withPrisma((prisma) =>
+    prisma.unitConversionRule.findFirst({
+      where: { isActive: true, scope: 'GLOBAL', toUnit: { code: 'TON' }, fromUnit: { code: { not: 'TON' }, isActive: true } },
+      select: { fromUnit: { select: { name: true } } },
+      orderBy: { fromUnit: { sortOrder: 'asc' } },
+    }),
+  );
+  if (rule) lines.push(`E2E_RULE_UNIT=${rule.fromUnit.name}`);
+  return lines;
 }
 
 const commands: Record<string, () => Promise<void>> = { prepare, activate, drop: dropSchema };

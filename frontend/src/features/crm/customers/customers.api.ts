@@ -1,4 +1,5 @@
 import type { AttachmentLimits } from '@/features/crm/common/attachments.api';
+import type { ProjectListItem } from '@/features/crm/projects';
 import type { ListQuery } from '@/lib/query-keys';
 import { httpClient } from '@/services/api';
 import type { PaginatedResponse } from '@/types/api';
@@ -322,30 +323,15 @@ export function restoreContact(customerId: string, contactId: string): Promise<C
 
 // --- Proyectos del cliente (F.7, contrato del Módulo 3) ---
 
-/** Estado comercial derivado de un proyecto (03 RN-03.14, DEF-B). */
-export type ProjectCommercialStatusKind = 'OPEN_STAGE' | 'WON' | 'LOST' | 'NO_OPPORTUNITIES';
-
 /**
  * Lo que la ficha usa de `ProjectListItemDto` (03 F.1, "Contrato para Clientes
- * F-08"; AC-03.86). Los decimales llegan como cadena (`progress: "75.00"`).
- * El tipo vive aquí porque el Módulo 3 aún no lo publica en su barril; en su
- * etapa E3 se sustituye por el de `features/crm/projects`.
+ * F-08"; AC-03.86), con el tipo que publica el barril del Módulo 3. Los
+ * decimales llegan como cadena (`phase.progress: "75.00"`).
  */
-export interface CustomerProjectItem {
-  id: string;
-  code: string;
-  name: string;
-  city: string | null;
-  country: { id: string; isoCode: string; name: string };
-  phase: { id: string; code: string; label: string; progress: string };
-  commercialStatus: {
-    kind: ProjectCommercialStatusKind;
-    label: string;
-    stage: { id: string; code: string; label: string } | null;
-  };
-  owner: { id: string; displayName: string };
-  estimatedDecisionDate: string | null;
-}
+export type CustomerProjectItem = Pick<
+  ProjectListItem,
+  'id' | 'code' | 'name' | 'city' | 'country' | 'phase' | 'commercialStatus' | 'owner' | 'estimatedDecisionDate'
+>;
 
 /**
  * Filtros de `GET /projects` que admite la sección (03 F.1): `commercialStatus`

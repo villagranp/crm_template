@@ -148,7 +148,8 @@ hermanas (D-03.3): `projects/`, `opportunities/` y `forecast/`. Entre ellas solo
 | Etapa | Estado | Qué hay |
 |---|---|---|
 | E1 (base) | Entregada | Rutas de §E.1 en `crm-routes.ts` y en el registro del backend; páginas provisionales (`PendingPage`) con título y migas definitivos; `projects.permissions.ts`; `project-paths.ts`; iconos `apartment`, `groups`, `handshake`, `trending_up`; `decimal.ts` y `DecimalField` |
-| E3 (pantallas) | Pendiente | Búsqueda, alta, ficha y sus diez secciones, vista de equipo, pipeline (lista y tablero), detalle de oportunidad y matriz del forecast contra los DTO reales (`backend/src/modules/{projects,opportunities,forecast}/dto`) |
+| E3a (proyectos) | Entregada | Búsqueda (filtros repetibles por comas en la URL), alta con adjuntos en cola, ficha con diez secciones (pestañas/acordeón, `?seccion=`), edición, duplicado, eliminación, clasificación con vista previa de `resolve`, fase con historial, productos asociados con totales, historial, adjuntos y vista de equipo; `ProjectPicker` en el barril |
+| E3b (oportunidades y forecast) | Pendiente | Secciones Oportunidades, Resultados y Forecast de la ficha (hoy informativas, sin llamadas), pipeline, detalle de oportunidad, matriz M+6 y `OpportunityPicker` |
 
 - La sección "Proyectos" de la ficha del cliente (`CustomerProjectsSection`) consume
   `GET /projects?customerId=` con el contrato de 03 F.1 (AC-03.86): filtros `phaseId`, `ownerId`,

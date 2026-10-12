@@ -8,14 +8,10 @@ import { ForecastPage } from '../forecast/ForecastPage';
 import { OpportunitiesPage } from '../opportunities/OpportunitiesPage';
 import { OpportunityDetailPage } from '../opportunities/OpportunityDetailPage';
 
-import { ProjectCreatePage } from './ProjectCreatePage';
-import { ProjectDetailPage } from './ProjectDetailPage';
-import { ProjectsSearchPage } from './ProjectsSearchPage';
-import { TeamProjectsPage } from './TeamProjectsPage';
-
 /**
- * Páginas provisionales del Módulo 3 (etapa E1): título y migas definitivos y
- * el estado "En construcción", sin llamar a la API. E3 sustituye cada una.
+ * Páginas provisionales del Módulo 3 que siguen pendientes tras E3a (pipeline,
+ * detalle de oportunidad y forecast): título y migas definitivos y el estado
+ * "En construcción", sin llamar a la API. E3b sustituye cada una.
  */
 const PAGES: [
   name: string,
@@ -23,45 +19,6 @@ const PAGES: [
   title: string,
   crumbs: [label: string, href: string | null][],
 ][] = [
-  [
-    'ProjectsSearchPage',
-    ProjectsSearchPage,
-    'Proyectos',
-    [
-      ['Inicio', '/'],
-      ['Proyectos', null],
-    ],
-  ],
-  [
-    'ProjectCreatePage',
-    ProjectCreatePage,
-    'Nuevo proyecto',
-    [
-      ['Inicio', '/'],
-      ['Proyectos', '/proyectos'],
-      ['Nuevo proyecto', null],
-    ],
-  ],
-  [
-    'ProjectDetailPage',
-    ProjectDetailPage,
-    'Ficha del proyecto',
-    [
-      ['Inicio', '/'],
-      ['Proyectos', '/proyectos'],
-      ['Ficha', null],
-    ],
-  ],
-  [
-    'TeamProjectsPage',
-    TeamProjectsPage,
-    'Proyectos del equipo',
-    [
-      ['Inicio', '/'],
-      ['Proyectos', '/proyectos'],
-      ['Proyectos del equipo', null],
-    ],
-  ],
   [
     'OpportunitiesPage',
     OpportunitiesPage,
