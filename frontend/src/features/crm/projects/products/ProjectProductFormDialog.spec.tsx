@@ -95,4 +95,39 @@ describe('ProjectProductFormDialog (F-19)', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(bodyOf(callsTo(fetchMock, 'PATCH', '/projects/p-1/products/pp-1')[0])).toEqual({ quantity: '150' });
   });
+  it('con oportunidades.ver se elige la oportunidad entre las del proyecto; una de otro proyecto se explica bajo el campo (AC-03.60)', async () => {
+    signInWith(['proyectos.ver', 'proyectos.editar', 'productos.ver', 'oportunidades.ver']);
+    const opportunity = { id: 'o-1', code: 'OPO-2026-00001', stage: { id: 'st', code: 'COTIZANDO', label: 'Cotizando', order: 2, isClosed: false, outcome: null } };
+    let calls = 0;
+    const fetchMock = mockApi({
+      'GET /products': () => page([PRODUCT]),
+      'GET /unit-conversions/resolve': () => jsonResponse({ rule: RULE }),
+      'GET /projects/p-1/opportunities': () => page([opportunity]),
+      'POST /projects/p-1/products': () => {
+        calls += 1;
+        return calls === 1
+          ? errorResponse(422, 'OPPORTUNITY_NOT_IN_PROJECT', [{ field: 'opportunityId', code: 'OPPORTUNITY_NOT_IN_PROJECT', message: 'x' }])
+          : jsonResponse(projectProduct(), 201);
+      },
+      'GET /projects/p-1': () => jsonResponse(project()),
+    });
+
+    renderWithProviders(<ProjectProductFormDialog open project={project()} options={FORM_OPTIONS} onClose={vi.fn()} onSaved={vi.fn()} />);
+    const dialog = await screen.findByRole('dialog', { name: 'Asociar producto' });
+    await userEvent.click(within(dialog).getByRole('combobox', { name: /Producto/ }));
+    await userEvent.click(await screen.findByRole('option', { name: /VAR-3 · Varilla corrugada #3/ }));
+    await userEvent.type(within(dialog).getByLabelText(/Cantidad/), '120');
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Oportunidad' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'OPO-2026-00001 · Cotizando' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Asociar producto' }));
+
+    expect(await within(dialog).findByText('La oportunidad no es de este proyecto.')).toBeInTheDocument();
+    expect(bodyOf(callsTo(fetchMock, 'POST', '/projects/p-1/products')[0])).toEqual({
+      productId: 'pr-var3',
+      quantity: '120',
+      unitId: 'u-var',
+      statusId: 'ps-propuesto',
+      opportunityId: 'o-1',
+    });
+  });
 });

@@ -70,6 +70,13 @@ function detailApi(detail: ProjectDetail | (() => Response), extra: Record<strin
   });
 }
 
+function requestedQueries(fetchMock: Mock, path: string): URLSearchParams[] {
+  return fetchMock.mock.calls
+    .map(([input]) => new URL(String(input), 'http://localhost'))
+    .filter((url) => url.pathname.replace(/^\/api\/v1/, '') === path)
+    .map((url) => url.searchParams);
+}
+
 function requestedPaths(fetchMock: Mock): string[] {
   return fetchMock.mock.calls.map(([input]) => new URL(String(input), 'http://localhost').pathname.replace(/^\/api\/v1/, ''));
 }
@@ -172,17 +179,60 @@ describe('ProjectDetailPage (F-11)', () => {
     expect(requestedPaths(fetchMock).some((path) => path.startsWith('/follow-ups') || path.startsWith('/interactions'))).toBe(false);
   });
 
-  it('las secciones de oportunidades, resultados y forecast son informativas y no llaman a sus endpoints', async () => {
-    const fetchMock = detailApi(PROJECT);
+  it('las secciones de oportunidades, resultados y forecast cargan sus datos del proyecto; el forecast reutiliza la matriz filtrada por él (AC-03.48, AC-03.81, PF-03.107)', async () => {
+    const opportunity = {
+      id: 'o-1',
+      code: 'OPO-2026-00001',
+      project: { id: 'p-1', code: PROJECT.code, name: PROJECT.name },
+      customer: PROJECT.customer,
+      stage: { id: 'st-cotizando', code: 'COTIZANDO', label: 'Cotizando', order: 2, isClosed: false, outcome: null },
+      opportunityDate: '2026-10-10',
+      owner: PROJECT.owner,
+      estimatedAmount: '7750.0000',
+      currencyCode: 'GTQ',
+      exchangeRate: '7.75000000',
+      exchangeRateDate: '2026-10-01',
+      estimatedAmountUsd: '1000.0000',
+      estimatedTonnage: null,
+      nextAction: 'Enviar cotización',
+      nextActionDate: null,
+      updatedAt: '2026-10-10T15:00:00.000Z',
+      capabilities: { canEdit: true, canClose: false, canReopen: false, canDelete: false },
+      result: null,
+    };
+    const forecastRow = {
+      project: { id: 'p-1', code: PROJECT.code, name: PROJECT.name, owner: PROJECT.owner },
+      product: { id: 'pr-var3', sku: 'VAR-3', description: 'Varilla corrugada #3', family: { id: 'f', code: 'VARILLA', name: 'Varilla' } },
+      unit: projectProduct().unit,
+      conversion: null,
+      cells: [{ year: 2027, month: 1, offset: 1, lineId: null, quantity: null, unit: null, tonnage: null, hasConversion: false, owner: null, updatedAt: null, updatedBy: null, editable: true }],
+      rowTotals: { tonnage: '0', quantitiesByUnit: [] },
+      lastUpdatedAt: null,
+      canEdit: true,
+    };
+    const fetchMock = detailApi(PROJECT, {
+      'GET /projects/p-1/opportunities': () => page([opportunity]),
+      'GET /opportunities/form-options': () => jsonResponse({ stages: [], outcomes: [], reasons: [], baseCurrencyCode: 'USD', defaults: { stageId: 'st-contactado', opportunityDate: '2026-10-12' } }),
+      'GET /forecast/rows': () => page([forecastRow]),
+      'GET /forecast/totals': () =>
+        jsonResponse({ periods: [{ year: 2027, month: 1, offset: 1, tonnage: '0', accumulatedTonnage: '0' }], windowTonnage: '0', quantitiesByUnit: [], linesWithoutConversion: 0 }),
+    });
 
-    renderPage('/proyectos/p-1?seccion=resultados');
+    renderPage('/proyectos/p-1?seccion=oportunidades');
+    const opportunities = await screen.findByRole('region', { name: 'Oportunidades' });
+    expect(await within(opportunities).findByText('GTQ 7,750.00')).toBeInTheDocument();
+    expect(within(opportunities).getByText('≈ USD 1,000.00')).toBeInTheDocument();
+    expect(within(opportunities).getByRole('button', { name: 'Nueva oportunidad' })).toBeInTheDocument();
+
+    await userEvent.click(within(screen.getByRole('tablist')).getByRole('tab', { name: 'Resultados' }));
     const results = await screen.findByRole('region', { name: 'Resultados' });
-    expect(within(results).getByText('Disponible próximamente')).toBeInTheDocument();
-    expect(within(results).getByText('Ganadas')).toBeInTheDocument();
-    await userEvent.click(within(screen.getByRole('tablist')).getByRole('tab', { name: 'Oportunidades' }));
+    expect(within(results).getByLabelText('Resumen de resultados')).toHaveTextContent('Ganadas1Parciales0Perdidas0');
+    expect(requestedQueries(fetchMock, '/projects/p-1/opportunities').some((query) => query.get('status') === 'CLOSED')).toBe(true);
+
     await userEvent.click(within(screen.getByRole('tablist')).getByRole('tab', { name: 'Forecast' }));
-    expect(await screen.findByRole('region', { name: 'Forecast' })).toBeInTheDocument();
-    expect(requestedPaths(fetchMock).some((path) => path.includes('/opportunities') || path.startsWith('/forecast'))).toBe(false);
+    expect(await screen.findByRole('table', { name: 'Matriz del forecast' })).toBeInTheDocument();
+    expect(requestedQueries(fetchMock, '/forecast/rows').at(-1)?.get('projectId')).toBe('p-1');
+    expect(requestedQueries(fetchMock, '/forecast/rows').at(-1)?.get('mode')).toBe('WINDOW');
   });
 
   it('muestra el aviso de alta y el enlace al proyecto de origen', async () => {

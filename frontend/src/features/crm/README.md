@@ -76,7 +76,10 @@ features/crm/
 | `customers/index.ts` | Barril público para otros módulos: `CustomerPicker` (valor `{ id, crmCode, legalName, countryId }`; acepta `{ id }` preseleccionado) y `customerDetailPath(id)` |
 | `PendingPage` / `PendingScreen` | Página con título y migas definitivos y estado "En construcción": permite registrar la ruta y sembrar su opción antes de construir la pantalla (Módulo 3, etapa E1) |
 | `decimal.ts` + `DecimalField` | Decimales sin `number` flotante (ver §3.1) |
-| `projects/index.ts` | Barril público del Módulo 3: constantes de permisos (`PROJECT_`, `OPPORTUNITY_`, `FORECAST_`, `PRODUCT_PERMISSIONS`), `projectDetailPath(id)` y `opportunityDetailPath(id)`; en E3, `ProjectPicker`, `OpportunityPicker` y tipos |
+| `UnsavedChangesGuard when={dirty} shouldBlock?` | Aviso al abandonar una pantalla con cambios sin guardar: `beforeunload` y, con el router de datos de la aplicación, `useBlocker` con un diálogo propio ("Salir sin guardar" / "Seguir editando"). Por defecto solo bloquea cambios de ruta (los filtros en la URL no pierden el borrador). Bajo `MemoryRouter` (pruebas) solo protege `beforeunload` |
+| `projects/index.ts` | Barril público del Módulo 3: constantes de permisos (`PROJECT_`, `OPPORTUNITY_`, `FORECAST_`, `PRODUCT_PERMISSIONS`), `projectDetailPath(id)`, `opportunityDetailPath(id)`, `ProjectPicker`, `OwnerPicker`, `ProductPicker`, `UnitSelect`, `ConversionBadge`, formatos de fecha, `projectKeys`/`useInvalidateProject` y tipos |
+| `opportunities/index.ts` | Barril de Oportunidades: `OpportunityPicker` (Módulo 4: `projectId`, `status="OPEN"`), `OpportunityFormDialog`, `StageChangeDialog`, `ResultEditDialog`, `OpportunityHistoryPanel`, `StageChip`, `OutcomeChip`, `EstimateText`, hooks de lectura y tipos |
+| `forecast/index.ts` | Barril de Forecast: `ForecastMatrix filters={{ mode, projectId… }}` (la ficha la reutiliza filtrada por el proyecto) |
 
 Opciones aditivas de `@/components/data` usadas por el CRM: `DataTable` `onRowClick` + `getRowLabel`
 (fila navegable con teclado, `role="link"`) y `useTableQueryState({ paramPrefix })` para varias
@@ -149,7 +152,7 @@ hermanas (D-03.3): `projects/`, `opportunities/` y `forecast/`. Entre ellas solo
 |---|---|---|
 | E1 (base) | Entregada | Rutas de §E.1 en `crm-routes.ts` y en el registro del backend; páginas provisionales (`PendingPage`) con título y migas definitivos; `projects.permissions.ts`; `project-paths.ts`; iconos `apartment`, `groups`, `handshake`, `trending_up`; `decimal.ts` y `DecimalField` |
 | E3a (proyectos) | Entregada | Búsqueda (filtros repetibles por comas en la URL), alta con adjuntos en cola, ficha con diez secciones (pestañas/acordeón, `?seccion=`), edición, duplicado, eliminación, clasificación con vista previa de `resolve`, fase con historial, productos asociados con totales, historial, adjuntos y vista de equipo; `ProjectPicker` en el barril |
-| E3b (oportunidades y forecast) | Pendiente | Secciones Oportunidades, Resultados y Forecast de la ficha (hoy informativas, sin llamadas), pipeline, detalle de oportunidad, matriz M+6 y `OpportunityPicker` |
+| E3b (oportunidades y forecast) | Entregada | Secciones Oportunidades, Resultados y Forecast de la ficha; pipeline (lista y tablero con `stage-summary`, `?vista=tablero`), detalle de oportunidad, alta/edición con monedas admitidas y aviso `EXCHANGE_RATE_STALE`, cambio de etapa con resultado, modificar resultado, matriz M+6 con borrador (`forecast-draft.ts`), `409 FORECAST_LINE_STALE` con recarga que conserva el resto, teclado (Enter/Escape) y vista móvil; `OpportunityPicker` en el diálogo de productos |
 
 - La sección "Proyectos" de la ficha del cliente (`CustomerProjectsSection`) consume
   `GET /projects?customerId=` con el contrato de 03 F.1 (AC-03.86): filtros `phaseId`, `ownerId`,

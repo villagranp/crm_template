@@ -5,6 +5,8 @@ import { Controller, useForm } from 'react-hook-form';
 
 import { DialogFooter, EntityDialog, FullRow } from '@/components/data';
 import { DecimalField } from '@/features/crm/common/DecimalField';
+import { OpportunityPicker, type OpportunityPickerValue } from '@/features/crm/opportunities';
+import { usePermission } from '@/hooks/use-permission';
 import { DECIMAL_SPECS, formatDecimal, formatTonnage, multiplyDecimals } from '@/features/crm/common/decimal';
 import { describeApiError } from '@/lib/api-error-view';
 
@@ -14,6 +16,7 @@ import { UnitSelect } from '../components/UnitSelect';
 import { CONVERSION_SCOPE_LABELS, productLabel, PROJECT_FIELD_LABELS } from '../project-format';
 import type { ProjectDetail, ProjectFormOptions } from '../projects.api';
 import { PROJECT_ERROR_MESSAGES, projectFieldErrors } from '../projects.errors';
+import { OPPORTUNITY_PERMISSIONS } from '../projects.permissions';
 import { useConversionPreview } from '../projects.queries';
 import { canonicalDecimal, PROJECT_LIMITS, projectProductFormSchema, type ProjectProductFormValues } from '../projects.schemas';
 
@@ -40,9 +43,12 @@ function initialValues(line: ProjectProduct | null | undefined, options: Project
   return { productId: '', quantity: '', unitId: '', statusId: options.productStatuses[0]?.id ?? '', notes: '' };
 }
 
-/** Sólo lo que cambió (omitido = sin cambio). */
-function toUpdateInput(line: ProjectProduct, values: ProjectProductFormValues): UpdateProjectProductInput {
+type OpportunityValue = OpportunityPickerValue | { id: string; code: string } | null;
+
+/** Sólo lo que cambió (omitido = sin cambio); `opportunityId: null` = sin oportunidad. */
+function toUpdateInput(line: ProjectProduct, values: ProjectProductFormValues, opportunity: OpportunityValue): UpdateProjectProductInput {
   const input: UpdateProjectProductInput = {};
+  if ((opportunity?.id ?? null) !== (line.opportunity?.id ?? null)) input.opportunityId = opportunity?.id ?? null;
   const quantity = canonicalDecimal(values.quantity, DECIMAL_SPECS.quantity);
   if (quantity !== null && quantity !== canonicalDecimal(line.quantity, DECIMAL_SPECS.quantity)) input.quantity = quantity;
   if (values.unitId && values.unitId !== line.unit.id) input.unitId = values.unitId;
@@ -59,8 +65,9 @@ function toUpdateInput(line: ProjectProduct, values: ProjectProductFormValues): 
  * del tonelaje usa la regla que devuelve el backend; sin regla, "Sin
  * conversión" (no hay tonelaje manual en líneas, DM-24).
  *
- * La oportunidad de la línea se elige cuando existan las oportunidades del
- * proyecto (etapa E3b); en la edición se muestra la que ya tenga.
+ * La oportunidad es opcional y del mismo proyecto (RN-03.56): se elige entre
+ * las oportunidades del proyecto (`OpportunityPicker`, con `oportunidades.ver`);
+ * sin ese permiso se muestra la que ya tenga, de solo lectura.
  */
 export function ProjectProductFormDialog({ open, project, options, line, onClose, onSaved }: ProjectProductFormDialogProps) {
   const isEdit = Boolean(line);
@@ -68,6 +75,8 @@ export function ProjectProductFormDialog({ open, project, options, line, onClose
   const update = useUpdateProjectProduct(project.id);
   const mutation = isEdit ? update : creation;
   const [product, setProduct] = useState<Product | null>(null);
+  const canChooseOpportunity = usePermission(OPPORTUNITY_PERMISSIONS.view);
+  const [opportunity, setOpportunity] = useState<OpportunityValue>(line?.opportunity ?? null);
   const form = useForm<ProjectProductFormValues>({ resolver: zodResolver(projectProductFormSchema), defaultValues: initialValues(line, options) });
   const {
     control,
@@ -84,6 +93,7 @@ export function ProjectProductFormDialog({ open, project, options, line, onClose
     if (open) {
       reset(initialValues(line, options));
       setProduct(null);
+      setOpportunity(line?.opportunity ?? null);
       creation.reset();
       update.reset();
     }
@@ -109,10 +119,11 @@ export function ProjectProductFormDialog({ open, project, options, line, onClose
   const rule = preview.data?.rule;
   const canonicalQuantity = canonicalDecimal(quantity, DECIMAL_SPECS.quantity);
   const errorView = error ? describeApiError(error, PROJECT_ERROR_MESSAGES) : null;
+  const serverFieldErrors = projectFieldErrors(error);
 
   const onSubmit = (values: ProjectProductFormValues) => {
     if (line) {
-      const input = toUpdateInput(line, values);
+      const input = toUpdateInput(line, values, opportunity);
       if (Object.keys(input).length === 0) {
         onClose();
         return;
@@ -126,6 +137,7 @@ export function ProjectProductFormDialog({ open, project, options, line, onClose
       unitId: values.unitId,
     };
     if (values.statusId) input.statusId = values.statusId;
+    if (opportunity) input.opportunityId = opportunity.id;
     if (values.notes.trim()) input.notes = values.notes.trim();
     creation.mutate(input, { onSuccess: onSaved });
   };
@@ -241,7 +253,18 @@ export function ProjectProductFormDialog({ open, project, options, line, onClose
               </TextField>
             )}
           />
-          {line?.opportunity ? (
+          {canChooseOpportunity ? (
+            <OpportunityPicker
+              projectId={project.id}
+              label={PROJECT_FIELD_LABELS.opportunityId}
+              name="opportunityId"
+              value={opportunity}
+              onChange={setOpportunity}
+              disabled={mutation.isPending}
+              error={Boolean(serverFieldErrors.opportunityId)}
+              helperText={serverFieldErrors.opportunityId ?? 'Opcional: vacío = sin oportunidad.'}
+            />
+          ) : line?.opportunity ? (
             <TextField label={PROJECT_FIELD_LABELS.opportunityId} value={line.opportunity.code} disabled />
           ) : null}
           <FullRow>

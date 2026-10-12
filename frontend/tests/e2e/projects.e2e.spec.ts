@@ -18,9 +18,9 @@ import { expect, test, type Page, type Response } from '@playwright/test';
  * - `E2E_NO_FORECAST_EMAIL`, `E2E_NO_FORECAST_PASSWORD` — opcional: usuario con `proyectos.ver`
  *   y sin `forecast.ver` (ningún rol de la demo lo cumple; se crea con un rol propio, ADR-020).
  *
- * Etapa E3a: PF-03.114 cubre alta → clasificación → fase → producto asociado → historial.
- * Crear oportunidad, cargar forecast M+1…M+3 y cerrar como Parcial 60 % se añaden con las
- * pantallas de la etapa E3b en este mismo recorrido.
+ * PF-03.114 (E3a + E3b): alta → clasificación → fase → oportunidad (estimación en USD, que
+ * funciona aunque no haya tipos de cambio cargados, §G.3) → producto asociado → forecast
+ * M+1…M+3 → cierre como Parcial 60 % → historial.
  */
 
 const env = (name: string) => process.env[name] ?? '';
@@ -39,6 +39,10 @@ const noForecastPassword = env('E2E_NO_FORECAST_PASSWORD');
 const API_PREFIX = '/api/v1';
 const HTTP_CREATED = 201;
 const TEST_TIMEOUT_MS = 150_000;
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 function waitForApi(page: Page, method: string, path: RegExp): Promise<Response> {
   return page.waitForResponse((response) => {
@@ -65,7 +69,7 @@ async function openSection(page: Page, label: string): Promise<void> {
 test.describe.serial('CRM · Proyectos', () => {
   test.setTimeout(TEST_TIMEOUT_MS);
 
-  test('PF-03.114 · asesor: crea, clasifica, cambia la fase, asocia un producto y ve el historial', async ({ page }) => {
+  test('PF-03.114 · asesor: crea, clasifica, cambia la fase, crea una oportunidad, asocia un producto, carga el forecast, cierra como Parcial 60 % y ve el historial', async ({ page }) => {
     test.skip(
       !asesorEmail || !asesorPassword || !asesorCustomer || !ruleUnit || !productSku,
       'Define E2E_ASESOR_EMAIL, E2E_ASESOR_PASSWORD, E2E_ASESOR_CUSTOMER, E2E_RULE_UNIT y E2E_PRODUCT_SKU.',
@@ -116,6 +120,24 @@ test.describe.serial('CRM · Proyectos', () => {
     expect((await changed).status()).toBe(HTTP_CREATED);
     await expect(page.getByText('Fase actual: Cotización')).toBeVisible();
 
+    // Oportunidad (AC-03.41): etapa inicial por defecto; estimación en USD (sin tipo de cambio que resolver).
+    await openSection(page, 'Oportunidades');
+    await page.getByRole('button', { name: 'Nueva oportunidad' }).first().click();
+    const newOpportunity = page.getByRole('dialog', { name: 'Nueva oportunidad' });
+    await newOpportunity.getByRole('textbox', { name: /Monto estimado/ }).fill('1000');
+    await newOpportunity.getByRole('combobox', { name: /Moneda/ }).click();
+    await page.getByRole('option', { name: /^USD · / }).click();
+    await newOpportunity.getByRole('textbox', { name: /Siguiente acción/ }).fill(`Enviar cotización ${suffix}`);
+    const opportunityCreated = waitForApi(page, 'POST', /^\/projects\/[^/]+\/opportunities$/);
+    await newOpportunity.getByRole('button', { name: 'Crear oportunidad' }).click();
+    const opportunityResponse = await opportunityCreated;
+    expect(opportunityResponse.status()).toBe(HTTP_CREATED);
+    const opportunityCode = ((await opportunityResponse.json()) as { code: string }).code;
+    expect(opportunityCode).toMatch(/^OPO-\d{4}-\d{5}$/);
+    await expect(page.getByText(`Oportunidad ${opportunityCode} creada.`)).toBeVisible();
+    const opportunities = page.getByRole('region', { name: 'Oportunidades' });
+    await expect(opportunities.getByText('USD 1,000.00')).toBeVisible();
+
     // Producto asociado (AC-03.60).
     await openSection(page, 'Productos');
     await page.getByRole('button', { name: 'Asociar producto' }).first().click();
@@ -129,12 +151,45 @@ test.describe.serial('CRM · Proyectos', () => {
     await expect(page.getByText(`Producto ${productSku} asociado.`)).toBeVisible();
     await expect(page.getByLabel('Totales de productos')).toBeVisible();
 
-    // Historial (AC-03.13): fase y producto en la línea de tiempo.
+    // Forecast M+1…M+3 (AC-03.70): la matriz de la ficha, filtrada por el proyecto.
+    await openSection(page, 'Forecast');
+    await expect(page.getByRole('table', { name: 'Matriz del forecast' })).toBeVisible();
+    for (const [offset, quantity] of [
+      [1, '10'],
+      [2, '20'],
+      [3, '30'],
+    ] as const) {
+      await page.getByRole('textbox', { name: new RegExp(`^Cantidad de ${escapeRegExp(productSku)} en M\\+${offset} `) }).fill(quantity);
+    }
+    const forecastSaved = waitForApi(page, 'PUT', /^\/forecast\/lines$/);
+    await page.getByRole('button', { name: 'Guardar cambios (3)' }).click();
+    expect((await forecastSaved).ok()).toBe(true);
+    await expect(page.getByText('Cambios guardados: 3 nuevas, 0 actualizadas.')).toBeVisible();
+
+    // Cierre como Parcial 60 % (AC-03.55): etapa Ganado, resultado en la misma operación.
+    await openSection(page, 'Oportunidades');
+    await page.getByRole('button', { name: `Cambiar etapa de ${opportunityCode}` }).click();
+    const stageChange = page.getByRole('dialog', { name: 'Cambiar etapa' });
+    await stageChange.getByRole('combobox', { name: /Etapa destino/ }).click();
+    await page.getByRole('option', { name: 'Ganado' }).click();
+    await stageChange.getByRole('combobox', { name: /Resultado/ }).click();
+    await page.getByRole('option', { name: 'Parcial' }).click();
+    await stageChange.getByRole('textbox', { name: /Porcentaje adjudicado/ }).fill('60');
+    const closed = waitForApi(page, 'POST', /^\/opportunities\/[^/]+\/stage-changes$/);
+    await stageChange.getByRole('button', { name: 'Cerrar oportunidad' }).click();
+    expect((await closed).status()).toBe(HTTP_CREATED);
+    await expect(page.getByText(`Oportunidad ${opportunityCode} en Ganado.`)).toBeVisible();
+    await openSection(page, 'Resultados');
+    await expect(page.getByRole('region', { name: 'Resultados' }).getByText('Parcial · 60%')).toBeVisible();
+
+    // Historial (AC-03.13): fase, producto y etapa en la línea de tiempo.
     await openSection(page, 'Historial');
     const history = page.getByRole('region', { name: 'Historial de cambios' });
     await expect(history.getByText(/Cotización/).first()).toBeVisible();
     await history.getByRole('button', { name: 'Productos' }).click();
     await expect(history.getByText(productSku).first()).toBeVisible();
+    await history.getByRole('button', { name: 'Etapa' }).click();
+    await expect(history.getByText(/Ganado/).first()).toBeVisible();
   });
 
   test('PF-03.115 · manager: vista de equipo, reasigna el asesor y duplica con productos', async ({ page }) => {

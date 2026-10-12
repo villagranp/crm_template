@@ -1,22 +1,45 @@
+import { Typography } from '@mui/material';
+import { useMemo } from 'react';
+import type { Location } from 'react-router-dom';
+
+import { ForecastMatrix, type ForecastFilters } from '@/features/crm/forecast';
+
 import type { ProjectDetail } from '../projects.api';
 
-import { UpcomingSection } from './UpcomingSection';
+import { SectionCard } from './SectionCard';
+
+const SECTION_PARAM = 'seccion';
+
+/** Cambiar de sección de la ficha desmonta la matriz: con cambios sin guardar, también se avisa. */
+function leavesSection(current: Location, next: Location): boolean {
+  return (
+    current.pathname !== next.pathname ||
+    new URLSearchParams(current.search).get(SECTION_PARAM) !== new URLSearchParams(next.search).get(SECTION_PARAM)
+  );
+}
 
 /**
- * Sección 7 · Forecast (03 §E.4, F-20). La matriz M+6 filtrada por el proyecto
- * (`ForecastMatrix`, la misma de `/proyectos/forecast`) llega con la etapa E3b;
- * la edición seguirá a `capabilities.canEditForecast`.
+ * Sección 7 · Forecast (03 §E.4, F-20, AC-03.81). La misma `ForecastMatrix` de
+ * `/proyectos/forecast` filtrada por el proyecto, con los mismos totales y
+ * reglas; las celdas son editables según lo que decide el backend
+ * (`capabilities.canEditForecast` → `cell.editable`).
  */
 export function ProjectForecastSection({ project }: { project: ProjectDetail }) {
+  const filters = useMemo<ForecastFilters>(() => ({ mode: 'WINDOW', projectId: project.id }), [project.id]);
   return (
-    <UpcomingSection
-      title="Forecast"
-      description={
-        project.summary.productLines > 0
-          ? 'La proyección mensual M+6 de los productos del proyecto estará disponible en la siguiente etapa del módulo.'
-          : 'Asocia productos para proyectar. La matriz M+6 estará disponible en la siguiente etapa del módulo.'
-      }
-      figures={[{ label: 'Productos asociados', value: project.summary.productLines }]}
-    />
+    <SectionCard title="Forecast">
+      {project.capabilities.canEditForecast ? null : (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Puedes consultar el forecast de este proyecto, pero no editarlo.
+        </Typography>
+      )}
+      <ForecastMatrix
+        filters={filters}
+        hideProject
+        emptyTitle="Sin forecast"
+        emptyDescription="Asocia productos al proyecto para proyectar sus cantidades mes a mes."
+        shouldBlockNavigation={leavesSection}
+      />
+    </SectionCard>
   );
 }
