@@ -1743,6 +1743,108 @@ una regla de negocio ni un permiso.
   (`commercialStatus=OPEN_STAGE,WON`), igual que `outcome=WON,PARTIAL`; el backend los acepta así.
 - Las páginas provisionales de E1 usan `PendingPage`; E3 sustituye su contenido.
 
+### E2a — Backend de proyectos, productos asociados y catálogo de productos (2026-10-12)
+
+Alcance: F-10, F-11 (incl. historial, `lastActivityAt` y adjuntos), F-12, F-13, F-14, F-15 (con
+`/units-of-measure` y `/unit-conversions/resolve`), F-16 y F-19 (con `/products` y
+`/product-families`). Módulos `projects` y `products`; **no** se crearon los módulos
+`opportunities` ni `forecast` (ningún endpoint de E2a necesita sus puertos: el estado comercial,
+los bloqueos y el historial leen esas tablas desde el adaptador de proyectos). Ningún cambio de
+esquema.
+
+**Piezas para E2b** (Oportunidades y Forecast): `ProjectsModule` exporta `ProjectAccessService`
+(visibilidad y alcances por permiso: `proyectos.ver`, `proyectos.administrar`,
+`proyectos.eliminar`, `oportunidades.administrar`, `forecast.administrar`; `findVisible`,
+`findEditable`) y `ProjectCatalogsService` (fases y etapas con semántica vía
+`metric-definitions.ts`). El predicado SQL `projectVisibilitySql`/`projectVisibilityWhere` se
+exporta desde `prisma-projects.repository.ts`. Para serializarse con la eliminación del proyecto
+(RN-03.12) y con quitar un producto asociado (RN-03.61), toda escritura de un hijo debe tomar
+primero la fila del proyecto con `SELECT … FOR UPDATE` (`lockProject(id, 'UPDATE', tx)`) en la
+misma transacción en la que actualiza `last_activity_at`. **No** `FOR SHARE`: dos transacciones que
+sostienen `FOR SHARE` y luego actualizan la fila se bloquean mutuamente (*deadlock* → `500`;
+hallazgo de E2a en `POST /projects/{id}/products` concurrentes, corregido). Los eventos `crm.opportunity.stage_changed` y `crm.opportunity_result.*` ya se
+excluyen del historial de la ficha (prevalece el historial funcional).
+
+**Decisiones técnicas** (AGENTS §9.3; ninguna cambia una regla de negocio):
+
+1. **Obligatorios por operación** (RN-03.3): `crm.campos_obligatorios.project` admite campos que se
+   capturan en operaciones distintas. Los de datos generales (`name`, `customerId`, `countryId`,
+   `city`, `address`, `description`, fechas, `ownerId`) se exigen en alta, edición y duplicado;
+   `projectTypeId`, `sectorId`, `measureUnitId` y `estimatedQuantity`, al guardar la clasificación;
+   `phaseId` y `phaseProgress` siempre tienen valor (fase por defecto). En una edición solo falta
+   lo que se envía vacío (mismo criterio que 02 RN-02.4). `form-options.requiredFields` devuelve la
+   lista completa.
+2. **Código manual** (DM-17): se recorta y se guarda en mayúsculas; un cambio solo de forma
+   (`pry-x` = `PRY-X`) no cuenta como cambio ni exige `administrar`.
+3. **Asesor asignable** (RN-03.6, D-03.16): `ACTIVE`, no eliminado, con `proyectos.ver` efectivo
+   ("rol del CRM") y dentro del alcance de `proyectos.administrar` de quien asigna. Indicarse a sí
+   mismo nunca exige `administrar`. En el **duplicado**, el asesor por defecto es el del origen si
+   el actor tiene `proyectos.administrar`; si no, el propio actor (así un usuario sin `administrar`
+   puede duplicar un proyecto ajeno visible sin reasignar a nadie).
+4. **Eliminación** (RN-03.12): "productos asociados activos con forecast futuro" = asociaciones
+   no eliminadas con alguna línea de forecast de cantidad > 0 en un período posterior al mes en
+   curso del negocio; "visitas no canceladas" se lee literal (cualquier visita cuyo estado no
+   tenga `isCancelled`, también las realizadas). Opción más restrictiva.
+5. **Cambio de cliente** (RN-03.10): cuenta todas las visitas y actividades vinculadas, incluidas
+   las eliminadas, porque la FK compuesta las protege igualmente.
+6. **Fase sin porcentaje** (RN-03.34): al cambiar de fase sin `progress` se aplica
+   `metadata.defaultProgress` de la destino o, sin él, el porcentaje actual. El historial de fase
+   se ordena por defecto del más reciente al más antiguo (`sortOrder=asc` lo invierte).
+7. **Clasificación** (`PUT`): reemplaza; un campo omitido equivale a `null`. Con `RULE` faltan
+   unidad o cantidad → `422 REQUIRED_FIELD_MISSING` (`details[].tonnageMode = "RULE"`);
+   `manualTonnage` con otro modo → `400 VALIDATION_FAILED`. Unidad inexistente o desactivada que
+   cambia → `422 UNKNOWN_REFERENCE` (una desactivada se conserva si no cambia, como 00 §3.5).
+8. **Duplicado** (RN-03.21, RN-03.22): un valor de catálogo o una unidad desactivados del origen
+   no se copian (quedan nulos); una clasificación `RULE` sin regla vigente queda sin estimación;
+   solo se copian asociaciones con producto y unidad activos, y una por producto (la primera por
+   alta) porque todas pasan a "sin oportunidad" (RN-03.59).
+9. **Totales de productos** (RN-03.60): `linesWithoutConversion` cuenta solo las líneas con estado
+   activo (las que habrían sumado). `GET /projects/{id}/products` ordena por `sku` por defecto.
+10. **`lastActivityAt` y adjuntos**: `AttachmentsService` escribe en su propia transacción; el
+    proyecto se toca justo después de subir o eliminar (desviación de RN-03.9, que pide la misma
+    transacción, aceptada hasta que exista la unidad de trabajo de PLAN-ADMIN §10). Todas las demás
+    mutaciones de E2a lo actualizan dentro de su transacción y sin mover `updatedAt`.
+11. **Búsqueda**: `search` busca en nombre (normalizado) y código; `code` es "contiene". Los
+    instantes (`createdAt`, `lastActivityAt`) se comparan como fecha en `crm.zona_horaria_negocio`.
+    `commercialStatus=OPEN_STAGE` (sin id) significa "cualquier etapa abierta". Todos los filtros
+    de ids son repetibles por comas. `dateFrom`/`dateTo` sin `dateField` → `400`.
+12. **Opciones**: `owner-options` admite `purpose=ASSIGN` (defecto: asignables) o `FILTER`
+    (responsables de proyectos visibles, también inactivos). `team-options` con alcance distinto de
+    ORGANIZATION = equipos del alcance TEAM más los equipos principales de los usuarios del alcance
+    (propios o de su país). `form-options` añade `attachments { maxMb, allowedTypes }` (propiedad
+    adicional compatible, como en 02).
+13. **Historial de la ficha**: el actor de las entradas de auditoría se resuelve por
+    `audit_logs.subject_id = users.id` (identidad local); sin coincidencia, `actor = null`.
+    `/projects/{id}` muestra `duplicatedFrom` solo si el origen no está eliminado y es visible.
+14. **Ficha**: `ProjectDetailDto.phase` es `ProjectPhaseDto` (sustituye a la forma de la lista,
+    como fija F.1). `ProjectProductDto.status.isActive` es la semántica `metadata.isActive` (suma en
+    totales), no el estado del elemento de catálogo.
+15. **Rutas de adjuntos**: el parámetro es `:id` (`/projects/:id/attachments`), con su guard antes
+    del interceptor de subida (`ProjectAttachmentWriteGuard`).
+16. **UUID inválido en la ruta**: `ParseUUIDPipe` responde `400 BAD_REQUEST` (no
+    `VALIDATION_FAILED`), igual que en Clientes; el OpenAPI lo documenta así.
+
+**Formas finales de `details`** (lista, API-STANDARDS):
+
+| Código | `details[]` |
+|---|---|
+| `REQUIRED_FIELD_MISSING`, `INVALID_DATE_RANGE`, `INVALID_OWNER`, `UNKNOWN_REFERENCE`, `INVALID_QUANTITY`, `PRODUCT_INACTIVE`, `OPPORTUNITY_NOT_IN_PROJECT` | `{ field, code, message }` (todas las incidencias del mismo paso; `INVALID_DATE_RANGE` añade `startField`) |
+| `INVALID_PROGRESS` | `{ field: "progress", code, message, min: "0", max: "100" }` |
+| `PHASE_PROGRESS_RULE` | `{ field: "progress", code, message, phaseCode, minimumProgress }` |
+| `PHASE_UNCHANGED` | `{ field: "phaseId", code, message }` |
+| `FIELD_NOT_EDITABLE` (403) | `{ field, requiredPermission: "proyectos.administrar" }` |
+| `PROJECT_CODE_TAKEN` (409) | `{ field: "code", code }` |
+| `PROJECT_CUSTOMER_LOCKED` (409) | `{ field: "customerId", dependency: "visits" \| "activities", count }` |
+| `PROJECT_HAS_ACTIVE_CHILDREN` (409) | `{ dependency: "openOpportunities" \| "productsWithForecast" \| "nonCancelledVisits" \| "openActivities", count }` (solo los > 0) |
+| `PROJECT_PRODUCT_DUPLICATE` (409) | `{ field: "productId", projectProductId, productId, opportunityId }` |
+| `PRODUCT_HAS_FORECAST` (409) | `{ productId, periods: ["AAAA-MM", …] }` |
+
+`CUSTOMER_INACTIVE`, `INVALID_CATALOG_VALUE`, `CONVERSION_RULE_NOT_FOUND` e
+`INVALID_CONVERSION_RULE` conservan las formas de 02 y de E1.
+
+**Pendiente para E2b**: oportunidades, resultados y forecast (F-17, F-18, F-20), incluido
+`GET /projects/{id}/opportunities`; PF-03.54 completo (cambios de etapa por la API).
+
 ## Filas para la matriz
 
 Estado de F-10 … F-20: `especificada` (ninguna bloqueada; DM-8 resuelta por ADR-021).

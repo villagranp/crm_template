@@ -27,6 +27,16 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   - NGINX: una sola cabecera `Cache-Control: no-store` en las respuestas de la API.
 
 ### Added
+- **CRM Módulo 3 — backend de Proyectos (E2a, F-10…F-16 y F-19):** módulos `projects` y
+  `products` (solo lectura). Endpoints `/projects` (búsqueda con estado comercial DEF-B y filtros
+  repetibles por comas, `team-view`, `form-options`, `owner-options`, `team-options`, alta, ficha,
+  edición, eliminación lógica con bloqueos, duplicado, historial), `/projects/{id}/phase-history`,
+  `/phase-changes`, `/classification`, `/products` y `/attachments`, y `/products`,
+  `/product-families`, `/units-of-measure`, `/unit-conversions/resolve`. Códigos nuevos
+  `PROJECT_CODE_TAKEN`, `PROJECT_CUSTOMER_LOCKED`, `PROJECT_HAS_ACTIVE_CHILDREN`,
+  `PROJECT_PRODUCT_DUPLICATE`, `PRODUCT_HAS_FORECAST`, `INVALID_DATE_RANGE`, `INVALID_OWNER`,
+  `INVALID_QUANTITY`, `INVALID_PROGRESS`, `PHASE_PROGRESS_RULE`, `PHASE_UNCHANGED`,
+  `PRODUCT_INACTIVE`, `OPPORTUNITY_NOT_IN_PROJECT` (`docs/api/README.md`). Sin cambios de esquema.
 - **CRM Módulo 3 — base del frontend:** las 7 rutas de Proyectos con páginas provisionales
   (`PendingPage`), helpers decimales sin `float` (`decimal.ts`, `DecimalField`) e iconos de menú
   `apartment`, `handshake` y `trending_up`.

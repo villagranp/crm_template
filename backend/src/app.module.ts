@@ -16,6 +16,8 @@ import { CustomersModule } from './modules/customers/customers.module';
 import { ExchangeRatesModule } from './modules/exchange-rates/exchange-rates.module';
 import { ParametersCoreModule } from './modules/parameters/parameters-core.module';
 import { ParametersModule } from './modules/parameters/parameters.module';
+import { ProductsModule } from './modules/products/products.module';
+import { ProjectsModule } from './modules/projects/projects.module';
 import { TeamsModule } from './modules/teams/teams.module';
 import { UnitConversionsModule } from './modules/unit-conversions/unit-conversions.module';
 import { HealthModule } from './modules/health/health.module';
@@ -60,6 +62,9 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     UnitConversionsModule,
     // CRM · Módulo 2: clientes, contactos y sus adjuntos (02).
     CustomersModule,
+    // CRM · Módulo 3: maestro de productos (solo lectura) y proyectos (03, E2a).
+    ProductsModule,
+    ProjectsModule,
     HealthModule,
   ],
   providers: [

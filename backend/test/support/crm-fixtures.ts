@@ -181,33 +181,237 @@ export async function insertContact(
   return contact.id;
 }
 
-/** Proyecto mínimo (herencia de visibilidad y dependencias, 02 RN-02.18, RN-02.22). */
-export async function insertProject(
-  prisma: PrismaClient,
-  options: { customerId: string; ownerId: string; countryId: string; deletedAt?: Date | null },
-): Promise<string> {
+export interface InsertProjectOptions {
+  customerId: string;
+  ownerId: string;
+  countryId: string;
+  deletedAt?: Date | null;
+  name?: string;
+  code?: string;
+  city?: string | null;
+  phaseCode?: string;
+  phaseProgress?: string;
+  projectTypeId?: string | null;
+  estimatedDecisionDate?: string | null;
+  lastActivityAt?: Date;
+  createdAt?: Date;
+}
+
+/**
+ * Proyecto insertado directamente (sin la API): herencia de visibilidad y dependencias
+ * (02 RN-02.18, RN-02.22) y datos de partida de las pruebas del Módulo 3. Fechas de
+ * calendario como `YYYY-MM-DD`.
+ */
+export async function insertProject(prisma: PrismaClient, options: InsertProjectOptions): Promise<string> {
   const project = await prisma.project.create({
     data: {
-      code: `TEST-PRY-${uniqueSuffix()}`,
-      name: 'Proyecto de prueba',
+      code: options.code ?? `TEST-PRY-${uniqueSuffix()}`,
+      name: options.name ?? 'Proyecto de prueba',
       customerId: options.customerId,
       ownerId: options.ownerId,
       countryId: options.countryId,
-      phaseId: await catalogItemId(prisma, 'crm.fase_cliente', 'DISENO'),
+      city: options.city ?? null,
+      phaseId: await catalogItemId(prisma, 'crm.fase_cliente', options.phaseCode ?? 'DISENO'),
+      phaseProgress: options.phaseProgress ?? '0',
+      projectTypeId: options.projectTypeId ?? null,
+      estimatedDecisionDate: options.estimatedDecisionDate ? new Date(`${options.estimatedDecisionDate}T00:00:00.000Z`) : null,
+      ...(options.lastActivityAt ? { lastActivityAt: options.lastActivityAt } : {}),
+      ...(options.createdAt ? { createdAt: options.createdAt } : {}),
       deletedAt: options.deletedAt ?? null,
     },
   });
   return project.id;
 }
 
+export interface InsertOpportunityOptions {
+  projectId: string;
+  ownerId: string;
+  stageCode?: string;
+  /** Resultado vigente (solo para etapas cerradas). `LOST` usa el primer motivo del catálogo. */
+  outcome?: 'WON' | 'LOST' | 'PARTIAL' | null;
+  deletedAt?: Date | null;
+}
+
+/** Oportunidad mínima (con su resultado si se indica), insertada sin la API. */
+export async function insertOpportunity(prisma: PrismaClient, options: InsertOpportunityOptions): Promise<string> {
+  const opportunity = await prisma.opportunity.create({
+    data: {
+      code: `TEST-OPO-${uniqueSuffix()}`,
+      projectId: options.projectId,
+      ownerId: options.ownerId,
+      stageId: await catalogItemId(prisma, 'crm.etapa_oportunidad', options.stageCode ?? 'CONTACTADO'),
+      opportunityDate: new Date('2026-10-01T00:00:00.000Z'),
+      deletedAt: options.deletedAt ?? null,
+    },
+  });
+  if (options.outcome) {
+    const reason =
+      options.outcome === 'LOST'
+        ? await prisma.catalogItem.findFirstOrThrow({ where: { catalog: { key: 'crm.motivo_resultado' } }, orderBy: { sortOrder: 'asc' } })
+        : null;
+    await prisma.opportunityResult.create({
+      data: {
+        opportunityId: opportunity.id,
+        outcome: options.outcome,
+        reasonId: reason?.id ?? null,
+        awardedPercent: options.outcome === 'PARTIAL' ? '60' : null,
+        decisionDate: new Date('2026-10-05T00:00:00.000Z'),
+        recordedById: options.ownerId,
+      },
+    });
+  }
+  return opportunity.id;
+}
+
+export async function unitId(prisma: PrismaClient, code: string): Promise<string> {
+  return (await prisma.unitOfMeasure.findUniqueOrThrow({ where: { code } })).id;
+}
+
+/** Unidad de prueba propia (código único), para reglas que no interfieran con otras suites. */
+export async function insertUnit(
+  prisma: PrismaClient,
+  options: { dimension?: 'MASS' | 'LENGTH' | 'AREA' | 'VOLUME' | 'COUNT' | 'OTHER'; isActive?: boolean } = {},
+): Promise<{ id: string; code: string }> {
+  const code = `T${uniqueSuffix()}`;
+  const unit = await prisma.unitOfMeasure.create({
+    data: {
+      code,
+      name: `Unidad ${code}`,
+      symbol: code.toLowerCase(),
+      dimension: options.dimension ?? 'COUNT',
+      isActive: options.isActive ?? true,
+      sortOrder: 990,
+    },
+  });
+  return { id: unit.id, code };
+}
+
+export async function insertProductFamily(prisma: PrismaClient, options: { isActive?: boolean; name?: string } = {}): Promise<string> {
+  const code = `TEST-FAM-${uniqueSuffix()}`;
+  const family = await prisma.productFamily.create({ data: { code, name: options.name ?? `Familia ${code}`, isActive: options.isActive ?? true } });
+  return family.id;
+}
+
+export async function insertProduct(
+  prisma: PrismaClient,
+  options: { familyId: string; baseUnitId: string; sku?: string; description?: string; isActive?: boolean },
+): Promise<{ id: string; sku: string }> {
+  const sku = options.sku ?? `TEST-SKU-${uniqueSuffix()}`;
+  const product = await prisma.product.create({
+    data: {
+      sku,
+      description: options.description ?? `Producto ${sku}`,
+      familyId: options.familyId,
+      baseUnitId: options.baseUnitId,
+      isActive: options.isActive ?? true,
+    },
+  });
+  return { id: product.id, sku };
+}
+
+/** Regla de conversión hacia `toUnitId` (por defecto `TON`); `scopeKey` sale del ámbito. */
+export async function insertConversionRule(
+  prisma: PrismaClient,
+  options: {
+    fromUnitId: string;
+    toUnitId?: string;
+    factor: string;
+    scope?: 'GLOBAL' | 'PRODUCT_FAMILY' | 'PRODUCT' | 'PROJECT_TYPE';
+    productId?: string;
+    productFamilyId?: string;
+    projectTypeId?: string;
+    isActive?: boolean;
+  },
+): Promise<string> {
+  const scope = options.scope ?? 'GLOBAL';
+  const scopeKey =
+    scope === 'PRODUCT'
+      ? options.productId
+      : scope === 'PRODUCT_FAMILY'
+        ? options.productFamilyId
+        : scope === 'PROJECT_TYPE'
+          ? options.projectTypeId
+          : 'GLOBAL';
+  const rule = await prisma.unitConversionRule.create({
+    data: {
+      fromUnitId: options.fromUnitId,
+      toUnitId: options.toUnitId ?? (await unitId(prisma, 'TON')),
+      factor: options.factor,
+      scope,
+      scopeKey: scopeKey ?? 'GLOBAL',
+      productId: scope === 'PRODUCT' ? (options.productId ?? null) : null,
+      productFamilyId: scope === 'PRODUCT_FAMILY' ? (options.productFamilyId ?? null) : null,
+      projectTypeId: scope === 'PROJECT_TYPE' ? (options.projectTypeId ?? null) : null,
+      isActive: options.isActive ?? true,
+    },
+  });
+  return rule.id;
+}
+
+/** Asociación producto ↔ proyecto insertada sin la API (sin regla: tonelaje nulo). */
+export async function insertProjectProduct(
+  prisma: PrismaClient,
+  options: {
+    projectId: string;
+    productId: string;
+    unitId: string;
+    quantity?: string;
+    statusCode?: string;
+    opportunityId?: string | null;
+    deletedAt?: Date | null;
+  },
+): Promise<string> {
+  const line = await prisma.projectProduct.create({
+    data: {
+      projectId: options.projectId,
+      productId: options.productId,
+      unitId: options.unitId,
+      quantity: options.quantity ?? '10',
+      opportunityId: options.opportunityId ?? null,
+      statusId: await catalogItemId(prisma, 'crm.estado_producto_asociado', options.statusCode ?? 'PROPUESTO'),
+      deletedAt: options.deletedAt ?? null,
+    },
+  });
+  return line.id;
+}
+
+/** Línea de forecast insertada sin la API (sin regla: tonelaje nulo). */
+export async function insertForecastLine(
+  prisma: PrismaClient,
+  options: { projectId: string; productId: string; unitId: string; ownerId: string; year: number; month: number; quantity?: string },
+): Promise<string> {
+  const line = await prisma.forecastLine.create({
+    data: {
+      projectId: options.projectId,
+      productId: options.productId,
+      unitId: options.unitId,
+      ownerId: options.ownerId,
+      year: options.year,
+      month: options.month,
+      quantity: options.quantity ?? '5',
+    },
+  });
+  return line.id;
+}
+
+/** `{ year, month }` a `offset` meses del mes en curso en `America/Guatemala` (zona por defecto del negocio). */
+export function businessMonthOffset(offset: number, now: Date = new Date()): { year: number; month: number } {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guatemala', year: 'numeric', month: '2-digit' }).formatToParts(now);
+  const year = Number(parts.find((part) => part.type === 'year')?.value);
+  const month = Number(parts.find((part) => part.type === 'month')?.value);
+  const index = year * 12 + (month - 1) + offset;
+  return { year: Math.floor(index / 12), month: (index % 12) + 1 };
+}
+
 /** Actividad mínima en un estado del catálogo `crm.estado_actividad` (`PENDIENTE` = abierta). */
 export async function insertActivity(
   prisma: PrismaClient,
-  options: { customerId: string; ownerId: string; statusCode?: string },
+  options: { customerId: string; ownerId: string; statusCode?: string; projectId?: string | null },
 ): Promise<string> {
   const activity = await prisma.activity.create({
     data: {
       code: `TEST-ACT-${uniqueSuffix()}`,
+      projectId: options.projectId ?? null,
       typeId: await catalogItemId(prisma, 'crm.tipo_actividad', 'LLAMADA'),
       subject: 'Actividad de prueba',
       customerId: options.customerId,
@@ -222,12 +426,13 @@ export async function insertActivity(
 /** Visita mínima en un estado de `crm.estado_visita` (`PROGRAMADA` = pendiente). */
 export async function insertVisit(
   prisma: PrismaClient,
-  options: { customerId: string; ownerId: string; statusCode?: string },
+  options: { customerId: string; ownerId: string; statusCode?: string; projectId?: string | null },
 ): Promise<string> {
   const at = new Date(Date.now() + 86_400_000);
   const visit = await prisma.visit.create({
     data: {
       code: `TEST-VIS-${uniqueSuffix()}`,
+      projectId: options.projectId ?? null,
       customerId: options.customerId,
       ownerId: options.ownerId,
       statusId: await catalogItemId(prisma, 'crm.estado_visita', options.statusCode ?? 'PROGRAMADA'),
@@ -245,18 +450,23 @@ export async function insertParticipant(prisma: PrismaClient, options: { activit
   });
 }
 
-/** Equipo con responsable, padre y miembros opcionales (alcance TEAM con subequipos, DM-12). */
+/**
+ * Equipo con responsable, padre y miembros opcionales (alcance TEAM con subequipos, DM-12).
+ * `primaryMemberIds`: miembros cuyo equipo principal es este (vista de equipo, 03 F-14).
+ */
 export async function insertTeam(
   prisma: PrismaClient,
-  options: { managerId?: string | null; parentId?: string | null; memberIds?: string[] } = {},
+  options: { managerId?: string | null; parentId?: string | null; memberIds?: string[]; primaryMemberIds?: string[]; name?: string } = {},
 ): Promise<string> {
+  const primary = new Set(options.primaryMemberIds ?? []);
+  const members = [...new Set([...(options.memberIds ?? []), ...primary])];
   const team = await prisma.team.create({
     data: {
       code: `test-team-${uniqueSuffix().toLowerCase()}`,
-      name: 'Equipo de prueba',
+      name: options.name ?? 'Equipo de prueba',
       managerId: options.managerId ?? null,
       parentId: options.parentId ?? null,
-      members: { create: (options.memberIds ?? []).map((userId) => ({ userId })) },
+      members: { create: members.map((userId) => ({ userId, isPrimary: primary.has(userId) })) },
     },
   });
   return team.id;

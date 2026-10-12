@@ -174,6 +174,82 @@ del alcance sin poder operar, `403`.
 Los `422` de validación devuelven **todas** las incidencias en `details[]` (`field`, `code`,
 `message`); el `code` de la respuesta es el de la primera. Ningún mensaje repite el valor recibido.
 
+## Endpoints del CRM — Módulo 3 · Proyectos (E2a)
+
+Contrato completo: [`03-proyectos.md`](../implementation-plans/crm/03-proyectos.md) §F.1, §F.4 y
+"Precisiones de implementación" (E2a). Todos bajo `/api/v1`, con `@RequirePermission` en cada
+handler. El servicio aplica la **visibilidad** de `proyectos.ver` (`owner_id` o `country_id` dentro
+del alcance) y la **política** de `project-access-policy.ts` con el alcance de cada permiso
+(`proyectos.administrar`, `proyectos.eliminar`…): fuera del alcance, inexistente o eliminado →
+`404` idéntico; dentro sin poder operar → `403`. Todos responden además `401 UNAUTHENTICATED`,
+`403 PERMISSION_DENIED` (el del guard, con `details: []`) y `429`. Un id de ruta que no es UUID →
+`400 BAD_REQUEST`; un cuerpo o consulta que no cumple el DTO → `400 VALIDATION_FAILED`. Decimales
+como cadena; fechas de calendario `YYYY-MM-DD`. Filtros de ids repetibles por comas.
+
+### Proyectos (`Proyectos`, `Proyectos · Opciones`)
+
+| Método | Ruta | Permiso | Request → respuesta | Errores propios |
+|---|---|---|---|---|
+| GET | `/projects` | `proyectos.ver` | `ProjectQueryDto` → `PaginatedProjectsDto` (`ProjectListItemDto` con `commercialStatus` y `capabilities`) | `422 INVALID_DATE_RANGE` |
+| GET | `/projects/team-view` | `proyectos.ver` | `TeamViewQueryDto` → `PaginatedTeamProjectsDto` | `422 INVALID_DATE_RANGE` |
+| GET | `/projects/form-options` | `proyectos.ver` | → `ProjectFormOptionsDto` | — |
+| GET | `/projects/owner-options` | `proyectos.ver` | `OwnerOptionsQueryDto` (`purpose=ASSIGN\|FILTER`) → `PaginatedOwnerOptionsDto` | — |
+| GET | `/projects/team-options` | `proyectos.ver` | → `TeamOptionsDto` | — |
+| POST | `/projects` | `proyectos.crear` | `CreateProjectDto` → `201 ProjectDetailDto` + `Location` | `403 FIELD_NOT_EDITABLE`, `404` (cliente), `409 PROJECT_CODE_TAKEN`, `422 CUSTOMER_INACTIVE` / `REQUIRED_FIELD_MISSING` / `INVALID_DATE_RANGE` / `INVALID_OWNER` / `UNKNOWN_REFERENCE` |
+| GET | `/projects/:id` | `proyectos.ver` | → `ProjectDetailDto` | `404` |
+| PATCH | `/projects/:id` | `proyectos.editar` (+ `administrar` para ajenos, `ownerId`, `code`) | `UpdateProjectDto` → `ProjectDetailDto` | `403 PERMISSION_DENIED` / `FIELD_NOT_EDITABLE`, `404`, `409 PROJECT_CODE_TAKEN` / `PROJECT_CUSTOMER_LOCKED`, `422` como POST |
+| DELETE | `/projects/:id` | `proyectos.eliminar` | → `204` (lógica) | `403`, `404`, `409 PROJECT_HAS_ACTIVE_CHILDREN` |
+| POST | `/projects/:id/duplicate` | `proyectos.crear` + origen visible | `DuplicateProjectDto` → `201 ProjectDetailDto` + `Location` | `403 FIELD_NOT_EDITABLE`, `404`, `409`, `422` como POST |
+| GET | `/projects/:id/history` | `proyectos.ver` | `ProjectHistoryQueryDto` (`kind`) → `PaginatedProjectHistoryDto` | `404` |
+
+### Fase, clasificación y productos asociados
+
+| Método | Ruta | Permiso | Request → respuesta | Errores propios |
+|---|---|---|---|---|
+| GET | `/projects/:id/phase-history` | `proyectos.ver` | paginación → `PaginatedPhaseHistoryDto` | `404` |
+| POST | `/projects/:id/phase-changes` | `proyectos.editar` / `administrar` | `CreatePhaseChangeDto` → `201 ProjectPhaseDto` | `403`, `404`, `422 INVALID_PROGRESS` / `PHASE_PROGRESS_RULE` / `PHASE_UNCHANGED` / `INVALID_CATALOG_VALUE` |
+| PUT | `/projects/:id/classification` | `proyectos.editar` / `administrar` | `UpdateClassificationDto` → `ProjectClassificationDto` | `403`, `404`, `422 REQUIRED_FIELD_MISSING` / `INVALID_QUANTITY` / `INVALID_CATALOG_VALUE` / `UNKNOWN_REFERENCE` / `CONVERSION_RULE_NOT_FOUND` / `INVALID_CONVERSION_RULE` |
+| GET | `/projects/:id/products` | `proyectos.ver` | paginación → `ProjectProductsDto` (`{ data, pagination, totals }`) | `404` |
+| POST | `/projects/:id/products` | `proyectos.editar` / `administrar` | `CreateProjectProductDto` → `201 ProjectProductDto` + `Location` | `403`, `404`, `409 PROJECT_PRODUCT_DUPLICATE`, `422 PRODUCT_INACTIVE` / `OPPORTUNITY_NOT_IN_PROJECT` / `INVALID_QUANTITY` / `INVALID_CATALOG_VALUE` / `UNKNOWN_REFERENCE` |
+| PATCH | `/projects/:id/products/:projectProductId` | `proyectos.editar` / `administrar` | `UpdateProjectProductDto` → `ProjectProductDto` | como POST |
+| DELETE | `/projects/:id/products/:projectProductId` | `proyectos.editar` / `administrar` | → `204` (lógica) | `403`, `404`, `409 PRODUCT_HAS_FORECAST` |
+
+### Adjuntos del proyecto (`Proyectos · Adjuntos`, ADR-021)
+
+| Método | Ruta | Permiso | Request → respuesta | Errores propios |
+|---|---|---|---|---|
+| GET | `/projects/:id/attachments` | `proyectos.ver` | paginación → `PaginatedAttachmentsResponseDto` | `404` |
+| POST | `/projects/:id/attachments` | `proyectos.editar` (+ proyecto editable, decidido antes de leer el cuerpo) | `multipart/form-data` (`file`, `description?`) → `201 AttachmentResponseDto` + `Location` | `400`, `403`, `404`, `413 ATTACHMENT_TOO_LARGE`, `422 ATTACHMENT_TYPE_NOT_ALLOWED` |
+| GET | `/projects/:id/attachments/:attachmentId/content` | `proyectos.ver` | → flujo binario (`attachment`, `nosniff`, `no-store`) | `404` |
+| DELETE | `/projects/:id/attachments/:attachmentId` | `proyectos.editar` (+ proyecto editable) | → `204` (lógica) | `403`, `404` |
+
+### Maestro de productos y conversión (`Proyectos · Productos y unidades`, solo lectura)
+
+| Método | Ruta | Permiso | Request → respuesta |
+|---|---|---|---|
+| GET | `/products` | `productos.ver` | `ProductsQueryDto` (`search`, `familyId`, `isActive` = `true`) → `PaginatedProductsDto` |
+| GET | `/product-families` | `productos.ver` | → `ProductFamiliesDto` (activas) |
+| GET | `/units-of-measure` | `proyectos.ver` | → `UnitsOfMeasureDto` (activas) |
+| GET | `/unit-conversions/resolve` | `proyectos.ver` | `fromUnitId`, `productId?`, `projectTypeId?` → `ConversionPreviewDto` (`rule` o `null`) |
+
+### Códigos de error nuevos (03 §L.6, E2a)
+
+| Status | Código | `details[]` |
+|---|---|---|
+| 409 | `PROJECT_CODE_TAKEN` | `{ field: "code", code }` |
+| 409 | `PROJECT_CUSTOMER_LOCKED` | `{ field: "customerId", dependency: "visits"\|"activities", count }` |
+| 409 | `PROJECT_HAS_ACTIVE_CHILDREN` | `{ dependency: "openOpportunities"\|"productsWithForecast"\|"nonCancelledVisits"\|"openActivities", count }` |
+| 409 | `PROJECT_PRODUCT_DUPLICATE` | `{ field: "productId", projectProductId, productId, opportunityId }` |
+| 409 | `PRODUCT_HAS_FORECAST` | `{ productId, periods: ["AAAA-MM"] }` |
+| 422 | `REQUIRED_FIELD_MISSING` · `INVALID_DATE_RANGE` · `INVALID_OWNER` · `INVALID_QUANTITY` · `PRODUCT_INACTIVE` · `OPPORTUNITY_NOT_IN_PROJECT` | `{ field, code, message }` (todas las incidencias del paso) |
+| 422 | `INVALID_PROGRESS` | `{ field: "progress", code, message, min, max }` |
+| 422 | `PHASE_PROGRESS_RULE` | `{ field: "progress", code, message, phaseCode, minimumProgress }` |
+| 422 | `PHASE_UNCHANGED` | `{ field: "phaseId", code, message }` |
+
+Reutilizados: `FIELD_NOT_EDITABLE` (403), `UNKNOWN_REFERENCE`, `CUSTOMER_INACTIVE`,
+`INVALID_CATALOG_VALUE`, `CONVERSION_RULE_NOT_FOUND`, `INVALID_CONVERSION_RULE`,
+`ATTACHMENT_TOO_LARGE`, `ATTACHMENT_TYPE_NOT_ALLOWED`.
+
 ## CRM — Piezas transversales del Módulo 3 (sin endpoints propios)
 
 Códigos que emiten `CurrencyConversionService` y `UnitConversionResolver` (03 "Precisiones de
