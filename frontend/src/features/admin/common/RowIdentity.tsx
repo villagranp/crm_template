@@ -1,7 +1,8 @@
 import { Avatar, Box, Stack, Typography } from '@mui/material';
 
+import { neutralSoft, ROW_AVATAR_SIZE } from '@/components/data/surfaces';
+
 import { initialsOf } from './admin-format';
-import { neutralSoft, ROW_AVATAR_SIZE } from './admin-surfaces';
 
 export interface RowIdentityProps {
   name: string;

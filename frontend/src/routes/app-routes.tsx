@@ -8,6 +8,7 @@ import { PasswordChangeGate } from '@/components/layout/PasswordChangeGate';
 import { RequireAuth } from '@/components/layout/RequireAuth';
 import { RequirePermission } from '@/components/layout/RequirePermission';
 import { ADMIN_ROUTES } from '@/features/admin/admin-routes';
+import { CRM_ROUTES } from '@/features/crm/crm-routes';
 import { ChangePasswordPage } from '@/routes/pages/ChangePasswordPage';
 import { HomePage } from '@/routes/pages/HomePage';
 import { LoginPage } from '@/routes/pages/LoginPage';
@@ -27,7 +28,7 @@ import { collectNavigablePaths } from '@/routes/route-tree';
  */
 export const shellRoutes: RouteObject[] = [
   { index: true, element: <HomePage /> },
-  ...ADMIN_ROUTES.map(({ path, permission, Page }) => ({
+  ...[...ADMIN_ROUTES, ...CRM_ROUTES].map(({ path, permission, Page }) => ({
     path,
     element: (
       <RequirePermission permission={permission}>

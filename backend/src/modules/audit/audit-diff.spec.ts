@@ -1,4 +1,4 @@
-import { auditDiff } from './audit-diff';
+import { auditDiff, maskAuditValue } from './audit-diff';
 
 describe('auditDiff', () => {
   it('devuelve solo los campos que cambiaron', () => {
@@ -32,5 +32,39 @@ describe('auditDiff', () => {
       { passwordHash: 'z', refreshToken: 'y', clientSecret: 'x', name: 'B' },
     );
     expect(Object.keys(changes)).toEqual(['name']);
+  });
+
+  describe('campos enmascarados (DM-29)', () => {
+    it('registra que el campo cambió con ambos valores enmascarados', () => {
+      const changes = auditDiff(
+        { email: 'ana.lopez@dominio.com', firstName: 'Ana', jobTitle: 'Compras' },
+        { email: 'beto@otra.com.gt', firstName: 'Beto', jobTitle: 'Gerencia' },
+        { maskedFields: ['email', 'firstName'] },
+      );
+
+      expect(changes).toEqual({
+        email: { before: 'a***@d***.com', after: 'b***@o***.gt' },
+        firstName: { before: 'A***', after: 'B***' },
+        jobTitle: { before: 'Compras', after: 'Gerencia' },
+      });
+      expect(JSON.stringify(changes)).not.toContain('lopez');
+    });
+
+    it('detecta el cambio sobre el valor real aunque la máscara coincida', () => {
+      const changes = auditDiff({ phone: '5555-1234' }, { phone: '5555-9999' }, { maskedFields: ['phone'] });
+      expect(changes).toEqual({ phone: { before: '5***', after: '5***' } });
+    });
+
+    it('un campo enmascarado sin cambios no aparece', () => {
+      expect(auditDiff({ email: 'a@b.com' }, { email: 'a@b.com' }, { maskedFields: ['email'] })).toEqual({});
+    });
+
+    it('conserva nulos y vacíos, enmascara números, booleanos y listas', () => {
+      expect(maskAuditValue(null)).toBeNull();
+      expect(maskAuditValue('')).toBe('');
+      expect(maskAuditValue(42)).toBe('***');
+      expect(maskAuditValue(true)).toBe('***');
+      expect(maskAuditValue(['Ana', 'x@y'])).toEqual(['A***', 'x***@y***']);
+    });
   });
 });

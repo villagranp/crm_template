@@ -30,6 +30,11 @@ test-results/
 blob-report/
 .playwright/
 
+# Adjuntos (ADR-021): binarios de usuarios, nunca en Git. Rutas ancladas: un patrón
+# suelto `storage/` ignoraría también backend/src/infrastructure/storage/.
+/storage/
+/backend/storage/
+
 # Local database artefacts
 backend/prisma/*.db
 backend/prisma/*.db-journal

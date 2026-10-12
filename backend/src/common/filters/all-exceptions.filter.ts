@@ -11,7 +11,9 @@ import {
   ApplicationError,
   AuthenticationFailedError,
   BusinessRuleViolationError,
+  PayloadTooLargeError,
   PermissionDeniedError,
+  RequestValidationError,
   ResourceConflictError,
   ResourceNotFoundError,
 } from '@/common/errors/application-error';
@@ -121,6 +123,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (error instanceof AuthenticationFailedError) return HttpStatus.UNAUTHORIZED;
     if (error instanceof PermissionDeniedError || error instanceof AccessDeniedError) return HttpStatus.FORBIDDEN;
     if (error instanceof BusinessRuleViolationError) return HttpStatus.UNPROCESSABLE_ENTITY;
+    if (error instanceof RequestValidationError) return HttpStatus.BAD_REQUEST;
+    if (error instanceof PayloadTooLargeError) return HttpStatus.PAYLOAD_TOO_LARGE;
     return HttpStatus.BAD_REQUEST;
   }
 
@@ -131,6 +135,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       [HttpStatus.FORBIDDEN]: 'PERMISSION_DENIED',
       [HttpStatus.NOT_FOUND]: 'RESOURCE_NOT_FOUND',
       [HttpStatus.CONFLICT]: 'RESOURCE_CONFLICT',
+      [HttpStatus.PAYLOAD_TOO_LARGE]: 'PAYLOAD_TOO_LARGE',
       [HttpStatus.UNPROCESSABLE_ENTITY]: 'BUSINESS_RULE_VIOLATION',
       [HttpStatus.TOO_MANY_REQUESTS]: 'RATE_LIMIT_EXCEEDED',
     };

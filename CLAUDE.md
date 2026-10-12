@@ -50,6 +50,7 @@ Diagrama, límites y flujos: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | Necesito… | Leo… |
 |---|---|
 | Reglas para agentes de IA | [`AGENTS.md`](AGENTS.md) |
+| Método para desarrollar un módulo (igual para Claude, Codex u otro agente) | [`AGENTS.md` §9](AGENTS.md) |
 | Arquitectura y diagramas | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 | Diseño de endpoints | [`API-STANDARDS.md`](API-STANDARDS.md) |
 | Naming y estilo | [`CODING-STANDARDS.md`](CODING-STANDARDS.md) |

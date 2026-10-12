@@ -13,7 +13,7 @@ import {
   type ModuleRecord,
   type UpdateMenuOptionInput,
 } from './ports/access.repository.port';
-import { isRegisteredRoute, listRegisteredRoutes, type RegisteredRoute } from './route-registry';
+import { hasRouteParameter, isRegisteredRoute, listMenuTargetRoutes, type RegisteredRoute } from './route-registry';
 
 /** Estado final de una opción tras aplicar un cambio, para validarlo entero. */
 export interface MenuOptionShape {
@@ -27,7 +27,7 @@ export interface MenuOptionShape {
 /**
  * Validación estructural pura de una opción (D6, D7). Devuelve el error o `null`.
  *
- * - `LINK` lleva una ruta registrada; `GROUP` no lleva ruta.
+ * - `LINK` lleva una ruta registrada y sin parámetros (D-02.12); `GROUP` no lleva ruta.
  * - El padre existe, es `GROUP`, es del mismo módulo y no es la propia opción.
  */
 export function validateMenuOptionShape(
@@ -44,6 +44,13 @@ export function validateMenuOptionShape(
       return new BusinessRuleViolationError(ACCESS_ERROR_CODES.invalidMenuStructure, 'A LINK option needs a path', [
         { field: 'path', issue: 'Una opción navegable necesita una ruta.' },
       ]);
+    }
+    if (hasRouteParameter(shape.path)) {
+      return new BusinessRuleViolationError(
+        ACCESS_ERROR_CODES.invalidMenuStructure,
+        'A menu option cannot point to a route with parameters',
+        [{ field: 'path', issue: 'Una opción de menú no puede apuntar a una ruta con parámetros.' }],
+      );
     }
     if (!isRegisteredRoute(shape.path)) {
       return new BusinessRuleViolationError(ACCESS_ERROR_CODES.routeNotRegistered, 'The path is not a registered route', [
@@ -94,8 +101,9 @@ export class MenuOptionsService {
     return this.repository.listMenuOptions();
   }
 
+  /** Destinos posibles de una opción: sin las rutas con parámetro (D-02.12). */
   listRoutes(): readonly RegisteredRoute[] {
-    return listRegisteredRoutes();
+    return listMenuTargetRoutes();
   }
 
   listModules(): Promise<ModuleRecord[]> {

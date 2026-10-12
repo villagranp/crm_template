@@ -22,6 +22,19 @@ export class ResourceNotFoundError extends ApplicationError {
   }
 }
 
+/**
+ * 400 `VALIDATION_FAILED` detectado por un servicio y no por el `ValidationPipe`
+ * (p. ej. la validación compartida de clientes, 02 F.6.1): mismo status y código
+ * que DC-6 para un mismo defecto de formato, venga de donde venga.
+ */
+export class RequestValidationError extends ApplicationError {
+  readonly code = 'VALIDATION_FAILED';
+
+  constructor(message: string, details: ReadonlyArray<Record<string, unknown>> = []) {
+    super(message, details);
+  }
+}
+
 export class BusinessRuleViolationError extends ApplicationError {
   readonly code: string;
 
@@ -55,12 +68,15 @@ export class AuthenticationFailedError extends ApplicationError {
   }
 }
 
-/** 403 con un código propio, cuando no se trata de un permiso `recurso.accion`. */
+/**
+ * 403 con un código propio, cuando no se trata de un permiso `recurso.accion`
+ * (`ADMIN_ONLY`, `FIELD_NOT_EDITABLE` con `details[].field`…).
+ */
 export class AccessDeniedError extends ApplicationError {
   readonly code: string;
 
-  constructor(code: string, message: string) {
-    super(message);
+  constructor(code: string, message: string, details: ReadonlyArray<Record<string, unknown>> = []) {
+    super(message, details);
     this.code = code;
   }
 }
@@ -70,5 +86,18 @@ export class PermissionDeniedError extends ApplicationError {
 
   constructor(permission: string) {
     super('Insufficient permissions', [{ requiredPermission: permission }]);
+  }
+}
+
+/**
+ * 413: el archivo o el cuerpo supera el tamaño admitido (API-STANDARDS §3). El
+ * código lo decide quien lanza (`ATTACHMENT_TOO_LARGE`, DC-4).
+ */
+export class PayloadTooLargeError extends ApplicationError {
+  readonly code: string;
+
+  constructor(code: string, message: string, details: ReadonlyArray<Record<string, unknown>> = []) {
+    super(message, details);
+    this.code = code;
   }
 }

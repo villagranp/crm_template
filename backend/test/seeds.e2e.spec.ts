@@ -1,9 +1,15 @@
 import { execSync, spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 
 import { PrismaClient } from '@prisma/client';
 
+import { detectAttachmentMimeType } from '../src/modules/attachments/attachment-content-type';
+import { newStorageKey, sanitizeAttachmentFileName } from '../src/modules/attachments/attachment-policy';
 import { CRM_PERMISSIONS } from '../prisma/seed/crm-access';
+import { DEMO_ATTACHMENTS, sha256 } from '../prisma/seed/demo/demo-attachments';
+import { DEMO_EMAIL_DOMAIN, DEMO_PREFIX, DEMO_TAG } from '../prisma/seed/demo/demo-data';
 import { evaluateDemoGuards, resolveDemoPassword } from '../prisma/seed/demo/demo-guard';
 
 import { INTEGRATION_SCHEMA, integrationDatabaseUrl } from './support/integration-database';
@@ -29,7 +35,18 @@ function schemaUrl(): string {
 
 const DATABASE_URL = schemaUrl();
 const TS_NODE_BIN = require.resolve('ts-node/dist/bin.js');
-const baseEnv = { ...process.env, ...INTEGRATION_ENV, DATABASE_URL, SEED_DEMO: '', SEED_DEMO_PASSWORD: '' };
+// Adjuntos demo (ADR-021): carpeta temporal PROPIA de esta suite (las demás comparten la de `setup-env.ts`).
+const STORAGE_ROOT = join(tmpdir(), 'mi-cliente-ag-integration', SCHEMA);
+const STORAGE_PATH = join(STORAGE_ROOT, 'attachments');
+const STORAGE_KEY_PATTERN = /^\d{4}\/(0[1-9]|1[0-2])\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const baseEnv = {
+  ...process.env,
+  ...INTEGRATION_ENV,
+  DATABASE_URL,
+  SEED_DEMO: '',
+  SEED_DEMO_PASSWORD: '',
+  ATTACHMENTS_STORAGE_PATH: STORAGE_PATH,
+};
 
 function run(script: string, env: Record<string, string> = {}, args: string[] = []): { status: number | null; output: string } {
   // Node + el bin de ts-node directamente: sin shell, igual en Windows y Linux.
@@ -49,7 +66,7 @@ async function counts(): Promise<Record<string, number>> {
     modules, permissions, roles, rolePermissions, roleMenuOptions, menuOptions, parameters, catalogs, catalogItems, currencies, countries,
     exchangeRates, units, conversionRules, sequences, users, teams, teamMembers, customers, contacts, projects, phaseHistory, opportunities,
     stageHistory, results, resultHistory, projectProducts, forecastLines, visits, visitEvents, activities, participants, imports, importRows,
-    salesTargets, products, families,
+    salesTargets, products, families, attachments, storedFiles,
   ] = await Promise.all([
     prisma.appModule.count(), prisma.permission.count(), prisma.role.count(), prisma.rolePermission.count(), prisma.roleMenuOption.count(),
     prisma.menuOption.count(), prisma.systemParameter.count(), prisma.catalog.count(), prisma.catalogItem.count(), prisma.currency.count(),
@@ -58,14 +75,33 @@ async function counts(): Promise<Record<string, number>> {
     prisma.projectPhaseHistory.count(), prisma.opportunity.count(), prisma.opportunityStageHistory.count(), prisma.opportunityResult.count(),
     prisma.opportunityResultHistory.count(), prisma.projectProduct.count(), prisma.forecastLine.count(), prisma.visit.count(), prisma.visitEvent.count(),
     prisma.activity.count(), prisma.interactionParticipant.count(), prisma.customerImport.count(), prisma.customerImportRow.count(),
-    prisma.salesTarget.count(), prisma.product.count(), prisma.productFamily.count(),
+    prisma.salesTarget.count(), prisma.product.count(), prisma.productFamily.count(), prisma.attachment.count(), prisma.storedFile.count(),
   ]);
   return {
     modules, permissions, roles, rolePermissions, roleMenuOptions, menuOptions, parameters, catalogs, catalogItems, currencies, countries,
     exchangeRates, units, conversionRules, sequences, users, teams, teamMembers, customers, contacts, projects, phaseHistory, opportunities,
     stageHistory, results, resultHistory, projectProducts, forecastLines, visits, visitEvents, activities, participants, imports, importRows,
-    salesTargets, products, families,
+    salesTargets, products, families, attachments, storedFiles,
   };
+}
+
+/** Claves (`<año>/<mes>/<uuid>`) de los binarios presentes en el almacenamiento, sin los temporales. */
+async function storedBinaryKeys(): Promise<string[]> {
+  let entries: string[];
+  try {
+    entries = await readdir(STORAGE_PATH, { recursive: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .map((entry) => entry.split(/[\\/]/).join('/'))
+    .filter((key) => STORAGE_KEY_PATTERN.test(key))
+    .sort();
+}
+
+async function databaseStorageKeys(): Promise<string[]> {
+  const files = await prisma.storedFile.findMany({ select: { storageKey: true } });
+  return files.map((file) => file.storageKey).sort();
 }
 
 async function countByCode(model: 'visit' | 'activity' | 'opportunity', catalogKey: string): Promise<Record<string, number>> {
@@ -85,6 +121,7 @@ async function countByCode(model: 'visit' | 'activity' | 'opportunity', catalogK
 }
 
 beforeAll(async () => {
+  await rm(STORAGE_ROOT, { recursive: true, force: true });
   await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
   await prisma.$executeRawUnsafe(`CREATE SCHEMA "${SCHEMA}"`);
   execSync('pnpm exec prisma migrate deploy', { cwd, env: baseEnv, stdio: 'pipe' });
@@ -93,6 +130,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
   await prisma.$disconnect();
+  await rm(STORAGE_ROOT, { recursive: true, force: true });
 });
 
 describe('semilla esencial (00 §8.2)', () => {
@@ -151,7 +189,16 @@ describe('semilla esencial (00 §8.2)', () => {
     expect(administrator._count.permissions).toBe(afterFirstRun.permissions);
 
     // DM-32: ninguna opción del CRM sin pantalla registrada.
-    expect(await prisma.menuOption.count({ where: { key: { in: ['clientes-buscar', 'actividad-agenda', 'admin-tipos-cambio'] } } })).toBe(0);
+    expect(await prisma.menuOption.count({ where: { key: { in: ['actividad-agenda', 'admin-tipos-cambio'] } } })).toBe(0);
+    // Módulo 2 registró /clientes: su opción existe y llega a los roles del CRM.
+    const customersOption = await prisma.menuOption.findUnique({
+      where: { key: 'clientes-buscar' },
+      include: { roles: { include: { role: { select: { code: true } } } } },
+    });
+    expect(customersOption?.path).toBe('/clientes');
+    expect(customersOption?.roles.map((r) => r.role.code)).toEqual(
+      expect.arrayContaining(['asesor', 'manager', 'responsable-pais']),
+    );
 
     const parameters = await prisma.systemParameter.findMany({
       where: { key: { in: ['crm.moneda_base', 'crm.importaciones.habilitada', 'sistema.permite_datos_demo', 'crm.clientes.reglas_duplicidad'] } },
@@ -304,6 +351,81 @@ describe('semilla de demostración (00 §8.1, §8.3)', () => {
     expect(await prisma.auditLog.count({ where: { event: 'parameter.updated', resourceId: 'crm.importaciones.habilitada' } })).toBe(1);
   });
 
+  it('siembra los adjuntos demo en clientes DEMO, con sus binarios íntegros en ATTACHMENTS_STORAGE_PATH', async () => {
+    const attachments = await prisma.attachment.findMany({
+      include: { storedFile: true, customer: { select: { crmCode: true, salesOwnerId: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(attachments).toHaveLength(DEMO_ATTACHMENTS.length);
+    expect(await prisma.storedFile.count()).toBe(DEMO_ATTACHMENTS.length);
+    expect(new Set(attachments.map((entry) => entry.storedFile.mimeType))).toEqual(new Set(['application/pdf', 'image/png']));
+    expect(attachments.map((entry) => entry.storedFile.fileName).sort()).toEqual(
+      DEMO_ATTACHMENTS.map((spec) => sanitizeAttachmentFileName(spec.fileName)).sort(),
+    );
+
+    const demoUsers = await prisma.user.findMany({ where: { emailNormalized: { endsWith: DEMO_EMAIL_DOMAIN } }, select: { id: true } });
+    const demoUserIds = new Set(demoUsers.map((entry) => entry.id));
+    for (const entry of attachments) {
+      const file = entry.storedFile;
+      expect(entry.customer?.crmCode.startsWith(DEMO_PREFIX)).toBe(true);
+      expect([entry.projectId, entry.visitId, entry.visitEventId, entry.activityId]).toEqual([null, null, null, null]);
+      expect(entry.description?.startsWith(DEMO_TAG)).toBe(true);
+      expect(entry.deletedAt).toBeNull();
+      expect(entry.createdById).toBe(entry.customer?.salesOwnerId);
+      expect(file.uploadedById).toBe(entry.createdById);
+      expect(demoUserIds.has(file.uploadedById ?? '')).toBe(true);
+      expect([file.ownerType, file.ownerId]).toEqual([null, null]);
+      expect(file.storageKey).toMatch(STORAGE_KEY_PATTERN);
+
+      const content = await readFile(join(STORAGE_PATH, ...file.storageKey.split('/')));
+      expect(content.length).toBe(file.sizeBytes);
+      expect(content.length).toBeLessThan(10 * 1024);
+      expect(sha256(content)).toBe(file.checksum);
+      // La descarga verifica la firma: el binario debe detectarse como su tipo.
+      expect(detectAttachmentMimeType(content.subarray(0, 16), content)).toBe(file.mimeType);
+    }
+    // Ni binarios sin fila ni filas sin binario.
+    expect(await storedBinaryKeys()).toEqual(await databaseStorageKeys());
+  });
+
+  it('re-sembrar recrea los adjuntos sin duplicar filas y borra los binarios anteriores', async () => {
+    const before = await counts();
+    const previousKeys = await databaseStorageKeys();
+
+    const rerun = run('prisma/seed-demo.ts', { SEED_DEMO: 'true' });
+    expect(rerun.status).toBe(0);
+
+    expect(await counts()).toEqual(before);
+    const currentKeys = await databaseStorageKeys();
+    expect(currentKeys).toHaveLength(DEMO_ATTACHMENTS.length);
+    expect(currentKeys.filter((key) => previousKeys.includes(key))).toEqual([]);
+    expect(await storedBinaryKeys()).toEqual(currentKeys);
+  });
+
+  it('si la transacción falla, borra los binarios que acababa de escribir (compensación) y no toca los vigentes', async () => {
+    const before = await counts();
+    const keysBefore = await databaseStorageKeys();
+    // Fallo forzado DENTRO de la transacción, después de escribir los binarios.
+    await prisma.$executeRawUnsafe(
+      `CREATE FUNCTION "${SCHEMA}".seeds_test_fail_attachment() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fallo forzado por la prueba'; END $$`,
+    );
+    await prisma.$executeRawUnsafe(
+      `CREATE TRIGGER seeds_test_fail_attachment BEFORE INSERT ON "${SCHEMA}"."attachments" FOR EACH ROW EXECUTE FUNCTION "${SCHEMA}".seeds_test_fail_attachment()`,
+    );
+    try {
+      const failed = run('prisma/seed-demo.ts', { SEED_DEMO: 'true' });
+      expect(failed.status).not.toBe(0);
+      expect(failed.output).toContain('fallo forzado por la prueba');
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS seeds_test_fail_attachment ON "${SCHEMA}"."attachments"`);
+      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS "${SCHEMA}".seeds_test_fail_attachment()`);
+    }
+
+    expect(await counts()).toEqual(before);
+    expect(await databaseStorageKeys()).toEqual(keysBefore);
+    expect(await storedBinaryKeys()).toEqual(keysBefore);
+  });
+
   it('--purge se niega, sin borrar nada ni mostrar datos personales, si un registro ajeno a la demo usa un usuario demo', async () => {
     const demoOwner = await prisma.user.findFirstOrThrow({ where: { emailNormalized: { endsWith: '@demo.invalid' } } });
     const blocking = await prisma.customer.create({ data: await realCustomerData(demoOwner.id) });
@@ -318,6 +440,9 @@ describe('semilla de demostración (00 §8.1, §8.3)', () => {
       expect(purge.output).not.toContain(demoOwner.id);
       expect(purge.output).not.toMatch(/violates|P2003|foreign key/i);
       expect(await counts()).toEqual(before);
+      // Revertido: los binarios demo siguen ahí.
+      expect(await storedBinaryKeys()).toEqual(await databaseStorageKeys());
+      expect(await storedBinaryKeys()).toHaveLength(DEMO_ATTACHMENTS.length);
     } finally {
       await prisma.customer.delete({ where: { id: blocking.id } });
     }
@@ -330,6 +455,24 @@ describe('semilla de demostración (00 §8.1, §8.3)', () => {
     const product = await prisma.product.create({ data: { sku: 'REAL-SKU-1', description: 'Producto real', familyId: family.id, baseUnitId: unit.id } });
     const team = await prisma.team.create({ data: { code: 'REAL-TEAM', name: 'Equipo real', managerId: admin.id } });
     const customer = await prisma.customer.create({ data: await realCustomerData(admin.id) });
+    // Adjunto REAL (cliente sin prefijo DEMO-) con su binario: la purga no lo toca.
+    const realKey = newStorageKey();
+    const realContent = Buffer.from('%PDF-1.4\nadjunto real de prueba\n%%EOF\n', 'latin1');
+    const realPath = join(STORAGE_PATH, ...realKey.split('/'));
+    await mkdir(dirname(realPath), { recursive: true });
+    await writeFile(realPath, realContent);
+    const realFile = await prisma.storedFile.create({
+      data: {
+        storageKey: realKey,
+        fileName: 'real.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: realContent.length,
+        checksum: sha256(realContent),
+        uploadedById: admin.id,
+      },
+    });
+    const realAttachment = await prisma.attachment.create({ data: { storedFileId: realFile.id, customerId: customer.id, createdById: admin.id } });
+    expect((await databaseStorageKeys()).filter((key) => key !== realKey)).toHaveLength(DEMO_ATTACHMENTS.length);
 
     const purge = run('prisma/seed-demo.ts', { SEED_DEMO: 'true' }, ['--purge']);
     expect(purge.status).toBe(0);
@@ -337,7 +480,12 @@ describe('semilla de demostración (00 §8.1, §8.3)', () => {
     const after = await counts();
     expect(after).toMatchObject({
       customers: 1, projects: 0, visits: 0, activities: 0, products: 1, families: 1, teams: 1, exchangeRates: 0, conversionRules: 4, users: 1,
+      attachments: 1, storedFiles: 1,
     });
+    // Filas y binarios demo eliminados; el adjunto real y su binario sobreviven.
+    expect(await prisma.attachment.findUnique({ where: { id: realAttachment.id } })).not.toBeNull();
+    expect(await storedBinaryKeys()).toEqual([realKey]);
+    expect(sha256(await readFile(realPath))).toBe(realFile.checksum);
     expect(after.permissions).toBeGreaterThan(70);
     expect(await prisma.customer.findUnique({ where: { id: customer.id } })).not.toBeNull();
     expect(await prisma.team.findUnique({ where: { id: team.id } })).not.toBeNull();

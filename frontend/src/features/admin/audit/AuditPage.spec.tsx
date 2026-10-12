@@ -9,10 +9,10 @@ import { renderWithProviders } from '@/test/render-with-providers';
 
 import type { AuditLogEntry } from './audit.api';
 import { AuditPage } from './AuditPage';
-import { saveFile } from '@/features/admin/common/save-file';
+import { saveFile } from '@/lib/save-file';
 
 // jsdom no implementa `URL.createObjectURL`: se sustituye la entrega al navegador.
-vi.mock('@/features/admin/common/save-file', () => ({ saveFile: vi.fn() }));
+vi.mock('@/lib/save-file', () => ({ saveFile: vi.fn() }));
 
 const ENTRY: AuditLogEntry = {
   id: 'log-1',

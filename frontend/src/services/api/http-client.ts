@@ -156,22 +156,30 @@ async function getTokenForRetry(rejectedToken: string): Promise<string | null> {
   return accessTokenProvider({ forceRefresh: true });
 }
 
+type Sender = (accessToken: string | null, correlationId: string) => Promise<Response>;
+
+interface ExecuteOptions {
+  isPublic?: boolean;
+  skipSessionRefresh?: boolean;
+}
+
 /**
  * Sends the request with auth, one renew-and-retry on 401 and the shared error
  * handling. Returns the successful response unread, so each caller decides how
- * to read the body (JSON or file).
+ * to read the body (JSON or file). The transport (`fetch` or, for uploads with
+ * progress, `XMLHttpRequest`) is the `sender`.
  */
-async function execute(method: HttpMethod, path: string, options: RequestOptions = {}): Promise<Response> {
+async function executeWith(sender: Sender, options: ExecuteOptions): Promise<Response> {
   const correlationId = createCorrelationId();
   const accessToken = options.isPublic ? null : await accessTokenProvider();
 
-  let response = await send(method, path, options, accessToken, correlationId);
+  let response = await sender(accessToken, correlationId);
 
   // A protected call rejected with a token we sent: renew once and retry once.
   if (response.status === 401 && accessToken && !options.skipSessionRefresh) {
     const retryToken = await getTokenForRetry(accessToken);
     if (retryToken) {
-      response = await send(method, path, options, retryToken, correlationId);
+      response = await sender(retryToken, correlationId);
     }
   }
 
@@ -191,6 +199,13 @@ async function execute(method: HttpMethod, path: string, options: RequestOptions
   }
 
   return response;
+}
+
+function execute(method: HttpMethod, path: string, options: RequestOptions = {}): Promise<Response> {
+  return executeWith(
+    (accessToken, correlationId) => send(method, path, options, accessToken, correlationId),
+    options,
+  );
 }
 
 async function request<TResponse>(method: HttpMethod, path: string, options: RequestOptions = {}): Promise<TResponse> {
@@ -239,6 +254,117 @@ async function download(path: string, options: RequestOptions = {}): Promise<Dow
   };
 }
 
+/** Uploads can be large: they get a longer default timeout than JSON calls. */
+const DEFAULT_UPLOAD_TIMEOUT_MS = 120_000;
+
+/** Statuses whose `Response` must not carry a body. */
+const NULL_BODY_STATUSES = new Set([204, 205, 304]);
+
+export interface UploadProgress {
+  loaded: number;
+  /** `null` when the browser cannot compute the request size. */
+  total: number | null;
+  /** 0–100, or `null` when `total` is unknown. */
+  percent: number | null;
+}
+
+export interface UploadOptions {
+  /** Called as the request body is sent. Restarts from 0 if the call is retried after a token renewal. */
+  onProgress?: (progress: UploadProgress) => void;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
+function parseResponseHeaders(raw: string): Headers {
+  const headers = new Headers();
+  for (const line of raw.trim().split(/\r?\n/)) {
+    const separator = line.indexOf(':');
+    if (separator > 0) {
+      headers.append(line.slice(0, separator).trim(), line.slice(separator + 1).trim());
+    }
+  }
+  return headers;
+}
+
+/**
+ * `fetch` cannot report upload progress, so uploads go through
+ * `XMLHttpRequest`. The result is adapted to a `Response` so that auth, retry
+ * and error handling are exactly the ones of every other call.
+ */
+function sendWithXhr(
+  method: HttpMethod,
+  path: string,
+  body: FormData,
+  options: UploadOptions,
+  accessToken: string | null,
+  correlationId: string,
+): Promise<Response> {
+  return new Promise<Response>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const fail = (message: string) => {
+      options.signal?.removeEventListener('abort', abort);
+      reject(new ApiError({ statusCode: 0, code: NETWORK_ERROR_CODE, message, correlationId }));
+    };
+    const abort = () => xhr.abort();
+
+    xhr.open(method, buildUrl(path, undefined));
+    xhr.timeout = options.timeoutMs ?? DEFAULT_UPLOAD_TIMEOUT_MS;
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.setRequestHeader(CORRELATION_ID_HEADER, correlationId);
+    if (accessToken) {
+      xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+    }
+    // No Content-Type: the browser sets `multipart/form-data` with its boundary.
+
+    xhr.upload.onprogress = (event) => {
+      const total = event.lengthComputable && event.total > 0 ? event.total : null;
+      options.onProgress?.({
+        loaded: event.loaded,
+        total,
+        percent: total === null ? null : Math.min(100, Math.round((event.loaded / total) * 100)),
+      });
+    };
+    xhr.onload = () => {
+      options.signal?.removeEventListener('abort', abort);
+      const responseBody = NULL_BODY_STATUSES.has(xhr.status) || !xhr.responseText ? null : xhr.responseText;
+      resolve(
+        new Response(responseBody, {
+          status: xhr.status,
+          statusText: xhr.statusText,
+          headers: parseResponseHeaders(xhr.getAllResponseHeaders()),
+        }),
+      );
+    };
+    xhr.onerror = () => fail('Network error');
+    xhr.ontimeout = () => fail('Request timed out');
+    xhr.onabort = () => fail('Request aborted');
+
+    if (options.signal?.aborted) {
+      fail('Request aborted');
+      return;
+    }
+    options.signal?.addEventListener('abort', abort, { once: true });
+    xhr.send(body);
+  });
+}
+
+/**
+ * Sends a `multipart/form-data` body (attachments, ADR-021) with upload
+ * progress, through the same auth, retry and error pipeline as every other
+ * call. Build the `FormData` in the feature's `*.api.ts`.
+ */
+async function upload<TResponse>(path: string, body: FormData, options: UploadOptions = {}): Promise<TResponse> {
+  const response = await executeWith(
+    (accessToken, correlationId) => sendWithXhr('POST', path, body, options, accessToken, correlationId),
+    {},
+  );
+
+  if (response.status === 204 || response.headers.get('content-length') === '0') {
+    return undefined as TResponse;
+  }
+  return (await response.json()) as TResponse;
+}
+
 export const httpClient = {
   get: <TResponse>(path: string, options?: RequestOptions) => request<TResponse>('GET', path, options),
   post: <TResponse>(path: string, options?: RequestOptions) => request<TResponse>('POST', path, options),
@@ -246,4 +372,5 @@ export const httpClient = {
   patch: <TResponse>(path: string, options?: RequestOptions) => request<TResponse>('PATCH', path, options),
   delete: <TResponse>(path: string, options?: RequestOptions) => request<TResponse>('DELETE', path, options),
   download,
+  upload,
 };

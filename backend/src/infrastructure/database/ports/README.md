@@ -35,6 +35,28 @@ export class PrismaCustomerRepository implements CustomerRepository {
 { provide: CUSTOMER_REPOSITORY, useClass: PrismaCustomerRepository }
 ```
 
+## Transacciones entre puertos y folios
+
+- `TRANSACTION_RUNNER` (`transaction.port.ts`): `run(work)` abre una transacción y
+  entrega un `TransactionContext` **opaco**. Los puertos que deben participar en
+  la transacción de un caso de uso aceptan `tx?: TransactionContext` como último
+  parámetro; sin él, abren la suya. Solo el adaptador Prisma lo traduce
+  (`prisma/prisma-transaction.ts#prismaClientFor`): el caso de uso nunca lo inspecciona.
+- `SEQUENCE_GENERATOR` (`sequence-generator.port.ts`): `next(key, tx?, options?)`
+  devuelve el siguiente folio (`CLI-000123`) con `SELECT … FOR UPDATE` sobre
+  `sequences` (00 §6.1). Pedirlo dentro de la transacción del alta y lo más tarde
+  posible: la fila queda bloqueada hasta el final de la transacción.
+
+```typescript
+const customer = await this.transactions.run(async (tx) => {
+  await this.catalogReferences.assertItem('crm.estado_cliente', dto.statusId, { field: 'statusId', tx });
+  const crmCode = await this.sequences.next('crm.cliente', tx);
+  return this.customers.create({ ...data, crmCode }, tx);
+});
+```
+
+Ambos tokens los aporta `PrismaModule` (global).
+
 ## Anti-patrones
 
 - Repositorio genérico `Repository<T>` que expone `where` del ORM.

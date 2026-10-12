@@ -106,6 +106,74 @@ Con una contraseña inicial pendiente de cambiar, todo endpoint salvo
 porque el recurso es el propio usuario. Es la única excepción admitida a la
 regla de que todo endpoint declara permiso, y lleva razón escrita en el código.
 
+## Endpoints del CRM — Módulo 2 · Clientes
+
+Contrato completo (DTO, reglas y decisiones):
+[`02-clientes-cuentas.md`](../implementation-plans/crm/02-clientes-cuentas.md) §F. Todos bajo
+`/api/v1`, con `@RequirePermission` en cada handler. Además del permiso, el servicio aplica la
+**visibilidad** (02 H.1: alcance OWN/TEAM/COUNTRY/ORGANIZATION del usuario y herencia por un
+proyecto visible) y la **política de edición** (`CustomerAccessPolicy`, DM-34): un cliente fuera del
+alcance, inexistente o eliminado (sin `clientes.eliminar`) es `404` sin distinguir el caso; dentro
+del alcance sin poder operar, `403`.
+
+### Clientes (`Clientes`)
+
+| # | Método | Ruta | Permiso | Request → respuesta | Errores propios |
+|---|---|---|---|---|---|
+| F1 | GET | `/customers` | `clientes.ver` | `ListCustomersQueryDto` → `PaginatedCustomersResponseDto` | `400 VALIDATION_FAILED` (`sortBy` fuera de lista blanca), `403` con `deleted=true` sin `clientes.eliminar` |
+| F2 | GET | `/customers/form-options` | `clientes.ver` | → `CustomerFormOptionsDto` | — |
+| F3 | GET | `/customers/sales-owner-options` | `clientes.ver` | `SalesOwnerOptionsQueryDto` → `PaginatedSalesOwnerOptionsDto` | — |
+| F4 | GET | `/customers/:id` | `clientes.ver` | → `CustomerResponseDto` (con `access` y `capabilities`) | `404` |
+| F5 | POST | `/customers` | `clientes.crear` | `CreateCustomerDto` → `201 CustomerResponseDto` + `Location` | `403 FIELD_NOT_EDITABLE`, `409 CUSTOMER_CODE_TAKEN` / `POSSIBLE_DUPLICATE` / `DUPLICATE_BLOCKED`, `422` de validación |
+| F6 | PATCH | `/customers/:id` | `clientes.editar` (+ `clientes.administrar` para ajenos y campos reservados) | `UpdateCustomerDto` → `CustomerResponseDto` | como F5 + `403 PERMISSION_DENIED`, `404` |
+| F7 | DELETE | `/customers/:id` | `clientes.eliminar` | → `204` (lógica) | `404`, `409 CUSTOMER_HAS_DEPENDENCIES` |
+| F8 | POST | `/customers/:id/restore` | `clientes.eliminar` | → `CustomerResponseDto` | `404`, `409 CUSTOMER_NOT_DELETED` / `CUSTOMER_CODE_TAKEN` |
+
+### Contactos (`Clientes · Contactos`)
+
+| # | Método | Ruta | Permiso | Request → respuesta | Errores propios |
+|---|---|---|---|---|---|
+| F9 | GET | `/customers/:customerId/contacts` | `contactos.ver` | `ListContactsQueryDto` → `PaginatedContactsResponseDto` | `404`; `403` con `deleted=true` sin `contactos.eliminar` |
+| F10 | GET | `/customers/:customerId/contacts/:contactId` | `contactos.ver` | → `ContactResponseDto` | `404` |
+| F11 | POST | `/customers/:customerId/contacts` | `contactos.crear` | `CreateContactDto` → `201 ContactResponseDto` + `Location` | `403`, `404`, `409 CONTACT_EMAIL_TAKEN` / `POSSIBLE_DUPLICATE` / `DUPLICATE_BLOCKED`, `422 INVALID_PHONE_FORMAT` / `CONTACT_INACTIVE` |
+| F12 | PATCH | `/customers/:customerId/contacts/:contactId` | `contactos.editar` | `UpdateContactDto` → `ContactResponseDto` | como F11 |
+| F13 | PUT | `/customers/:customerId/primary-contact` | `contactos.editar` | `SetPrimaryContactDto` → `PrimaryContactResponseDto` | `403`, `404`, `422 CONTACT_INACTIVE` |
+| F14 | DELETE | `/customers/:customerId/primary-contact` | `contactos.editar` | → `204` | `403`, `404` |
+| F15 | DELETE | `/customers/:customerId/contacts/:contactId` | `contactos.eliminar` | → `204` (lógica) | `403`, `404`, `409 CONTACT_HAS_HISTORY` |
+| F16 | POST | `/customers/:customerId/contacts/:contactId/restore` | `contactos.eliminar` | → `ContactResponseDto` | `403`, `404`, `409 CONTACT_NOT_DELETED` / `CONTACT_EMAIL_TAKEN` |
+
+### Adjuntos del cliente (`Clientes · Adjuntos`, ADR-021)
+
+| # | Método | Ruta | Permiso | Request → respuesta | Errores propios |
+|---|---|---|---|---|---|
+| F17 | GET | `/customers/:customerId/attachments` | `clientes.ver` | paginación → `PaginatedAttachmentsResponseDto` | `404` |
+| F18 | POST | `/customers/:customerId/attachments` | `clientes.editar` (+ cliente editable) | `multipart/form-data` (`file`, `description?`) → `201 AttachmentResponseDto` + `Location` | `400`, `403`, `404`, `413 ATTACHMENT_TOO_LARGE`, `422 ATTACHMENT_TYPE_NOT_ALLOWED`, `429` |
+| F19 | GET | `/customers/:customerId/attachments/:attachmentId/content` | `clientes.ver` | → flujo binario (`Content-Disposition: attachment`, `nosniff`, `no-store`) | `404` |
+| F20 | DELETE | `/customers/:customerId/attachments/:attachmentId` | `clientes.editar` (+ cliente editable) | → `204` (lógica) | `403`, `404` |
+
+### Códigos de error nuevos (02 L.7)
+
+| Status | Código | Cuándo |
+|---|---|---|
+| 403 | `FIELD_NOT_EDITABLE` | `customerCode`, `salesOwnerId` o `countryId` con valor distinto sin `clientes.administrar` (`details[].field`) |
+| 409 | `CUSTOMER_CODE_TAKEN` | Código de cliente ocupado en el país (o en cualquiera con `unicidad_codigo = GLOBAL`), incluidos eliminados (`details[0].isDeleted`, `customerId` solo si es visible) |
+| 409 | `POSSIBLE_DUPLICATE` | Aviso de duplicado; se confirma reenviando `acknowledgedDuplicateIds` (presencia + todos los candidatos visibles). NIT repetido = `reason: TAX_ID` |
+| 409 | `DUPLICATE_BLOCKED` | Regla en `BLOQUEAR` (nunca por NIT) |
+| 409 | `CUSTOMER_HAS_DEPENDENCIES` | Proyectos, actividades abiertas o visitas pendientes (`details[].dependency`, `count`) |
+| 409 | `CUSTOMER_NOT_DELETED` · `CONTACT_NOT_DELETED` | Restaurar algo que no está eliminado |
+| 409 | `CONTACT_EMAIL_TAKEN` | Correo repetido en el cliente, incluidos eliminados |
+| 409 | `CONTACT_HAS_HISTORY` | El contacto participa en visitas o actividades: se desactiva, no se elimina |
+| 422 | `REQUIRED_FIELD_MISSING` | Obligatorio de `crm.campos_obligatorios` |
+| 422 | `INVALID_CATALOG_VALUE` | Elemento de otro catálogo o inactivo (`details[].catalogKey`, `reason`) |
+| 422 | `INVALID_COUNTRY` · `INVALID_SALES_OWNER` | País inexistente o inactivo · responsable no elegible (D-02.2) |
+| 422 | `INVALID_PHONE_FORMAT` · `INVALID_TAX_ID_FORMAT` | Formato por país (DM-3) |
+| 422 | `FORMULA_NOT_ALLOWED` | Razón social, nombre comercial, ciudad o dirección que empieza por `=`, `@`, tabulador o retorno de carro (D-06.11) |
+| 422 | `CONTACT_INACTIVE` · `INVALID_CONTACT` · `CUSTOMER_INACTIVE` | Contacto inactivo como principal o participante · contacto de otro cliente · cliente inactivo como destino de un registro nuevo (guardas para Módulos 3 y 4) |
+| 413 / 422 | `ATTACHMENT_TOO_LARGE` / `ATTACHMENT_TYPE_NOT_ALLOWED` | Adjuntos (DC-4) |
+
+Los `422` de validación devuelven **todas** las incidencias en `details[]` (`field`, `code`,
+`message`); el `code` de la respuesta es el de la primera. Ningún mensaje repite el valor recibido.
+
 ## Contract rules
 
 1. Breaking a published contract requires a new URI version (`/api/v2/...`)

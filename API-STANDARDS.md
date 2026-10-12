@@ -163,6 +163,10 @@ El `ValidationPipe` global usa `exceptionFactory`
 - Un campo no declarado en el DTO también es `VALIDATION_FAILED` (`forbidNonWhitelisted`).
 - Otros `400` que no salen del `ValidationPipe` (p. ej. `ParseUUIDPipe`) conservan el código por
   defecto `BAD_REQUEST`; el cliente debe tratar cualquier `400` como "revisa los datos".
+- Un servicio que detecta un defecto de formato que el DTO no pudo ver (p. ej. la validación
+  compartida de clientes, que también usa la importación) lanza `RequestValidationError`: el mismo
+  `400 VALIDATION_FAILED`, con `details[]` de la forma `{ field, code, message }`. Un mismo código
+  nunca se emite con dos status distintos.
 
 ---
 

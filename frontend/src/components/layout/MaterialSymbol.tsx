@@ -1,4 +1,5 @@
 import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
+import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
@@ -48,6 +49,8 @@ const ICON_REGISTRY: Record<string, SvgIconComponent> = {
   tune: TuneOutlinedIcon,
   fact_check: FactCheckOutlinedIcon,
   history: HistoryOutlinedIcon,
+  // CRM: módulo y opción `clientes-buscar` (backend/prisma/seed/crm-access.ts).
+  business: BusinessOutlinedIcon,
   chevron_right: ChevronRightIcon,
 };
 

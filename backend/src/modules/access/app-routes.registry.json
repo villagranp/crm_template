@@ -9,6 +9,9 @@
     { "path": "/administracion/catalogos", "label": "Catálogos" },
     { "path": "/administracion/parametros", "label": "Parámetros" },
     { "path": "/administracion/aprobaciones", "label": "Aprobaciones" },
-    { "path": "/administracion/auditoria", "label": "Auditoría" }
+    { "path": "/administracion/auditoria", "label": "Auditoría" },
+    { "path": "/clientes", "label": "Clientes" },
+    { "path": "/clientes/nuevo", "label": "Nuevo cliente" },
+    { "path": "/clientes/:customerId", "label": "Ficha de cliente" }
   ]
 }

@@ -3,7 +3,7 @@ import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import { createQueryKeys, type ListQuery } from '@/features/admin/common';
 
 import { exportAuditLogs, listAuditEvents, listAuditLogs } from './audit.api';
-import { saveFile } from '@/features/admin/common/save-file';
+import { saveFile } from '@/lib/save-file';
 
 export const auditKeys = createQueryKeys('audit');
 

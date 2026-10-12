@@ -68,6 +68,14 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_PRETTY: 'false'
       SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
+      # Adjuntos (ADR-021): ruta DENTRO del contenedor, montada como volumen.
+      ATTACHMENTS_STORAGE_PATH: /app/storage/attachments
+    volumes:
+      # En local, un volumen con nombre. En el servidor, este volumen se define
+      # sobre el almacenamiento definitivo (bind mount o driver del servidor) y
+      # el usuario `node` del contenedor necesita lectura y escritura en él.
+      # Respaldo coordinado con el de PostgreSQL (ADR-021).
+      - attachments-data:/app/storage/attachments
     extra_hosts:
       # Permite alcanzar la instancia compartida que corre en el host.
       - 'host.docker.internal:host-gateway'
@@ -105,6 +113,7 @@ services:
 
 volumes:
   postgres-data:
+  attachments-data:
 
 networks:
   app-network:
