@@ -104,3 +104,34 @@ de la base de datos no se convierte en suplantación de sesión.
   existe: la API no debe permitir distinguir si una cuenta existe.
 - Los roles desactivados dejan de conceder acceso sin necesidad de
   desasignarlos usuario por usuario.
+
+## Addendum 2026-10-10 — `DataScope.TERRITORY` pasa a llamarse `COUNTRY`
+
+**Estado:** Accepted — 2026-10-10. Origen: DM-10 del CRM (contradicción C5 del
+alcance), aprobada por el responsable con su valor recomendado. Cambia un
+**contrato público**.
+
+**Contexto.** El alcance del CRM define la visibilidad "por país" (ALCANCE
+§9.2). El enum `DataScope` de este ADR trae `TERRITORY`, que ningún rol sembrado
+usa y que en este proyecto siempre significa país (`users.country_id`).
+
+**Decisión.** Se renombra el valor: `ALTER TYPE data_scope RENAME VALUE
+'TERRITORY' TO 'COUNTRY';` en una migración escrita a mano (la única no aditiva
+de la Fase 0; reversible con el `RENAME` inverso, sin pérdida de datos). El
+alcance `COUNTRY` filtra por el país del usuario (`users.country_id`), un país
+por usuario (DM-14). Un usuario con alcance `COUNTRY` sin país se degrada a
+`OWN` y se registra una advertencia (D-02.8).
+
+**Contrato afectado.** `dataScope` aparece como enum en los DTOs de perfil,
+roles y usuarios (`profile.dto.ts`, `role.dto.ts`, `user.dto.ts`), en el
+frontend (`roles.api.ts`, `roles-format.ts`, `users.api.ts`, `access.types.ts`,
+`HomePage.tsx`) y en `access.service.ts` / `access-catalog.ts`. Cambian a la vez
+en la misma entrega, con OpenAPI y CHANGELOG. No hay consumidores externos ni
+producción, por lo que no se versiona la API.
+
+**Alternativa descartada.** Mantener `TERRITORY` e interpretarlo como país (solo
+etiquetas): sin migración, pero con un nombre que no dice lo que hace como
+deuda permanente.
+
+La sección Consequences de este ADR, donde dice "propios / equipo / territorio /
+organización" debe leerse "propios / equipo / país / organización".
