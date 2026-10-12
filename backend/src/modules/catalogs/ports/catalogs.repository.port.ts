@@ -74,6 +74,17 @@ export interface UpdateCatalogItemInput {
 }
 
 /**
+ * Elementos de UN catálogo dentro de una transacción que tiene la fila del
+ * catálogo bloqueada (ver `CatalogsRepository.withLockedCatalog`).
+ */
+export interface LockedCatalogScope {
+  /** Catálogo con TODOS sus elementos (activos e inactivos), releído tras tomar el bloqueo. */
+  readonly catalog: CatalogDetailRecord;
+  createItem(input: Omit<CreateCatalogItemInput, 'catalogId'>): Promise<CatalogItemRecord>;
+  updateItem(itemId: string, input: UpdateCatalogItemInput): Promise<CatalogItemRecord>;
+}
+
+/**
  * Puerto de persistencia de catálogos (ADR-004). Las reglas (catálogos de
  * sistema, borrado solo si está vacío, unicidad) viven en `CatalogsService`.
  * Los elementos nunca se borran físicamente: no hay método para ello.
@@ -81,14 +92,22 @@ export interface UpdateCatalogItemInput {
 export interface CatalogsRepository {
   list(filter: ListCatalogsFilter): Promise<Page<CatalogRecord>>;
   findById(catalogId: string): Promise<CatalogDetailRecord | null>;
+  /** Búsqueda exacta por `key` (no por subcadena). */
+  findByKey(key: string): Promise<CatalogDetailRecord | null>;
   existsByKey(key: string): Promise<boolean>;
   create(input: CreateCatalogInput): Promise<string>;
   update(catalogId: string, input: UpdateCatalogInput): Promise<void>;
   delete(catalogId: string): Promise<void>;
-  findItem(catalogId: string, itemId: string): Promise<CatalogItemRecord | null>;
-  existsItemCode(catalogId: string, code: string): Promise<boolean>;
-  /** Mayor `sortOrder` del catálogo, o `null` si está vacío. */
-  maxItemSortOrder(catalogId: string): Promise<number | null>;
-  createItem(input: CreateCatalogItemInput): Promise<CatalogItemRecord>;
-  updateItem(itemId: string, input: UpdateCatalogItemInput): Promise<CatalogItemRecord>;
+  /**
+   * Única vía para crear o modificar elementos. Abre una transacción, bloquea la
+   * fila del catálogo (`SELECT … FOR UPDATE`) y relee el catálogo con sus
+   * elementos antes de llamar a `work`. Dos escrituras concurrentes sobre el
+   * mismo catálogo se serializan, así que las comprobaciones del servicio
+   * (código y etiqueta duplicados, invariantes, conjunto cerrado) y la escritura
+   * son atómicas: la segunda ve lo que confirmó la primera.
+   *
+   * Devuelve `null` sin ejecutar `work` si el catálogo no existe. Si `work`
+   * lanza, la transacción se revierte.
+   */
+  withLockedCatalog<T>(catalogId: string, work: (scope: LockedCatalogScope) => Promise<T>): Promise<T | null>;
 }

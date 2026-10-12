@@ -48,7 +48,7 @@ docker compose -f infrastructure/dev-infra/docker-compose.yml up -d
 cp backend/.env.example backend/.env              # la CLI de Prisma solo lee este
 pnpm --filter @app/backend run prisma:generate
 pnpm --filter @app/backend run prisma:migrate
-pnpm --filter @app/backend run prisma:seed        # roles, permisos, opciones y admin
+pnpm --filter @app/backend run prisma:seed        # semilla esencial: accesos, admin y configuración del CRM
 pnpm dev
 ```
 
@@ -84,8 +84,64 @@ En el frontend solo `VITE_*`, y solo valores públicos: el bundle es visible par
 pnpm --filter @app/backend run prisma:migrate    # crear/aplicar migración en dev
 pnpm --filter @app/backend run prisma:studio     # inspección
 pnpm --filter @app/backend run prisma:generate   # regenerar cliente
-pnpm --filter @app/backend run prisma:seed       # sembrar el núcleo de gestión (idempotente)
+pnpm --filter @app/backend run prisma:seed       # semilla esencial (idempotente, todos los entornos)
+pnpm --filter @app/backend run prisma:seed:demo  # semilla de demostración (solo desarrollo/QA, ver §5.1)
 ```
+
+### 5.1 Semillas: esencial y de demostración
+
+| | Esencial | Demostración |
+|---|---|---|
+| Entrada | `backend/prisma/seed.ts` (+ `prisma/seed/*.ts`) | `backend/prisma/seed-demo.ts` (+ `prisma/seed/demo/*.ts`) |
+| Comando | `prisma:seed` (lo ejecuta el despliegue) | `prisma:seed:demo` (manual; nunca en pipeline ni en el contenedor) |
+| Entornos | Todos, producción incluida | Solo desarrollo y QA |
+| Contenido | Módulos, permisos, roles (incl. `asesor`, `manager`, `responsable-pais`), administrador, monedas, 6 países, unidades, conversiones genéricas, secuencias, 17 catálogos `crm.*`, parámetros `crm.*` | Equipos y usuarios `@demo.invalid`, clientes, contactos, proyectos, oportunidades, productos, forecast, visitas, actividades, una importación, tipos de cambio y metas ficticios |
+
+**Esencial.** Idempotente (`upsert` por clave natural). No pisa lo que un
+administrador ajustó: valores de parámetros, etiquetas/orden/`metadata`/estado
+de los elementos de catálogo, `currentValue` de las secuencias, unidades,
+factores de conversión ni tipos de cambio. Sí repone las asignaciones de los
+roles de sistema. Las opciones de menú del CRM están declaradas, pero solo se
+crean cuando su ruta está en `app-routes.registry.json` (DM-32): cada módulo, al
+entregar su pantalla, registra la ruta y vuelve a ejecutar la semilla. Los tipos
+de cambio iniciales (`prisma/seed/crm-exchange-rates.ts`) están vacíos hasta que
+el negocio entregue los valores.
+
+**Demostración.** Se niega (código 1, sin escribir nada) salvo que se cumplan
+las tres condiciones:
+
+1. `NODE_ENV` distinto de `production`;
+2. `SEED_DEMO=true` en el entorno;
+3. el parámetro `sistema.permite_datos_demo` vale `true` en esa base (la esencial
+   lo crea en `false`; actívalo en Administración → Parámetros).
+
+```bash
+# después de prisma:seed y de activar sistema.permite_datos_demo
+SEED_DEMO=true pnpm --filter @app/backend run prisma:seed:demo
+SEED_DEMO=true pnpm --filter @app/backend run prisma:seed:demo -- --purge   # borra solo lo marcado DEMO
+```
+
+Contraseña de los usuarios demo: **solo** `SEED_DEMO_PASSWORD` (en tu `.env`, nunca
+en el repositorio), con cambio obligatorio en el primer acceso. No se usa
+`AUTH_DEFAULT_PASSWORD`: sin `SEED_DEMO_PASSWORD` las cuentas demo quedan
+`INVITED` sin credencial (si la defines después y vuelves a sembrar, se crea la
+credencial; nunca se pisa una existente). Todo dato demo está marcado (códigos
+`DEMO-…`, correos `@demo.invalid`, `[DEMO]` en reglas y metas, fuente `DEMO …` en
+tipos de cambio) y no consume las secuencias reales. Re-ejecutarla no duplica:
+equipos, usuarios y maestros se actualizan; los datos comerciales demo se recrean
+con fechas relativas a hoy (forecast M+1…M+6, vencidas, próximas).
+
+- **`crm.importaciones.habilitada`** (06 D-06.9): la demo lo pone en `true` solo si
+  tenía otro valor, y deja en la bitácora un `parameter.updated` sin actor
+  (`correlationId = seed-demo`, `metadata.source = demo-seed`). `--purge` **no** lo
+  revierte: vuelve a `false` a mano en Administración → Parámetros si hace falta.
+- **`--purge`** borra solo lo marcado demo. Si un registro que **no** es de la demo
+  referencia a un usuario `@demo.invalid` (p. ej. un cliente real con un asesor
+  demo como responsable), se niega con código 1, no borra nada y lista las tablas
+  y columnas afectadas con su conteo (sin datos personales). Reasigna o elimina
+  esos registros y repite.
+- **Adjuntos demo** (00 §8.3): aplazados hasta que existan el adaptador
+  `FileStorage` y `ATTACHMENTS_STORAGE_PATH` (Módulo 2, ADR-021).
 
 Ninguna tabla se crea a mano. Toda migración es reversible o documenta su irreversibilidad.
 

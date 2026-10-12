@@ -11,6 +11,7 @@ import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CatalogsModule } from './modules/catalogs/catalogs.module';
+import { ParametersCoreModule } from './modules/parameters/parameters-core.module';
 import { ParametersModule } from './modules/parameters/parameters.module';
 import { TeamsModule } from './modules/teams/teams.module';
 import { HealthModule } from './modules/health/health.module';
@@ -44,6 +45,7 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     AuthModule,
     AuditModule,
     TeamsModule,
+    ParametersCoreModule,
     CatalogsModule,
     ParametersModule,
     ApprovalsModule,

@@ -1855,7 +1855,7 @@ Datos ficticios (sin nombres reales de clientes ni personas; dominios `.invalid`
 | Bloque | Contenido | Estados de §2.1 cubiertos |
 |---|---|---|
 | Equipos | `DEMO-GT-NORTE`, `DEMO-GT-SUR` (hijo de `DEMO-GT`), `DEMO-SV` | Jerarquía para `TEAM` con descendientes |
-| Usuarios | 1 responsable de país (GT), 2 managers (uno por equipo), 4 asesores (GT y SV), con `employeeCode` `DEMO-E001…`, país y equipo principal. Contraseña de `SEED_DEMO_PASSWORD` (sin valor en el repositorio); sin ella, cuentas `INVITED` sin credencial | Los tres alcances |
+| Usuarios | 2 responsables de país (GT y SV), 2 managers (uno por país, `DEMO-GT` y `DEMO-SV`), 4 asesores (3 GT, 1 SV), con `employeeCode` `DEMO-E001…E008`, país y equipo principal. Contraseña **solo** de `SEED_DEMO_PASSWORD` (sin valor en el repositorio; no cae a `AUTH_DEFAULT_PASSWORD`); sin ella, cuentas `INVITED` sin credencial. *Ajuste de la semilla (2026-10-11): el texto original pedía 1 responsable de país (GT); se siembran 2 para probar el alcance `COUNTRY` en los dos países demo* | Los tres alcances |
 | Familias y productos | `VARILLA` (varilla corrugada #3, #4, #5), `ALAMBRE` (alambre de amarre), `PERFILES` (viga, angular), `MALLA` (malla electrosoldada): ~10 SKU `DEMO-…` con unidad base | — |
 | Reglas de demo | `VAR→TON` por producto (p. ej. #3 de 6 m: 0,00336), `M→TON` por familia, `M2→TON` por tipo `VIVIENDA` (estimación) — **factores ilustrativos, marcados como demo** | Las tres precedencias |
 | Clientes | 8 clientes en GT y SV: todos los tipos de empresa, estados `PROSPECTO/ACTIVO/INACTIVO`, calificaciones A/B/C; uno eliminado lógicamente | Tipos, estados, calificaciones |
@@ -1870,7 +1870,7 @@ Datos ficticios (sin nombres reales de clientes ni personas; dominios `.invalid`
 | Interacciones | Salen solas de la vista con lo anterior | Historiales e interacciones |
 | Importación | `DEMO-IMP-0001` `COMPLETED_WITH_ERRORS`: 10 filas (7 importadas, 1 inválida, 1 duplicada en archivo, 1 duplicada con existente) | Historial de cargas |
 | Tipos de cambio | Una tasa por moneda local para los últimos 3 meses (valores **ilustrativos, marcados como demo** en `source`) | Estimaciones en GTQ y USD; aviso de antigüedad |
-| Adjuntos | 2–3 archivos ficticios pequeños (PDF y PNG generados por el script) en clientes, proyectos y una visita, escritos en `ATTACHMENTS_STORAGE_PATH`; `--purge` borra también sus binarios | Descarga autorizada |
+| Adjuntos | 2–3 archivos ficticios pequeños (PDF y PNG generados por el script) en clientes, proyectos y una visita, escritos en `ATTACHMENTS_STORAGE_PATH`; `--purge` borra también sus binarios. **Aplazado** (2026-10-11): se siembran cuando existan el adaptador `FileStorage` y `ATTACHMENTS_STORAGE_PATH` (Módulo 2, ADR-021); la semilla de Fase 0 no crea adjuntos | Descarga autorizada |
 
 ---
 

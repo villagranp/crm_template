@@ -66,7 +66,7 @@ export interface UserAccess {
   userId: string;
   roles: string[];
   permissions: string[];
-  dataScope: 'OWN' | 'TEAM' | 'TERRITORY' | 'ORGANIZATION';
+  dataScope: 'OWN' | 'TEAM' | 'COUNTRY' | 'ORGANIZATION';
   origins: PermissionOrigin[];
 }
 

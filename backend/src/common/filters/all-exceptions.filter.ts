@@ -77,9 +77,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
       if (typeof payload === 'object' && payload !== null) {
         const record = payload as Record<string, unknown>;
         const rawMessage = record['message'];
-        const details = Array.isArray(rawMessage)
-          ? rawMessage.map((issue) => ({ issue: String(issue) }))
-          : [];
+        const rawDetails = record['details'];
+        // `details` explícito (p. ej. `validationExceptionFactory`, DC-6) tiene prioridad;
+        // si no, el `message[]` por defecto de Nest se convierte en `{ issue }`.
+        const details: ReadonlyArray<Record<string, unknown>> = Array.isArray(rawDetails)
+          ? rawDetails.filter((detail): detail is Record<string, unknown> => typeof detail === 'object' && detail !== null)
+          : Array.isArray(rawMessage)
+            ? rawMessage.map((issue) => ({ issue: String(issue) }))
+            : [];
 
         return {
           statusCode: status,

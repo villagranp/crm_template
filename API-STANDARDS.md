@@ -40,13 +40,21 @@ OpenAPI se actualiza **antes o junto con** la implementación, nunca después.
 ```text
 200 OK                  204 No Content           409 Conflict
 201 Created             400 Bad Request          422 Unprocessable Entity
-202 Accepted            401 Unauthorized         429 Too Many Requests
-                        403 Forbidden            500 / 502 / 503
-                        404 Not Found
+202 Accepted            401 Unauthorized         413 Payload Too Large
+                        403 Forbidden            415 Unsupported Media Type
+                        404 Not Found            429 Too Many Requests
+                                                 500 / 502 / 503
 ```
 
-- `400` = petición malformada o inválida sintácticamente.
+- `400` = petición malformada o inválida sintácticamente. Los errores del `ValidationPipe`
+  (DTO, query, campos no declarados) responden siempre `400` con `code: "VALIDATION_FAILED"`
+  y un elemento `{ field, issue }` por problema en `details[]` (DC-6, ver §8).
 - `422` = sintaxis correcta, regla de negocio/semántica violada.
+- `413` = el cuerpo o el archivo supera el tamaño admitido (NGINX lo emite antes de llegar a la
+  API, a veces sin cuerpo JSON; la API lo usa para adjuntos, p. ej. `ATTACHMENT_TOO_LARGE`).
+- `415` = tipo de contenido o de archivo no admitido por el endpoint (p. ej. el archivo de
+  importación que no es XLSX). Un tipo de adjunto fuera de la lista blanca configurada es una
+  regla de negocio: `422 ATTACHMENT_TYPE_NOT_ALLOWED` (D-06.13 / DC-4).
 - `401` = no autenticado o token inválido. `403` = autenticado sin permiso.
 - **Prohibido** devolver `200` con `{"success": false}` para representar un error.
 
@@ -131,6 +139,30 @@ requiere whitelist.
 - `message` es legible, **sin** datos internos.
 - Prohibido exponer: stack traces, SQL, nombres de tablas, tokens, secretos, PII de terceros.
 - `correlationId` siempre presente para trazabilidad.
+
+### Errores de validación (`VALIDATION_FAILED`)
+
+El `ValidationPipe` global usa `exceptionFactory`
+(`backend/src/common/filters/validation-exception.factory.ts`, mismas opciones en `main.ts` y en
+`backend/test/support/test-app.ts`):
+
+```json
+{
+  "statusCode": 400,
+  "code": "VALIDATION_FAILED",
+  "message": "Request validation failed",
+  "details": [
+    { "field": "key", "issue": "key solo admite minúsculas, dígitos, punto, guion y guion bajo" },
+    { "field": "items.0.code", "issue": "code must be a string" }
+  ],
+  "correlationId": "01HXYZ..."
+}
+```
+
+- `field` es la ruta con puntos del campo; `issue`, el motivo. Nunca se devuelve el valor recibido.
+- Un campo no declarado en el DTO también es `VALIDATION_FAILED` (`forbidNonWhitelisted`).
+- Otros `400` que no salen del `ValidationPipe` (p. ej. `ParseUUIDPipe`) conservan el código por
+  defecto `BAD_REQUEST`; el cliente debe tratar cualquier `400` como "revisa los datos".
 
 ---
 

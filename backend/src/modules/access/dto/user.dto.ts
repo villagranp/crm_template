@@ -306,8 +306,8 @@ export class UserAccessResponseDto {
   @ApiProperty({ type: [UserTeamDto] })
   teams!: { id: string; name: string }[];
 
-  @ApiProperty({ enum: ['OWN', 'TEAM', 'TERRITORY', 'ORGANIZATION'] })
-  dataScope!: 'OWN' | 'TEAM' | 'TERRITORY' | 'ORGANIZATION';
+  @ApiProperty({ enum: ['OWN', 'TEAM', 'COUNTRY', 'ORGANIZATION'] })
+  dataScope!: 'OWN' | 'TEAM' | 'COUNTRY' | 'ORGANIZATION';
 
   @ApiProperty({ type: [PermissionOriginDto] })
   origins!: PermissionOriginDto[];

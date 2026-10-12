@@ -250,3 +250,244 @@ describe('PATCH /catalogs/:id/items/:itemId', () => {
       .expect(403);
   });
 });
+
+describe('400 VALIDATION_FAILED (DC-6)', () => {
+  it('devuelve el código estable y details[] con el campo', async () => {
+    const response = await api().post('/api/v1/catalogs').set(admin()).send({ key: 'No Valida', name: '' }).expect(400);
+
+    expect(response.body).toMatchObject({ statusCode: 400, code: 'VALIDATION_FAILED', message: 'Request validation failed' });
+    expect(response.body.details).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: 'key' }), expect.objectContaining({ field: 'name' })]),
+    );
+  });
+});
+
+describe('duplicados por etiqueta normalizada (D-07.5)', () => {
+  it('409 label con acentos, mayúsculas o espacios distintos, también si el existente está inactivo', async () => {
+    const catalog = await createCatalog();
+    const url = `/api/v1/catalogs/${catalog.id}/items`;
+    const first = await api().post(url).set(admin()).send({ code: 'CONSTRUCTORA', label: 'Constructora' }).expect(201);
+
+    const duplicate = await api().post(url).set(admin()).send({ code: 'OTRA', label: '  constructóra ' }).expect(409);
+    expect(duplicate.body).toMatchObject({
+      code: 'RESOURCE_CONFLICT',
+      details: [expect.objectContaining({ field: 'label', existingIsActive: true })],
+    });
+
+    await api().patch(`${url}/${first.body.id as string}`).set(admin()).send({ isActive: false }).expect(200);
+    const inactive = await api().post(url).set(admin()).send({ code: 'OTRA', label: 'CONSTRUCTORA' }).expect(409);
+    expect(inactive.body.details).toEqual([
+      expect.objectContaining({ field: 'label', existingItemId: first.body.id, existingIsActive: false }),
+    ]);
+  });
+
+  it('409 al renombrar a una etiqueta que ya usa otro elemento', async () => {
+    const catalog = await createCatalog();
+    const url = `/api/v1/catalogs/${catalog.id}/items`;
+    await api().post(url).set(admin()).send({ code: 'A', label: 'Alfa' }).expect(201);
+    const beta = await api().post(url).set(admin()).send({ code: 'B', label: 'Beta' }).expect(201);
+
+    await api().patch(`${url}/${beta.body.id as string}`).set(admin()).send({ label: 'ALFA' }).expect(409);
+    await api().patch(`${url}/${beta.body.id as string}`).set(admin()).send({ label: 'beta' }).expect(200);
+  });
+});
+
+interface CrmCatalogBody {
+  id: string;
+  closedSet: boolean;
+  metadataSchema: Array<Record<string, unknown>> | null;
+  items: Array<{ id: string; code: string; label: string; isActive: boolean; metadata: Record<string, unknown> | null }>;
+}
+
+describe('catálogos crm.* (registro de semántica, D-07.6)', () => {
+  async function crmCatalog(key: string): Promise<CrmCatalogBody> {
+    const catalog = await ctx.prisma.catalog.findUniqueOrThrow({ where: { key } });
+    const response = await api().get(`/api/v1/catalogs/${catalog.id}`).set(admin()).expect(200);
+    return response.body as CrmCatalogBody;
+  }
+
+  it('el detalle publica metadataSchema y closedSet', async () => {
+    const stages = await crmCatalog('crm.etapa_oportunidad');
+    expect(stages.closedSet).toBe(false);
+    expect(stages.metadataSchema).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'isClosed', type: 'boolean', required: true })]),
+    );
+
+    expect((await crmCatalog('crm.resultado_oportunidad')).closedSet).toBe(true);
+
+    const generic = await createCatalog();
+    const free = await api().get(`/api/v1/catalogs/${generic.id}`).set(admin()).expect(200);
+    expect(free.body).toMatchObject({ metadataSchema: null, closedSet: false });
+  });
+
+  it('422 INVALID_CATALOG_METADATA con el campo (AC-07.23)', async () => {
+    const stages = await crmCatalog('crm.etapa_oportunidad');
+    const response = await api()
+      .post(`/api/v1/catalogs/${stages.id}/items`)
+      .set(admin())
+      .send({ code: uniqueCode('NEG'), label: uniqueCode('Negociando'), metadata: { order: 9, isClosed: 'si', inFunnel: true } })
+      .expect(422);
+
+    expect(response.body).toMatchObject({
+      code: 'INVALID_CATALOG_METADATA',
+      details: expect.arrayContaining([expect.objectContaining({ field: 'metadata.isClosed' })]),
+    });
+  });
+
+  it('201 con una etapa abierta válida (el flujo es configurable)', async () => {
+    const stages = await crmCatalog('crm.etapa_oportunidad');
+    await api()
+      .post(`/api/v1/catalogs/${stages.id}/items`)
+      .set(admin())
+      .send({
+        code: uniqueCode('NEG'),
+        label: uniqueCode('Negociando'),
+        metadata: { order: 9, isClosed: false, outcome: null, inFunnel: true },
+      })
+      .expect(201);
+  });
+
+  it('409 CATALOG_INVARIANT al desactivar la única etapa WON (AC-07.21)', async () => {
+    const stages = await crmCatalog('crm.etapa_oportunidad');
+    const won = stages.items.filter((item) => item.isActive && item.metadata?.['outcome'] === 'WON');
+    expect(won).toHaveLength(1);
+
+    const response = await api()
+      .patch(`/api/v1/catalogs/${stages.id}/items/${won[0]?.id ?? ''}`)
+      .set(admin())
+      .send({ isActive: false })
+      .expect(409);
+    expect(response.body).toMatchObject({ code: 'CATALOG_INVARIANT', details: [expect.objectContaining({ reason: 'invariant' })] });
+  });
+
+  it('dos desactivaciones simultáneas de las dos etapas WON: una pasa y la otra es 409 (bloqueo del catálogo)', async () => {
+    const stages = await crmCatalog('crm.etapa_oportunidad');
+    const won = stages.items.find((item) => item.isActive && item.metadata?.['outcome'] === 'WON');
+    if (!won) throw new Error('crm.etapa_oportunidad sin etapa WON sembrada');
+    const url = `/api/v1/catalogs/${stages.id}/items`;
+
+    const second = await api()
+      .post(url)
+      .set(admin())
+      .send({ code: uniqueCode('GANADO'), label: uniqueCode('Ganado bis'), metadata: { ...won.metadata, order: 99 } })
+      .expect(201);
+    const secondId = second.body.id as string;
+
+    try {
+      // Sin el bloqueo, ambas transacciones verían dos WON activas y las dos desactivarían.
+      const responses = await Promise.all(
+        [won.id, secondId].map((id) => api().patch(`${url}/${id}`).set(admin()).send({ isActive: false })),
+      );
+
+      expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+      expect(responses.find((response) => response.status === 409)?.body).toMatchObject({ code: 'CATALOG_INVARIANT' });
+      const activeWon = await ctx.prisma.catalogItem.count({
+        where: { catalogId: stages.id, isActive: true, metadata: { path: ['outcome'], equals: 'WON' } },
+      });
+      expect(activeWon).toBe(1);
+    } finally {
+      // El catálogo es compartido: se deja como lo dejó la semilla.
+      await ctx.prisma.catalogItem.update({ where: { id: won.id }, data: { isActive: true } });
+      await ctx.prisma.catalogItem.delete({ where: { id: secondId } });
+    }
+  });
+
+  it('la desactivación espera al bloqueo del catálogo y valida contra lo confirmado (determinista)', async () => {
+    const stages = await crmCatalog('crm.etapa_oportunidad');
+    const won = stages.items.find((item) => item.isActive && item.metadata?.['outcome'] === 'WON');
+    if (!won) throw new Error('crm.etapa_oportunidad sin etapa WON sembrada');
+    const url = `/api/v1/catalogs/${stages.id}/items`;
+    const second = await api()
+      .post(url)
+      .set(admin())
+      .send({ code: uniqueCode('GANADO'), label: uniqueCode('Ganado bis'), metadata: { ...won.metadata, order: 98 } })
+      .expect(201);
+    const secondId = second.body.id as string;
+
+    let release: () => void = () => undefined;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let signalLocked: () => void = () => undefined;
+    const lockTaken = new Promise<void>((resolve) => (signalLocked = resolve));
+
+    try {
+      // Otra "escritura" toma el bloqueo, desactiva la segunda WON y no confirma todavía.
+      const holder = ctx.prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT id FROM catalogs WHERE id = ${stages.id}::uuid FOR UPDATE`;
+          await tx.catalogItem.update({ where: { id: secondId }, data: { isActive: false } });
+          signalLocked();
+          await released;
+        },
+        { timeout: 20_000 },
+      );
+      await lockTaken;
+
+      let settled = false;
+      const patch = api()
+        .patch(`${url}/${won.id}`)
+        .set(admin())
+        .send({ isActive: false })
+        .then((response) => {
+          settled = true;
+          return response;
+        });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      // Sin bloqueo la petición ya habría terminado (y con 200: vería dos WON activas).
+      expect(settled).toBe(false);
+
+      release();
+      await holder;
+      const response = await patch;
+      expect(response.status).toBe(409);
+      expect(response.body).toMatchObject({ code: 'CATALOG_INVARIANT', details: [expect.objectContaining({ reason: 'invariant' })] });
+    } finally {
+      release();
+      await ctx.prisma.catalogItem.update({ where: { id: won.id }, data: { isActive: true } });
+      await ctx.prisma.catalogItem.delete({ where: { id: secondId } });
+    }
+  });
+
+  it('409 closed_set al crear o desactivar en crm.resultado_oportunidad; la etiqueta sí cambia (AC-07.22)', async () => {
+    const results = await crmCatalog('crm.resultado_oportunidad');
+    const url = `/api/v1/catalogs/${results.id}/items`;
+
+    const created = await api().post(url).set(admin()).send({ code: 'OTRO', label: uniqueCode('Otro') }).expect(409);
+    expect(created.body).toMatchObject({ code: 'CATALOG_INVARIANT', details: [expect.objectContaining({ reason: 'closed_set' })] });
+
+    const target = results.items[0];
+    if (!target) throw new Error('crm.resultado_oportunidad sin elementos sembrados');
+    const deactivated = await api().patch(`${url}/${target.id}`).set(admin()).send({ isActive: false }).expect(409);
+    expect(deactivated.body.details).toEqual([expect.objectContaining({ reason: 'closed_set' })]);
+
+    try {
+      await api().patch(`${url}/${target.id}`).set(admin()).send({ label: `${target.label} editado` }).expect(200);
+    } finally {
+      await ctx.prisma.catalogItem.update({ where: { id: target.id }, data: { label: target.label } });
+    }
+  });
+
+  it('409 referenced_by_parameter al desactivar un código que usa crm.valores_por_defecto (AC-07.24)', async () => {
+    const parameter = await ctx.prisma.systemParameter.findUniqueOrThrow({ where: { key: 'crm.valores_por_defecto' } });
+    const statusCode = (JSON.parse(parameter.value) as Record<string, string>)['customer.statusId'];
+    const statuses = await crmCatalog('crm.estado_cliente');
+    const item = statuses.items.find((entry) => entry.code === statusCode);
+    if (!item) throw new Error('el estado por defecto no está sembrado');
+
+    const response = await api()
+      .patch(`/api/v1/catalogs/${statuses.id}/items/${item.id}`)
+      .set(admin())
+      .send({ isActive: false })
+      .expect(409);
+
+    expect(response.body).toMatchObject({
+      code: 'CATALOG_INVARIANT',
+      details: [expect.objectContaining({ reason: 'referenced_by_parameter', keys: ['crm.valores_por_defecto'] })],
+    });
+  });
+
+  it('409 SYSTEM_RESOURCE_READ_ONLY al borrar un catálogo crm.* (AC-07.25)', async () => {
+    const stages = await crmCatalog('crm.etapa_oportunidad');
+    const response = await api().delete(`/api/v1/catalogs/${stages.id}`).set(admin()).expect(409);
+    expect(response.body.code).toBe('SYSTEM_RESOURCE_READ_ONLY');
+  });
+});

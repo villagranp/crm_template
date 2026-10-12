@@ -1,7 +1,8 @@
-import { type INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
+import { type INestApplication, VersioningType } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '@/app.module';
+import { createValidationPipe } from '@/common/filters/validation-exception.factory';
 import { PrismaService } from '@/infrastructure/database/prisma/prisma.service';
 
 /**
@@ -26,7 +27,7 @@ describe('Health endpoints (e2e)', () => {
     app = moduleRef.createNestApplication();
     app.setGlobalPrefix('api');
     app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }));
+    app.useGlobalPipes(createValidationPipe());
     await app.init();
   });
 

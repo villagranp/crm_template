@@ -1,7 +1,7 @@
 export const ACCESS_REPOSITORY = Symbol('ACCESS_REPOSITORY');
 
 /** Alcance de datos de un rol. Refleja el enum `DataScope` del esquema. */
-export type DataScope = 'OWN' | 'TEAM' | 'TERRITORY' | 'ORGANIZATION';
+export type DataScope = 'OWN' | 'TEAM' | 'COUNTRY' | 'ORGANIZATION';
 
 export type AssignmentEffect = 'GRANT' | 'DENY';
 

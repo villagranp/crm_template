@@ -1,0 +1,15 @@
+-- PROCEDIMIENTO DE ROLLBACK (docs/database/data-model.md §10.3), desde backend/:
+--   1. Aplicar los .down.sql en orden INVERSO a las migraciones (de 20261010100700 a
+--      20261010100000), hasta llegar a la que se quiere revertir:
+--        pnpm exec prisma db execute --file prisma/rollbacks/<migración>.down.sql --schema prisma/schema.prisma
+--   2. Tras cada uno, retirar su migración del historial de Prisma:
+--        DELETE FROM "_prisma_migrations" WHERE migration_name = '<migración>';
+--      (`prisma migrate resolve --rolled-back` NO sirve: solo acepta migraciones
+--      fallidas y con una aplicada responde P3012.)
+--   Con datos reales del CRM, respaldo previo obligatorio. Lo verifica
+--   backend/test/crm-rollbacks.e2e.spec.ts.
+--
+-- Rollback de 20261010100000_crm_data_scope_country. Sin pérdida de datos: las filas
+-- con COUNTRY vuelven a leerse como TERRITORY. Hay que revertir también el código y
+-- el contrato (DTOs, frontend) al mismo tiempo: el enum es parte de la API.
+ALTER TYPE "data_scope" RENAME VALUE 'COUNTRY' TO 'TERRITORY';

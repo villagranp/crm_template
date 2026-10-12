@@ -3,7 +3,7 @@ import type { DataScope, Permission } from './roles.api';
 export const DATA_SCOPE_LABEL: Record<DataScope, string> = {
   OWN: 'Sólo lo propio',
   TEAM: 'Su equipo',
-  TERRITORY: 'Su territorio',
+  COUNTRY: 'Su país',
   ORGANIZATION: 'Toda la organización',
 };
 

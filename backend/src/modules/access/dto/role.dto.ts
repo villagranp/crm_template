@@ -18,7 +18,7 @@ import { PaginationQueryDto } from '@/common/dto/pagination-query.dto';
 
 import { ROLE_SORT_FIELDS, type RoleSortField } from '../ports/access.repository.port';
 
-export const DATA_SCOPES = ['OWN', 'TEAM', 'TERRITORY', 'ORGANIZATION'] as const;
+export const DATA_SCOPES = ['OWN', 'TEAM', 'COUNTRY', 'ORGANIZATION'] as const;
 export type DataScopeValue = (typeof DATA_SCOPES)[number];
 
 /** Código de rol: minúsculas, dígitos y guiones; empieza por letra. Inmutable. */

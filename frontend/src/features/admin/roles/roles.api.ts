@@ -6,7 +6,7 @@ import { httpClient } from '@/services/api';
  * `backend/src/modules/access/dto/role.dto.ts`.
  */
 
-export const DATA_SCOPES = ['OWN', 'TEAM', 'TERRITORY', 'ORGANIZATION'] as const;
+export const DATA_SCOPES = ['OWN', 'TEAM', 'COUNTRY', 'ORGANIZATION'] as const;
 export type DataScope = (typeof DATA_SCOPES)[number];
 
 export interface Role {

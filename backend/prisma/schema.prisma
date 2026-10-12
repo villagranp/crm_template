@@ -11,8 +11,9 @@
 // ALCANCE: este esquema contiene la GESTIÓN transversal que cualquier proyecto
 // necesita el primer día — identidad, autorización, opciones de menú y sus
 // asignaciones, organización, auditoría, parámetros, notificaciones, archivos,
-// folios y aprobaciones. No contiene ninguna entidad de negocio: eso lo aporta
-// cada proyecto (regla "sin funcionalidad de negocio" de CLAUDE.md).
+// folios y aprobaciones. Las entidades de negocio de este proyecto (CRM
+// comercial) van en la sección "CRM COMERCIAL" al final del archivo, con su
+// contrato en docs/implementation-plans/crm/00-modelo-de-datos.md.
 //
 // El dominio NO depende de estos modelos directamente: se accede a ellos por
 // los puertos de `src/infrastructure/database/ports/` (ADR-004).
@@ -53,10 +54,12 @@ enum IdentityProvider {
 
 /// Alcance de datos de un rol: hasta dónde ve el usuario.
 /// La aplicación traduce esto a filtros de consulta; no es un permiso.
+/// COUNTRY = país del usuario (`users.country_id`). Antes se llamaba TERRITORY
+/// (addendum de 2026-10-10 a ADR-018; migración `crm_data_scope_country`).
 enum DataScope {
   OWN
   TEAM
-  TERRITORY
+  COUNTRY
   ORGANIZATION
 
   @@map("data_scope")
@@ -129,6 +132,8 @@ model Team {
   manager  User?        @relation("TeamManager", fields: [managerId], references: [id], onDelete: SetNull)
   members  TeamMember[]
 
+  salesTargets SalesTarget[]
+
   @@index([parentId], map: "idx_teams_parent_id")
   @@index([isActive], map: "idx_teams_is_active")
   @@map("teams")
@@ -168,8 +173,14 @@ model User {
   jobTitle     String?    @map("job_title") @db.VarChar(120)
   phone        String?    @db.VarChar(40)
   avatarUrl    String?    @map("avatar_url") @db.VarChar(500)
-  locale       String     @default("es-MX") @db.VarChar(10)
-  timeZone     String     @default("America/Mexico_City") @map("time_zone") @db.VarChar(60)
+  /// Defaults de Guatemala para usuarios NUEVOS (DM-2, C12); los existentes no cambian.
+  locale       String     @default("es-GT") @db.VarChar(10)
+  timeZone     String     @default("America/Guatemala") @map("time_zone") @db.VarChar(60)
+  /// Código de colaborador (CRM, ALCANCE §9.1). Único; nulo en la base porque el
+  /// administrador sembrado no lo tiene: la obligatoriedad la aplica el caso de uso (DM-30).
+  employeeCode String?    @unique @map("employee_code") @db.VarChar(40)
+  /// País del usuario: lo evalúa el alcance COUNTRY (DM-14). Nulo en la base (DM-30).
+  countryId    String?    @map("country_id") @db.Uuid
   status       UserStatus @default(INVITED)
   mfaEnabled   Boolean    @default(false) @map("mfa_enabled")
   lastLoginAt  DateTime?  @map("last_login_at") @db.Timestamptz(6)
@@ -195,8 +206,30 @@ model User {
   approvalSteps   ApprovalStep[]       @relation("ApprovalApprover")
   uploadedFiles   StoredFile[]         @relation("FileUploader")
 
+  // --- CRM (docs/implementation-plans/crm/00-modelo-de-datos.md) ---
+  country                   Country?                   @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  ownedCustomers            Customer[]                 @relation("CustomerSalesOwner")
+  ownedProjects             Project[]                  @relation("ProjectOwner")
+  projectPhaseChanges       ProjectPhaseHistory[]      @relation("PhaseHistoryChangedBy")
+  ownedOpportunities        Opportunity[]              @relation("OpportunityOwner")
+  opportunityStageChanges   OpportunityStageHistory[]  @relation("StageHistoryChangedBy")
+  opportunityResultsRecorded OpportunityResult[]       @relation("ResultRecordedBy")
+  opportunityResultChanges  OpportunityResultHistory[] @relation("ResultHistoryChangedBy")
+  ownedForecastLines        ForecastLine[]             @relation("ForecastOwner")
+  ownedVisits               Visit[]                    @relation("VisitOwner")
+  visitCompletionsRecorded  Visit[]                    @relation("VisitCompletionRecordedBy")
+  visitsConfirmed           Visit[]                    @relation("VisitConfirmedBy")
+  visitEventsPerformed      VisitEvent[]               @relation("VisitEventPerformedBy")
+  ownedActivities           Activity[]                 @relation("ActivityOwner")
+  activitiesCompleted       Activity[]                 @relation("ActivityCompletedBy")
+  interactionParticipations InteractionParticipant[]   @relation("ParticipantUser")
+  customerImportsStarted    CustomerImport[]           @relation("ImportStartedBy")
+  customerImportsConfirmed  CustomerImport[]           @relation("ImportConfirmedBy")
+  salesTargets              SalesTarget[]              @relation("SalesTargetUser")
+
   @@index([status], map: "idx_users_status")
   @@index([deletedAt], map: "idx_users_deleted_at")
+  @@index([countryId], map: "idx_users_country_id")
   @@map("users")
 }
 
@@ -584,6 +617,33 @@ model CatalogItem {
 
   catalog Catalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
 
+  // --- CRM: referencias desde las entidades comerciales (00 §3). La base no
+  // comprueba A QUÉ catálogo pertenece el elemento: lo hace CatalogReferenceValidator (00 §3.5).
+  conversionRules          UnitConversionRule[]       @relation("ConversionProjectType")
+  customersByCompanyType   Customer[]                 @relation("CustomerCompanyType")
+  customersByStatus        Customer[]                 @relation("CustomerStatus")
+  customersByRating        Customer[]                 @relation("CustomerRating")
+  projectsByType           Project[]                  @relation("ProjectType")
+  projectsBySector         Project[]                  @relation("ProjectSector")
+  projectsByPhase          Project[]                  @relation("ProjectPhase")
+  phaseHistoryFrom         ProjectPhaseHistory[]      @relation("PhaseHistoryFrom")
+  phaseHistoryTo           ProjectPhaseHistory[]      @relation("PhaseHistoryTo")
+  opportunitiesByStage     Opportunity[]              @relation("OpportunityStage")
+  stageHistoryFrom         OpportunityStageHistory[]  @relation("StageHistoryFrom")
+  stageHistoryTo           OpportunityStageHistory[]  @relation("StageHistoryTo")
+  opportunityResults       OpportunityResult[]        @relation("ResultReason")
+  opportunityResultHistory OpportunityResultHistory[] @relation("ResultHistoryReason")
+  projectProductsByStatus  ProjectProduct[]           @relation("ProjectProductStatus")
+  visitsByStatus           Visit[]                    @relation("VisitStatus")
+  visitsByResult           Visit[]                    @relation("VisitResult")
+  visitEventsFromStatus    VisitEvent[]               @relation("VisitEventFromStatus")
+  visitEventsToStatus      VisitEvent[]               @relation("VisitEventToStatus")
+  visitEventsByReason      VisitEvent[]               @relation("VisitEventReason")
+  activitiesByType         Activity[]                 @relation("ActivityType")
+  activitiesByStatus       Activity[]                 @relation("ActivityStatus")
+  activitiesByPriority     Activity[]                 @relation("ActivityPriority")
+  activitiesByResult       Activity[]                 @relation("ActivityResult")
+
   @@unique([catalogId, code], map: "uq_catalog_items_catalog_code")
   @@index([catalogId, sortOrder], map: "idx_catalog_items_catalog_id_sort_order")
   @@map("catalog_items")
@@ -626,6 +686,11 @@ model StoredFile {
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   uploadedBy User? @relation("FileUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  // --- CRM: la pertenencia la dice Attachment con FK reales; ownerType/ownerId quedan nulos (00 §2.11).
+  attachment       Attachment?
+  importsAsSource  CustomerImport[] @relation("ImportSourceFile")
+  importsAsErrors  CustomerImport[] @relation("ImportErrorFile")
 
   @@index([ownerType, ownerId], map: "idx_stored_files_owner")
   @@map("stored_files")
@@ -728,4 +793,1058 @@ model AuditLog {
   /// Listado por defecto de la bitácora: sin filtros, por fecha descendente (PLAN-ADMIN, D11).
   @@index([occurredAt], map: "idx_audit_logs_occurred_at")
   @@map("audit_logs")
+}
+
+// =============================================================================
+// CRM COMERCIAL
+//
+// Contrato: docs/implementation-plans/crm/00-modelo-de-datos.md (aprobado,
+// DM-1…DM-36 resueltas el 2026-10-10). Lo que Prisma no expresa vive en las
+// migraciones `*_crm_*`, revisadas y completadas a mano:
+//   - CHECK `ck_<tabla>_<regla>` (rangos, coherencia, "exactamente uno")
+//   - la FK compuesta circular customers(primary_contact_id, id) -> contacts(id, customer_id)
+//   - la vista `crm_interactions_v` (00 §2.12), leída con $queryRaw parametrizado
+// Sin índices únicos parciales: `migrate dev` los borraría como deriva (PLAN-ADMIN §10).
+// Fechas de calendario (sin hora) como `@db.Date` (DM-31); instantes como timestamptz.
+// Rollback de cada migración: prisma/rollbacks/<migración>.down.sql.
+// =============================================================================
+
+/// Magnitud física de una unidad. Impide sumar unidades incompatibles (kg + m²).
+enum UnitDimension {
+  MASS
+  LENGTH
+  AREA
+  VOLUME
+  COUNT
+  OTHER
+
+  @@map("unit_dimension")
+}
+
+/// Ámbito de una regla de conversión. Precedencia al resolver:
+/// PRODUCT > PRODUCT_FAMILY > PROJECT_TYPE > GLOBAL.
+enum ConversionScope {
+  GLOBAL
+  PRODUCT_FAMILY
+  PRODUCT
+  PROJECT_TYPE
+
+  @@map("conversion_scope")
+}
+
+/// Resultado comercial. Conjunto cerrado: el alcance (§5.9) le asocia reglas
+/// (motivo obligatorio en LOST, porcentaje obligatorio en PARTIAL) que la base
+/// hace cumplir con CHECK. Las etiquetas salen del catálogo crm.resultado_oportunidad.
+enum OpportunityOutcome {
+  WON
+  LOST
+  PARTIAL
+
+  @@map("opportunity_outcome")
+}
+
+enum ResultChangeAction {
+  RECORDED
+  CHANGED
+  CLEARED
+
+  @@map("result_change_action")
+}
+
+/// Evento del ciclo de vida de una visita. No es una lista de formulario.
+enum VisitEventType {
+  PLANNED
+  RESCHEDULED
+  COMPLETED
+  CONFIRMED
+  CANCELLED
+
+  @@map("visit_event_type")
+}
+
+enum ParticipantRole {
+  INVITED
+  ATTENDED
+
+  @@map("participant_role")
+}
+
+enum ImportFileFormat {
+  CSV
+  XLSX
+
+  @@map("import_file_format")
+}
+
+enum ImportStatus {
+  UPLOADED
+  VALIDATING
+  VALIDATED
+  IMPORTING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+  CANCELLED
+
+  @@map("import_status")
+}
+
+enum ImportRowStatus {
+  PENDING
+  VALID
+  INVALID
+  DUPLICATE_IN_FILE
+  DUPLICATE_EXISTING
+  IMPORTED
+  REJECTED
+
+  @@map("import_row_status")
+}
+
+/// DM-9: la tabla se crea vacía; la métrica inicial es TONNAGE mensual por
+/// usuario. El resto de valores quedan disponibles sin migración.
+enum SalesTargetMetric {
+  TONNAGE
+  AMOUNT
+  WON_OPPORTUNITIES
+  VISITS
+  ACTIVITIES
+
+  @@map("sales_target_metric")
+}
+
+// -----------------------------------------------------------------------------
+// Monedas, tipos de cambio y países (00 §2.2, §2.16; ADR-024)
+// -----------------------------------------------------------------------------
+
+/// Moneda ISO 4217. Clave natural de 3 letras como PK: es estable, es lo que viaja en la
+/// API y evita una unión en cada lectura (excepción justificada a P7, como isoCode en Country).
+/// CHECK: ck_currencies_code, ck_currencies_decimals.
+model Currency {
+  /// ISO 4217 (USD, GTQ, HNL, CRC, VES).
+  code      String   @id @db.Char(3)
+  name      String   @db.VarChar(60)
+  symbol    String   @db.VarChar(8)
+  /// Decimales de presentación. El almacenamiento siempre es (19, 4).
+  decimals  Int      @default(2) @db.SmallInt
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  countries     Country[]
+  exchangeRates ExchangeRate[]
+  opportunities Opportunity[]
+
+  @@map("currencies")
+}
+
+/// Tipo de cambio de una moneda frente al USD con fecha de vigencia. Rige desde
+/// effectiveDate hasta la siguiente fila de la misma moneda.
+/// CHECK: ck_exchange_rates_rate (> 0), ck_exchange_rates_not_base (nunca USD).
+model ExchangeRate {
+  id            String   @id @default(uuid()) @db.Uuid
+  currencyCode  String   @map("currency_code") @db.Char(3)
+  effectiveDate DateTime @map("effective_date") @db.Date
+  /// Unidades de la moneda por 1 USD (p. ej. GTQ 7,75000000).
+  ratePerUsd    Decimal  @map("rate_per_usd") @db.Decimal(19, 8)
+  /// Origen del dato (banco central, tesorería, "carga inicial"…). Texto libre.
+  source        String   @db.VarChar(120)
+  notes         String?  @db.VarChar(500)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdById   String?  @map("created_by_id") @db.Uuid
+  updatedById   String?  @map("updated_by_id") @db.Uuid
+
+  currency Currency @relation(fields: [currencyCode], references: [code], onDelete: Restrict)
+
+  /// Una sola tasa por moneda y fecha; también sirve a la búsqueda "última vigente ≤ fecha".
+  @@unique([currencyCode, effectiveDate], map: "uq_exchange_rates_currency_effective_date")
+  @@map("exchange_rates")
+}
+
+/// País. Tabla dedicada (no catálogo): la referencian usuarios, clientes, proyectos
+/// y metas, y tiene columnas propias. Nunca se borra (FK Restrict); se desactiva.
+model Country {
+  id           String   @id @default(uuid()) @db.Uuid
+  /// ISO 3166-1 alfa-2 (GT, SV…). Clave estable para seeds e importaciones.
+  isoCode      String   @unique @map("iso_code") @db.Char(2)
+  name         String   @db.VarChar(120)
+  phonePrefix  String?  @map("phone_prefix") @db.VarChar(6)
+  /// Cómo se llama el identificador fiscal en el país (NIT, RTN, RUC…).
+  taxIdLabel   String   @default("NIT") @map("tax_id_label") @db.VarChar(40)
+  /// Expresión regular de validación; null = solo longitud y caracteres permitidos (DM-3).
+  taxIdPattern String?  @map("tax_id_pattern") @db.VarChar(200)
+  phonePattern String?  @map("phone_pattern") @db.VarChar(200)
+  /// Moneda local del país (ISO 4217): la alternativa a la base USD en una estimación.
+  currencyCode String   @map("currency_code") @db.Char(3)
+  timeZone     String?  @map("time_zone") @db.VarChar(60)
+  sortOrder    Int      @default(0) @map("sort_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  currency     Currency      @relation(fields: [currencyCode], references: [code], onDelete: Restrict)
+  users        User[]
+  customers    Customer[]
+  projects     Project[]
+  salesTargets SalesTarget[]
+
+  @@index([isActive, sortOrder], map: "idx_countries_is_active_sort_order")
+  @@map("countries")
+}
+
+// -----------------------------------------------------------------------------
+// Unidades, familias, productos y conversiones (00 §2.3)
+// -----------------------------------------------------------------------------
+
+model UnitOfMeasure {
+  id        String        @id @default(uuid()) @db.Uuid
+  /// Clave estable: TON, KG, LB, QQ, M, M2, M3, UND…
+  code      String        @unique @db.VarChar(20)
+  name      String        @db.VarChar(80)
+  symbol    String        @db.VarChar(12)
+  dimension UnitDimension
+  sortOrder Int           @default(0) @map("sort_order")
+  isActive  Boolean       @default(true) @map("is_active")
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  products        Product[]
+  conversionsFrom UnitConversionRule[] @relation("ConversionFrom")
+  conversionsTo   UnitConversionRule[] @relation("ConversionTo")
+  projects        Project[]
+  projectProducts ProjectProduct[]     @relation("ProjectProductUnit")
+  forecastLines   ForecastLine[]       @relation("ForecastUnit")
+
+  @@index([isActive, sortOrder], map: "idx_units_of_measure_is_active_sort_order")
+  @@map("units_of_measure")
+}
+
+model ProductFamily {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique @db.VarChar(40)
+  name        String   @db.VarChar(120)
+  description String?  @db.VarChar(400)
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdById String?  @map("created_by_id") @db.Uuid
+  updatedById String?  @map("updated_by_id") @db.Uuid
+
+  products        Product[]
+  conversionRules UnitConversionRule[]
+  salesTargets    SalesTarget[]
+
+  @@index([isActive, sortOrder], map: "idx_product_families_is_active_sort_order")
+  @@map("product_families")
+}
+
+/// Maestro de producto (catálogo local; sin SAP). Separado de las cantidades
+/// comerciales, que viven en ProjectProduct y ForecastLine (ALCANCE §5.10).
+model Product {
+  id          String   @id @default(uuid()) @db.Uuid
+  /// Código de material o SKU. Se guarda en mayúsculas y sin espacios extremos.
+  sku         String   @unique @db.VarChar(60)
+  description String   @db.VarChar(300)
+  familyId    String   @map("family_id") @db.Uuid
+  baseUnitId  String   @map("base_unit_id") @db.Uuid
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdById String?  @map("created_by_id") @db.Uuid
+  updatedById String?  @map("updated_by_id") @db.Uuid
+
+  family          ProductFamily        @relation(fields: [familyId], references: [id], onDelete: Restrict)
+  baseUnit        UnitOfMeasure        @relation(fields: [baseUnitId], references: [id], onDelete: Restrict)
+  conversionRules UnitConversionRule[]
+  projectProducts ProjectProduct[]
+  forecastLines   ForecastLine[]
+
+  @@index([familyId], map: "idx_products_family_id")
+  @@index([isActive], map: "idx_products_is_active")
+  @@map("products")
+}
+
+/// Regla de conversión de una unidad a otra (en la práctica, a toneladas).
+/// Única por (origen, destino, ámbito). El factor se copia en cada línea que
+/// la usa (conversionFactor), de modo que cambiar un factor no reescribe la historia.
+/// CHECK: ck_unit_conversion_rules_factor_positive, _identity, _scope.
+model UnitConversionRule {
+  id              String          @id @default(uuid()) @db.Uuid
+  fromUnitId      String          @map("from_unit_id") @db.Uuid
+  toUnitId        String          @map("to_unit_id") @db.Uuid
+  /// cantidad_destino = cantidad_origen × factor
+  factor          Decimal         @db.Decimal(19, 8)
+  scope           ConversionScope @default(GLOBAL)
+  productId       String?         @map("product_id") @db.Uuid
+  productFamilyId String?         @map("product_family_id") @db.Uuid
+  /// Elemento del catálogo crm.tipo_proyecto.
+  projectTypeId   String?         @map("project_type_id") @db.Uuid
+  /// 'GLOBAL' o el UUID del producto/familia/tipo. Hace posible el único sin
+  /// NULLS NOT DISTINCT; un CHECK garantiza que coincide con la columna de ámbito.
+  scopeKey        String          @map("scope_key") @db.VarChar(40)
+  description     String?         @db.VarChar(300)
+  isActive        Boolean         @default(true) @map("is_active")
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdById     String?         @map("created_by_id") @db.Uuid
+  updatedById     String?         @map("updated_by_id") @db.Uuid
+
+  fromUnit        UnitOfMeasure    @relation("ConversionFrom", fields: [fromUnitId], references: [id], onDelete: Restrict)
+  toUnit          UnitOfMeasure    @relation("ConversionTo", fields: [toUnitId], references: [id], onDelete: Restrict)
+  product         Product?         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productFamily   ProductFamily?   @relation(fields: [productFamilyId], references: [id], onDelete: Restrict)
+  projectType     CatalogItem?     @relation("ConversionProjectType", fields: [projectTypeId], references: [id], onDelete: Restrict)
+  projects        Project[]        @relation("ProjectConversion")
+  projectProducts ProjectProduct[] @relation("ProjectProductConversion")
+  forecastLines   ForecastLine[]   @relation("ForecastConversion")
+
+  @@unique([fromUnitId, toUnitId, scopeKey], map: "uq_unit_conversion_rules_from_to_scope")
+  /// Destino de las FK compuestas (regla, unidad): garantiza que la regla aplicada
+  /// convierte DESDE la unidad de la línea.
+  @@unique([id, fromUnitId], map: "uq_unit_conversion_rules_id_from_unit")
+  @@index([productId], map: "idx_unit_conversion_rules_product_id")
+  @@index([productFamilyId], map: "idx_unit_conversion_rules_product_family_id")
+  @@index([projectTypeId], map: "idx_unit_conversion_rules_project_type_id")
+  @@map("unit_conversion_rules")
+}
+
+// -----------------------------------------------------------------------------
+// Clientes y contactos (00 §2.4, §2.5)
+// -----------------------------------------------------------------------------
+
+/// Cliente (o establecimiento). NIT NO único (DM-4): solo índice de búsqueda.
+/// El código de cliente es único por país (los nulos no colisionan).
+/// CHECK: ck_customers_customer_code_normalized, ck_customers_tax_id_normalized.
+model Customer {
+  id                     String    @id @default(uuid()) @db.Uuid
+  /// Identificador interno CRM, generado con Sequence 'crm.cliente' (CLI-000123). Inmutable.
+  crmCode                String    @unique @map("crm_code") @db.VarChar(30)
+  /// Código de cliente (introducido por el usuario o la importación). Ver DM-18.
+  customerCode           String?   @map("customer_code") @db.VarChar(40)
+  /// Mayúsculas, sin espacios ni guiones. Base de la unicidad.
+  customerCodeNormalized String?   @map("customer_code_normalized") @db.VarChar(40)
+  legalName              String    @map("legal_name") @db.VarChar(200)
+  /// Minúsculas, sin acentos, espacios colapsados. Base de la detección de duplicados.
+  legalNameNormalized    String    @map("legal_name_normalized") @db.VarChar(200)
+  tradeName              String?   @map("trade_name") @db.VarChar(200)
+  /// NIT (o el identificador fiscal del país: Country.taxIdLabel). NO es único (DM-4).
+  taxId                  String?   @map("tax_id") @db.VarChar(30)
+  taxIdNormalized        String?   @map("tax_id_normalized") @db.VarChar(30)
+  countryId              String    @map("country_id") @db.Uuid
+  /// Texto libre (DM-19).
+  city                   String?   @db.VarChar(120)
+  address                String?   @db.VarChar(300)
+  phone                  String?   @db.VarChar(40)
+  email                  String?   @db.VarChar(320)
+  /// crm.tipo_empresa
+  companyTypeId          String?   @map("company_type_id") @db.Uuid
+  /// crm.estado_cliente
+  statusId               String    @map("status_id") @db.Uuid
+  /// crm.calificacion_cliente
+  ratingId               String?   @map("rating_id") @db.Uuid
+  /// Responsable de ventas. Dueño del registro para el alcance OWN.
+  salesOwnerId           String    @map("sales_owner_id") @db.Uuid
+  /// Contacto principal. FK compuesta: solo puede ser un contacto de ESTE cliente.
+  primaryContactId       String?   @map("primary_contact_id") @db.Uuid
+  /// Importación que lo creó, si vino de la carga masiva.
+  sourceImportId         String?   @map("source_import_id") @db.Uuid
+  deletedAt              DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdById            String?   @map("created_by_id") @db.Uuid
+  updatedById            String?   @map("updated_by_id") @db.Uuid
+
+  country               Country             @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  companyType           CatalogItem?        @relation("CustomerCompanyType", fields: [companyTypeId], references: [id], onDelete: Restrict)
+  status                CatalogItem         @relation("CustomerStatus", fields: [statusId], references: [id], onDelete: Restrict)
+  rating                CatalogItem?        @relation("CustomerRating", fields: [ratingId], references: [id], onDelete: Restrict)
+  salesOwner            User                @relation("CustomerSalesOwner", fields: [salesOwnerId], references: [id], onDelete: Restrict)
+  /// NoAction: SET NULL anularía también customers.id; los contactos no se borran físicamente.
+  primaryContact        Contact?            @relation("CustomerPrimaryContact", fields: [primaryContactId, id], references: [id, customerId], onDelete: NoAction, onUpdate: NoAction)
+  sourceImport          CustomerImport?     @relation(fields: [sourceImportId], references: [id], onDelete: SetNull)
+  contacts              Contact[]           @relation("CustomerContacts")
+  projects              Project[]
+  visits                Visit[]
+  activities            Activity[]
+  attachments           Attachment[]
+  importRowsAsDuplicate CustomerImportRow[] @relation("ImportRowDuplicateOf")
+  importRowsCreated     CustomerImportRow[] @relation("ImportRowCustomer")
+
+  @@unique([countryId, customerCodeNormalized], map: "uq_customers_country_customer_code")
+  /// Búsqueda de NIT repetido (aviso de duplicado blando, 00 §6.2). Índice, no único (DM-4).
+  @@index([countryId, taxIdNormalized], map: "idx_customers_country_id_tax_id")
+  @@index([salesOwnerId], map: "idx_customers_sales_owner_id")
+  @@index([statusId], map: "idx_customers_status_id")
+  @@index([countryId, city], map: "idx_customers_country_id_city")
+  @@index([legalNameNormalized], map: "idx_customers_legal_name_normalized")
+  @@index([deletedAt], map: "idx_customers_deleted_at")
+  @@map("customers")
+}
+
+model Contact {
+  id              String    @id @default(uuid()) @db.Uuid
+  customerId      String    @map("customer_id") @db.Uuid
+  firstName       String    @map("first_name") @db.VarChar(80)
+  lastName        String    @map("last_name") @db.VarChar(80)
+  jobTitle        String?   @map("job_title") @db.VarChar(120)
+  phone           String?   @db.VarChar(40)
+  email           String?   @db.VarChar(320)
+  emailNormalized String?   @map("email_normalized") @db.VarChar(320)
+  /// Estado: activo / inactivo. Dos valores sin semántica adicional → booleano.
+  isActive        Boolean   @default(true) @map("is_active")
+  comments        String?   @db.VarChar(1000)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdById     String?   @map("created_by_id") @db.Uuid
+  updatedById     String?   @map("updated_by_id") @db.Uuid
+
+  customer       Customer                 @relation("CustomerContacts", fields: [customerId], references: [id], onDelete: Restrict)
+  primaryOf      Customer[]               @relation("CustomerPrimaryContact")
+  participations InteractionParticipant[]
+
+  /// Destino de las FK compuestas "contacto de este cliente".
+  @@unique([id, customerId], map: "uq_contacts_id_customer")
+  /// Duplicado por correo dentro del cliente (DM-5).
+  @@unique([customerId, emailNormalized], map: "uq_contacts_customer_email")
+  @@index([customerId, isActive], map: "idx_contacts_customer_id_is_active")
+  @@map("contacts")
+}
+
+// -----------------------------------------------------------------------------
+// Proyectos, oportunidades, productos asociados y forecast (00 §2.6–§2.9)
+// -----------------------------------------------------------------------------
+
+/// CHECK: ck_projects_phase_progress, _estimated_dates, _quantity, _tonnage,
+/// _conversion, _not_self_duplicate.
+model Project {
+  id                    String    @id @default(uuid()) @db.Uuid
+  /// Código de proyecto. Por defecto lo genera Sequence 'crm.proyecto' (DM-17).
+  code                  String    @unique @db.VarChar(30)
+  name                  String    @db.VarChar(200)
+  customerId            String    @map("customer_id") @db.Uuid
+  countryId             String    @map("country_id") @db.Uuid
+  /// Ciudad o ubicación.
+  city                  String?   @db.VarChar(120)
+  address               String?   @db.VarChar(300)
+  description           String?   @db.Text
+  estimatedStartDate    DateTime? @map("estimated_start_date") @db.Date
+  estimatedEndDate      DateTime? @map("estimated_end_date") @db.Date
+  estimatedDecisionDate DateTime? @map("estimated_decision_date") @db.Date
+  /// Asesor responsable. Dueño del registro para el alcance OWN.
+  ownerId               String    @map("owner_id") @db.Uuid
+
+  // --- Clasificación (ALCANCE §5.6) ---
+  /// crm.tipo_proyecto
+  projectTypeId     String?  @map("project_type_id") @db.Uuid
+  /// crm.sector_proyecto (sector o uso)
+  sectorId          String?  @map("sector_id") @db.Uuid
+  /// Unidad en la que se mide el proyecto (m², viviendas, ml…).
+  measureUnitId     String?  @map("measure_unit_id") @db.Uuid
+  estimatedQuantity Decimal? @map("estimated_quantity") @db.Decimal(19, 4)
+  /// Regla aplicada para estimar el tonelaje; debe convertir DESDE measureUnitId.
+  conversionRuleId  String?  @map("conversion_rule_id") @db.Uuid
+  conversionFactor  Decimal? @map("conversion_factor") @db.Decimal(19, 8)
+  /// Calculado con la regla, o estimación manual cuando no hay regla (DM-24).
+  estimatedTonnage  Decimal? @map("estimated_tonnage") @db.Decimal(19, 4)
+
+  // --- Fase del cliente (ALCANCE §5.7), independiente de las oportunidades ---
+  /// crm.fase_cliente
+  phaseId        String   @map("phase_id") @db.Uuid
+  phaseProgress  Decimal  @default(0) @map("phase_progress") @db.Decimal(5, 2)
+  phaseUpdatedAt DateTime @default(now()) @map("phase_updated_at") @db.Timestamptz(6)
+  phaseComment   String?  @map("phase_comment") @db.VarChar(1000)
+
+  /// Proyecto del que se duplicó (ALCANCE §5.3). Solo trazabilidad.
+  duplicatedFromId String?   @map("duplicated_from_id") @db.Uuid
+  /// Última actualización funcional (00 §2.6). Alimenta la alerta de proyecto sin actualizar.
+  lastActivityAt   DateTime  @default(now()) @map("last_activity_at") @db.Timestamptz(6)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdById      String?   @map("created_by_id") @db.Uuid
+  updatedById      String?   @map("updated_by_id") @db.Uuid
+
+  customer       Customer              @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  country        Country               @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  owner          User                  @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  projectType    CatalogItem?          @relation("ProjectType", fields: [projectTypeId], references: [id], onDelete: Restrict)
+  sector         CatalogItem?          @relation("ProjectSector", fields: [sectorId], references: [id], onDelete: Restrict)
+  measureUnit    UnitOfMeasure?        @relation(fields: [measureUnitId], references: [id], onDelete: Restrict)
+  conversionRule UnitConversionRule?   @relation("ProjectConversion", fields: [conversionRuleId, measureUnitId], references: [id, fromUnitId], onDelete: Restrict, onUpdate: Restrict)
+  phase          CatalogItem           @relation("ProjectPhase", fields: [phaseId], references: [id], onDelete: Restrict)
+  duplicatedFrom Project?              @relation("ProjectDuplication", fields: [duplicatedFromId], references: [id], onDelete: SetNull)
+  duplicates     Project[]             @relation("ProjectDuplication")
+  phaseHistory   ProjectPhaseHistory[]
+  opportunities  Opportunity[]
+  products       ProjectProduct[]
+  forecastLines  ForecastLine[]
+  visits         Visit[]
+  activities     Activity[]
+  attachments    Attachment[]
+
+  /// Destino de las FK compuestas "proyecto de este cliente".
+  @@unique([id, customerId], map: "uq_projects_id_customer")
+  @@index([customerId], map: "idx_projects_customer_id")
+  @@index([ownerId], map: "idx_projects_owner_id")
+  @@index([countryId], map: "idx_projects_country_id")
+  @@index([phaseId], map: "idx_projects_phase_id")
+  @@index([projectTypeId], map: "idx_projects_project_type_id")
+  @@index([estimatedDecisionDate], map: "idx_projects_estimated_decision_date")
+  @@index([lastActivityAt], map: "idx_projects_last_activity_at")
+  @@index([deletedAt], map: "idx_projects_deleted_at")
+  @@map("projects")
+}
+
+/// Historial de la fase del cliente (ALCANCE §5.7). Solo inserción.
+/// CHECK: ck_project_phase_history_progress.
+model ProjectPhaseHistory {
+  id           String   @id @default(uuid()) @db.Uuid
+  projectId    String   @map("project_id") @db.Uuid
+  fromPhaseId  String?  @map("from_phase_id") @db.Uuid
+  toPhaseId    String   @map("to_phase_id") @db.Uuid
+  fromProgress Decimal? @map("from_progress") @db.Decimal(5, 2)
+  toProgress   Decimal  @map("to_progress") @db.Decimal(5, 2)
+  comment      String?  @db.VarChar(1000)
+  changedById  String   @map("changed_by_id") @db.Uuid
+  changedAt    DateTime @default(now()) @map("changed_at") @db.Timestamptz(6)
+
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  fromPhase CatalogItem? @relation("PhaseHistoryFrom", fields: [fromPhaseId], references: [id], onDelete: Restrict)
+  toPhase   CatalogItem  @relation("PhaseHistoryTo", fields: [toPhaseId], references: [id], onDelete: Restrict)
+  changedBy User         @relation("PhaseHistoryChangedBy", fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([projectId, changedAt], map: "idx_project_phase_history_project_id_changed_at")
+  @@map("project_phase_history")
+}
+
+/// Oportunidad. La "estimación" (DM-1, DM-36, ADR-024) son campos que van juntos:
+/// monto + moneda + foto del tipo de cambio (+ su fecha si no es USD) + equivalente USD.
+/// CHECK: ck_opportunities_amount, _amount_set, _exchange_rate, _amount_usd,
+/// _usd_identity, _rate_date, _tonnage.
+model Opportunity {
+  id                 String    @id @default(uuid()) @db.Uuid
+  /// Identificador de oportunidad, Sequence 'crm.oportunidad' (OPO-2026-00042).
+  code               String    @unique @db.VarChar(30)
+  projectId          String    @map("project_id") @db.Uuid
+  /// crm.etapa_oportunidad
+  stageId            String    @map("stage_id") @db.Uuid
+  /// "Fecha" de la oportunidad (ALCANCE §5.8): fecha de identificación (DM-35).
+  opportunityDate    DateTime  @map("opportunity_date") @db.Date
+  ownerId            String    @map("owner_id") @db.Uuid
+  /// Monto en la moneda elegida: USD (base) o la moneda del país del proyecto.
+  estimatedAmount    Decimal?  @map("estimated_amount") @db.Decimal(19, 4)
+  currencyCode       String?   @map("currency_code") @db.Char(3)
+  /// Tipo de cambio APLICADO: unidades de currencyCode por 1 USD. 1 si la moneda es USD.
+  /// Es una foto: corregir después exchange_rates no lo cambia (00 §2.16).
+  exchangeRate       Decimal?  @map("exchange_rate") @db.Decimal(19, 8)
+  /// Fecha de vigencia de la fila de exchange_rates aplicada. Nula si la moneda es USD.
+  exchangeRateDate   DateTime? @map("exchange_rate_date") @db.Date
+  /// estimatedAmount / exchangeRate, 4 decimales HALF_UP. Base de todos los totales.
+  estimatedAmountUsd Decimal?  @map("estimated_amount_usd") @db.Decimal(19, 4)
+  estimatedTonnage   Decimal?  @map("estimated_tonnage") @db.Decimal(19, 4)
+  description        String?   @db.VarChar(2000)
+  /// Siguiente acción: su ausencia en una oportunidad abierta genera alerta.
+  nextAction         String?   @map("next_action") @db.VarChar(300)
+  nextActionDate     DateTime? @map("next_action_date") @db.Date
+  stageChangedAt     DateTime  @default(now()) @map("stage_changed_at") @db.Timestamptz(6)
+  /// Se fija al pasar a una etapa con metadata.isClosed = true; se limpia al reabrir.
+  closedAt           DateTime? @map("closed_at") @db.Timestamptz(6)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdById        String?   @map("created_by_id") @db.Uuid
+  updatedById        String?   @map("updated_by_id") @db.Uuid
+
+  project       Project                    @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  stage         CatalogItem                @relation("OpportunityStage", fields: [stageId], references: [id], onDelete: Restrict)
+  owner         User                       @relation("OpportunityOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  currency      Currency?                  @relation(fields: [currencyCode], references: [code], onDelete: Restrict)
+  stageHistory  OpportunityStageHistory[]
+  result        OpportunityResult?
+  resultHistory OpportunityResultHistory[]
+  products      ProjectProduct[]
+  activities    Activity[]
+
+  /// Destino de las FK compuestas "oportunidad de este proyecto".
+  @@unique([id, projectId], map: "uq_opportunities_id_project")
+  @@index([projectId], map: "idx_opportunities_project_id")
+  @@index([ownerId, stageId], map: "idx_opportunities_owner_id_stage_id")
+  @@index([stageId], map: "idx_opportunities_stage_id")
+  @@index([nextActionDate], map: "idx_opportunities_next_action_date")
+  @@index([deletedAt], map: "idx_opportunities_deleted_at")
+  @@map("opportunities")
+}
+
+/// Historial de cambios de etapa (ALCANCE §5.8). Solo inserción. El alta crea la primera fila (from = null).
+model OpportunityStageHistory {
+  id            String   @id @default(uuid()) @db.Uuid
+  opportunityId String   @map("opportunity_id") @db.Uuid
+  fromStageId   String?  @map("from_stage_id") @db.Uuid
+  toStageId     String   @map("to_stage_id") @db.Uuid
+  comment       String?  @db.VarChar(1000)
+  changedById   String   @map("changed_by_id") @db.Uuid
+  changedAt     DateTime @default(now()) @map("changed_at") @db.Timestamptz(6)
+
+  opportunity Opportunity  @relation(fields: [opportunityId], references: [id], onDelete: Restrict)
+  fromStage   CatalogItem? @relation("StageHistoryFrom", fields: [fromStageId], references: [id], onDelete: Restrict)
+  toStage     CatalogItem  @relation("StageHistoryTo", fields: [toStageId], references: [id], onDelete: Restrict)
+  changedBy   User         @relation("StageHistoryChangedBy", fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([opportunityId, changedAt], map: "idx_opportunity_stage_history_opportunity_id_changed_at")
+  @@index([toStageId, changedAt], map: "idx_opportunity_stage_history_to_stage_id_changed_at")
+  @@map("opportunity_stage_history")
+}
+
+/// Resultado comercial vigente (ALCANCE §5.9). 0..1 por oportunidad.
+/// CHECK: ck_opportunity_results_lost_reason, _partial_percent, _percent_range.
+model OpportunityResult {
+  id             String             @id @default(uuid()) @db.Uuid
+  opportunityId  String             @unique @map("opportunity_id") @db.Uuid
+  outcome        OpportunityOutcome
+  /// crm.motivo_resultado. Obligatorio si LOST (CHECK).
+  reasonId       String?            @map("reason_id") @db.Uuid
+  /// Obligatorio si PARTIAL (CHECK).
+  awardedPercent Decimal?           @map("awarded_percent") @db.Decimal(5, 2)
+  decisionDate   DateTime           @map("decision_date") @db.Date
+  comments       String?            @db.VarChar(2000)
+  recordedById   String             @map("recorded_by_id") @db.Uuid
+  recordedAt     DateTime           @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedById    String?            @map("updated_by_id") @db.Uuid
+
+  opportunity Opportunity  @relation(fields: [opportunityId], references: [id], onDelete: Restrict)
+  reason      CatalogItem? @relation("ResultReason", fields: [reasonId], references: [id], onDelete: Restrict)
+  recordedBy  User         @relation("ResultRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+
+  @@index([outcome, decisionDate], map: "idx_opportunity_results_outcome_decision_date")
+  @@map("opportunity_results")
+}
+
+/// Cada versión del resultado (registro, cambio, anulación). Solo inserción.
+/// CHECK: ck_opportunity_result_history_payload, _percent.
+model OpportunityResultHistory {
+  id             String              @id @default(uuid()) @db.Uuid
+  opportunityId  String              @map("opportunity_id") @db.Uuid
+  action         ResultChangeAction
+  outcome        OpportunityOutcome?
+  reasonId       String?             @map("reason_id") @db.Uuid
+  awardedPercent Decimal?            @map("awarded_percent") @db.Decimal(5, 2)
+  decisionDate   DateTime?           @map("decision_date") @db.Date
+  comments       String?             @db.VarChar(2000)
+  changedById    String              @map("changed_by_id") @db.Uuid
+  changedAt      DateTime            @default(now()) @map("changed_at") @db.Timestamptz(6)
+
+  opportunity Opportunity  @relation(fields: [opportunityId], references: [id], onDelete: Restrict)
+  reason      CatalogItem? @relation("ResultHistoryReason", fields: [reasonId], references: [id], onDelete: Restrict)
+  changedBy   User         @relation("ResultHistoryChangedBy", fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([opportunityId, changedAt], map: "idx_opportunity_result_history_opportunity_id_changed_at")
+  @@map("opportunity_result_history")
+}
+
+/// Cantidad comercial de un producto en un proyecto (y opcionalmente en una de
+/// sus oportunidades). El maestro del producto no se copia aquí.
+/// CHECK: ck_project_products_quantity, _tonnage, _conversion (tonelaje ⇔ regla).
+model ProjectProduct {
+  id               String    @id @default(uuid()) @db.Uuid
+  projectId        String    @map("project_id") @db.Uuid
+  opportunityId    String?   @map("opportunity_id") @db.Uuid
+  productId        String    @map("product_id") @db.Uuid
+  quantity         Decimal   @db.Decimal(19, 4)
+  unitId           String    @map("unit_id") @db.Uuid
+  conversionRuleId String?   @map("conversion_rule_id") @db.Uuid
+  conversionFactor Decimal?  @map("conversion_factor") @db.Decimal(19, 8)
+  tonnage          Decimal?  @db.Decimal(19, 4)
+  /// crm.estado_producto_asociado
+  statusId         String    @map("status_id") @db.Uuid
+  notes            String?   @db.VarChar(1000)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdById      String?   @map("created_by_id") @db.Uuid
+  updatedById      String?   @map("updated_by_id") @db.Uuid
+
+  project        Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  /// FK compuesta: la oportunidad debe ser de ESTE proyecto.
+  opportunity    Opportunity?        @relation(fields: [opportunityId, projectId], references: [id, projectId], onDelete: Restrict, onUpdate: Restrict)
+  product        Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
+  unit           UnitOfMeasure       @relation("ProjectProductUnit", fields: [unitId], references: [id], onDelete: Restrict)
+  /// FK compuesta: la regla debe convertir DESDE la unidad de la línea.
+  conversionRule UnitConversionRule? @relation("ProjectProductConversion", fields: [conversionRuleId, unitId], references: [id, fromUnitId], onDelete: Restrict, onUpdate: Restrict)
+  status         CatalogItem         @relation("ProjectProductStatus", fields: [statusId], references: [id], onDelete: Restrict)
+
+  @@index([projectId], map: "idx_project_products_project_id")
+  @@index([opportunityId], map: "idx_project_products_opportunity_id")
+  @@index([productId], map: "idx_project_products_product_id")
+  @@map("project_products")
+}
+
+/// Forecast M+6 en períodos absolutos (año, mes): la ventana móvil es un filtro.
+/// CHECK: ck_forecast_lines_month, _year, _quantity, _tonnage, _conversion.
+model ForecastLine {
+  id               String   @id @default(uuid()) @db.Uuid
+  projectId        String   @map("project_id") @db.Uuid
+  productId        String   @map("product_id") @db.Uuid
+  year             Int      @db.SmallInt
+  month            Int      @db.SmallInt
+  quantity         Decimal  @db.Decimal(19, 4)
+  unitId           String   @map("unit_id") @db.Uuid
+  conversionRuleId String?  @map("conversion_rule_id") @db.Uuid
+  conversionFactor Decimal? @map("conversion_factor") @db.Decimal(19, 8)
+  tonnage          Decimal? @db.Decimal(19, 4)
+  /// Asesor responsable de la proyección (por defecto, el del proyecto; DM-25).
+  ownerId          String   @map("owner_id") @db.Uuid
+  notes            String?  @db.VarChar(500)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// "Fecha de actualización" visible de la línea.
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdById      String?  @map("created_by_id") @db.Uuid
+  updatedById      String?  @map("updated_by_id") @db.Uuid
+
+  project        Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  product        Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
+  unit           UnitOfMeasure       @relation("ForecastUnit", fields: [unitId], references: [id], onDelete: Restrict)
+  conversionRule UnitConversionRule? @relation("ForecastConversion", fields: [conversionRuleId, unitId], references: [id, fromUnitId], onDelete: Restrict, onUpdate: Restrict)
+  owner          User                @relation("ForecastOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+
+  /// Línea única por proyecto, producto, año y mes (ALCANCE §5.11).
+  @@unique([projectId, productId, year, month], map: "uq_forecast_lines_project_product_period")
+  @@index([year, month], map: "idx_forecast_lines_year_month")
+  @@index([ownerId, year, month], map: "idx_forecast_lines_owner_id_year_month")
+  @@index([productId, year, month], map: "idx_forecast_lines_product_id_year_month")
+  @@map("forecast_lines")
+}
+
+// -----------------------------------------------------------------------------
+// Actividad comercial: visitas, eventos, actividades y participantes (00 §2.10)
+// -----------------------------------------------------------------------------
+
+/// Visita. Una fila toda su vida (reprogramar no crea otra); SIN deletedAt: nunca se elimina.
+/// CHECK: ck_visits_scheduled_range, _actual_range, _confirm_requires,
+/// _confirmed_by_owner (DM-20), _reschedule_count, _reminder.
+model Visit {
+  id         String @id @default(uuid()) @db.Uuid
+  /// Sequence 'crm.visita' (VIS-2026-00042).
+  code       String  @unique @db.VarChar(30)
+  customerId String  @map("customer_id") @db.Uuid
+  projectId  String? @map("project_id") @db.Uuid
+  /// Asesor responsable.
+  ownerId    String  @map("owner_id") @db.Uuid
+  /// crm.estado_visita. Estado vigente; la secuencia de cambios está en visit_events.
+  statusId   String  @map("status_id") @db.Uuid
+
+  // --- Planificación (§6.5.1) ---
+  /// Fecha y hora planificada VIGENTE. Reprogramar la actualiza aquí y deja la anterior en visit_events.
+  scheduledStartAt      DateTime  @map("scheduled_start_at") @db.Timestamptz(6)
+  scheduledEndAt        DateTime? @map("scheduled_end_at") @db.Timestamptz(6)
+  objective             String    @db.VarChar(1000)
+  location              String?   @db.VarChar(300)
+  /// Recordatorio: minutos antes del inicio (DM-27).
+  reminderMinutesBefore Int?      @map("reminder_minutes_before")
+  /// Fecha planificada original; la usan los reportes para medir reprogramaciones.
+  originalScheduledAt   DateTime  @map("original_scheduled_at") @db.Timestamptz(6)
+  rescheduleCount       Int       @default(0) @map("reschedule_count")
+
+  // --- Realización (§6.5.2) ---
+  actualStartAt          DateTime? @map("actual_start_at") @db.Timestamptz(6)
+  actualEndAt            DateTime? @map("actual_end_at") @db.Timestamptz(6)
+  topics                 String?   @db.Text
+  agreements             String?   @db.Text
+  /// crm.resultado_interaccion (DM-21)
+  resultId               String?   @map("result_id") @db.Uuid
+  resultSummary          String?   @map("result_summary") @db.VarChar(2000)
+  comments               String?   @db.VarChar(2000)
+  nextAction             String?   @map("next_action") @db.VarChar(300)
+  nextActionDate         DateTime? @map("next_action_date") @db.Date
+  completionRecordedById String?   @map("completion_recorded_by_id") @db.Uuid
+  completionRecordedAt   DateTime? @map("completion_recorded_at") @db.Timestamptz(6)
+
+  // --- Confirmación (§6.5.3) ---
+  confirmedAt         DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  confirmedById       String?   @map("confirmed_by_id") @db.Uuid
+  confirmationSummary String?   @map("confirmation_summary") @db.VarChar(2000)
+
+  cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdById String?   @map("created_by_id") @db.Uuid
+  updatedById String?   @map("updated_by_id") @db.Uuid
+
+  customer             Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  /// FK compuesta: el proyecto debe ser de ESTE cliente.
+  project              Project?                 @relation(fields: [projectId, customerId], references: [id, customerId], onDelete: Restrict, onUpdate: Restrict)
+  owner                User                     @relation("VisitOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  status               CatalogItem              @relation("VisitStatus", fields: [statusId], references: [id], onDelete: Restrict)
+  result               CatalogItem?             @relation("VisitResult", fields: [resultId], references: [id], onDelete: Restrict)
+  completionRecordedBy User?                    @relation("VisitCompletionRecordedBy", fields: [completionRecordedById], references: [id], onDelete: Restrict)
+  confirmedBy          User?                    @relation("VisitConfirmedBy", fields: [confirmedById], references: [id], onDelete: Restrict)
+  events               VisitEvent[]
+  participants         InteractionParticipant[]
+  attachments          Attachment[]
+
+  @@unique([id, customerId], map: "uq_visits_id_customer")
+  @@index([ownerId, scheduledStartAt], map: "idx_visits_owner_id_scheduled_start_at")
+  @@index([customerId, scheduledStartAt], map: "idx_visits_customer_id_scheduled_start_at")
+  @@index([projectId], map: "idx_visits_project_id")
+  @@index([statusId, scheduledStartAt], map: "idx_visits_status_id_scheduled_start_at")
+  @@map("visits")
+}
+
+/// Evento del ciclo de vida de una visita. Solo inserción. Conserva estado anterior y nuevo.
+/// CHECK: ck_visit_events_reschedule, ck_visit_events_reason.
+model VisitEvent {
+  id                       String         @id @default(uuid()) @db.Uuid
+  visitId                  String         @map("visit_id") @db.Uuid
+  eventType                VisitEventType @map("event_type")
+  fromStatusId             String?        @map("from_status_id") @db.Uuid
+  toStatusId               String         @map("to_status_id") @db.Uuid
+  previousScheduledStartAt DateTime?      @map("previous_scheduled_start_at") @db.Timestamptz(6)
+  newScheduledStartAt      DateTime?      @map("new_scheduled_start_at") @db.Timestamptz(6)
+  /// crm.motivo_reprogramacion o crm.motivo_cancelacion según el tipo.
+  reasonId                 String?        @map("reason_id") @db.Uuid
+  reasonText               String?        @map("reason_text") @db.VarChar(1000)
+  comment                  String?        @db.VarChar(2000)
+  performedById            String         @map("performed_by_id") @db.Uuid
+  occurredAt               DateTime       @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  visit       Visit        @relation(fields: [visitId], references: [id], onDelete: Restrict)
+  fromStatus  CatalogItem? @relation("VisitEventFromStatus", fields: [fromStatusId], references: [id], onDelete: Restrict)
+  toStatus    CatalogItem  @relation("VisitEventToStatus", fields: [toStatusId], references: [id], onDelete: Restrict)
+  reason      CatalogItem? @relation("VisitEventReason", fields: [reasonId], references: [id], onDelete: Restrict)
+  performedBy User         @relation("VisitEventPerformedBy", fields: [performedById], references: [id], onDelete: Restrict)
+  attachments Attachment[]
+
+  @@index([visitId, occurredAt], map: "idx_visit_events_visit_id_occurred_at")
+  @@map("visit_events")
+}
+
+/// Actividad (llamada, reunión, correo, tarea). "Vencida" NO es un estado (P4).
+/// CHECK: ck_activities_opportunity_needs_project, _duration, _completion.
+model Activity {
+  id                String    @id @default(uuid()) @db.Uuid
+  /// Sequence 'crm.actividad' (ACT-2026-000042).
+  code              String    @unique @db.VarChar(30)
+  /// crm.tipo_actividad. metadata define los campos del formulario.
+  typeId            String    @map("type_id") @db.Uuid
+  subject           String    @db.VarChar(200)
+  description       String?   @db.Text
+  /// Obligatorio (ALCANCE §2).
+  customerId        String    @map("customer_id") @db.Uuid
+  projectId         String?   @map("project_id") @db.Uuid
+  opportunityId     String?   @map("opportunity_id") @db.Uuid
+  ownerId           String    @map("owner_id") @db.Uuid
+  /// crm.estado_actividad. "Vencida" = abierta + dueAt < ahora.
+  statusId          String    @map("status_id") @db.Uuid
+  /// crm.prioridad
+  priorityId        String    @map("priority_id") @db.Uuid
+  /// "Fecha y hora" de la actividad.
+  scheduledAt       DateTime? @map("scheduled_at") @db.Timestamptz(6)
+  /// "Fecha de vencimiento".
+  dueAt             DateTime? @map("due_at") @db.Timestamptz(6)
+  durationMinutes   Int?      @map("duration_minutes")
+  /// Resumen de la gestión (llamada, reunión, correo).
+  summary           String?   @db.VarChar(2000)
+  /// crm.resultado_interaccion (DM-21)
+  resultId          String?   @map("result_id") @db.Uuid
+  resultNotes       String?   @map("result_notes") @db.VarChar(2000)
+  nextAction        String?   @map("next_action") @db.VarChar(300)
+  nextActionDate    DateTime? @map("next_action_date") @db.Date
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz(6)
+  completedById     String?   @map("completed_by_id") @db.Uuid
+  completionComment String?   @map("completion_comment") @db.VarChar(2000)
+  cancelledAt       DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdById       String?   @map("created_by_id") @db.Uuid
+  updatedById       String?   @map("updated_by_id") @db.Uuid
+
+  type         CatalogItem              @relation("ActivityType", fields: [typeId], references: [id], onDelete: Restrict)
+  customer     Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  /// FK compuesta: el proyecto debe ser de ESTE cliente.
+  project      Project?                 @relation(fields: [projectId, customerId], references: [id, customerId], onDelete: Restrict, onUpdate: Restrict)
+  /// FK compuesta: la oportunidad debe ser de ESE proyecto.
+  opportunity  Opportunity?             @relation(fields: [opportunityId, projectId], references: [id, projectId], onDelete: Restrict, onUpdate: Restrict)
+  owner        User                     @relation("ActivityOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  status       CatalogItem              @relation("ActivityStatus", fields: [statusId], references: [id], onDelete: Restrict)
+  priority     CatalogItem              @relation("ActivityPriority", fields: [priorityId], references: [id], onDelete: Restrict)
+  result       CatalogItem?             @relation("ActivityResult", fields: [resultId], references: [id], onDelete: Restrict)
+  completedBy  User?                    @relation("ActivityCompletedBy", fields: [completedById], references: [id], onDelete: Restrict)
+  participants InteractionParticipant[]
+  attachments  Attachment[]
+
+  @@unique([id, customerId], map: "uq_activities_id_customer")
+  @@index([ownerId, statusId, dueAt], map: "idx_activities_owner_id_status_id_due_at")
+  @@index([customerId, scheduledAt], map: "idx_activities_customer_id_scheduled_at")
+  @@index([projectId], map: "idx_activities_project_id")
+  @@index([opportunityId], map: "idx_activities_opportunity_id")
+  @@index([typeId], map: "idx_activities_type_id")
+  @@index([deletedAt], map: "idx_activities_deleted_at")
+  @@map("activities")
+}
+
+/// Participantes / asistentes de una visita o actividad. Un contacto debe ser
+/// del mismo cliente que la visita o actividad: lo garantizan FK compuestas.
+/// CHECK: ck_interaction_participants_parent, ck_interaction_participants_subject.
+model InteractionParticipant {
+  id           String          @id @default(uuid()) @db.Uuid
+  visitId      String?         @map("visit_id") @db.Uuid
+  activityId   String?         @map("activity_id") @db.Uuid
+  /// Copia del cliente del padre: necesaria para las FK compuestas.
+  customerId   String          @map("customer_id") @db.Uuid
+  role         ParticipantRole @default(INVITED)
+  contactId    String?         @map("contact_id") @db.Uuid
+  userId       String?         @map("user_id") @db.Uuid
+  /// Asistente externo no registrado como contacto (solo nombre).
+  externalName String?         @map("external_name") @db.VarChar(160)
+  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdById  String?         @map("created_by_id") @db.Uuid
+
+  visit    Visit?    @relation(fields: [visitId, customerId], references: [id, customerId], onDelete: Cascade, onUpdate: Cascade)
+  activity Activity? @relation(fields: [activityId, customerId], references: [id, customerId], onDelete: Cascade, onUpdate: Cascade)
+  contact  Contact?  @relation(fields: [contactId, customerId], references: [id, customerId], onDelete: Restrict, onUpdate: Restrict)
+  user     User?     @relation("ParticipantUser", fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([visitId], map: "idx_interaction_participants_visit_id")
+  @@index([activityId], map: "idx_interaction_participants_activity_id")
+  @@index([contactId], map: "idx_interaction_participants_contact_id")
+  @@map("interaction_participants")
+}
+
+// -----------------------------------------------------------------------------
+// Adjuntos, importación de clientes y metas (00 §2.11, §2.14, §2.15)
+// -----------------------------------------------------------------------------
+
+/// Vínculo de un archivo (StoredFile) con exactamente UN dueño comercial.
+/// CHECK: ck_attachments_single_owner (num_nonnulls(...) = 1).
+model Attachment {
+  id           String    @id @default(uuid()) @db.Uuid
+  /// Un archivo pertenece a un solo vínculo.
+  storedFileId String    @unique @map("stored_file_id") @db.Uuid
+  customerId   String?   @map("customer_id") @db.Uuid
+  projectId    String?   @map("project_id") @db.Uuid
+  visitId      String?   @map("visit_id") @db.Uuid
+  visitEventId String?   @map("visit_event_id") @db.Uuid
+  activityId   String?   @map("activity_id") @db.Uuid
+  description  String?   @db.VarChar(300)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdById  String?   @map("created_by_id") @db.Uuid
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedById  String?   @map("deleted_by_id") @db.Uuid
+
+  storedFile StoredFile  @relation(fields: [storedFileId], references: [id], onDelete: Restrict)
+  customer   Customer?   @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  project    Project?    @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  visit      Visit?      @relation(fields: [visitId], references: [id], onDelete: Restrict)
+  visitEvent VisitEvent? @relation(fields: [visitEventId], references: [id], onDelete: Restrict)
+  activity   Activity?   @relation(fields: [activityId], references: [id], onDelete: Restrict)
+
+  @@index([customerId], map: "idx_attachments_customer_id")
+  @@index([projectId], map: "idx_attachments_project_id")
+  @@index([visitId], map: "idx_attachments_visit_id")
+  @@index([visitEventId], map: "idx_attachments_visit_event_id")
+  @@index([activityId], map: "idx_attachments_activity_id")
+  @@map("attachments")
+}
+
+/// Carga masiva de clientes. El original se procesa en memoria y no se guarda;
+/// el archivo de errores se genera al vuelo (D-06.8): source/error_file_id quedan nulos.
+/// CHECK: ck_customer_imports_counters.
+model CustomerImport {
+  id               String           @id @default(uuid()) @db.Uuid
+  /// Sequence 'crm.importacion' (IMP-2026-0007).
+  code             String           @unique @db.VarChar(30)
+  format           ImportFileFormat
+  originalFileName String           @map("original_file_name") @db.VarChar(255)
+  sourceFileId     String?          @map("source_file_id") @db.Uuid
+  errorFileId      String?          @map("error_file_id") @db.Uuid
+  status           ImportStatus     @default(UPLOADED)
+  templateVersion  String?          @map("template_version") @db.VarChar(20)
+  totalRows        Int              @default(0) @map("total_rows")
+  validRows        Int              @default(0) @map("valid_rows")
+  invalidRows      Int              @default(0) @map("invalid_rows")
+  importedRows     Int              @default(0) @map("imported_rows")
+  failureReason    String?          @map("failure_reason") @db.VarChar(500)
+  startedById      String           @map("started_by_id") @db.Uuid
+  validatedAt      DateTime?        @map("validated_at") @db.Timestamptz(6)
+  confirmedById    String?          @map("confirmed_by_id") @db.Uuid
+  confirmedAt      DateTime?        @map("confirmed_at") @db.Timestamptz(6)
+  completedAt      DateTime?        @map("completed_at") @db.Timestamptz(6)
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  sourceFile  StoredFile?         @relation("ImportSourceFile", fields: [sourceFileId], references: [id], onDelete: SetNull)
+  errorFile   StoredFile?         @relation("ImportErrorFile", fields: [errorFileId], references: [id], onDelete: SetNull)
+  startedBy   User                @relation("ImportStartedBy", fields: [startedById], references: [id], onDelete: Restrict)
+  confirmedBy User?               @relation("ImportConfirmedBy", fields: [confirmedById], references: [id], onDelete: Restrict)
+  rows        CustomerImportRow[]
+  customers   Customer[]
+
+  @@index([startedById, createdAt], map: "idx_customer_imports_started_by_id_created_at")
+  @@index([status, createdAt], map: "idx_customer_imports_status_created_at")
+  @@map("customer_imports")
+}
+
+/// Fila leída de una carga. raw_data contiene datos de contacto: se purga por retención (DM-28).
+/// CHECK: ck_customer_import_rows_row_number, ck_customer_import_rows_imported.
+model CustomerImportRow {
+  id                    String          @id @default(uuid()) @db.Uuid
+  importId              String          @map("import_id") @db.Uuid
+  /// Número de fila en el archivo (1 = primera fila de datos).
+  rowNumber             Int             @map("row_number")
+  /// Valores leídos, tal cual.
+  rawData               Json            @map("raw_data")
+  status                ImportRowStatus @default(PENDING)
+  /// [{ field, code, message, severity: "ERROR" | "WARNING" }] (06 RN-06.18, D-06.6).
+  errors                Json?
+  duplicateOfCustomerId String?         @map("duplicate_of_customer_id") @db.Uuid
+  duplicateOfRowNumber  Int?            @map("duplicate_of_row_number")
+  /// Cliente creado al importar la fila.
+  customerId            String?         @map("customer_id") @db.Uuid
+  createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  import      CustomerImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  duplicateOf Customer?      @relation("ImportRowDuplicateOf", fields: [duplicateOfCustomerId], references: [id], onDelete: SetNull)
+  customer    Customer?      @relation("ImportRowCustomer", fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@unique([importId, rowNumber], map: "uq_customer_import_rows_import_row")
+  @@index([importId, status], map: "idx_customer_import_rows_import_id_status")
+  @@map("customer_import_rows")
+}
+
+/// Meta comercial (DM-9). Tabla vacía en la Fase 0; carga por script.
+/// Sujeto: exactamente uno de usuario, equipo o país (CHECK); productFamily es un filtro opcional.
+/// CHECK: ck_sales_targets_subject, _month, _value.
+model SalesTarget {
+  id              String            @id @default(uuid()) @db.Uuid
+  metric          SalesTargetMetric
+  year            Int               @db.SmallInt
+  /// null = meta anual.
+  month           Int?              @db.SmallInt
+  userId          String?           @map("user_id") @db.Uuid
+  teamId          String?           @map("team_id") @db.Uuid
+  countryId       String?           @map("country_id") @db.Uuid
+  productFamilyId String?           @map("product_family_id") @db.Uuid
+  /// Toneladas, cantidad o, si metric = AMOUNT, USD (moneda base, DM-36). Sin columna de moneda.
+  targetValue     Decimal           @map("target_value") @db.Decimal(19, 4)
+  notes           String?           @db.VarChar(500)
+  deletedAt       DateTime?         @map("deleted_at") @db.Timestamptz(6)
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdById     String?           @map("created_by_id") @db.Uuid
+  updatedById     String?           @map("updated_by_id") @db.Uuid
+
+  user          User?          @relation("SalesTargetUser", fields: [userId], references: [id], onDelete: Restrict)
+  team          Team?          @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  country       Country?       @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  productFamily ProductFamily? @relation(fields: [productFamilyId], references: [id], onDelete: Restrict)
+
+  @@index([year, month], map: "idx_sales_targets_year_month")
+  @@index([userId], map: "idx_sales_targets_user_id")
+  @@index([teamId], map: "idx_sales_targets_team_id")
+  @@map("sales_targets")
 }

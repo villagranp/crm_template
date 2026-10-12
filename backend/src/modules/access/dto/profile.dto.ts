@@ -28,6 +28,6 @@ export class ProfileResponseDto {
   @ApiProperty({ type: [ProfileTeamDto] })
   teams!: ProfileTeamDto[];
 
-  @ApiProperty({ enum: ['OWN', 'TEAM', 'TERRITORY', 'ORGANIZATION'] })
-  dataScope!: 'OWN' | 'TEAM' | 'TERRITORY' | 'ORGANIZATION';
+  @ApiProperty({ enum: ['OWN', 'TEAM', 'COUNTRY', 'ORGANIZATION'] })
+  dataScope!: 'OWN' | 'TEAM' | 'COUNTRY' | 'ORGANIZATION';
 }

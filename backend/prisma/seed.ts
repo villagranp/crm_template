@@ -8,6 +8,17 @@
  *
  * Ejecutar:  pnpm --filter @app/backend run prisma:seed
  *
+ * Es la semilla ESENCIAL: corre en todos los entornos, producción incluida.
+ * Además del núcleo de gestión siembra la configuración del CRM (00 §8.2):
+ * monedas, países, unidades, reglas de conversión genéricas, secuencias,
+ * catálogos `crm.*`, permisos, roles comerciales y parámetros `crm.*`. Los datos
+ * ficticios van en la semilla de demostración (`prisma/seed-demo.ts`), que nunca
+ * se ejecuta desde aquí.
+ *
+ * Opciones de menú (DM-32): solo se crean las que apuntan a una ruta registrada
+ * en `app-routes.registry.json`; las del CRM aparecen cuando su módulo registra
+ * la pantalla.
+ *
  * Administrador inicial (PLAN-AUTH-LOCAL, D11): si `SEED_ADMIN_PASSWORD` tiene
  * valor y el administrador aún no tiene credencial, se le asigna con Argon2id y
  * `mustChangePassword = true`. Nunca sobrescribe una credencial existente:
@@ -16,6 +27,7 @@
  */
 import { PrismaClient, type Prisma } from '@prisma/client';
 
+import { isRegisteredRoute } from '../src/modules/access/route-registry';
 import { PasswordService } from '../src/modules/auth/password.service';
 
 import {
@@ -27,6 +39,7 @@ import {
   SYSTEM_PARAMETERS,
   type ActionKey,
 } from './seed/access-catalog';
+import { seedCrmEssentials } from './seed/crm-seeders';
 
 loadEnvFiles(['.env', '../.env']);
 
@@ -120,8 +133,12 @@ async function seedMenuOptions(
 ): Promise<Map<string, string>> {
   const ids = new Map<string, string>();
 
+  // DM-32 / PLAN-ADMIN D6: una opción sin pantalla registrada llevaría a un 404.
+  const shipped = MENU_OPTIONS.filter((option) => option.path === null || isRegisteredRoute(option.path));
+  const pending = MENU_OPTIONS.length - shipped.length;
+
   // Primero los nodos raíz; después los hijos, que necesitan el id del padre.
-  const ordered = [...MENU_OPTIONS].sort((a, b) => Number(Boolean(a.parentKey)) - Number(Boolean(b.parentKey)));
+  const ordered = [...shipped].sort((a, b) => Number(Boolean(a.parentKey)) - Number(Boolean(b.parentKey)));
 
   for (const option of ordered) {
     const moduleId = moduleIds.get(option.moduleKey);
@@ -150,7 +167,7 @@ async function seedMenuOptions(
     ids.set(option.key, saved.id);
   }
 
-  log(`opciones de menú: ${ids.size}`);
+  log(`opciones de menú: ${ids.size}${pending > 0 ? ` (${pending} declaradas sin ruta registrada todavía, DM-32)` : ''}`);
   return ids;
 }
 
@@ -277,6 +294,7 @@ async function main(): Promise<void> {
   const roleIds = await seedRoles(permissionIds, menuOptionIds);
   await seedSystemParameters();
   await seedAdminUser(roleIds);
+  await seedCrmEssentials(prisma, log);
 
   const auditEntry: Prisma.AuditLogCreateInput = {
     correlationId: 'seed',
