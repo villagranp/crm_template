@@ -250,6 +250,70 @@ Reutilizados: `FIELD_NOT_EDITABLE` (403), `UNKNOWN_REFERENCE`, `CUSTOMER_INACTIV
 `INVALID_CATALOG_VALUE`, `CONVERSION_RULE_NOT_FOUND`, `INVALID_CONVERSION_RULE`,
 `ATTACHMENT_TOO_LARGE`, `ATTACHMENT_TYPE_NOT_ALLOWED`.
 
+## Endpoints del CRM — Módulo 3 · Oportunidades y Forecast (E2b)
+
+Todos autenticados; `401 UNAUTHENTICATED`, `403 PERMISSION_DENIED` sin el permiso base, `429`, y
+`404 RESOURCE_NOT_FOUND` idéntico para inexistente, eliminado o fuera del alcance del permiso de
+**ver** del recurso (`oportunidades.ver` / `forecast.ver`). Una oportunidad es visible si su asesor
+o su proyecto (asesor o país) están en el alcance (DM-13). Decimales como cadena; fechas
+`YYYY-MM-DD`. Spec: `03-proyectos.md` F.2, F.3 y "Precisiones" E2b.
+
+### Oportunidades (`Oportunidades`, F-17/F-18)
+
+| Método | Ruta | Permiso base | Respuesta | Errores propios |
+|---|---|---|---|---|
+| GET | `/opportunities` | `oportunidades.ver` | 200 `PaginatedOpportunitiesDto` | 400, 422 `INVALID_DATE_RANGE` |
+| GET | `/opportunities/form-options[?projectId=]` | `oportunidades.ver` | 200 `OpportunityFormOptionsDto` (`currencies` solo con `projectId`) | 400, 404 |
+| GET | `/opportunities/stage-summary` | `oportunidades.ver` | 200 `{ stages: [{ stage, count }] }` | 400, 422 |
+| GET | `/opportunities/{id}` | `oportunidades.ver` | 200 `OpportunityDetailDto` (+ `allowedTransitions`, `capabilities`) | 404 |
+| PATCH | `/opportunities/{id}` | `oportunidades.editar` (propia) / `administrar` | 200 `OpportunityMutationResponseDto` (+ `warnings?`) | 403 `FIELD_NOT_EDITABLE`, 404, 422 `CURRENCY_REQUIRED`, `REQUIRED_FIELD_MISSING`, `CURRENCY_NOT_ALLOWED`, `EXCHANGE_RATE_NOT_FOUND`, `INVALID_OWNER` |
+| POST | `/opportunities/{id}/stage-changes` | `oportunidades.editar`; cerrar + `cerrar`; reabrir + `administrar` | 201 `OpportunityDetailDto` | 403, 404, 422 `INVALID_STAGE_TRANSITION`, `STAGE_UNCHANGED`, `COMMENT_REQUIRED`, `RESULT_*`, `INVALID_PROGRESS`, `INVALID_CATALOG_VALUE` |
+| PUT | `/opportunities/{id}/result` | `oportunidades.cerrar` (propia) / `administrar` | 200 `OpportunityResultDto` | 403, 404, 409 `OPPORTUNITY_NOT_CLOSED`, 422 `RESULT_*`, `INVALID_PROGRESS`, `INVALID_CATALOG_VALUE` |
+| GET | `/opportunities/{id}/history` | `oportunidades.ver` | 200 `{ stages[], results[] }` (más reciente primero) | 404 |
+| DELETE | `/opportunities/{id}` | `oportunidades.eliminar` (en su alcance) | 204 | 404, 409 `OPPORTUNITY_CLOSED`, `OPPORTUNITY_HAS_DEPENDENCIES` |
+| GET | `/projects/{projectId}/opportunities` | `oportunidades.ver` | 200 `PaginatedOpportunitiesDto` (mismos filtros salvo `projectId`; `?status=OPEN` para el Módulo 4) | 404 (proyecto) |
+| POST | `/projects/{projectId}/opportunities` | `oportunidades.crear` + proyecto propio o `administrar` | 201 `OpportunityMutationResponseDto` + `Location` | 403 `PERMISSION_DENIED`/`FIELD_NOT_EDITABLE`, 404, 422 `INVALID_INITIAL_STAGE`, `INVALID_CATALOG_VALUE`, estimación, `INVALID_OWNER` |
+
+Filtros de `GET /opportunities`: `search` (código o nombre de proyecto), `projectId`, `customerId`,
+`stageId`, `ownerId` (repetibles por comas), `status=OPEN|CLOSED`, `outcome=WON,PARTIAL,LOST`,
+`decisionFrom`/`decisionTo`, `dateField ∈ opportunityDate|nextActionDate|updatedAt` + `dateFrom`/`dateTo`;
+`sortBy ∈ code|opportunityDate|stageOrder|nextActionDate|updatedAt|estimatedAmountUsd` (defecto
+`updatedAt desc`, nulos al final). Aviso no bloqueante en `warnings[]` de POST/PATCH:
+`EXCHANGE_RATE_STALE` con `details` objeto `{ currencyCode, exchangeRateDate, referenceDate, ageDays, thresholdDays }`.
+
+### Forecast M+6 (`Forecast`, F-20)
+
+| Método | Ruta | Permiso base | Respuesta | Errores propios |
+|---|---|---|---|---|
+| GET | `/forecast/window` | `forecast.ver` | 200 `{ timeZone, current, periods: [{ offset, year, month, label }] }` | — |
+| GET | `/forecast/rows` | `forecast.ver` | 200 `Paginated<ForecastRowDto>` | 400, 422 `FORECAST_PERIOD_OUT_OF_WINDOW`, `INVALID_DATE_RANGE` |
+| GET | `/forecast/totals` | `forecast.ver` | 200 `ForecastTotalsDto` (todas las líneas filtradas) | 400, 422 |
+| PUT | `/forecast/lines` | `forecast.editar` (proyecto propio) / `forecast.administrar` | 200 `ForecastSaveResultDto { created, updated, unchanged, lines }` | 400 (> 500 líneas), 403 `PERMISSION_DENIED`/`FIELD_NOT_EDITABLE`, 404, 409 `FORECAST_LINE_STALE`, 422 `INVALID_QUANTITY`, `FORECAST_PERIOD_OUT_OF_WINDOW`, `FORECAST_DUPLICATE_IN_BATCH`, `PRODUCT_NOT_ASSOCIATED`, `INVALID_OWNER`, `UNKNOWN_REFERENCE` |
+
+Consulta: `mode=WINDOW|HISTORY`, `projectId`, `productId`, `ownerId` (repetibles), `periods`
+(`YYYY-MM`, solo `WINDOW`), `from`/`to` (solo `HISTORY`, máx. 24 meses), `search`, paginación,
+`sortBy ∈ projectCode|productSku|updatedAt`.
+
+### Códigos de error nuevos (03 §L.6, E2b)
+
+| Status | Código | `details[]` |
+|---|---|---|
+| 409 | `OPPORTUNITY_NOT_CLOSED` · `OPPORTUNITY_CLOSED` | `{ stageId, stageCode }` |
+| 409 | `OPPORTUNITY_HAS_DEPENDENCIES` | `{ dependency: "activeProducts"\|"openActivities", count }` (solo los > 0) |
+| 409 | `FORECAST_LINE_STALE` | `{ index, lineId, updatedAt }` por cada línea en conflicto |
+| 422 | `INVALID_INITIAL_STAGE` · `STAGE_UNCHANGED` | `{ field: "stageId"\|"toStageId", code, message, stageCode }` |
+| 422 | `INVALID_STAGE_TRANSITION` | `{ field: "toStageId", code, message, fromStageCode, toStageCode }` |
+| 422 | `COMMENT_REQUIRED` · `CURRENCY_REQUIRED` | `{ field: "comment"\|"currencyCode", code, message }` |
+| 422 | `RESULT_REQUIRED` · `RESULT_NOT_ALLOWED` | `{ field: "result", code, message, stageCode }` |
+| 422 | `RESULT_STAGE_MISMATCH` | `{ field: "[result.]outcome", code, message, stageCode, allowedOutcomes }` |
+| 422 | `RESULT_REASON_REQUIRED` · `RESULT_PERCENT_REQUIRED` · `RESULT_PERCENT_NOT_ALLOWED` | `{ field: "[result.]reasonId"\|"[result.]awardedPercent", code, message }` |
+| 422 | `FORECAST_PERIOD_OUT_OF_WINDOW` | `{ field: "lines[i].month"\|"periods[i]", code, message, index?, period }` |
+| 422 | `FORECAST_DUPLICATE_IN_BATCH` | `{ field: "lines[i].month", code, message, index, duplicateOfIndex }` |
+| 422 | `PRODUCT_NOT_ASSOCIATED` · `INVALID_QUANTITY` · `INVALID_OWNER` · `UNKNOWN_REFERENCE` (forecast) | `{ field: "lines[i].<campo>", code, message, index }` |
+
+`INVALID_CATALOG_VALUE` admite `reason: "NOT_APPLICABLE"` para un motivo cuyo `appliesTo` no
+incluye el resultado. `RESULT_PERCENT_NOT_ALLOWED` es nuevo respecto de §L.6 (ver "Precisiones" E2b).
+
 ## CRM — Piezas transversales del Módulo 3 (sin endpoints propios)
 
 Códigos que emiten `CurrencyConversionService` y `UnitConversionResolver` (03 "Precisiones de

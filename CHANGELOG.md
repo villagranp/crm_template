@@ -27,6 +27,23 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   - NGINX: una sola cabecera `Cache-Control: no-store` en las respuestas de la API.
 
 ### Added
+- **CRM Módulo 3 — backend de Oportunidades y Forecast (E2b, F-17, F-18, F-20):** módulos
+  `opportunities` y `forecast`. Endpoints `/opportunities` (pipeline con filtros DEF-A, resultado y
+  fecha de decisión; orden por equivalente en USD), `/opportunities/form-options` (monedas admitidas
+  por proyecto), `/opportunities/stage-summary`, detalle con `allowedTransitions` y `capabilities`,
+  edición con foto del tipo de cambio y aviso `EXCHANGE_RATE_STALE` en `warnings[]`,
+  `/stage-changes` (transiciones por parámetro, regla de respaldo, cierre con resultado y
+  reapertura), `PUT /result`, `/history`, eliminación lógica, y
+  `/projects/{projectId}/opportunities` (lista y alta); `/forecast/window`, `/forecast/rows`,
+  `/forecast/totals` y `PUT /forecast/lines` (lote atómico con concurrencia optimista).
+  Códigos nuevos `INVALID_INITIAL_STAGE`, `INVALID_STAGE_TRANSITION`, `STAGE_UNCHANGED`,
+  `COMMENT_REQUIRED`, `CURRENCY_REQUIRED`, `RESULT_REQUIRED`, `RESULT_NOT_ALLOWED`,
+  `RESULT_STAGE_MISMATCH`, `RESULT_REASON_REQUIRED`, `RESULT_PERCENT_REQUIRED`,
+  `RESULT_PERCENT_NOT_ALLOWED`, `OPPORTUNITY_NOT_CLOSED`, `OPPORTUNITY_CLOSED`,
+  `OPPORTUNITY_HAS_DEPENDENCIES`, `FORECAST_PERIOD_OUT_OF_WINDOW`, `FORECAST_DUPLICATE_IN_BATCH`,
+  `PRODUCT_NOT_ASSOCIATED`, `FORECAST_LINE_STALE` (`docs/api/README.md`). `ProjectsModule` exporta
+  además `PROJECTS_REPOSITORY`; `createTestContext` admite `configure` para sustituir proveedores
+  en pruebas. Sin cambios de esquema.
 - **CRM Módulo 3 — backend de Proyectos (E2a, F-10…F-16 y F-19):** módulos `projects` y
   `products` (solo lectura). Endpoints `/projects` (búsqueda con estado comercial DEF-B y filtros
   repetibles por comas, `team-view`, `form-options`, `owner-options`, `team-options`, alta, ficha,

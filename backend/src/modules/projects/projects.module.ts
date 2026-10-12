@@ -42,7 +42,10 @@ import { ProjectsService } from './projects.service';
  * estáticas (`/projects/form-options`…) deben resolverse antes que `/projects/:id`.
  *
  * Exporta `ProjectAccessService` (visibilidad y alcances por operación) para
- * Oportunidades y Forecast (E2b), que heredan la visibilidad del proyecto (DM-13).
+ * Oportunidades y Forecast (E2b), que heredan la visibilidad del proyecto (DM-13), y el
+ * puerto `PROJECTS_REPOSITORY` para que sus escrituras bloqueen la fila del proyecto
+ * (`lockProject(id, 'UPDATE', tx)`), toquen `last_activity_at` y validen asesores
+ * asignables con las mismas consultas (03 "Precisiones" E2a).
  */
 @Module({
   imports: [PrismaModule, AccessModule, CatalogsModule, AttachmentsModule, CustomersModule, ProductsModule, UnitConversionsModule],
@@ -69,6 +72,6 @@ import { ProjectsService } from './projects.service';
     { provide: PROJECTS_REPOSITORY, useClass: PrismaProjectsRepository },
     { provide: PROJECT_PRODUCTS_REPOSITORY, useClass: PrismaProjectProductsRepository },
   ],
-  exports: [ProjectAccessService, ProjectCatalogsService],
+  exports: [ProjectAccessService, ProjectCatalogsService, PROJECTS_REPOSITORY],
 })
 export class ProjectsModule {}

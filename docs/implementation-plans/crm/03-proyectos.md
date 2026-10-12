@@ -1592,7 +1592,7 @@ reglas de uso si aplica), `matriz-trazabilidad.md` (F-10…F-20) y este archivo
 `PRODUCT_HAS_FORECAST` (409), `FORECAST_PERIOD_OUT_OF_WINDOW`,
 `PRODUCT_NOT_ASSOCIATED`, `FORECAST_DUPLICATE_IN_BATCH`,
 `FORECAST_LINE_STALE` (409), `CURRENCY_NOT_ALLOWED`, `EXCHANGE_RATE_NOT_FOUND`
-(DM-36), `ATTACHMENT_TYPE_NOT_ALLOWED`, `ATTACHMENT_TOO_LARGE` (413, DC-4). Sin marca = `422`.
+(DM-36), `RESULT_PERCENT_NOT_ALLOWED` (E2b), `ATTACHMENT_TYPE_NOT_ALLOWED`, `ATTACHMENT_TOO_LARGE` (413, DC-4). Sin marca = `422`.
 Aviso no bloqueante (no es error; viaja en `warnings` con `200`/`201`):
 `EXCHANGE_RATE_STALE`. Reutilizados: `RESOURCE_NOT_FOUND`,
 `PERMISSION_DENIED`, `UNAUTHENTICATED`, `VALIDATION_FAILED` (400), `UNKNOWN_REFERENCE`, `CUSTOMER_INACTIVE` y `FIELD_NOT_EDITABLE` (403) de 02,
@@ -1843,7 +1843,72 @@ excluyen del historial de la ficha (prevalece el historial funcional).
 `INVALID_CONVERSION_RULE` conservan las formas de 02 y de E1.
 
 **Pendiente para E2b**: oportunidades, resultados y forecast (F-17, F-18, F-20), incluido
-`GET /projects/{id}/opportunities`; PF-03.54 completo (cambios de etapa por la API).
+`GET /projects/{id}/opportunities`; PF-03.54 completo (cambios de etapa por la API). Entregado: ver E2b.
+
+### E2b — Backend de oportunidades, resultados y forecast (2026-10-12)
+
+Alcance: F-17, F-18 y F-20 (módulos `opportunities` y `forecast`), incluido
+`GET/POST /projects/{projectId}/opportunities` y PF-03.54 completo (cambios de etapa y resultado
+por la API no tocan la fase). Ningún cambio de esquema. `ProjectsModule` exporta además
+`PROJECTS_REPOSITORY` (`lockProject`, `touchLastActivity`, `findEligibleOwner`).
+
+**Decisiones técnicas** (AGENTS §9.3; ninguna cambia una regla de negocio):
+
+1. **Visibilidad por operación** (00 §4.2, DM-13): una oportunidad es visible con el alcance de
+   `oportunidades.ver` si su asesor **o** su proyecto (asesor o país) están en él; proyecto u
+   oportunidad eliminados → `404`. La lista del proyecto, el alta y `form-options?projectId=` exigen
+   el **proyecto** en el alcance de `oportunidades.ver` (opción restrictiva: una oportunidad propia
+   en un proyecto ajeno se ve en `/opportunities` y en su detalle, pero no abre la lista del
+   proyecto). `administrar` y `eliminar` se evalúan con el alcance de su propio permiso.
+2. **Capabilities** (`canEdit`, `canClose`, `canReopen`, `canDelete`) de la misma política que
+   autoriza: cerrar = `editar` + `cerrar`; reabrir = `editar` + `administrar` en su alcance y solo
+   cerradas; eliminar = `eliminar` en su alcance y solo abiertas (H.1 dice "dentro del alcance", sin
+   exigir propiedad). Crear usa la misma función que `canCreateOpportunity` de la ficha.
+3. **Bloqueos**: toda escritura toma `projects FOR UPDATE` y después `opportunities FOR UPDATE`
+   (mismo orden en todo el módulo); la decisión del cambio de etapa, del resultado y de la
+   eliminación se toma sobre el estado bloqueado. El forecast bloquea los proyectos afectados en
+   orden de id y luego sus líneas. Tasas, parámetros y catálogos se leen antes de la transacción.
+4. **Estimación** (RN-03.82): "cambia" se compara por valor (`7750.00` = `7750`); una moneda sin
+   monto → `422 REQUIRED_FIELD_MISSING` (`estimatedAmount`); el código de moneda se normaliza a
+   mayúsculas; montos y tonelajes negativos → `400` por patrón (H.3). La moneda admitida se decide
+   con el país del proyecto leído antes de la transacción.
+5. **Etapa inicial por defecto**: la del parámetro si es activa y abierta; si no, la primera abierta
+   activa por `metadata.order`. `form-options` añade `defaults { stageId, opportunityDate }`
+   (propiedad adicional compatible).
+6. **Transiciones**: de cerrada a abierta es siempre reapertura (aunque el mapa la liste); de
+   cerrada a cerrada solo si el mapa lo permite, y entonces el resultado se reemplaza (historial
+   `CHANGED`, `closedAt` conserva el primer cierre). Orden de validación de F.2: `403` de edición →
+   `INVALID_CATALOG_VALUE` del destino → `STAGE_UNCHANGED` → reapertura (`403` sin `administrar`,
+   `COMMENT_REQUIRED`, `RESULT_NOT_ALLOWED`) → `INVALID_STAGE_TRANSITION` → cierre (`403` sin
+   `cerrar`, `RESULT_REQUIRED`, reglas del resultado). Un comentario solo con espacios no cuenta.
+7. **Resultado**: con `WON` o `LOST` un porcentaje adjudicado se **rechaza**
+   (`422 RESULT_PERCENT_NOT_ALLOWED`, código nuevo) en lugar de descartarse; un motivo cuyo
+   `appliesTo` no incluye el resultado → `422 INVALID_CATALOG_VALUE` con `reason: "NOT_APPLICABLE"`.
+   La semántica sale de `crm.resultado_oportunidad` sin relajar nunca lo que exige la base (motivo en
+   `LOST`, porcentaje en `PARTIAL`). `PUT /result` sin diferencias responde `200` sin escribir,
+   historial ni auditoría; un motivo ya desactivado que no cambia se conserva.
+8. **Auditoría**: todos los eventos de oportunidades y resultados con `resourceType =
+   crm.opportunity` y `metadata.projectId`; enmascarados `description`, `nextAction`, `comment` y
+   `comments`. Forecast: `crm.forecast_line.created/updated` con `maskedFields: ['notes']`.
+9. **Pipeline**: `search` normaliza acentos en el nombre del proyecto y busca el código como
+   "contiene"; `decisionFrom`/`decisionTo` exigen resultado; `sortBy` por defecto `updatedAt desc`,
+   nulos al final en ambos sentidos; `stage-summary` devuelve las etapas activas (también con 0) y
+   las inactivas que aún tienen oportunidades. `/history` va del más reciente al más antiguo, sin
+   paginar (acotado por oportunidad).
+10. **Forecast — reloj**: la ventana usa un reloj inyectable `FORECAST_CLOCK`
+    (`backend/src/modules/forecast/forecast-clock.ts`) para las pruebas con reloj simulado; en
+    producción es el reloj del sistema. Las pruebas de integración no cambian
+    `crm.zona_horaria_negocio` ni `crm.forecast.horizonte_meses` (parámetros compartidos).
+11. **Forecast — consulta y lote**: `periods` solo en `WINDOW` y `from`/`to` solo en `HISTORY`
+    (`400` en el modo contrario); `HISTORY` sin `to` = mes en curso; más de 24 meses o `from > to`
+    → `422 INVALID_DATE_RANGE` (`details[0].maxMonths` en el primer caso). Una línea nueva sin
+    `unitId` usa la unidad de la asociación activa (primero la sin oportunidad, luego la más
+    antigua) o la base del producto; una existente conserva la suya. `notes` omitido se conserva.
+    "Sin cambios" = misma cantidad, unidad, asesor y notas (no se escribe ni audita).
+    `expectedUpdatedAt` se compara al milisegundo; sin él, gana la última escritura.
+
+**Formas finales de `details`**: las de `docs/api/README.md` §"Códigos de error nuevos (03 §L.6,
+E2b)". El aviso `EXCHANGE_RATE_STALE` conserva su `details` objeto (E1).
 
 ## Filas para la matriz
 
