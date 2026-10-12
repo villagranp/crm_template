@@ -90,11 +90,12 @@ export async function crmUser(context: TestContext, options: CrmUserOptions = {}
 export async function testCountry(
   prisma: PrismaClient,
   isoCode: string,
-  options: { phonePattern?: string | null; taxIdPattern?: string | null; isActive?: boolean; name?: string } = {},
+  options: { phonePattern?: string | null; taxIdPattern?: string | null; isActive?: boolean; name?: string; currencyCode?: string } = {},
 ): Promise<string> {
   const data = {
     name: options.name ?? `País de prueba ${isoCode}`,
-    currencyCode: 'USD',
+    // Moneda local del país (FK a `currencies`, ADR-024); por defecto la base.
+    currencyCode: options.currencyCode ?? 'USD',
     taxIdLabel: 'NIT',
     phonePattern: options.phonePattern ?? null,
     taxIdPattern: options.taxIdPattern ?? null,

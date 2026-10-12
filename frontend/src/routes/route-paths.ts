@@ -25,5 +25,15 @@ export const ROUTE_PATHS = {
     customerNew: '/clientes/nuevo',
     /** Ruta con parámetro (D-02.12): se registra, pero no puede ser destino de una opción de menú. */
     customerDetail: '/clientes/:customerId',
+    /** Módulo 3 (03 §E.1). Las rutas con parámetro se registran, pero nunca son destino de menú (D-03.2). */
+    projects: {
+      search: '/proyectos',
+      create: '/proyectos/nuevo',
+      detail: '/proyectos/:projectId',
+      team: '/proyectos/equipo',
+      opportunities: '/proyectos/oportunidades',
+      opportunityDetail: '/proyectos/oportunidades/:opportunityId',
+      forecast: '/proyectos/forecast',
+    },
   },
 } as const;

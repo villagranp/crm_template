@@ -322,22 +322,39 @@ export function restoreContact(customerId: string, contactId: string): Promise<C
 
 // --- Proyectos del cliente (F.7, contrato del Módulo 3) ---
 
+/** Estado comercial derivado de un proyecto (03 RN-03.14, DEF-B). */
+export type ProjectCommercialStatusKind = 'OPEN_STAGE' | 'WON' | 'LOST' | 'NO_OPPORTUNITIES';
+
 /**
  * Lo que la ficha usa de `ProjectListItemDto` (03 F.1, "Contrato para Clientes
- * F-08"). El tipo vive aquí porque el Módulo 3 aún no existe en el frontend;
- * cuando llegue, se sustituye por el de su barril público.
+ * F-08"; AC-03.86). Los decimales llegan como cadena (`progress: "75.00"`).
+ * El tipo vive aquí porque el Módulo 3 aún no lo publica en su barril; en su
+ * etapa E3 se sustituye por el de `features/crm/projects`.
  */
 export interface CustomerProjectItem {
   id: string;
   code: string;
   name: string;
   city: string | null;
-  country: { name: string } | null;
-  phase: { id: string; code: string; label: string; progress: number | null } | null;
-  commercialStatus: { kind: string; label: string; stage: string | null } | null;
-  owner: { id: string; displayName: string } | null;
+  country: { id: string; isoCode: string; name: string };
+  phase: { id: string; code: string; label: string; progress: string };
+  commercialStatus: {
+    kind: ProjectCommercialStatusKind;
+    label: string;
+    stage: { id: string; code: string; label: string } | null;
+  };
+  owner: { id: string; displayName: string };
   estimatedDecisionDate: string | null;
 }
+
+/**
+ * Filtros de `GET /projects` que admite la sección (03 F.1): `commercialStatus`
+ * es `OPEN_STAGE:<stageId>`, `WON`, `LOST` o `NO_OPPORTUNITIES`.
+ */
+export const CUSTOMER_PROJECT_FILTER_KEYS = ['phaseId', 'ownerId', 'commercialStatus'] as const;
+
+/** Subconjunto de la lista blanca de `sortBy` de `GET /projects` (03 F.1) con columna en la sección. */
+export const CUSTOMER_PROJECT_SORT_FIELDS = ['code', 'name', 'phaseOrder', 'estimatedDecisionDate'] as const;
 
 /** Lo llama el frontend directamente; el backend de Clientes no lo reexpone (F.7). */
 export function listCustomerProjects(customerId: string, query: ListQuery): Promise<PaginatedResponse<CustomerProjectItem>> {

@@ -12,6 +12,13 @@
     { "path": "/administracion/auditoria", "label": "Auditoría" },
     { "path": "/clientes", "label": "Clientes" },
     { "path": "/clientes/nuevo", "label": "Nuevo cliente" },
-    { "path": "/clientes/:customerId", "label": "Ficha de cliente" }
+    { "path": "/clientes/:customerId", "label": "Ficha de cliente" },
+    { "path": "/proyectos", "label": "Proyectos" },
+    { "path": "/proyectos/nuevo", "label": "Nuevo proyecto" },
+    { "path": "/proyectos/:projectId", "label": "Ficha de proyecto" },
+    { "path": "/proyectos/equipo", "label": "Proyectos del equipo" },
+    { "path": "/proyectos/oportunidades", "label": "Oportunidades" },
+    { "path": "/proyectos/oportunidades/:opportunityId", "label": "Detalle de oportunidad" },
+    { "path": "/proyectos/forecast", "label": "Forecast M+6" }
   ]
 }

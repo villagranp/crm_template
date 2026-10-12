@@ -32,6 +32,7 @@
 - [K. Dependencias y orden](#k-dependencias-y-orden)
 - [L. Archivos de código a implementar](#l-archivos-de-código-a-implementar)
 - [Decisiones del módulo (resueltas el 2026-10-10)](#decisiones-del-módulo-resueltas-el-2026-10-10)
+- [Precisiones de implementación (2026-10-11)](#precisiones-de-implementación-2026-10-11)
 - [Filas para la matriz](#filas-para-la-matriz)
 
 ---
@@ -1338,7 +1339,7 @@ Niveles (TESTING.md, ADR-013): **U** = unitaria backend (Jest, puro, sin base);
 | # | Dependencia | Estado | Si falta |
 |---|---|---|---|
 | 1 | **Fase 0**: migraciones 1–5 de 00 §9 (`DataScope.COUNTRY`, países, productos/unidades/reglas, clientes, proyectos/oportunidades/forecast + CHECK) | Pendiente | Bloquea todo |
-| 2 | **Fase 0**: puertos transversales `SequenceGenerator`, `CatalogReferenceValidator`, `VisibilityScopeResolver`, `UnitConversionResolver`, `ExchangeRateReader` (ADR-024); registro de semántica de catálogos | Pendiente | Bloquea todo |
+| 2 | **Fase 0**: puertos transversales `SequenceGenerator`, `CatalogReferenceValidator`, `VisibilityScopeResolver`, `UnitConversionResolver`, `ExchangeRateReader` (ADR-024); registro de semántica de catálogos | **Entregado** (2026-10-11): los tres primeros con la Fase 0 y el Módulo 2; `UnitConversionResolver` y `ExchangeRateReader` (+ `CurrencyConversionService`) en la etapa E1 de este módulo (ver "Precisiones de implementación") | Bloquea todo |
 | 3 | **Fase 0**: semilla esencial (catálogos §D.4, parámetros §D.5 —incluidos `crm.moneda_base` y `crm.tipos_cambio.dias_aviso_antiguedad`—, monedas, países con su moneda, tipos de cambio iniciales —valores entregados por el negocio, 00 §8.2—, secuencias `crm.proyecto`/`crm.oportunidad`, unidades y reglas genéricas, permisos `proyectos.*`, `oportunidades.*`, `productos.ver`, `forecast.*`, acciones `cerrar`/`administrar`, roles `asesor`/`manager`/`responsable-pais`) | Pendiente | Bloquea todo |
 | 4 | **Módulo 2** implementado (clientes visibles, `CustomerRepository` de lectura, selector) | Previo en el orden §11 | Sin clientes no hay proyectos |
 | 5 | DM-12 resuelta (alcance `TEAM` y equipos) | Bloqueante antes de Clientes (00) | La vista de equipo funciona con lo propio |
@@ -1655,6 +1656,92 @@ conservan los identificadores.
 | **D-03.16** | ¿A quién se puede asignar como asesor responsable? | **Resuelta (2026-10-10).** Usuario `ACTIVE`, con rol del CRM, dentro del alcance de quien asigna | Ampliarlo (cualquier usuario) cambia `INVALID_OWNER` |
 
 ---
+
+## Precisiones de implementación (2026-10-11)
+
+Huecos técnicos resueltos al implementar (AGENTS.md §9.3, §9.10). Ninguno cambia el esquema,
+una regla de negocio ni un permiso.
+
+### E1 — Piezas transversales del backend
+
+**Ubicación y contratos** (firmas en el código; resumen para E2):
+
+| Pieza | Ubicación | Qué ofrece |
+|---|---|---|
+| Aritmética decimal | `backend/src/common/decimal.ts` | `roundDecimal`, `multiplyDecimal`, `divideDecimal`, `sumDecimals`, `compareDecimal`, `isDecimalString`, `isZeroDecimal`. `BigInt`, `HALF_UP`, escala fija en el resultado (addendum de ADR-024). Montos y tonelajes con 4 decimales; tasas y factores con 8 |
+| Fechas de calendario | `backend/src/common/calendar-date.ts` | `CalendarDate` (`YYYY-MM-DD`), `isCalendarDate`, `fromCalendarDate`/`toCalendarDate` (medianoche UTC para `@db.Date`), `calendarDaysBetween`, `calendarDateIn(now, zona)` ("hoy" del negocio, RN-03.38) |
+| Avisos no bloqueantes | `backend/src/common/warnings.ts` | `ApplicationWarning { code, message, details }` (forma de `warnings[]`, RN-03.81) |
+| Monedas y tipos de cambio | `backend/src/modules/exchange-rates/` (`ExchangeRatesModule` exporta `CurrencyConversionService`) | Puerto `ExchangeRateReader` (`EXCHANGE_RATE_READER`) + adaptador `prisma-exchange-rate-reader.repository.ts`. Servicio: `allowedCurrencies(countryId)`, `assertCurrencyAllowed(code, countryId)`, `findApplicable(code, date)` (sin lanzar, para Reportes), `convertToBase({ amount, currencyCode, referenceDate, countryId })` (los cinco campos + `warnings`) |
+| Conversión a toneladas | `backend/src/modules/unit-conversions/` (`UnitConversionsModule` exporta `UnitConversionResolver`) | Puerto `UnitConversionReader` (`UNIT_CONVERSION_READER`) + adaptador `prisma-unit-conversions.repository.ts`. `resolve(lookup)` → regla o `null`; `require(lookup)` → `422 CONVERSION_RULE_NOT_FOUND`; `assertApplicable(ruleId, lookup)` → `422 INVALID_CONVERSION_RULE`; `tonnageFor(cantidad, regla)`; `tonnageUnit()` |
+| Predicados de métricas | `backend/src/modules/commercial-metrics/metric-definitions.ts` | DEF-A (`isClosedStage`, `isOpenStage`, `openStageIds`, `closedStageIds`), resultado (`isWonOutcome`, `isLostOutcome`), RN-03.15 (`isFinalPhase`, `nonFinalPhaseIds`, `finalPhaseIds`, `isActiveProject`), DEF-B (`commercialStatus`), DEF-C (`projectLastUpdate`, `PROJECT_LAST_UPDATE_FIELD`), DEF-G (`businessMonth`, `forecastWindowMonths`, `isInForecastWindow`, `addMonths`, `compareYearMonth`) |
+
+**Decisiones técnicas:**
+
+1. **"`ExchangeRateReader.findApplicable`" se reparte en puerto y servicio** (addendum de ADR-024):
+   el puerto lee la fila de mayor vigencia ≤ fecha; la identidad de USD, las monedas admitidas, la
+   conversión, el aviso y los `422` los aplica `CurrencyConversionService`.
+2. **Forma de `details`** (API-STANDARDS: `details` es siempre una lista; donde RN-03.79 dice
+   `details: { currencyCode, date }` se lee `details[0]`):
+   - `CURRENCY_NOT_ALLOWED`: `[{ field, code, currencyCode, allowedCurrencyCodes[] }]`.
+   - `EXCHANGE_RATE_NOT_FOUND`: `[{ field, code, currencyCode, date }]`.
+   - `CONVERSION_RULE_NOT_FOUND`: `[{ field, code, fromUnitId, toUnitCode }]`.
+   - `INVALID_CONVERSION_RULE`: `[{ field, code, ruleId, reasons[] }]`, con `reasons` ∈
+     `NOT_FOUND`, `INACTIVE`, `FROM_UNIT_MISMATCH`, `TO_UNIT_MISMATCH`, `SCOPE_NOT_APPLICABLE`,
+     `NON_POSITIVE_FACTOR`, `IDENTITY_FACTOR_NOT_ONE`.
+   - Aviso `EXCHANGE_RATE_STALE`: `details` es un objeto (`{ currencyCode, exchangeRateDate,
+     referenceDate, ageDays, thresholdDays }`), como fija F.2.
+3. **Moneda del país inexistente o inactiva** (RN-03.78, opción más restrictiva): no se admite;
+   solo queda USD, que es también la moneda propuesta (`defaultCurrencyCode`). La base se exige
+   igualmente existente y activa.
+4. **"Más de N días"** (RN-03.81): avisa si `ageDays > crm.tipos_cambio.dias_aviso_antiguedad`
+   (con 31: 31 días no avisa, 32 sí). La moneda base nunca avisa.
+5. **Identidad `TON → TON`**: es la regla `GLOBAL` de la semilla esencial y se resuelve como
+   cualquier otra; no se sintetiza (el `CHECK` "tonelaje ⇔ regla" exige una regla real).
+6. **Unidad de tonelaje rota**: si el código de `crm.forecast.unidad_tonelaje` no existe en
+   `units_of_measure`, el resolver lanza `TonnageUnitUnavailableError` (fallo de configuración →
+   `500`, mismo criterio que `SequenceNotFoundError`). Una unidad destino desactivada no bloquea
+   (sus reglas siguen vigentes); RN-07.33 impide llegar a ambos casos por la API.
+7. **`INVALID_CONVERSION_RULE` frente a `CONVERSION_RULE_NOT_FOUND`**: el resolver nunca devuelve una
+   regla no aplicable, así que en modo `RULE` una regla inactiva o hacia otra unidad se traduce en
+   `CONVERSION_RULE_NOT_FOUND`; `INVALID_CONVERSION_RULE` es para una regla concreta que se valida
+   con `assertApplicable` (p. ej. una foto que se vuelve a validar).
+8. **RN-07.33 implementada** (pendiente desde la Fase 0): `PATCH /parameters/crm.forecast.unidad_tonelaje`
+   exige unidad existente, activa, de dimensión `MASS` y con regla identidad `GLOBAL` activa. Si no →
+   `422 INVALID_PARAMETER_VALUE` con una incidencia por motivo
+   (`details[]: { field: "value", issue, reason, unitCode, key }`, `reason` ∈ `UNIT_NOT_FOUND`,
+   `UNIT_INACTIVE`, `UNIT_NOT_MASS`, `IDENTITY_RULE_MISSING`). Lo valida `ParametersService` con
+   `UnitConversionResolver.tonnageUnitCandidateIssues`.
+9. **DEF-B**: empate de `metadata.order` entre etapas abiertas → gana el `code` menor (determinista);
+   una oportunidad cerrada sin resultado (no debería existir, RN-03.46) cuenta como no ganada;
+   las etiquetas fijas son `Ganado`, `Perdido` y `Sin oportunidades` (`COMMERCIAL_STATUS_LABELS`).
+   `metric-definitions.ts` incluye además "proyecto activo" (RN-03.15), porque RN-03.77 prohíbe
+   consultar `isFinal` fuera de él. Los totales del forecast (RN-03.74) no son un predicado:
+   los calcula `forecast-totals.ts` (E2) con `sumDecimals`.
+10. **Semilla demo**: las líneas (productos asociados y forecast) aplicaban `PRODUCT > FAMILY > GLOBAL`
+    sin `PROJECT_TYPE`, en contra de RN-03.58. Ahora usan la misma precedencia que el resolver:
+    las mallas (m²) de los proyectos `VIVIENDA` (P1, P4) toman la regla por tipo y la del proyecto
+    industrial P8 sigue "sin conversión" (`seeds.e2e.spec.ts` actualizado). El resto de §L.2 ya
+    estaba cubierto: fases `DISENO`…`FINALIZADO`, duplicado P6 ← P5, oportunidades abiertas,
+    ganadas, perdidas y parcial (y una con resultado cambiado), productos con y sin conversión,
+    forecast M−3…M+6 y tasas demo de M−2, M−1 y M. Con tasas mensuales ninguna oportunidad demo
+    dispara `EXCHANGE_RATE_STALE`; se ve creando una estimación en GTQ con fecha posterior en más
+    de 31 días al día 1 del mes en curso.
+
+---
+
+### E1 — Base del frontend
+
+- **Entrada decimal (es-GT):** el punto es el separador decimal; la coma solo se admite como
+  separador de miles bien colocado. `1,5` es un error de formato, nunca `15`. La validación no
+  redondea. Los montos se muestran con el código ISO (`GTQ 1,234.50`). Helpers en
+  `frontend/src/features/crm/common/decimal.ts` (`BigInt`, sin `number`) y `DecimalField`.
+- **Fechas de calendario** (`YYYY-MM-DD`): nunca se interpretan con `new Date(string)` (en UTC-6
+  muestra el día anterior); se usa `formatCalendarDate`.
+- La sección de proyectos de la ficha del cliente puede ordenar por `phaseOrder`; su orden por
+  defecto sigue siendo `name asc`.
+- **Filtros repetibles** (p. ej. `commercialStatus`): se envían separados por comas
+  (`commercialStatus=OPEN_STAGE,WON`), igual que `outcome=WON,PARTIAL`; el backend los acepta así.
+- Las páginas provisionales de E1 usan `PendingPage`; E3 sustituye su contenido.
 
 ## Filas para la matriz
 

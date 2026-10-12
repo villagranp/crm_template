@@ -83,7 +83,7 @@ donde se indica. Detalle de reglas y códigos de error:
 | GET · PATCH · DELETE | `/catalogs/:id` | `catalogos.ver` · `catalogos.editar` · `catalogos.eliminar` | Borrar solo si no es de sistema y está vacío |
 | POST · PATCH | `/catalogs/:id/items[/:itemId]` | `catalogos.editar` | Elementos: se desactivan, nunca se borran |
 | GET | `/parameters` | `parametros.ver` | Agrupados (sin paginar) |
-| PATCH | `/parameters/:key` | `parametros.editar` (+ `parametros.configurar` en `seguridad.*`) | Solo el valor, validado por tipo y rango |
+| PATCH | `/parameters/:key` | `parametros.editar` (+ `parametros.configurar` en `seguridad.*` y estructurales) | Solo el valor, validado por tipo, rango y registro de reglas. `crm.forecast.unidad_tonelaje` exige una unidad activa de masa con regla identidad `GLOBAL` activa (RN-07.33): si no, `422 INVALID_PARAMETER_VALUE` con `details[].reason` |
 | GET | `/audit-logs` · `/audit-logs/events` | `auditoria.ver` | Bitácora con filtros · nombres de evento |
 | GET | `/audit-logs/export` | `auditoria.exportar` | CSV (la exportación también se audita) |
 | GET | `/approvals` · `/approvals/:id` | `aprobaciones.ver` | Bandeja de solo lectura |
@@ -173,6 +173,24 @@ del alcance sin poder operar, `403`.
 
 Los `422` de validación devuelven **todas** las incidencias en `details[]` (`field`, `code`,
 `message`); el `code` de la respuesta es el de la primera. Ningún mensaje repite el valor recibido.
+
+## CRM — Piezas transversales del Módulo 3 (sin endpoints propios)
+
+Códigos que emiten `CurrencyConversionService` y `UnitConversionResolver` (03 "Precisiones de
+implementación (2026-10-11)"). Los endpoints de Proyectos y Oportunidades que los devuelven se
+documentan con el backend del módulo.
+
+| Status | Código | Cuándo | `details[0]` |
+|---|---|---|---|
+| 422 | `CURRENCY_NOT_ALLOWED` | Moneda distinta de USD y de la del país del proyecto, inexistente o inactiva (RN-03.78) | `{ field, code, currencyCode, allowedCurrencyCodes[] }` |
+| 422 | `EXCHANGE_RATE_NOT_FOUND` | Sin tasa de la moneda con vigencia ≤ la fecha de la oportunidad (RN-03.79) | `{ field, code, currencyCode, date }` |
+| 422 | `CONVERSION_RULE_NOT_FOUND` | Sin regla activa hacia la unidad de tonelaje (RN-03.27) | `{ field, code, fromUnitId, toUnitCode }` |
+| 422 | `INVALID_CONVERSION_RULE` | Una regla concreta no es aplicable (RN-03.28) | `{ field, code, ruleId, reasons[] }` |
+
+**Aviso no bloqueante** (no es un error; viaja en `warnings[]` de una respuesta `200`/`201`):
+`EXCHANGE_RATE_STALE` con `details: { currencyCode, exchangeRateDate, referenceDate, ageDays,
+thresholdDays }` cuando la tasa aplicada es anterior a la fecha de referencia en más de
+`crm.tipos_cambio.dias_aviso_antiguedad` días (RN-03.81).
 
 ## Contract rules
 

@@ -121,3 +121,33 @@ el equivalente en USD.**
   el navegador).
 - Las tasas no son datos personales ni sensibles; leerlas no requiere alcance de
   datos.
+
+## Addendum (2026-10-11) — Aritmética decimal sin librería y reparto puerto/servicio
+
+**Estado:** Accepted — 2026-10-11. Origen: etapa E1 del Módulo 3 (03 §K.1.2, "Precisiones de
+implementación (2026-10-11)").
+
+**Decisión.**
+
+- **Aritmética decimal compartida en `backend/src/common/decimal.ts`.** El punto 5 de la decisión
+  ("aritmética decimal en el backend, nunca `number`") se cumple con funciones puras sobre
+  cadenas implementadas con `BigInt`: `roundDecimal`, `multiplyDecimal`, `divideDecimal`,
+  `sumDecimals`, `compareDecimal` (redondeo único `HALF_UP`, resultado con escala fija). Es el
+  único camino para montos, tasas, factores y tonelajes en dominio y aplicación; los valores
+  viajan entre capas y en la API como **cadenas decimales**, y los adaptadores Prisma convierten
+  con `Decimal.toFixed(<escala>)`. Escalas: montos y tonelajes 4, tasas y factores 8.
+- **Reparto del "`ExchangeRateReader`" de 00 §2.16** en el módulo
+  `backend/src/modules/exchange-rates/`: el **puerto** `ExchangeRateReader` (token
+  `EXCHANGE_RATE_READER`) solo lee filas (`findApplicable` = mayor vigencia ≤ fecha,
+  `findCurrencies`, `findCountryCurrencyCode`); el **servicio** `CurrencyConversionService`
+  aplica las reglas (identidad de la moneda base, monedas admitidas por país, conversión,
+  aviso `EXCHANGE_RATE_STALE`, errores `422`). El Módulo 7 añadirá aquí el repositorio de
+  escritura.
+
+**Alternativas descartadas.** `Prisma.Decimal` en la aplicación (rompe CLAUDE.md §8.2);
+`decimal.js` como dependencia directa (librería nueva sin necesidad: cuatro operaciones bastan);
+`number` con redondeo a 4 decimales (inexacto: `0.1 × 3 ≠ 0.3`).
+
+**Consecuencias.** Cualquier módulo que calcule importes o tonelajes usa `common/decimal.ts`; una
+prueba unitaria fija los casos límite (factores de 8 decimales, cantidades de 15 dígitos,
+mitades negativas). El frontend no calcula conversiones (03 AC-03.35).

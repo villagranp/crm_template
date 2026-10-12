@@ -11,6 +11,16 @@ describe('MaterialSymbol', () => {
     expect(screen.getByTestId('BusinessOutlinedIcon')).toHaveAttribute('aria-hidden', 'true');
   });
 
+  it.each([
+    ['apartment', 'ApartmentOutlinedIcon'],
+    ['groups', 'GroupsOutlinedIcon'],
+    ['handshake', 'HandshakeOutlinedIcon'],
+    ['trending_up', 'TrendingUpOutlinedIcon'],
+  ])('resuelve el icono `%s` del módulo Proyectos y sus opciones', (name, testId) => {
+    renderWithProviders(<MaterialSymbol name={name} />);
+    expect(screen.getByTestId(testId)).toHaveAttribute('aria-hidden', 'true');
+  });
+
   it('un nombre desconocido cae en el icono por defecto', () => {
     renderWithProviders(<MaterialSymbol name="no_existe" />);
     expect(screen.getByTestId('ChevronRightIcon')).toBeInTheDocument();

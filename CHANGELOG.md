@@ -6,6 +6,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 ## [Unreleased]
 
 ### Fixed
+- Ficha del cliente: la fecha estimada de decisión de sus proyectos se mostraba un día antes en
+  UTC-6; sus tipos siguen ahora el contrato 03 F.1 (`progress` como cadena decimal).
 - **CRM Módulo 2 — revisión de código** (`02-clientes-cuentas.md`, "Precisiones de implementación"):
   - Seguridad: cada operación sobre un cliente usa el alcance de **su** permiso (editar ajenos,
     campos reservados y contactos → `clientes.administrar`; eliminar/restaurar →
@@ -25,6 +27,23 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   - NGINX: una sola cabecera `Cache-Control: no-store` en las respuestas de la API.
 
 ### Added
+- **CRM Módulo 3 — base del frontend:** las 7 rutas de Proyectos con páginas provisionales
+  (`PendingPage`), helpers decimales sin `float` (`decimal.ts`, `DecimalField`) e iconos de menú
+  `apartment`, `handshake` y `trending_up`.
+- **CRM Módulo 3 — piezas transversales del backend (E1)** (`03-proyectos.md` §K.1.2, "Precisiones
+  de implementación (2026-10-11)"):
+  - `ExchangeRatesModule` (`backend/src/modules/exchange-rates/`): puerto `ExchangeRateReader` +
+    adaptador Prisma y `CurrencyConversionService` (monedas admitidas por país, tasa vigente "mayor
+    vigencia ≤ fecha", conversión a USD con 4 decimales HALF_UP, aviso `EXCHANGE_RATE_STALE`,
+    `422 CURRENCY_NOT_ALLOWED` / `EXCHANGE_RATE_NOT_FOUND`). ADR-024, 00 §2.16.
+  - `UnitConversionsModule` (`backend/src/modules/unit-conversions/`): puerto `UnitConversionReader`
+    + adaptador Prisma y `UnitConversionResolver` (precedencia de línea y de proyecto, identidad,
+    `422 CONVERSION_RULE_NOT_FOUND` / `INVALID_CONVERSION_RULE`, tonelaje exacto). 00 §2.3.
+  - `backend/src/modules/commercial-metrics/metric-definitions.ts`: predicados puros DEF-A, DEF-B,
+    DEF-C, DEF-G y "proyecto activo" (RN-03.77).
+  - Utilidades comunes: `common/decimal.ts` (aritmética decimal exacta con `BigInt`, addendum de
+    ADR-024), `common/calendar-date.ts` (fechas `YYYY-MM-DD`) y `common/warnings.ts`.
+  - Suite de integración `backend/test/crm-conversions-rates.e2e.spec.ts`.
 - **CRM Módulo 2 — Clientes / Cuentas, frontend** (`frontend/src/features/crm/customers/`):
   búsqueda con filtros y estado en la URL, alta con aviso de duplicados y archivos que se suben
   tras crear, ficha con edición según `capabilities`, baja y restauración, contactos con
@@ -141,6 +160,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 - Pruebas de integración del esquema CRM (`backend/test/crm-schema.e2e.spec.ts`).
 
 ### Changed
+- `PATCH /parameters/crm.forecast.unidad_tonelaje` aplica RN-07.33: solo una unidad activa de
+  dimensión `MASS` con regla identidad `GLOBAL` activa (`422 INVALID_PARAMETER_VALUE` con
+  `details[].reason`). Antes solo se validaba el formato del código.
+- Semilla demo: el tonelaje de productos asociados y forecast usa la precedencia
+  `PRODUCT > PRODUCT_FAMILY > PROJECT_TYPE > GLOBAL` (antes omitía `PROJECT_TYPE`).
 - `pnpm test` en la raíz ejecuta los paquetes uno tras otro (`--workspace-concurrency=1`): en
   paralelo, la carga del backend hacía vencer pruebas del frontend por tiempo. CI no cambia (ya
   ejecuta cada paquete por separado).

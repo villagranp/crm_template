@@ -1,14 +1,17 @@
 import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
+import ApartmentOutlinedIcon from '@mui/icons-material/ApartmentOutlined';
 import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
+import HandshakeOutlinedIcon from '@mui/icons-material/HandshakeOutlined';
 import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import ListAltOutlinedIcon from '@mui/icons-material/ListAltOutlined';
 import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
+import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
 import type { SvgIconComponent } from '@mui/icons-material';
 
@@ -51,6 +54,10 @@ const ICON_REGISTRY: Record<string, SvgIconComponent> = {
   history: HistoryOutlinedIcon,
   // CRM: módulo y opción `clientes-buscar` (backend/prisma/seed/crm-access.ts).
   business: BusinessOutlinedIcon,
+  // CRM: módulo `proyectos` y sus opciones (`proyectos-equipo` usa `groups`, ya registrado).
+  apartment: ApartmentOutlinedIcon,
+  handshake: HandshakeOutlinedIcon,
+  trending_up: TrendingUpOutlinedIcon,
   chevron_right: ChevronRightIcon,
 };
 

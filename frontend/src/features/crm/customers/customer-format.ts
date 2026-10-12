@@ -52,6 +52,23 @@ export function formatDate(isoDate: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? EMPTY : dateFormatter.format(date);
 }
 
+const CALENDAR_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Fecha de calendario de la API (`YYYY-MM-DD`, DM-31) sin desplazamiento de
+ * zona: `new Date('2026-12-01')` es medianoche UTC y en Guatemala (UTC-6) se
+ * mostraría el 30 de noviembre. Se construye la fecha local con sus partes.
+ */
+export function formatCalendarDate(value: string | null | undefined): string {
+  const match = value ? CALENDAR_DATE.exec(value) : null;
+  if (!match) {
+    return EMPTY;
+  }
+  const [, year, month, day] = match;
+  const date = new Date(Number(year), Number(month) - 1, Number(day));
+  return date.getDate() === Number(day) ? dateFormatter.format(date) : EMPTY;
+}
+
 /** "Ciudad, País" sin huecos cuando falta alguno. */
 export function formatLocation(city: string | null | undefined, countryName: string | null | undefined): string {
   const parts = [city?.trim(), countryName?.trim()].filter((part): part is string => Boolean(part));

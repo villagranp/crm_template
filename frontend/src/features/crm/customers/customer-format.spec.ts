@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { contactFullName, customerLabel, formatDate, formatLocation, orDash, sourceImportLabel, taxIdLabelOf } from './customer-format';
+import {
+  contactFullName,
+  customerLabel,
+  formatCalendarDate,
+  formatDate,
+  formatLocation,
+  orDash,
+  sourceImportLabel,
+  taxIdLabelOf,
+} from './customer-format';
 
 describe('customer-format', () => {
   it('compone la ubicación sin huecos', () => {
@@ -25,6 +34,14 @@ describe('customer-format', () => {
     expect(orDash('x')).toBe('x');
     expect(formatDate('no-fecha')).toBe('—');
     expect(formatDate(null)).toBe('—');
+  });
+
+  it('fecha de calendario YYYY-MM-DD sin desplazamiento de zona horaria (DM-31)', () => {
+    const expected = new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium' }).format(new Date(2026, 11, 1));
+    expect(formatCalendarDate('2026-12-01')).toBe(expected);
+    expect(formatCalendarDate('2026-02-30')).toBe('—');
+    expect(formatCalendarDate('2026-12-01T00:00:00Z')).toBe('—');
+    expect(formatCalendarDate(null)).toBe('—');
   });
 
   it('origen de carga masiva', () => {
