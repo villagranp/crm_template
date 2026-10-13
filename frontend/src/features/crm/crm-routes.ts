@@ -2,6 +2,7 @@ import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
 
 import { ROUTE_PATHS } from '@/routes/route-paths';
 
+import { CUSTOMER_IMPORT_PERMISSIONS } from './customer-imports/customer-imports.permissions';
 import { FORECAST_PERMISSIONS, OPPORTUNITY_PERMISSIONS, PROJECT_PERMISSIONS } from './projects/projects.permissions';
 
 /**
@@ -94,5 +95,22 @@ export const CRM_ROUTES: readonly CrmRoute[] = [
     path: ROUTE_PATHS.crm.projects.forecast,
     permission: FORECAST_PERMISSIONS.view,
     Page: lazy(() => import('./forecast/ForecastPage').then((module) => ({ default: module.ForecastPage }))),
+  },
+  // Módulo 6 (06 §E): historial y detalle de cargas masivas de clientes.
+  {
+    path: ROUTE_PATHS.crm.customerImports.list,
+    permission: CUSTOMER_IMPORT_PERMISSIONS.view,
+    Page: lazy(() =>
+      import('./customer-imports/CustomerImportsPage').then((module) => ({ default: module.CustomerImportsPage })),
+    ),
+  },
+  {
+    path: ROUTE_PATHS.crm.customerImports.detail,
+    permission: CUSTOMER_IMPORT_PERMISSIONS.view,
+    Page: lazy(() =>
+      import('./customer-imports/CustomerImportDetailPage').then((module) => ({
+        default: module.CustomerImportDetailPage,
+      })),
+    ),
   },
 ];

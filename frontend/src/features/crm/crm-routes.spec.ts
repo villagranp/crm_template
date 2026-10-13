@@ -5,7 +5,7 @@ import { ROUTE_PATHS } from '@/routes/route-paths';
 import { CRM_ROUTES } from './crm-routes';
 import { opportunityDetailPath, projectDetailPath } from './projects';
 
-describe('CRM_ROUTES (02 §E.1, 03 §E.1)', () => {
+describe('CRM_ROUTES (02 §E.1, 03 §E.1, 06 §E)', () => {
   it('protege cada ruta con el permiso de su opción de menú o de su operación (nombres del catálogo sembrado)', () => {
     const permissionByPath = Object.fromEntries(CRM_ROUTES.map((route) => [route.path, route.permission]));
 
@@ -20,6 +20,8 @@ describe('CRM_ROUTES (02 §E.1, 03 §E.1)', () => {
       '/proyectos/oportunidades': 'oportunidades.ver',
       '/proyectos/oportunidades/:opportunityId': 'oportunidades.ver',
       '/proyectos/forecast': 'forecast.ver',
+      '/integraciones/clientes': 'importaciones.ver',
+      '/integraciones/clientes/:importId': 'importaciones.ver',
     });
   });
 

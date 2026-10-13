@@ -13,6 +13,7 @@ import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlin
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
+import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import type { SvgIconComponent } from '@mui/icons-material';
 
 interface MaterialSymbolProps {
@@ -58,6 +59,8 @@ const ICON_REGISTRY: Record<string, SvgIconComponent> = {
   apartment: ApartmentOutlinedIcon,
   handshake: HandshakeOutlinedIcon,
   trending_up: TrendingUpOutlinedIcon,
+  // CRM: opción `integraciones-clientes` (carga masiva de clientes, 06 §E).
+  upload_file: UploadFileOutlinedIcon,
   chevron_right: ChevronRightIcon,
 };
 
