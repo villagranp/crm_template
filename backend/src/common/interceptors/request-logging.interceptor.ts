@@ -9,6 +9,12 @@ import type { AppRequest } from '@/common/types/request-context';
 /**
  * Registra un evento estructurado por request: metodo, ruta, status y duracion.
  * No registra body ni headers: pueden contener datos sensibles (SECURITY.md).
+ *
+ * Los errores de aplicacion no traen status HTTP: lo decide `AllExceptionsFilter`
+ * despues de este interceptor. Para no registrar `500` en respuestas
+ * `401`/`404`/`422`, el status de un error sale de `httpStatusOf`, la misma
+ * funcion con la que responde el filtro (una sola fuente de verdad). Se registra
+ * siempre, tambien si el cliente corta la conexion antes de recibir la respuesta.
  */
 @Injectable()
 export class RequestLoggingInterceptor implements NestInterceptor {

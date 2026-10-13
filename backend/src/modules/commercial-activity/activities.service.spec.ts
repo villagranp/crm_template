@@ -13,7 +13,7 @@ import type { CommercialActorResolver } from './commercial-actor.resolver';
 import type { ActivityRecord, ActivityRepository } from './ports/activity.repository.port';
 import type { CommercialLinkReader } from './ports/commercial-link.reader.port';
 import type { CommercialUsersReader } from './ports/commercial-users.reader.port';
-import { CATALOG_ITEMS, makeActivity, makeActor, makeScopes, teamScope, TX } from './testing/activity-fixtures';
+import { CATALOG_ITEMS, CUSTOMER_SCOPES, makeActivity, makeActor, makeScopes, teamScope, TX } from './testing/activity-fixtures';
 
 const ASESOR = ['actividades.ver', 'actividades.crear', 'actividades.editar', 'actividades.cerrar', 'contactos.ver'];
 const PARAMETERS: Record<string, unknown> = {
@@ -32,7 +32,7 @@ interface Fakes {
   users: FakeOf<CommercialUsersReader>;
   sequences: { next: jest.Mock };
   run: jest.Mock;
-  customers: { assertUsableCustomer: jest.Mock; assertContactOfCustomer: jest.Mock };
+  customers: { accessScopes: jest.Mock; assertUsableCustomer: jest.Mock; assertContactOfCustomer: jest.Mock };
   catalogReferences: { assertItem: jest.Mock };
   audit: { record: jest.Mock };
 }
@@ -65,7 +65,11 @@ function setup(stored: ActivityRecord | null = makeActivity(), scopes = makeScop
   };
   const sequences = { next: jest.fn(async () => 'ACT-2026-000042') };
   const run = jest.fn(async (work: (tx: TransactionContext) => Promise<unknown>) => work(TX));
-  const customers = { assertUsableCustomer: jest.fn(async () => ({})), assertContactOfCustomer: jest.fn(async () => ({})) };
+  const customers = {
+    accessScopes: jest.fn(async () => CUSTOMER_SCOPES),
+    assertUsableCustomer: jest.fn(async () => ({})),
+    assertContactOfCustomer: jest.fn(async () => ({})),
+  };
   const catalogReferences = { assertItem: jest.fn(async () => ({})) };
   const audit = { record: jest.fn(async () => undefined) };
   const logger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
@@ -99,7 +103,7 @@ describe('ActivitiesService.create', () => {
       durationMinutes: 10,
     });
 
-    expect(fakes.customers.assertUsableCustomer).toHaveBeenCalledWith('customer-1', expect.anything(), { requireActive: true, tx: TX });
+    expect(fakes.customers.assertUsableCustomer).toHaveBeenCalledWith('customer-1', expect.anything(), { requireActive: true, tx: TX, scopes: CUSTOMER_SCOPES });
     expect(fakes.catalogReferences.assertItem.mock.calls).toEqual([
       ['crm.tipo_actividad', 'type-call', { field: 'typeId', requireActive: true, currentId: null, tx: TX }],
       ['crm.prioridad', 'priority-medium', { field: 'priorityId', requireActive: true, currentId: null, tx: TX }],

@@ -1,6 +1,7 @@
 import type { TransactionContext } from '@/infrastructure/database/ports/transaction.port';
 import type { VisibilityScope } from '@/modules/access/visibility-scope';
 import type { CatalogItemRecord } from '@/modules/catalogs/ports/catalogs.repository.port';
+import type { CustomerAccessScopes } from '@/modules/customers/customer-actor.resolver';
 
 import type { ActivityAccessScopes, CommercialActor } from '../commercial-actor.resolver';
 import type { ActivityRecord, CatalogValueRecord } from '../ports/activity.repository.port';
@@ -8,6 +9,8 @@ import type { ActivityRecord, CatalogValueRecord } from '../ports/activity.repos
 /** Datos de prueba de las pruebas unitarias del Módulo 4 (excluidos del build). */
 
 export const TX = { tx: true } as unknown as TransactionContext;
+/** Alcances sobre clientes resueltos antes de la transacción (`CustomerReferenceGuard.accessScopes`). */
+export const CUSTOMER_SCOPES = { customerScopes: true } as unknown as CustomerAccessScopes;
 export const NOW_ISO = '2026-10-12T15:00:00.000Z';
 
 export const AUDIT = { correlationId: 'corr-1', actorId: 'subject-1', actorEmail: null, ipAddress: null };

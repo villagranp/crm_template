@@ -16,7 +16,13 @@ import type { AppLogger } from '@/infrastructure/logging/app-logger.service';
 
 import { RequestLoggingInterceptor } from './request-logging.interceptor';
 
-const REQUEST = { correlationId: 'corr-1', method: 'POST', originalUrl: '/api/v1/auth/refresh?x=1', route: { path: '/api/v1/auth/refresh' } };
+const REQUEST = {
+  correlationId: 'corr-1',
+  method: 'POST',
+  originalUrl: '/api/v1/auth/refresh?x=1',
+  route: { path: '/api/v1/auth/refresh' },
+  principal: { subjectId: 'user-1' },
+};
 
 function loggerMock(): AppLogger & { info: jest.Mock; error: jest.Mock } {
   return { info: jest.fn(), error: jest.fn() } as unknown as AppLogger & { info: jest.Mock; error: jest.Mock };
@@ -62,7 +68,7 @@ describe('RequestLoggingInterceptor', () => {
 
     expect(logger.info).toHaveBeenCalledWith(
       'http_request',
-      expect.objectContaining({ correlationId: 'corr-1', method: 'POST', path: '/api/v1/auth/refresh', statusCode: 201 }),
+      expect.objectContaining({ correlationId: 'corr-1', method: 'POST', path: '/api/v1/auth/refresh', statusCode: 201, principalId: 'user-1' }),
     );
   });
 

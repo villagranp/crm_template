@@ -2,11 +2,21 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import type { TransactionContext } from '@/infrastructure/database/ports/transaction.port';
 
-import type { CustomerActor } from './customer-actor.resolver';
+import { type CustomerAccessScopes, type CustomerActor, CustomerActorResolver } from './customer-actor.resolver';
 import { contactInactiveError, customerInactiveError, invalidContactError } from './customer-errors';
 import { CustomerVisibilityService } from './customer-visibility.service';
 import { CONTACTS_REPOSITORY, type ContactsRepository } from './ports/contacts.repository.port';
 import { CUSTOMERS_REPOSITORY, type CustomersRepository } from './ports/customers.repository.port';
+
+/**
+ * Opciones de `assertUsableCustomer`. Dentro de la transacción del consumidor (`tx`)
+ * los alcances del actor son **obligatorios** y se resuelven antes de abrirla con
+ * `CustomerReferenceGuard.accessScopes`: así la guarda no abre otra conexión del pool
+ * mientras la transacción sostiene bloqueos (AGENTS §9.4, §9.12).
+ */
+export type UsableCustomerOptions =
+  | { readonly requireActive: boolean; readonly tx?: undefined; readonly scopes?: CustomerAccessScopes }
+  | { readonly requireActive: boolean; readonly tx: TransactionContext; readonly scopes: CustomerAccessScopes };
 
 /** Lo que otro módulo necesita saber del cliente que referencia. */
 export interface CustomerSummary {
@@ -42,7 +52,13 @@ export class CustomerReferenceGuard {
     private readonly visibleCustomers: CustomerVisibilityService,
     @Inject(CONTACTS_REPOSITORY) private readonly contacts: ContactsRepository,
     @Inject(CUSTOMERS_REPOSITORY) private readonly customers: CustomersRepository,
+    private readonly actors: CustomerActorResolver,
   ) {}
+
+  /** Alcances del actor sobre clientes, para resolverlos **antes** de abrir la transacción. */
+  accessScopes(actor: CustomerActor): Promise<CustomerAccessScopes> {
+    return this.actors.accessScopes(actor);
+  }
 
   /**
    * `404 RESOURCE_NOT_FOUND` si no existe, está eliminado o el actor no lo ve (H.1);
@@ -51,12 +67,15 @@ export class CustomerReferenceGuard {
   async assertUsableCustomer(
     customerId: string,
     actor: CustomerActor,
-    options: { readonly requireActive: boolean; readonly tx?: TransactionContext },
+    options: UsableCustomerOptions,
   ): Promise<CustomerSummary> {
     if (options.tx) {
       await this.customers.lockCustomerRow(customerId, 'SHARE', options.tx);
     }
-    const { record } = await this.visibleCustomers.findVisible(actor, customerId, { tx: options.tx });
+    const { record } = await this.visibleCustomers.findVisible(actor, customerId, {
+      tx: options.tx,
+      ...(options.scopes ? { scopes: options.scopes } : {}),
+    });
     if (options.requireActive && !record.status.countsAsActive) {
       throw customerInactiveError(customerId);
     }

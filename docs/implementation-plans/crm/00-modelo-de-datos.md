@@ -1873,7 +1873,7 @@ Datos ficticios (sin nombres reales de clientes ni personas; dominios `.invalid`
 | Proyectos | 10 proyectos: fases `DISENO`, `COTIZACION`, `CONSTRUCCION` (con oportunidades abiertas, demuestra la independencia fase/etapa), `FINALIZADO`; uno duplicado de otro; uno con `lastActivityAt` > 30 días (alerta) | Diferentes fases |
 | Historial de fase | 2–4 cambios por proyecto | Historiales |
 | Oportunidades | `CONTACTADO`, `COTIZANDO` (una sin siguiente acción → alerta), `GANADO` + `WON`, `GANADO` + `PARTIAL` (60 %), `PERDIDO` + `LOST` (motivo `PRECIO`); una con resultado cambiado (2 filas de historial) | Abiertas, ganadas, perdidas, parciales |
-| Productos asociados | 2–4 por proyecto, varios ligados a oportunidad; uno sin regla de conversión (sin tonelaje) | Asociados, "no sumar incompatibles" |
+| Productos asociados | 2–4 por proyecto, varios ligados a oportunidad; uno sin regla de conversión (sin tonelaje). *Precisión (2026-10-11, Módulo 3): el tonelaje demo usa la misma precedencia que `UnitConversionResolver` (con `PROJECT_TYPE`); las mallas de los proyectos `VIVIENDA` toman la regla por tipo* | Asociados, "no sumar incompatibles" |
 | Forecast | Líneas M+1…M+6 para 5 proyectos + 3 meses pasados (historia), con varias unidades | Forecast M+6 |
 | Visitas | `PROGRAMADA` futura; `REPROGRAMADA` (2 eventos `RESCHEDULED`); `REALIZADA` sin confirmar > 48 h (alerta); `CONFIRMADA`; `CANCELADA` (evento con motivo) | Programadas, realizadas, reprogramadas, canceladas |
 | Actividades | De los 4 tipos: `PENDIENTE` futura, `PENDIENTE` por vencer (< 48 h), `PENDIENTE` vencida, `COMPLETADA` con resultado, `CANCELADA`; con participantes | Pendientes, completadas, vencidas |
@@ -1962,7 +1962,7 @@ Siguiendo ADR-004 (los casos de uso dependen del puerto; Prisma solo en `infrast
 | `SequenceGenerator` | Transaccional, transversal | Fase 0 | `next(key)` dentro de la transacción del alta |
 | `CatalogReferenceValidator` | Transaccional, transversal | Fase 0 | §3.5 |
 | `VisibilityScopeResolver` | Lectura, transversal | Fase 0 | Usuario → `{ownerIds?, countryIds?}` (§4.2) |
-| `UnitConversionResolver` | Lectura, transversal | Fase 0 | Resuelve la regla por precedencia y devuelve factor y regla |
+| `UnitConversionResolver` | Lectura, transversal | Fase 0 (entregado en la E1 del Módulo 3: `backend/src/modules/unit-conversions/`) | Resuelve la regla por precedencia y devuelve factor y regla. Puerto `UnitConversionReader`; línea `PRODUCT > PRODUCT_FAMILY > PROJECT_TYPE > GLOBAL`, proyecto `PROJECT_TYPE > GLOBAL` (03 RN-03.27/58) |
 | `CustomerRepository`, `ContactRepository` | Transaccional | Clientes | Incluye búsqueda de duplicados |
 | `ProjectRepository`, `OpportunityRepository`, `ProjectProductRepository`, `ForecastRepository` | Transaccional | Proyectos | |
 | `VisitRepository`, `ActivityRepository` | Transaccional | Actividad comercial | |
@@ -1971,7 +1971,7 @@ Siguiendo ADR-004 (los casos de uso dependen del puerto; Prisma solo en `infrast
 | `ReportingRepository` | Lectura (PostgreSQL) | Reportes | ADR-004. **No** usa Snowflake: el alcance exige datos del CRM y nada de BI externo |
 | `CustomerImportRepository` | Transaccional | Integraciones | Reutiliza el caso de uso de alta de clientes |
 | `FileStorage` | Infraestructura, transversal | Módulo 2 (primer consumidor) | Adaptador `LocalFileSystemStorage` sobre `ATTACHMENTS_STORAGE_PATH` (ADR-021, §2.11) |
-| `ExchangeRateReader` | Lectura, transversal | Fase 0 | `findApplicable(currencyCode, date)` (§2.16); lo usan Proyectos (oportunidades) y Reportes (moneda local de referencia). El mantenimiento (`ExchangeRateRepository`) es del Módulo 7 |
+| `ExchangeRateReader` | Lectura, transversal | Fase 0 (entregado en la E1 del Módulo 3: `backend/src/modules/exchange-rates/`) | `findApplicable(currencyCode, date)` (§2.16); lo usan Proyectos (oportunidades) y Reportes (moneda local de referencia). Las reglas (identidad USD, monedas admitidas, conversión, aviso) las aplica `CurrencyConversionService` sobre el puerto (addendum de ADR-024). El mantenimiento (`ExchangeRateRepository`) es del Módulo 7 |
 | `ParameterReader` | Lectura, transversal | Fase 0 (`backend/src/modules/parameters/parameter-reader.ts`) | `get<T>(key)` tipado; lo define 02 F.6.5 y 07 F.9 le añade la validación del registro de parámetros. Añadido en la consolidación |
 | `CatalogLookupService` | Lectura, transversal | Fase 0 (`backend/src/modules/catalogs/catalog-lookup.service.ts`) | Elementos activos por `key` para los endpoints `form-options` de cada módulo (07 D-07.12, D-02.1). Añadido en la consolidación |
 | `AttachmentsService` | Transaccional, transversal | Módulo 2 (`backend/src/modules/attachments/`) | `owner = { type, id }` sobre `attachments` (§2.11); la autorización la decide el módulo dueño. Usa `FileStorage` (ADR-021) |

@@ -1,4 +1,5 @@
 import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
+import ApartmentOutlinedIcon from '@mui/icons-material/ApartmentOutlined';
 import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined';
 import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined';
 import CalendarMonthOutlinedIcon from '@mui/icons-material/CalendarMonthOutlined';
@@ -10,6 +11,7 @@ import EventNoteOutlinedIcon from '@mui/icons-material/EventNoteOutlined';
 import EventRepeatOutlinedIcon from '@mui/icons-material/EventRepeatOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
+import HandshakeOutlinedIcon from '@mui/icons-material/HandshakeOutlined';
 import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import ListAltOutlinedIcon from '@mui/icons-material/ListAltOutlined';
@@ -20,6 +22,7 @@ import PendingActionsOutlinedIcon from '@mui/icons-material/PendingActionsOutlin
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import TaskAltOutlinedIcon from '@mui/icons-material/TaskAltOutlined';
 import TrackChangesOutlinedIcon from '@mui/icons-material/TrackChangesOutlined';
+import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
 import ViewListOutlinedIcon from '@mui/icons-material/ViewListOutlined';
 import type { SvgIconComponent } from '@mui/icons-material';
@@ -63,6 +66,10 @@ const ICON_REGISTRY: Record<string, SvgIconComponent> = {
   history: HistoryOutlinedIcon,
   // CRM: módulo y opción `clientes-buscar` (backend/prisma/seed/crm-access.ts).
   business: BusinessOutlinedIcon,
+  // CRM: módulo `proyectos` y sus opciones (`proyectos-equipo` usa `groups`, ya registrado).
+  apartment: ApartmentOutlinedIcon,
+  handshake: HandshakeOutlinedIcon,
+  trending_up: TrendingUpOutlinedIcon,
   chevron_right: ChevronRightIcon,
   // Actividad comercial: módulo `actividad-comercial` y opciones `actividad-*`
   // (backend/prisma/seed/crm-access.ts; `history` ya estaba) e iconos por tipo (04 §L.4).

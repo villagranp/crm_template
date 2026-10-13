@@ -75,15 +75,18 @@ export class CustomerVisibilityService {
   ) {}
 
   /**
+   * `scopes`: alcances del actor ya resueltos (obligatorio dentro de una transacción).
    * `includeDeleted`: admite clientes eliminados, solo si el actor tiene
    * `clientes.eliminar` (D-02.6); sin él, un eliminado es `404`.
    */
   async findVisible(
     actor: CustomerActor,
     customerId: string,
-    options: { readonly includeDeleted?: boolean; readonly tx?: TransactionContext } = {},
+    options: { readonly includeDeleted?: boolean; readonly tx?: TransactionContext; readonly scopes?: CustomerAccessScopes } = {},
   ): Promise<VisibleCustomer> {
-    const scopes = await this.actors.accessScopes(actor);
+    // Con `scopes` ya resueltos no se consulta el perfil de acceso: dentro de una
+    // transacción que sostiene bloqueos no se abre otra conexión del pool (AGENTS §9.12).
+    const scopes = options.scopes ?? (await this.actors.accessScopes(actor));
     const includeDeleted = (options.includeDeleted ?? false) && actor.permissions.has(CUSTOMER_PERMISSIONS.delete);
     const record = await this.customers.findById(customerId, { visibility: scopes.visibility, includeDeleted }, options.tx);
     if (!record) {

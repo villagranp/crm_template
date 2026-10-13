@@ -1,4 +1,5 @@
 import type { AttachmentLimits } from '@/features/crm/common/attachments.api';
+import type { ProjectListItem } from '@/features/crm/projects';
 import type { ListQuery } from '@/lib/query-keys';
 import { httpClient } from '@/services/api';
 import type { PaginatedResponse } from '@/types/api';
@@ -324,20 +325,22 @@ export function restoreContact(customerId: string, contactId: string): Promise<C
 
 /**
  * Lo que la ficha usa de `ProjectListItemDto` (03 F.1, "Contrato para Clientes
- * F-08"). El tipo vive aquí porque el Módulo 3 aún no existe en el frontend;
- * cuando llegue, se sustituye por el de su barril público.
+ * F-08"; AC-03.86), con el tipo que publica el barril del Módulo 3. Los
+ * decimales llegan como cadena (`phase.progress: "75.00"`).
  */
-export interface CustomerProjectItem {
-  id: string;
-  code: string;
-  name: string;
-  city: string | null;
-  country: { name: string } | null;
-  phase: { id: string; code: string; label: string; progress: number | null } | null;
-  commercialStatus: { kind: string; label: string; stage: string | null } | null;
-  owner: { id: string; displayName: string } | null;
-  estimatedDecisionDate: string | null;
-}
+export type CustomerProjectItem = Pick<
+  ProjectListItem,
+  'id' | 'code' | 'name' | 'city' | 'country' | 'phase' | 'commercialStatus' | 'owner' | 'estimatedDecisionDate'
+>;
+
+/**
+ * Filtros de `GET /projects` que admite la sección (03 F.1): `commercialStatus`
+ * es `OPEN_STAGE:<stageId>`, `WON`, `LOST` o `NO_OPPORTUNITIES`.
+ */
+export const CUSTOMER_PROJECT_FILTER_KEYS = ['phaseId', 'ownerId', 'commercialStatus'] as const;
+
+/** Subconjunto de la lista blanca de `sortBy` de `GET /projects` (03 F.1) con columna en la sección. */
+export const CUSTOMER_PROJECT_SORT_FIELDS = ['code', 'name', 'phaseOrder', 'estimatedDecisionDate'] as const;
 
 /** Lo llama el frontend directamente; el backend de Clientes no lo reexpone (F.7). */
 export function listCustomerProjects(customerId: string, query: ListQuery): Promise<PaginatedResponse<CustomerProjectItem>> {

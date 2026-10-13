@@ -188,8 +188,8 @@ describe('semilla esencial (00 §8.2)', () => {
     const administrator = await prisma.role.findUniqueOrThrow({ where: { code: 'administrador' }, select: { _count: { select: { permissions: true } } } });
     expect(administrator._count.permissions).toBe(afterFirstRun.permissions);
 
-    // DM-32: ninguna opción del CRM sin pantalla registrada (Proyectos, Reportes y tipos de cambio aún no).
-    expect(await prisma.menuOption.count({ where: { key: { in: ['proyectos-buscar', 'reportes-visitas', 'admin-tipos-cambio'] } } })).toBe(0);
+    // DM-32: ninguna opción del CRM sin pantalla registrada (Reportes y tipos de cambio aún no).
+    expect(await prisma.menuOption.count({ where: { key: { in: ['reportes-visitas', 'admin-tipos-cambio'] } } })).toBe(0);
     // Módulo 4 registró sus rutas (04 E.1): sus seis opciones existen con su permiso y llegan a los roles del CRM.
     const activityOptions = await prisma.menuOption.findMany({
       where: { key: { startsWith: 'actividad-' } },
@@ -216,6 +216,21 @@ describe('semilla esencial (00 §8.2)', () => {
     expect(customersOption?.roles.map((r) => r.role.code)).toEqual(
       expect.arrayContaining(['asesor', 'manager', 'responsable-pais']),
     );
+    // Módulo 3 registró sus rutas (03 §E.1): sus cuatro opciones existen y llegan a los roles del CRM.
+    const projectOptions = await prisma.menuOption.findMany({
+      where: { module: { key: 'proyectos' } },
+      orderBy: { sortOrder: 'asc' },
+      include: { requiredPermission: { select: { code: true } }, roles: { include: { role: { select: { code: true } } } } },
+    });
+    expect(projectOptions.map(({ key, path, requiredPermission }) => ({ key, path, requiredPermission: requiredPermission?.code }))).toEqual([
+      { key: 'proyectos-buscar', path: '/proyectos', requiredPermission: 'proyectos.ver' },
+      { key: 'proyectos-equipo', path: '/proyectos/equipo', requiredPermission: 'proyectos.ver' },
+      { key: 'proyectos-oportunidades', path: '/proyectos/oportunidades', requiredPermission: 'oportunidades.ver' },
+      { key: 'proyectos-forecast', path: '/proyectos/forecast', requiredPermission: 'forecast.ver' },
+    ]);
+    for (const option of projectOptions) {
+      expect(option.roles.map((r) => r.role.code)).toEqual(expect.arrayContaining(['asesor', 'manager', 'responsable-pais']));
+    }
 
     const parameters = await prisma.systemParameter.findMany({
       where: { key: { in: ['crm.moneda_base', 'crm.importaciones.habilitada', 'sistema.permite_datos_demo', 'crm.clientes.reglas_duplicidad'] } },
@@ -343,7 +358,11 @@ describe('semilla de demostración (00 §8.1, §8.3)', () => {
       { scope: 'PRODUCT', _count: 4 },
       { scope: 'PROJECT_TYPE', _count: 1 },
     ]);
-    expect(await prisma.projectProduct.count({ where: { conversionRuleId: null } })).toBe(3);
+    // Misma precedencia que UnitConversionResolver (RN-03.58): las mallas en m² toman la
+    // regla por tipo VIVIENDA en P1/P4 y quedan "sin conversión" en un proyecto industrial.
+    expect(await prisma.projectProduct.count({ where: { conversionRuleId: null } })).toBe(1);
+    expect(await prisma.projectProduct.count({ where: { conversionRule: { scope: 'PROJECT_TYPE' } } })).toBe(2);
+    expect(await prisma.forecastLine.count({ where: { conversionRuleId: null } })).toBeGreaterThan(0);
 
     // Estimación en moneda local con foto de tasa y equivalente USD.
     const gtq = await prisma.opportunity.findFirstOrThrow({ where: { currencyCode: 'GTQ' } });

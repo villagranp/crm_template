@@ -175,6 +175,60 @@ Notas:
 - `e2e-stack.ts` se niega a trabajar sobre un esquema que no empiece por
   `integration_` o que sea `integration_test` (`E2E_SCHEMA` cambia el nombre).
 
+### E2E de Proyectos
+
+`frontend/tests/e2e/projects.e2e.spec.ts` (PF-03.114 a PF-03.116 del plan
+`docs/implementation-plans/crm/03-proyectos.md`) y
+`frontend/tests/e2e/forecast.e2e.spec.ts` (forecast M+6, AC-03.69/AC-03.70) usan el
+**mismo stack aislado** que «E2E de Clientes» (esquema `integration_e2e`, backend desde
+el código fuente en 3100, Vite en 5180) y los mismos pasos 1–3 y 6.
+
+| Recorrido | Qué cubre |
+|---|---|
+| PF-03.114 | Asesor: alta → clasificación por regla → fase → oportunidad en USD → producto asociado → forecast M+1…M+3 → cierre Ganado como Parcial 60 % → historial |
+| PF-03.115 | Manager: vista de equipo, reasigna el asesor y duplica con productos |
+| PF-03.116 | Asesor: un proyecto ajeno dice «no existe o no tienes acceso»; un usuario sin `forecast.ver` no ve la opción y la ruta muestra «Sin acceso» |
+| Forecast M+6 | Carga de la ventana vigente, guardado de celdas y upsert de la misma línea |
+
+Variables, además de las de «E2E de Clientes» (los valores entre `<>` son de ejemplo):
+
+| Variable | Valor |
+|---|---|
+| `E2E_ASESOR_CUSTOMER` | razón social de un cliente activo del asesor (la imprime `activate`) |
+| `E2E_MANAGER_TEAM_PROJECT` | código de un proyecto de otro asesor que el manager administra (ídem) |
+| `E2E_FOREIGN_PROJECT_ID` | id de un proyecto que el asesor no ve (ídem) |
+| `E2E_PRODUCT_SKU` | SKU de un producto activo del catálogo (ídem) |
+| `E2E_RULE_UNIT` | nombre de una unidad con regla GLOBAL activa a toneladas (ídem) |
+| `E2E_NO_FORECAST_PASSWORD` | `<12+>`: si se define **antes** de `activate`, el script crea en el esquema aislado el rol propio `e2e_asesor_sin_forecast` (el asesor sin `forecast.*` ni la opción de menú que lo exige) y un usuario activo con él |
+| `E2E_NO_FORECAST_EMAIL` | `sin.forecast@e2e.invalid` (por defecto del script; lo imprime `activate`) |
+
+Pasos (Git Bash, desde la raíz):
+
+1. Pasos 1–3 de «E2E de Clientes» (`prepare`, backend en 3100, Vite en 5180).
+2. Con `E2E_NO_FORECAST_PASSWORD` ya exportada,
+   `cd backend && E2E_API_URL=http://localhost:3100 pnpm exec ts-node --transpile-only scripts/e2e-stack.ts activate`
+   y exporta las líneas `E2E_*` que imprime (sin contraseñas). Es idempotente: repone el
+   rol y la contraseña del usuario sin forecast.
+3. `E2E_BASE_URL=http://localhost:5180 pnpm --filter @app/frontend test:e2e projects forecast crm-customers`
+   con esas variables y las contraseñas `E2E_ASESOR_PASSWORD`, `E2E_MANAGER_PASSWORD` y
+   `E2E_NO_FORECAST_PASSWORD`.
+4. Limpieza: paso 6 de «E2E de Clientes» (detén solo 3100 y 5180, `e2e-stack.ts drop`,
+   borra la carpeta temporal de adjuntos y los `test-results`).
+
+Notas:
+
+- **Límite de login:** 10 intentos por minuto por IP. `activate` hace hasta 5 y una
+  ejecución completa de los tres archivos hace 8; deja pasar un minuto entre `activate` y
+  la ejecución, y entre dos ejecuciones seguidas. Si no, el login responde «Demasiados
+  intentos» y el primer recorrido falla en el inicio de sesión.
+- La primera ejecución tras arrancar Vite puede fallar con la página en blanco: Vite
+  optimiza dependencias nuevas (iconos de MUI de las pantallas de proyectos) y recarga
+  la página. Repite; con las dependencias ya optimizadas no vuelve a pasar.
+- Sin `E2E_NO_FORECAST_PASSWORD` la prueba «sin forecast.ver» se salta; ningún rol de la
+  demo cumple «`proyectos.ver` sin `forecast.ver`».
+- PF-03.115 reasigna el asesor del proyecto de equipo en cada ejecución y crea una copia;
+  PF-03.114 y el forecast crean proyectos con sufijo único. Todo es repetible sin volver
+  a `prepare`.
 ### E2E de Actividad comercial
 
 `frontend/tests/e2e/crm-commercial-activity.e2e.spec.ts` (PF-04.58 a PF-04.61 del

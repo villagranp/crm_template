@@ -11,9 +11,11 @@ features/crm/
   crm-routes.ts            ruta + permiso + página lazy de cada pantalla del CRM
   common/                  piezas propias del CRM compartidas por varios submódulos
   customers/               Módulo 2 (Clientes): CustomersPage.tsx, customers.api.ts, …, components/, index.ts
+  projects/                Módulo 3 (Proyectos): búsqueda, alta, ficha, vista de equipo; index.ts
+  opportunities/           Módulo 3: pipeline y detalle de oportunidades
+  forecast/                Módulo 3: matriz del forecast M+6
   commercial-activity/     Módulo 4 (Actividad comercial): common/, activities/, pending/, visits/, agenda/,
                            follow-up/, interactions/, entry-points/ (barril para 02/03)
-  projects/                (llega con el Módulo 3)
 ```
 
 | Pantalla | Carpeta | Ruta | Permiso de la ruta | ¿Opción de menú? |
@@ -21,6 +23,13 @@ features/crm/
 | Búsqueda de clientes | `customers/` | `/clientes` | `clientes.ver` | Sí: `clientes-buscar` |
 | Alta de cliente | `customers/` | `/clientes/nuevo` | `clientes.crear` | No (botón "Nuevo cliente") |
 | Ficha del cliente | `customers/` | `/clientes/:customerId` | `clientes.ver` | No (ruta con parámetro, D-02.12) |
+| Búsqueda de proyectos | `projects/` | `/proyectos` | `proyectos.ver` | Sí: `proyectos-buscar` |
+| Alta de proyecto | `projects/` | `/proyectos/nuevo` | `proyectos.crear` | No (botón "Nuevo proyecto") |
+| Ficha del proyecto | `projects/` | `/proyectos/:projectId` | `proyectos.ver` | No (ruta con parámetro, D-03.2) |
+| Proyectos del equipo | `projects/` | `/proyectos/equipo` | `proyectos.ver` | Sí: `proyectos-equipo` |
+| Pipeline de oportunidades | `opportunities/` | `/proyectos/oportunidades` | `oportunidades.ver` | Sí: `proyectos-oportunidades` |
+| Detalle de oportunidad | `opportunities/` | `/proyectos/oportunidades/:opportunityId` | `oportunidades.ver` | No (ruta con parámetro; destino de alertas de Inicio) |
+| Forecast M+6 | `forecast/` | `/proyectos/forecast` | `forecast.ver` | Sí: `proyectos-forecast` |
 | Bandeja de pendientes | `commercial-activity/pending/` | `/actividad/pendientes` | `actividades.ver` | Sí: `actividad-pendientes` |
 | Listado de actividades | `commercial-activity/activities/` | `/actividad/actividades` | `actividades.ver` | Sí: `actividad-actividades` |
 | Alta de actividad | `commercial-activity/activities/` | `/actividad/actividades/nueva` | `actividades.crear` | No (preselección `?customerId=&projectId=&opportunityId=&typeId=`) |
@@ -84,6 +93,13 @@ marcador provisional).
 | `AttachmentsSection canDelete={false}` | Subir sin eliminar (adjuntos de un evento de visita, 04 §F.4) |
 | `AttachmentsSection onChanged` / `formatDate` | Opciones aditivas: `onChanged` se llama tras cada subida o eliminación correcta (el dueño refresca sus contadores; Actividad comercial invalida la raíz del módulo); `formatDate` formatea la fecha de subida (p. ej. en la zona del usuario). Sin ellas, el comportamiento de Clientes no cambia |
 | `customers/index.ts` | Barril público para otros módulos: `CustomerPicker` (valor `{ id, crmCode, legalName, countryId }`; acepta `{ id }` preseleccionado) y `customerDetailPath(id)` |
+| `PendingPage` / `PendingScreen` | Página con título y migas definitivos y estado "En construcción": permite registrar la ruta y sembrar su opción antes de construir la pantalla (Módulo 3, etapa E1) |
+| `decimal.ts` + `DecimalField` | Decimales sin `number` flotante (ver §3.1) |
+| `invalidateCrmCaches(queryClient, ['forecast', 'opportunities', 'customerProjects', 'projectTeamLists'])` | Invalida cachés de otro submódulo que dependen de una mutación (p. ej. borrar un proyecto refresca el forecast y la ficha del cliente) sin importar sus claves y sin ciclos entre barriles. Raíces en `CRM_CACHE_ROOTS`; matriz en 03 "Revisión E5 — frontend" |
+| `UnsavedChangesGuard when={dirty} shouldBlock?` | Aviso al abandonar una pantalla con cambios sin guardar: `beforeunload` y, con el router de datos de la aplicación, `useBlocker` con un diálogo propio ("Salir sin guardar" / "Seguir editando"). Por defecto solo bloquea cambios de ruta (los filtros en la URL no pierden el borrador). Bajo `MemoryRouter` (pruebas) solo protege `beforeunload` |
+| `projects/index.ts` | Barril público del Módulo 3: constantes de permisos (`PROJECT_`, `OPPORTUNITY_`, `FORECAST_`, `PRODUCT_PERMISSIONS`), `projectDetailPath(id)`, `opportunityDetailPath(id)`, `ProjectPicker`, `OwnerPicker`, `ProductPicker`, `UnitSelect`, `ConversionBadge`, formatos de fecha, `projectKeys`/`useInvalidateProject` y tipos |
+| `opportunities/index.ts` | Barril de Oportunidades: `OpportunityPicker` (Módulo 4: `projectId`, `status="OPEN"`), `OpportunityFormDialog`, `StageChangeDialog`, `ResultEditDialog`, `OpportunityHistoryPanel`, `StageChip`, `OutcomeChip`, `EstimateText`, hooks de lectura y tipos |
+| `forecast/index.ts` | Barril de Forecast: `ForecastMatrix filters={{ mode, projectId… }}` (la ficha la reutiliza filtrada por el proyecto) |
 
 ### Piezas comunes de Actividad comercial (`commercial-activity/common/`)
 
@@ -118,10 +134,30 @@ Opciones aditivas de `@/components/data` usadas por el CRM: `DataTable` `onRowCl
 (fila navegable con teclado, `role="link"`) y `useTableQueryState({ paramPrefix })` para varias
 tablas en la misma URL (p. ej. `contacts.`, `projects.`).
 
+### 3.1 Decimales: `decimal.ts` y `DecimalField`
+
+La API transporta cantidades, tonelajes, factores, montos y porcentajes como **cadenas
+decimales** (`"1200.0000"`, `"75.00"`, 03 RN-03.30). El frontend **nunca** las convierte a
+`number` (ni `parseFloat`, ni `type="number"`): todo pasa por `features/crm/common/decimal.ts`,
+que trabaja con enteros escalados (`BigInt`).
+
+| Necesito… | Uso |
+|---|---|
+| Límites de un campo | `DECIMAL_SPECS.quantity` / `tonnage` / `money` (15 enteros, 4 decimales), `factor` (11, 8), `percent` (3, 2, máximo 100): los patrones del backend (03 §H.3) |
+| Validar un formulario | `decimalSchema(DECIMAL_SPECS.x)` en Zod: valida el texto y lo transforma en la cadena canónica para la API; `{ required: false }` → `null` si está vacío |
+| Un campo editable | `<DecimalField spec={…} unit="t" value onChange onBlur inputRef error helperText />` con `Controller`: `inputMode="decimal"`, ignora letras, emite la cadena canónica y muestra `es-GT` (`1,234.5`) al perder el foco |
+| Mostrar un valor | `formatDecimal`, `formatPercent` (`"75%"`), `formatMoney(amount, currencyCode, decimals)` (`"GTQ 1,234.50"`, código ISO y no símbolo), `formatQuantity(value, unit)`, `formatTonnage(value)` (`"1.61 t"`); vacío → `—` |
+| Una vista previa | `multiplyDecimals(quantity, factor, 4)` (`HALF_UP`, D-03.13), `sumDecimals`, `compareDecimals`, `roundDecimal`. El factor es el que devuelve el backend; los totales oficiales también |
+
+Configuración regional `es-GT`: punto decimal y coma de miles. Al escribir se admite la coma de
+miles solo bien colocada (`"1,234.5"`); `"1,5"` es un error de formato, para no confundir una
+coma decimal con miles.
+
 ## 4. Menú, rutas y permisos
 
-- El **menú no se declara aquí** (CLAUDE.md §8.11, ADR-018): sale de `GET /me/menu`. La opción
-  `clientes-buscar` la crea la semilla (`backend/prisma/seed/crm-access.ts`) cuando la ruta está
+- El **menú no se declara aquí** (CLAUDE.md §8.11, ADR-018): sale de `GET /me/menu`. Las opciones
+  (`clientes-buscar`, `proyectos-buscar`, `proyectos-equipo`, `proyectos-oportunidades`,
+  `proyectos-forecast`) las crea la semilla (`backend/prisma/seed/crm-access.ts`) cuando la ruta está
   registrada (DM-32).
 - Para añadir una pantalla navegable:
   1. `src/routes/route-paths.ts` → `ROUTE_PATHS.crm.<clave>`.
@@ -154,3 +190,22 @@ tablas en la misma URL (p. ej. `contacts.`, `projects.`).
   `fetch` y `mockUpload` para las subidas, de `@/test/api-mocks`).
 - Mínimo por pantalla: estados, mapeo de errores, acciones ocultas sin permiso y, en formularios,
   errores por campo. Recorridos críticos en Playwright (`frontend/tests/e2e`).
+
+## 7. Submódulo Proyectos (Módulo 3)
+
+Plan: [`03-proyectos.md`](../../../../docs/implementation-plans/crm/03-proyectos.md). Tres carpetas
+hermanas (D-03.3): `projects/`, `opportunities/` y `forecast/`. Entre ellas solo se importa por
+`projects/index.ts`.
+
+| Etapa | Estado | Qué hay |
+|---|---|---|
+| E1 (base) | Entregada | Rutas de §E.1 en `crm-routes.ts` y en el registro del backend; páginas provisionales (`PendingPage`) con título y migas definitivos; `projects.permissions.ts`; `project-paths.ts`; iconos `apartment`, `groups`, `handshake`, `trending_up`; `decimal.ts` y `DecimalField` |
+| E3a (proyectos) | Entregada | Búsqueda (filtros repetibles por comas en la URL), alta con adjuntos en cola, ficha con diez secciones (pestañas/acordeón, `?seccion=`), edición, duplicado, eliminación, clasificación con vista previa de `resolve`, fase con historial, productos asociados con totales, historial, adjuntos y vista de equipo; `ProjectPicker` en el barril |
+| E3b (oportunidades y forecast) | Entregada | Secciones Oportunidades, Resultados y Forecast de la ficha; pipeline (lista y tablero con `stage-summary`, `?vista=tablero`), detalle de oportunidad, alta/edición con monedas admitidas y aviso `EXCHANGE_RATE_STALE`, cambio de etapa con resultado, modificar resultado, matriz M+6 con borrador (`forecast-draft.ts`), `409 FORECAST_LINE_STALE` con recarga que conserva el resto, teclado (Enter/Escape) y vista móvil; `OpportunityPicker` en el diálogo de productos |
+
+- La sección "Proyectos" de la ficha del cliente (`CustomerProjectsSection`) consume
+  `GET /projects?customerId=` con el contrato de 03 F.1 (AC-03.86): filtros `phaseId`, `ownerId`,
+  `commercialStatus`; orden `code`, `name`, `phaseOrder`, `estimatedDecisionDate`. Se activa sola
+  cuando el menú del usuario contiene `proyectos-buscar` (D-02.10).
+- Decimales (`progress`, cantidades, tonelajes, montos) con `decimal.ts` (§3.1); fechas de
+  calendario (`YYYY-MM-DD`) sin pasar por `new Date(cadena)`, que las desplaza un día en UTC-6.

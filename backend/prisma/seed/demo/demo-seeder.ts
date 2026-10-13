@@ -760,6 +760,8 @@ const PROJECTS: DemoProject[] = [
 
 interface CreatedProject {
   id: string;
+  /** Código de `crm.tipo_proyecto` (precedencia PROJECT_TYPE de las líneas). */
+  type: string;
   customerId: string;
   customerKey: string;
   owner: string;
@@ -840,7 +842,7 @@ async function seedProjects(ctx: Context, customers: Map<string, CreatedCustomer
       previous = entry;
     }
 
-    created.set(demo.key, { id: project.id, customerId: customer.id, customerKey: demo.customer, owner: customer.owner, country });
+    created.set(demo.key, { id: project.id, type: demo.type, customerId: customer.id, customerKey: demo.customer, owner: customer.owner, country });
   }
   return created;
 }
@@ -1013,15 +1015,28 @@ async function estimate(
 
 // --- Productos asociados y forecast ----------------------------------------------
 
-/** Regla aplicable a un producto en su unidad base (precedencia PRODUCT > FAMILY > GLOBAL). */
-function ruleFor(ctx: Context, sku: string): Rule | null {
+/**
+ * Regla aplicable a un producto en su unidad base, con la MISMA precedencia que
+ * `UnitConversionResolver` para líneas (03 RN-03.58/69): PRODUCT > PRODUCT_FAMILY >
+ * PROJECT_TYPE (tipo del proyecto) > GLOBAL. Cada regla solo aplica si convierte
+ * desde la unidad de la línea.
+ */
+function ruleFor(ctx: Context, sku: string, projectType: string): Rule | null {
   const product = need(ctx.products, sku, 'producto');
-  return ctx.productRules.get(sku) ?? ctx.familyRules.get(product.familyCode) ?? ctx.globalRules.get(product.baseUnit) ?? null;
+  const unitId = need(ctx.units, product.baseUnit, 'unidad');
+  const projectTypeRule = projectType === DEMO_PROJECT_TYPE_RULE.projectType ? ctx.projectTypeRule : undefined;
+  const candidates = [ctx.productRules.get(sku), ctx.familyRules.get(product.familyCode), projectTypeRule, ctx.globalRules.get(product.baseUnit)];
+  return candidates.find((rule): rule is Rule => rule !== undefined && rule.fromUnitId === unitId) ?? null;
 }
 
-function quantityColumns(ctx: Context, sku: string, quantity: string): { productId: string; unitId: string; quantity: string; conversionRuleId: string | null; conversionFactor: Decimal | null; tonnage: Decimal | null } {
+function quantityColumns(
+  ctx: Context,
+  sku: string,
+  quantity: string,
+  projectType: string,
+): { productId: string; unitId: string; quantity: string; conversionRuleId: string | null; conversionFactor: Decimal | null; tonnage: Decimal | null } {
   const product = need(ctx.products, sku, 'producto');
-  const rule = ruleFor(ctx, sku);
+  const rule = ruleFor(ctx, sku, projectType);
   return {
     productId: product.id,
     unitId: need(ctx.units, product.baseUnit, 'unidad'),
@@ -1032,7 +1047,10 @@ function quantityColumns(ctx: Context, sku: string, quantity: string): { product
   };
 }
 
-/** [sku, cantidad, estado, oportunidad?]. Las mallas (m²) no tienen regla: "sin conversión". */
+/**
+ * [sku, cantidad, estado, oportunidad?]. Las mallas (m²) solo tienen la regla por tipo
+ * `VIVIENDA` (P1, P4): en los demás proyectos quedan "sin conversión" (P8).
+ */
 const PROJECT_PRODUCTS: Record<string, [string, string, string, string?][]> = {
   P1: [['DEMO-VAR-3', '20000', 'COTIZADO', 'O1'], ['DEMO-VAR-4', '9000', 'COTIZADO', 'O1'], ['DEMO-ALA-16', '1500', 'PROPUESTO'], ['DEMO-MALLA-66', '3000', 'PROPUESTO']],
   P2: [['DEMO-VAR-5', '12000', 'COTIZADO', 'O2'], ['DEMO-VIGA-6', '1800', 'PROPUESTO', 'O2']],
@@ -1050,7 +1068,7 @@ async function seedProjectProducts(ctx: Context, projects: Map<string, CreatedPr
   for (const [projectKey, lines] of Object.entries(PROJECT_PRODUCTS)) {
     const project = need(projects, projectKey, 'proyecto');
     for (const [sku, quantity, status, opportunityKey] of lines) {
-      const columns = quantityColumns(ctx, sku, quantity);
+      const columns = quantityColumns(ctx, sku, quantity, project.type);
       await ctx.tx.projectProduct.create({
         data: {
           projectId: project.id,
@@ -1085,7 +1103,7 @@ async function seedForecast(ctx: Context, projects: Map<string, CreatedProject>)
         const { year, month } = ctx.clock.month(offset);
         const quantity = String(Math.round(entry.base * (skuIndex > 0 ? 0.3 : 1) * (1 + ((offset + 3) % 4) * 0.15)));
         await ctx.tx.forecastLine.create({
-          data: { projectId: project.id, year, month, ownerId: user(ctx, project.owner), notes: offset < 0 ? 'Mes cerrado (histórico demo)' : null, ...quantityColumns(ctx, sku, quantity) },
+          data: { projectId: project.id, year, month, ownerId: user(ctx, project.owner), notes: offset < 0 ? 'Mes cerrado (histórico demo)' : null, ...quantityColumns(ctx, sku, quantity, project.type) },
         });
         bump(ctx, 'forecastLines');
         if (offset >= 1) bump(ctx, 'forecastLinesFuture');

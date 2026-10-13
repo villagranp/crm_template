@@ -502,8 +502,11 @@ export class ActivitiesService {
       throw issueError('statusId', COMMERCIAL_ERROR_CODES.useLifecycleOperation);
     }
 
-    const [scopes, settings, types, statuses, priorities, dueSoonHours] = await Promise.all([
+    // Los alcances sobre clientes se resuelven antes de la transacción: la guarda de 02
+    // no abre otra conexión del pool mientras la transacción sostiene bloqueos (AGENTS §9.4).
+    const [scopes, customerScopes, settings, types, statuses, priorities, dueSoonHours] = await Promise.all([
       this.actors.activityScopes(actor),
+      this.customers.accessScopes(actor),
       this.settings(),
       this.catalogItems(ACTIVITY_CATALOGS.type),
       this.catalogItems(ACTIVITY_CATALOGS.status),
@@ -528,7 +531,7 @@ export class ActivitiesService {
     const resultNotes = completed?.resultNotes ?? final.resultNotes;
 
     const activityId = await this.transactions.run(async (tx) => {
-      await this.customers.assertUsableCustomer(final.customerId, actor, { requireActive: true, tx });
+      await this.customers.assertUsableCustomer(final.customerId, actor, { requireActive: true, tx, scopes: customerScopes });
       await this.assertCatalogs(final, { statusId: request.statusId ?? null, resultId }, null, tx);
       if (ownerId !== actorId) await this.assertEligibleOwner(ownerId, scopes, tx);
       // Bloqueo del proyecto ANTES de validarlo: una eliminación concurrente espera o ya se ve (RN-04.2).
@@ -620,8 +623,9 @@ export class ActivitiesService {
 
     const now = new Date();
     const projectIds = [current.projectId, final.projectId].filter((id): id is string => id !== null);
+    const customerScopes = customerChanged ? await this.customers.accessScopes(actor) : null;
     await this.transactions.run(async (tx) => {
-      if (customerChanged) await this.customers.assertUsableCustomer(final.customerId, actor, { requireActive: true, tx });
+      if (customerScopes) await this.customers.assertUsableCustomer(final.customerId, actor, { requireActive: true, tx, scopes: customerScopes });
       await this.assertCatalogs(final, { statusId: statusChanged ? statusId : null, resultId: final.resultId }, current, tx);
       if (final.ownerId !== current.ownerId) await this.assertEligibleOwner(final.ownerId, scopes, tx);
       // Bloqueo de los proyectos ANTES de validar el vínculo (RN-04.2, AGENTS §9.4).

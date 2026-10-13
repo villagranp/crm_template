@@ -500,7 +500,12 @@ describe('F5 · Alta', () => {
     expect(responses.map((response) => response.status)).toEqual(Array(10).fill(201));
     const numbers = responses.map((response) => Number(String(response.body.crmCode).slice(4))).sort((a, b) => a - b);
     expect(new Set(numbers).size).toBe(10);
-    expect(numbers[9]! - numbers[0]!).toBe(9);
+    // Sin huecos: la secuencia es compartida con otras suites que dan de alta clientes en paralelo,
+    // así que el rango puede incluir números ajenos; lo que no puede haber es números perdidos.
+    const prefix = String(responses[0]!.body.crmCode).slice(0, 4);
+    const width = String(responses[0]!.body.crmCode).length - 4;
+    const range = Array.from({ length: numbers[9]! - numbers[0]! + 1 }, (_, i) => `${prefix}${String(numbers[0]! + i).padStart(width, '0')}`);
+    expect(await context.prisma.customer.count({ where: { crmCode: { in: range } } })).toBe(range.length);
 
     const code = `PAR-${uniqueSuffix()}`;
     const pair = await Promise.all([

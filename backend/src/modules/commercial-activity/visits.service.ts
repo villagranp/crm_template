@@ -541,13 +541,19 @@ export class VisitsService {
     };
     this.assertScheduledRange(draft.scheduledStartAt, draft.scheduledEndAt, 'scheduledEndAt');
 
-    const [scopes, settings, statuses] = await Promise.all([this.actors.visitScopes(actor), this.settings(), this.catalogItems(VISIT_CATALOGS.status)]);
+    // Alcances sobre clientes antes de la transacción (la guarda de 02 no abre otra conexión, AGENTS §9.4).
+    const [scopes, customerScopes, settings, statuses] = await Promise.all([
+      this.actors.visitScopes(actor),
+      this.customers.accessScopes(actor),
+      this.settings(),
+      this.catalogItems(VISIT_CATALOGS.status),
+    ]);
     this.assertRequiredFields(settings.requiredFields, draft as unknown as Record<string, unknown>, null);
     const statusId = this.requireStatus(statuses, 'INITIAL');
     const now = new Date();
 
     const { visitId, conflicts } = await this.transactions.run(async (tx) => {
-      await this.customers.assertUsableCustomer(draft.customerId, actor, { requireActive: true, tx });
+      await this.customers.assertUsableCustomer(draft.customerId, actor, { requireActive: true, tx, scopes: customerScopes });
       if (ownerId !== actorId) await this.assertEligibleOwner(ownerId, scopes, tx);
       // Bloqueo del proyecto ANTES de validarlo: una eliminación concurrente espera o ya se ve (RN-04.2).
       await this.links.lockProjects(draft.projectId ? [draft.projectId] : [], tx);

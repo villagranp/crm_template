@@ -36,6 +36,31 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 - **E2E — esperas tras el login** (`auth-local`, `crm-customers`): las pruebas esperan la
   respuesta real del login, del cambio de contraseña y de `GET /me/menu` antes de mirar la
   pantalla; con varios navegadores arrancando, el login superaba los 5 s de `expect`.
+- **CRM Módulo 3 — revisión de código del backend** (`03-proyectos.md`, "Precisiones", Revisión E5):
+  - Concurrencia: proyectos, productos asociados, oportunidades (edición, etapa, resultado,
+    eliminación) y forecast deciden política, plan de la estimación, rango de fechas y cambios sobre
+    la fila **bloqueada**, no sobre la lectura previa. Un PATCH ya no pisa con valores viejos lo que
+    otra petición guardó (estimación de la oportunidad, cantidad de un producto asociado); un
+    producto quitado mientras se editaba responde `404` y unas fechas cambiadas a la vez `422
+    INVALID_DATE_RANGE` (antes `500`); el antiguo asesor sin `administrar` recibe `403`.
+  - Sin conexiones extra del pool dentro de transacciones con bloqueos: `CustomerReferenceGuard`
+    recibe los alcances resueltos antes (`accessScopes`; con `tx` son obligatorios por tipo) y la
+    unidad de tonelaje se lee antes de la transacción (`UnitConversionResolver.resolve(lookup, tx,
+    tonnageUnit)`).
+  - Forecast: las reglas de una página o de un lote se resuelven en una sola tanda
+    (`UnitConversionResolver.resolveMany`, mismos resultados); las celdas de un producto sin
+    asociación activa ya no son editables (`hasActiveAssociation`).
+  - Reloj del negocio único (`BUSINESS_CLOCK`, alias `FORECAST_CLOCK`) para el forecast, la
+    eliminación del proyecto y la de un producto asociado.
+  - UUID normalizados a minúsculas en los DTO del CRM (`toLowerCaseUuid`) y comparados sin
+    distinguir mayúsculas.
+  - Rutas de campo del `400 VALIDATION_FAILED` con índices entre corchetes (`lines[0].quantity`),
+    como los `422` (**cambio de contrato menor**: antes `lines.0.quantity`).
+  - Duplicar sin `ownerId`: si el asesor del origen no es asignable por el actor, el duplicado
+    queda a nombre del actor (antes `422 INVALID_OWNER`). Se quitó el bloqueo consultivo
+    redundante de los productos asociados (los serializa el `FOR UPDATE` del proyecto).
+- Ficha del cliente: la fecha estimada de decisión de sus proyectos se mostraba un día antes en
+  UTC-6; sus tipos siguen ahora el contrato 03 F.1 (`progress` como cadena decimal).
 - **CRM Módulo 2 — revisión de código** (`02-clientes-cuentas.md`, "Precisiones de implementación"):
   - Seguridad: cada operación sobre un cliente usa el alcance de **su** permiso (editar ajenos,
     campos reservados y contactos → `clientes.administrar`; eliminar/restaurar →
@@ -99,6 +124,57 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
     línea de tiempo o tabla, filtros y orden invertible.
   - Piezas comunes nuevas: `CountrySelect`/`useCountryOptions`, `AttachmentCount`,
     `NextActionDate`. Se elimina el marcador provisional `CommercialActivityPendingPage`.
+- **CRM Módulo 3 — pantallas:** búsqueda, alta, ficha (general, clasificación, fase, productos
+  asociados con totales, oportunidades, resultados, forecast, seguimiento, historial y adjuntos),
+  edición, duplicado, eliminación y vista de equipo de proyectos; pipeline de oportunidades en lista
+  y tablero, ficha de la oportunidad, diálogos de oportunidad, cambio de etapa y resultado; matriz del
+  forecast M+6 con borrador, conflictos y vista móvil. `ProjectPicker`, `OpportunityPicker` y
+  `ForecastMatrix` en sus barriles; `UnsavedChangesGuard` e `invalidateCrmCaches` en `crm/common`.
+- E2E de Proyectos y Forecast (`TESTING.md` §"E2E de Proyectos").
+- **CRM Módulo 3 — backend de Oportunidades y Forecast (E2b, F-17, F-18, F-20):** módulos
+  `opportunities` y `forecast`. Endpoints `/opportunities` (pipeline con filtros DEF-A, resultado y
+  fecha de decisión; orden por equivalente en USD), `/opportunities/form-options` (monedas admitidas
+  por proyecto), `/opportunities/stage-summary`, detalle con `allowedTransitions` y `capabilities`,
+  edición con foto del tipo de cambio y aviso `EXCHANGE_RATE_STALE` en `warnings[]`,
+  `/stage-changes` (transiciones por parámetro, regla de respaldo, cierre con resultado y
+  reapertura), `PUT /result`, `/history`, eliminación lógica, y
+  `/projects/{projectId}/opportunities` (lista y alta); `/forecast/window`, `/forecast/rows`,
+  `/forecast/totals` y `PUT /forecast/lines` (lote atómico con concurrencia optimista).
+  Códigos nuevos `INVALID_INITIAL_STAGE`, `INVALID_STAGE_TRANSITION`, `STAGE_UNCHANGED`,
+  `COMMENT_REQUIRED`, `CURRENCY_REQUIRED`, `RESULT_REQUIRED`, `RESULT_NOT_ALLOWED`,
+  `RESULT_STAGE_MISMATCH`, `RESULT_REASON_REQUIRED`, `RESULT_PERCENT_REQUIRED`,
+  `RESULT_PERCENT_NOT_ALLOWED`, `OPPORTUNITY_NOT_CLOSED`, `OPPORTUNITY_CLOSED`,
+  `OPPORTUNITY_HAS_DEPENDENCIES`, `FORECAST_PERIOD_OUT_OF_WINDOW`, `FORECAST_DUPLICATE_IN_BATCH`,
+  `PRODUCT_NOT_ASSOCIATED`, `FORECAST_LINE_STALE` (`docs/api/README.md`). `ProjectsModule` exporta
+  además `PROJECTS_REPOSITORY`; `createTestContext` admite `configure` para sustituir proveedores
+  en pruebas. Sin cambios de esquema.
+- **CRM Módulo 3 — backend de Proyectos (E2a, F-10…F-16 y F-19):** módulos `projects` y
+  `products` (solo lectura). Endpoints `/projects` (búsqueda con estado comercial DEF-B y filtros
+  repetibles por comas, `team-view`, `form-options`, `owner-options`, `team-options`, alta, ficha,
+  edición, eliminación lógica con bloqueos, duplicado, historial), `/projects/{id}/phase-history`,
+  `/phase-changes`, `/classification`, `/products` y `/attachments`, y `/products`,
+  `/product-families`, `/units-of-measure`, `/unit-conversions/resolve`. Códigos nuevos
+  `PROJECT_CODE_TAKEN`, `PROJECT_CUSTOMER_LOCKED`, `PROJECT_HAS_ACTIVE_CHILDREN`,
+  `PROJECT_PRODUCT_DUPLICATE`, `PRODUCT_HAS_FORECAST`, `INVALID_DATE_RANGE`, `INVALID_OWNER`,
+  `INVALID_QUANTITY`, `INVALID_PROGRESS`, `PHASE_PROGRESS_RULE`, `PHASE_UNCHANGED`,
+  `PRODUCT_INACTIVE`, `OPPORTUNITY_NOT_IN_PROJECT` (`docs/api/README.md`). Sin cambios de esquema.
+- **CRM Módulo 3 — base del frontend:** las 7 rutas de Proyectos con páginas provisionales
+  (`PendingPage`), helpers decimales sin `float` (`decimal.ts`, `DecimalField`) e iconos de menú
+  `apartment`, `handshake` y `trending_up`.
+- **CRM Módulo 3 — piezas transversales del backend (E1)** (`03-proyectos.md` §K.1.2, "Precisiones
+  de implementación (2026-10-11)"):
+  - `ExchangeRatesModule` (`backend/src/modules/exchange-rates/`): puerto `ExchangeRateReader` +
+    adaptador Prisma y `CurrencyConversionService` (monedas admitidas por país, tasa vigente "mayor
+    vigencia ≤ fecha", conversión a USD con 4 decimales HALF_UP, aviso `EXCHANGE_RATE_STALE`,
+    `422 CURRENCY_NOT_ALLOWED` / `EXCHANGE_RATE_NOT_FOUND`). ADR-024, 00 §2.16.
+  - `UnitConversionsModule` (`backend/src/modules/unit-conversions/`): puerto `UnitConversionReader`
+    + adaptador Prisma y `UnitConversionResolver` (precedencia de línea y de proyecto, identidad,
+    `422 CONVERSION_RULE_NOT_FOUND` / `INVALID_CONVERSION_RULE`, tonelaje exacto). 00 §2.3.
+  - `backend/src/modules/commercial-metrics/metric-definitions.ts`: predicados puros DEF-A, DEF-B,
+    DEF-C, DEF-G y "proyecto activo" (RN-03.77).
+  - Utilidades comunes: `common/decimal.ts` (aritmética decimal exacta con `BigInt`, addendum de
+    ADR-024), `common/calendar-date.ts` (fechas `YYYY-MM-DD`) y `common/warnings.ts`.
+  - Suite de integración `backend/test/crm-conversions-rates.e2e.spec.ts`.
 - **CRM Módulo 2 — Clientes / Cuentas, frontend** (`frontend/src/features/crm/customers/`):
   búsqueda con filtros y estado en la URL, alta con aviso de duplicados y archivos que se suben
   tras crear, ficha con edición según `capabilities`, baja y restauración, contactos con
@@ -106,7 +182,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   `CustomerPicker` reutilizable. Opciones aditivas: `DataTable` `onRowClick`/`getRowLabel`,
   `useTableQueryState({ paramPrefix })`, `AttachmentsSection takeInitialFiles`.
 - **CRM Módulo 2 — Clientes / Cuentas, backend** (`02-clientes-cuentas.md` §K.3 pasos 2–7;
-  F-05, F-06, F-07 y F-09 `completada` con el frontend y el E2E; F-08 `bloqueada` hasta el Módulo 3):
+  F-05…F-09 `completada`; F-08 se completó con el contrato del Módulo 3):
   - Endpoints F1–F8 (`/customers`: búsqueda con filtros combinables y búsqueda libre
     normalizada, `form-options`, `sales-owner-options`, ficha con `access` y `capabilities`,
     alta con `crmCode` de `crm.cliente`, edición con campos reservados, desactivación por
@@ -215,6 +291,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 - Pruebas de integración del esquema CRM (`backend/test/crm-schema.e2e.spec.ts`).
 
 ### Changed
+- `PATCH /parameters/crm.forecast.unidad_tonelaje` aplica RN-07.33: solo una unidad activa de
+  dimensión `MASS` con regla identidad `GLOBAL` activa (`422 INVALID_PARAMETER_VALUE` con
+  `details[].reason`). Antes solo se validaba el formato del código.
+- Semilla demo: el tonelaje de productos asociados y forecast usa la precedencia
+  `PRODUCT > PRODUCT_FAMILY > PROJECT_TYPE > GLOBAL` (antes omitía `PROJECT_TYPE`).
 - `pnpm test` en la raíz ejecuta los paquetes uno tras otro (`--workspace-concurrency=1`): en
   paralelo, la carga del backend hacía vencer pruebas del frontend por tiempo. CI no cambia (ya
   ejecuta cada paquete por separado).

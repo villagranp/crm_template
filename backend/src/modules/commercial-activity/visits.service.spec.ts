@@ -12,7 +12,7 @@ import type { CommercialActorResolver } from './commercial-actor.resolver';
 import type { CommercialLinkReader } from './ports/commercial-link.reader.port';
 import type { CommercialUsersReader } from './ports/commercial-users.reader.port';
 import type { ScheduleCandidateRecord, VisitRecord, VisitRepository } from './ports/visit.repository.port';
-import { makeActor, TX } from './testing/activity-fixtures';
+import { CUSTOMER_SCOPES, makeActor, TX } from './testing/activity-fixtures';
 import { makeVisit, makeVisitScopes, VISIT_CATALOG_ITEMS } from './testing/visit-fixtures';
 import { canAttachToVisitEvent, EVENT_ATTACHMENT_WINDOW_MS, VisitsService } from './visits.service';
 
@@ -27,7 +27,7 @@ interface Fakes {
   links: FakeOf<CommercialLinkReader>;
   users: FakeOf<CommercialUsersReader>;
   sequences: { next: jest.Mock };
-  customers: { assertUsableCustomer: jest.Mock; assertContactOfCustomer: jest.Mock };
+  customers: { accessScopes: jest.Mock; assertUsableCustomer: jest.Mock; assertContactOfCustomer: jest.Mock };
   catalogReferences: { assertItem: jest.Mock };
   audit: { record: jest.Mock };
   logger: { info: jest.Mock; warn: jest.Mock; error: jest.Mock };
@@ -70,7 +70,11 @@ function setup(options: { stored?: VisitRecord | null; mode?: string; candidates
   };
   const sequences = { next: jest.fn(async () => 'VIS-2026-00042') };
   const run = jest.fn(async (work: (tx: TransactionContext) => Promise<unknown>) => work(TX));
-  const customers = { assertUsableCustomer: jest.fn(async () => ({})), assertContactOfCustomer: jest.fn(async () => ({})) };
+  const customers = {
+    accessScopes: jest.fn(async () => CUSTOMER_SCOPES),
+    assertUsableCustomer: jest.fn(async () => ({})),
+    assertContactOfCustomer: jest.fn(async () => ({})),
+  };
   const catalogReferences = { assertItem: jest.fn(async () => ({})) };
   const audit = { record: jest.fn(async () => undefined) };
   const logger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
@@ -114,7 +118,7 @@ describe('VisitsService.create (RN-04.13, RN-04.14)', () => {
     const fakes = setup({ stored: null });
     const view = await fakes.service.create(makeActor(ASESOR), { ...PLAN, projectId: 'project-1' });
 
-    expect(fakes.customers.assertUsableCustomer).toHaveBeenCalledWith('customer-1', expect.anything(), { requireActive: true, tx: TX });
+    expect(fakes.customers.assertUsableCustomer).toHaveBeenCalledWith('customer-1', expect.anything(), { requireActive: true, tx: TX, scopes: CUSTOMER_SCOPES });
     expect(fakes.links.findProject).toHaveBeenCalledWith('project-1', expect.anything(), TX);
     // RN-04.2: el proyecto se bloquea antes de validarlo (una eliminación concurrente no se cuela).
     expect(fakes.links.lockProjects).toHaveBeenCalledWith(['project-1'], TX);
