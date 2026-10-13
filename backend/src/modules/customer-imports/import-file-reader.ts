@@ -113,7 +113,9 @@ export async function readImportFile(upload: ImportUpload, format: ImportFileFor
   try {
     content = await readCells(format, upload.buffer, limits);
   } catch (error) {
-    if (error instanceof CsvReadError) return invalid([fileProblem(CSV_ISSUES[error.issue])]);
+    if (error instanceof CsvReadError) {
+      return invalid([fileProblem(error.reason === 'TOO_MANY_COLUMNS' ? 'TOO_MANY_COLUMNS' : CSV_ISSUES[error.issue])]);
+    }
     if (error instanceof XlsxReadError) return invalid([fileProblem(XLSX_ISSUES[error.issue])]);
     if (error instanceof ArchiveRejectedError) {
       if (error.rejection.kind === 'UNSUPPORTED') throw new UnsupportedImportFileError(error.rejection.reason);

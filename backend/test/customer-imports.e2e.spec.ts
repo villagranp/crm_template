@@ -4,13 +4,24 @@ import type request from 'supertest';
 import { AppLogger } from '@/infrastructure/logging/app-logger.service';
 import { CustomerImportProcessor } from '@/modules/customer-imports/customer-import-processor';
 import { CustomerImportsService } from '@/modules/customer-imports/customer-imports.service';
-import { csvFile, type FixtureRow, minimalXlsxZip, oleFile, pngFile, TEMPLATE_HEADERS, xlsxFile } from '@/modules/customer-imports/testing/import-fixtures';
+import {
+  csvFile,
+  type FixtureRow,
+  minimalXlsxZip,
+  oleFile,
+  pngFile,
+  rawSheetXlsx,
+  TEMPLATE_HEADERS,
+  xlsxFile,
+} from '@/modules/customer-imports/testing/import-fixtures';
 
 import {
   api,
   catalogItemId,
   type CrmUser,
   crmUser,
+  EXCLUSIVE_TIMEOUT_MS,
+  exclusiveParameters,
   insertCustomer,
   setParameter,
   testCountry,
@@ -125,7 +136,11 @@ async function countryIso(id: string): Promise<string> {
 let J1: string;
 let J2: string;
 
+// Cambia parámetros globales de clientes (y depende de ellos): excluye a las demás suites que también lo hacen.
+let releaseParameters: (() => Promise<void>) | undefined;
+
 beforeAll(async () => {
+  releaseParameters = await exclusiveParameters('crm-customer-parameters');
   context = await createTestContext();
   restoreEnabled = await setParameter(context.prisma, ENABLED, 'true');
   j1 = await testCountry(context.prisma, 'J1');
@@ -136,12 +151,13 @@ beforeAll(async () => {
   admin = await crmUser(context, { roleCodes: ['administrador'], countryId: j1 });
   author = await crmUser(context, { roleCodes: ['asesor'], grant: IMPORT_GRANTS, countryId: j1 });
   other = await crmUser(context, { roleCodes: ['asesor'], grant: IMPORT_GRANTS, countryId: j1 });
-});
+}, EXCLUSIVE_TIMEOUT_MS);
 
 afterAll(async () => {
   await context?.app.get(CustomerImportProcessor).whenIdle();
   await restoreEnabled?.();
   await closeTestContext(context);
+  await releaseParameters?.();
 });
 
 describe('autenticación y autorización (PF-06.25, AC-06.26)', () => {
@@ -184,6 +200,13 @@ describe('autenticación y autorización (PF-06.25, AC-06.26)', () => {
     const user = await crmUser(context, { roleCodes: ['asesor'], grant: IMPORT_GRANTS, deny: ['clientes.crear'] });
     const response = await upload(user.token, csvFile([row(J1)])).expect(403);
     expect(response.body.code).toBe('PERMISSION_DENIED');
+  });
+
+  it('subir exige también importaciones.ver: sin él el autor no vería su carga (revisión E5, m-1)', async () => {
+    const user = await crmUser(context, { roleCodes: ['asesor'], grant: ['importaciones.crear'] });
+    const before = await context.prisma.customerImport.count({ where: { startedById: user.id } });
+    expect((await upload(user.token, csvFile([row(J1)])).expect(403)).body.code).toBe('PERMISSION_DENIED');
+    expect(await context.prisma.customerImport.count({ where: { startedById: user.id } })).toBe(before);
   });
 
   it('la opción de menú solo aparece con importaciones.ver', async () => {
@@ -524,6 +547,22 @@ describe('estructura y tipo de archivo (PF-06.15–PF-06.18, PF-06.26, AC-06.5�
     expect(process.memoryUsage().heapUsed - heapBefore).toBeLessThan(150 * 1024 * 1024);
   });
 
+  it('XLSX diminuto con una celda en la fila 1 048 576 y rangos de hoja completa: se lee sin expandirlos (revisión E5, B-1)', async () => {
+    const legalName = name('Dispersa');
+    const headerCells = TEMPLATE_HEADERS.map((header, index) => `<c r="${String.fromCharCode(65 + index)}1" t="inlineStr"><is><t>${header}</t></is></c>`).join('');
+    const dataRow = `<row r="1048576"><c r="B1048576" t="inlineStr"><is><t>${legalName}</t></is></c><c r="D1048576" t="inlineStr"><is><t>${J1}</t></is></c></row>`;
+    const ranges = '<mergeCells count="1"><mergeCell ref="A3:XFD1048575"/></mergeCells><dataValidations count="1"><dataValidation type="list" sqref="A2:XFD1048576"><formula1>"S,N"</formula1></dataValidation></dataValidations>';
+    const buffer = rawSheetXlsx(`<row r="1">${headerCells}</row>${dataRow}`, ranges);
+    expect(buffer.length).toBeLessThan(20 * 1024);
+    const heapBefore = process.memoryUsage().heapUsed;
+    const started = Date.now();
+    const body = (await upload(author.token, buffer, 'dispersa.xlsx', XLSX_TYPE).expect(201)).body as ImportBody;
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(process.memoryUsage().heapUsed - heapBefore).toBeLessThan(200 * 1024 * 1024);
+    expect(body).toMatchObject({ totalRows: 1, validRows: 1 });
+    expect((await rowsOf(author.token, body.id))[0]).toMatchObject({ rowNumber: 1048575, fileRowNumber: 1048576 });
+  });
+
   it('XLSX con DTD y entidad externa → 422 UNSAFE_CONTENT (PF-06.27)', async () => {
     const xxe = '<?xml version="1.0"?><!DOCTYPE w [<!ENTITY e SYSTEM "file:///etc/passwd">]><worksheet>&e;</worksheet>';
     expect((await structureIssue(minimalXlsxZip([{ name: 'xl/worksheets/sheet1.xml', data: Buffer.from(xxe) }]), 'xxe.xlsx', XLSX_TYPE)).issue).toBe('UNSAFE_CONTENT');
@@ -714,6 +753,26 @@ describe('confirmación e importación (PF-06.8–PF-06.10, PF-06.13, PF-06.22, 
     expect(responses.map((response) => response.status).sort()).toEqual([202, 409]);
     await context.app.get(CustomerImportProcessor).whenIdle();
     expect(await context.prisma.customer.count({ where: { sourceImportId: body.id } })).toBe(2);
+  });
+
+  it('dos subidas simultáneas del mismo usuario: una 201 y otra 409 IMPORT_IN_PROGRESS (RN-06.30, revisión E5, m-8)', async () => {
+    const user = await crmUser(context, { roleCodes: ['asesor'], grant: IMPORT_GRANTS, countryId: j1 });
+    // La primera es grande para que siga validándose cuando llega la segunda.
+    const big = csvFile(Array.from({ length: 1500 }, () => row(J1)));
+    const responses = await Promise.all([upload(user.token, big), upload(user.token, big)]);
+    expect(responses.map((response) => response.status).sort()).toEqual([201, 409]);
+    expect(responses.find((response) => response.status === 409)?.body.code).toBe('IMPORT_IN_PROGRESS');
+    expect(await context.prisma.customerImport.count({ where: { startedById: user.id } })).toBe(1);
+  });
+
+  it('confirmar con otra carga del autor importándose → 409 IMPORT_IN_PROGRESS (RN-06.30, revisión E5, m-2)', async () => {
+    const user = await crmUser(context, { roleCodes: ['asesor'], grant: IMPORT_GRANTS, countryId: j1 });
+    const first = await uploadOk(user.token, [row(J1)]);
+    const second = await uploadOk(user.token, [row(J1)]);
+    await context.prisma.$executeRaw`UPDATE customer_imports SET status = 'IMPORTING', updated_at = now() WHERE id = ${first.id}::uuid`;
+    const busy = await api(context, user.token).post(`/customer-imports/${second.id}/confirmation`).send({ expectedValidRows: 1 }).expect(409);
+    expect(busy.body.code).toBe('IMPORT_IN_PROGRESS');
+    expect((await context.prisma.customerImport.findUniqueOrThrow({ where: { id: second.id } })).status).toBe('VALIDATED');
   });
 
   it('una carga activa por usuario → 409 IMPORT_IN_PROGRESS; sin señal de vida 15 min → FAILED (PROCESS_INTERRUPTED) (PF-06.29, PF-06.40)', async () => {

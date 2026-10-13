@@ -13,8 +13,11 @@ import { neutralizeFormula } from './csv';
  *   aquí. Se usa la carga en memoria (`xlsx.load`) y no el lector en streaming:
  *   este vuelca las hojas a archivos temporales en disco cuando
  *   `sharedStrings.xml` va detrás de ellas en el ZIP, que es el orden habitual de
- *   Excel (addendum de ADR-022). Las fórmulas nunca se evalúan ni se usa su valor
- *   en caché: la celda se informa como `formula`.
+ *   Excel (addendum de ADR-022). Se ignoran los nodos de rango que la librería
+ *   expandiría celda a celda (combinaciones, validaciones, formatos condicionales…),
+ *   se recorren solo las filas existentes y se lee un archivo a la vez por proceso.
+ *   Las fórmulas nunca se evalúan ni se usa su valor en caché: la celda se informa
+ *   como `formula`.
  * - **Escritura** (plantilla y archivo de errores): escritor en streaming, celdas
  *   siempre de texto (`numFmt '@'`) y neutralizadas con la regla de `csv.ts`; nunca
  *   una fórmula.
@@ -120,11 +123,53 @@ function rowCells(row: ExcelJS.Row, width: number): XlsxCellValue[] {
  * la numeración de las siguientes.
  */
 export async function readSheetRows(buffer: Buffer, options: XlsxReadOptions): Promise<XlsxSheetRows> {
+  // Una lectura a la vez por proceso: la carga es CPU y memoria síncronas (revisión E5, M-1).
+  const previous = readQueue;
+  let release: () => void = () => undefined;
+  readQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    return await readSheetRowsNow(buffer, options);
+  } finally {
+    release();
+  }
+}
+
+let readQueue: Promise<void> = Promise.resolve();
+
+/**
+ * Nodos de la hoja que `exceljs` expandiría celda a celda al cargar (un rango
+ * `A1:XFD1048576` en pocos bytes crearía millones de objetos) o que la carga no
+ * necesita: se ignoran. Los hipervínculos ignorados dejan solo el texto de la celda.
+ */
+const IGNORED_SHEET_NODES = [
+  'mergeCells',
+  'dataValidations',
+  'conditionalFormatting',
+  'hyperlinks',
+  'autoFilter',
+  'cols',
+  'rowBreaks',
+  'pageMargins',
+  'pageSetup',
+  'headerFooter',
+  'printOptions',
+  'picture',
+  'drawing',
+  'tableParts',
+  'sheetProtection',
+  'extLst',
+];
+
+async function readSheetRowsNow(buffer: Buffer, options: XlsxReadOptions): Promise<XlsxSheetRows> {
   const deadline = Date.now() + options.timeoutMs;
   const workbook = new ExcelJS.Workbook();
   try {
-    // `load` acepta el Buffer de Node; los tipos de exceljs declaran uno propio.
-    await withTimeout(workbook.xlsx.load(buffer as unknown as ExcelJS.Buffer), options.timeoutMs);
+    // `load` acepta el Buffer de Node; los tipos de exceljs declaran uno propio y no listan `ignoreNodes`.
+    const loadOptions = { ignoreNodes: IGNORED_SHEET_NODES } as unknown as Parameters<typeof workbook.xlsx.load>[1];
+    await withTimeout(workbook.xlsx.load(buffer as unknown as ExcelJS.Buffer, loadOptions), options.timeoutMs);
   } catch (error) {
     if (error instanceof XlsxReadError) throw error;
     throw new XlsxReadError('UNREADABLE');
@@ -138,14 +183,16 @@ export async function readSheetRows(buffer: Buffer, options: XlsxReadOptions): P
   if (width > options.maxColumns) throw new XlsxReadError('TOO_MANY_COLUMNS');
   const headers = rowCells(headerRow, width);
   const rows: XlsxRow[] = [];
-  const lastRow = sheet.rowCount;
-  for (let excelRow = 2; excelRow <= lastRow; excelRow += 1) {
+  // Solo las filas que existen en el archivo: recorrer 1..rowCount con getRow() crearía
+  // un objeto por fila hasta la última (una celda en la fila 1 048 576 = un millón de filas).
+  sheet.eachRow({ includeEmpty: false }, (row, excelRow) => {
+    if (excelRow === 1) return;
     if (Date.now() > deadline) throw new XlsxReadError('PARSE_TIMEOUT');
-    const cells = rowCells(sheet.getRow(excelRow), width);
-    if (cells.every((cell) => cell.kind === 'empty' || (cell.kind === 'text' && cell.text.trim() === ''))) continue;
+    const cells = rowCells(row, width);
+    if (cells.every((cell) => cell.kind === 'empty' || (cell.kind === 'text' && cell.text.trim() === ''))) return;
     if (rows.length >= options.maxRows) throw new XlsxReadError('TOO_MANY_ROWS');
     rows.push({ rowNumber: excelRow - 1, cells });
-  }
+  });
   return { sheetName: sheet.name, headers, rows };
 }
 

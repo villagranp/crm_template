@@ -8,7 +8,8 @@
  * purgada no se vuelve a tocar.
  *
  * Ejecutar (lo programa la operación del entorno, p. ej. una vez al día):
- *   pnpm --filter @app/backend run imports:purge-rows
+ *   pnpm --filter @app/backend run imports:purge-rows        # desarrollo (ts-node)
+ *   node dist/src/scripts/purge-customer-import-rows.js      # imagen de producción (compilado con el build)
  *
  * Usa el mismo caso de uso que la aplicación (`CustomerImportsService`), con el
  * parámetro validado por su regla: no hay una segunda copia de la regla aquí.
@@ -18,8 +19,8 @@ import 'reflect-metadata';
 
 import { NestFactory } from '@nestjs/core';
 
-import { AppModule } from '@/app.module';
-import { CustomerImportsService } from '@/modules/customer-imports/customer-imports.service';
+import { AppModule } from '../app.module';
+import { CustomerImportsService } from '../modules/customer-imports/customer-imports.service';
 
 async function main(): Promise<void> {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });

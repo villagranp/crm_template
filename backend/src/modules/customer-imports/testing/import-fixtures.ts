@@ -154,3 +154,54 @@ export function oleFile(): Buffer {
 export function pngFile(): Buffer {
   return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64)]);
 }
+
+/**
+ * XLSX mínimo con una sola hoja `Clientes` cuyo XML se escribe tal cual: permite
+ * fabricar estructuras que exceljs expandiría al escribirlas (filas lejanas,
+ * combinaciones o validaciones de columna completa). Textos en línea (`inlineStr`).
+ */
+export function rawSheetXlsx(sheetData: string, afterSheetData = ''): Buffer {
+  const ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  const rel = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  return zipFile([
+    {
+      name: '[Content_Types].xml',
+      data: Buffer.from(
+        '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+          '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+          '<Default Extension="xml" ContentType="application/xml"/>' +
+          '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+          '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+          '</Types>',
+      ),
+    },
+    {
+      name: '_rels/.rels',
+      data: Buffer.from(
+        `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${rel}/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+      ),
+    },
+    {
+      name: 'xl/workbook.xml',
+      data: Buffer.from(
+        `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="${ns}" xmlns:r="${rel}"><sheets><sheet name="Clientes" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+      ),
+    },
+    {
+      name: 'xl/_rels/workbook.xml.rels',
+      data: Buffer.from(
+        `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${rel}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+      ),
+    },
+    {
+      name: 'xl/worksheets/sheet1.xml',
+      data: Buffer.from(`<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="${ns}"><sheetData>${sheetData}</sheetData>${afterSheetData}</worksheet>`),
+    },
+  ]);
+}
+
+/** Fila con textos en línea (`<c t="inlineStr">`). */
+export function rawRow(rowNumber: number, values: readonly string[]): string {
+  const cells = values.map((value, index) => `<c r="${String.fromCharCode(65 + index)}${rowNumber}" t="inlineStr"><is><t>${value}</t></is></c>`).join('');
+  return `<row r="${rowNumber}">${cells}</row>`;
+}

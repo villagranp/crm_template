@@ -173,6 +173,8 @@ export class CustomerReferenceCache {
     if (!entry) {
       entry = read();
       this.entries.set(key, entry);
+      // Un fallo (p. ej. transitorio de la base) no se memoriza: la siguiente fila vuelve a leer.
+      entry.catch(() => this.entries.delete(key));
     }
     return entry;
   }

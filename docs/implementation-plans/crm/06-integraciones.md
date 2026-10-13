@@ -356,7 +356,7 @@ antes de `:id`.
 |---|---|---|---|---|---|
 | 1 | GET | `/customer-imports/settings` | `importaciones.ver` | `200` | Habilitación, límites efectivos, formatos, versión y columnas de la plantilla |
 | 2 | GET | `/customer-imports/template?format=CSV\|XLSX` | `importaciones.crear` | `200` archivo | Plantilla (funcionalidad 1) |
-| 3 | POST | `/customer-imports` (multipart) | `importaciones.crear`, `clientes.crear` | `201` + `Location` | Subir, leer y validar (funcionalidades 2–10) |
+| 3 | POST | `/customer-imports` (multipart) | `importaciones.ver`, `importaciones.crear`, `clientes.crear` (P-20) | `201` + `Location` | Subir, leer y validar (funcionalidades 2–10) |
 | 4 | GET | `/customer-imports` | `importaciones.ver` | `200` paginado | Historial (funcionalidad 17) |
 | 5 | GET | `/customer-imports/{id}` | `importaciones.ver` | `200` | Resumen y resultado (11, 17) |
 | 6 | GET | `/customer-imports/{id}/rows` | `importaciones.ver` | `200` paginado | Vista previa y errores por fila (11, 12) |
@@ -561,7 +561,7 @@ no se haya entregado.
 |---|---|---|
 | Ver historial, detalle, filas, configuración, archivo de errores | `importaciones.ver` | Más la visibilidad de H.4 |
 | Descargar plantilla | `importaciones.crear` | |
-| Subir/validar | `importaciones.crear` **y** `clientes.crear` | Crea clientes: necesita el permiso de alta del Módulo 2 |
+| Subir/validar | `importaciones.ver`, `importaciones.crear` **y** `clientes.crear` | Crea clientes: necesita el permiso de alta del Módulo 2. `importaciones.ver`: sin él el autor no vería la carga creada (P-20) |
 | Confirmar | `importaciones.crear` **y** `clientes.crear` | Además: autor de la carga o alcance `ORGANIZATION` (RN-06.19). Cada fila respeta las reglas de alcance que el Módulo 2 aplica al alta |
 | Cancelar | `importaciones.crear` | Mismo requisito de autoría |
 
@@ -959,7 +959,7 @@ Huecos técnicos resueltos al implementar (AGENTS §9.3). Ninguno cambia una reg
 
 | # | Tema | Decisión |
 |---|---|---|
-| P-1 | Lector XLSX | `exceljs` 4.4.0 (versión exacta). Se usa la carga **en memoria** (`xlsx.load`) y no `stream.xlsx.WorkbookReader`: el lector en streaming vuelca las hojas a archivos temporales en disco cuando `sharedStrings.xml` va detrás de ellas en el ZIP (el orden habitual de Excel), lo que contradice H.2 ("nunca disco temporal"). La memoria queda acotada porque la guardia ZIP **descomprime de verdad** cada entrada con `maxOutputLength` (tamaño declarado + 1: si miente, `ARCHIVE_LIMITS_EXCEEDED`) y cuenta filas con valores y celdas por hoja antes de llegar a la librería. Addendum en ADR-022 |
+| P-1 | Lector XLSX | `exceljs` 4.4.0 (versión exacta). Se usa la carga **en memoria** (`xlsx.load`) y no `stream.xlsx.WorkbookReader`: el lector en streaming vuelca las hojas a archivos temporales en disco cuando `sharedStrings.xml` va detrás de ellas en el ZIP (el orden habitual de Excel), lo que contradice H.2 ("nunca disco temporal"). La memoria queda acotada porque: la guardia ZIP **descomprime de verdad** cada entrada con `maxOutputLength` (si el tamaño declarado miente, `ARCHIVE_LIMITS_EXCEEDED`) y aplica un presupuesto **global** (todas las hojas) de elementos `<row>`, celdas y textos compartidos; la carga ignora los nodos de rango que la librería expandiría celda a celda (combinaciones, validaciones, formatos condicionales, hipervínculos…); se recorren solo las filas existentes (una celda en la fila 1 048 576 no crea un millón de filas); y se lee un XLSX a la vez por proceso. Addendum en ADR-022 (revisión E5, B-1 y M-1) |
 | P-2 | `issue` nuevos de `422 INVALID_IMPORT_FILE` | `TOO_MANY_COLUMNS` (más de 30 columnas, CSV o XLSX), `UNSAFE_CONTENT` (XML con `<!DOCTYPE` o `<!ENTITY`: se rechaza sin entregarlo a ningún parser) y `UNREADABLE_FILE` (ZIP válido que la librería no puede leer como libro) |
 | P-3 | Momento del registro | El tipo real (firma, macros, cifrado) y la estructura se comprueban **antes** de registrar la carga. Un `415` no deja registro; un fallo de estructura sí (`FAILED` con `failureReason`). La carga se crea directamente en `VALIDATING` (el `UPLOADED` no es observable: la subida valida en la misma petición) |
 | P-4 | `failureReason` | `ISSUE: encabezado` separados por `; `, citando solo encabezados de la plantilla; un encabezado desconocido (texto del usuario) aparece como `UNKNOWN_COLUMN` sin el nombre. La respuesta `422` sí devuelve la columna (acotada a 100 caracteres) |
@@ -977,6 +977,12 @@ Huecos técnicos resueltos al implementar (AGENTS §9.3). Ninguno cambia una reg
 | P-16 | Purga y cargas pendientes | La purga (`pnpm --filter @app/backend run imports:purge-rows`) solo toca cargas no activas; una carga `VALIDATED` purgada ya no se puede confirmar (`409 IMPORT_DATA_PURGED`, `canConfirm = false`) |
 | P-17 | Límite por usuario de `@Throttle` | El `ThrottlerGuard` global corre antes de la autenticación, así que los límites de H.5 (10/5/30 por minuto) se aplican por IP, como el resto de la API |
 | P-18 | Visibilidad de `duplicateOfCustomer` | Se evalúa para quien consulta con el alcance **directo** de `clientes.ver` (sin herencia por proyectos) y, si el cliente está eliminado, exige `clientes.eliminar`: la opción más restrictiva |
+| P-20 | Subida y `importaciones.ver` | La subida exige también `importaciones.ver` (revisión E5): sin él el autor crearía una carga que no puede ver, confirmar ni cancelar (`404`). Opción más restrictiva |
+| P-21 | Una carga activa al confirmar | RN-06.30 se aplica también al confirmar: en la misma transacción que la transición condicional se bloquea la fila del autor y, si tiene **otra** carga `VALIDATING`/`IMPORTING`, `409 IMPORT_IN_PROGRESS` |
+| P-22 | Responsable por defecto al confirmar | Las filas sin responsable se crean con el **actor del alta**, es decir, quien confirma (RN-06.21: `createdById` = confirmador); si confirma el autor, coincide con la vista previa. Si confirma un administrador la carga de otro (D-06.10), esas filas quedan a su nombre |
+| P-23 | Campos de más en CSV | Un registro con más valores que encabezados (p. ej. `Acme, S.A.` sin comillas) rechaza el archivo con `MALFORMED_CSV`: los valores quedarían desplazados de columna (RN-06.10). Celdas vacías de sobra se admiten. Más de 30 columnas es `TOO_MANY_COLUMNS` también en CSV |
+| P-24 | Purga en producción | El script vive en `backend/src/scripts/` y se compila con el build: `node dist/src/scripts/purge-customer-import-rows.js` (`imports:purge-rows:prod`); en desarrollo, `imports:purge-rows` con `ts-node` |
+| P-25 | Pendiente | El filtro "Iniciada por" del historial (E.1, solo alcance `ORGANIZATION`) no está en la pantalla: no hay un endpoint de usuarios accesible con `importaciones.ver`; la API ya admite `startedById` |
 | P-19 | Plantilla y valores válidos | Se leen con `CustomersService.formOptions()` (exportado por el Módulo 2). "Obligatoria" excluye el responsable (lo completa el alta con quien carga) y los catálogos con valor por defecto vigente |
 
 ### Cambios aditivos en el Módulo 2 (02 §F.6)

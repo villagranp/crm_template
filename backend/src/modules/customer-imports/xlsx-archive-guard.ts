@@ -14,8 +14,10 @@ import { inflateRawSync } from 'node:zlib';
  *    el tope) aborta sin agotar memoria.
  * 4. XML sin DTD (`<!DOCTYPE`): nunca llega a un parser una entidad externa ni
  *    una expansión de entidades.
- * 5. Recuento de filas con valores y de celdas por hoja, para que la librería
- *    nunca construya en memoria más de lo admitido.
+ * 5. Recuento de filas con valores por hoja y presupuesto global (todas las hojas)
+ *    de filas, celdas y textos compartidos, para que la librería nunca construya en
+ *    memoria más de lo admitido. Los nodos de rango (combinaciones, validaciones…)
+ *    los ignora la carga (`common/xlsx.ts`).
  */
 
 export interface ArchiveLimits {
@@ -162,17 +164,17 @@ function extract(buffer: Buffer, entry: CentralEntry): Buffer {
   return content;
 }
 
-/** Filas con algún valor (`<v>`, `<is>` o `<f>`) y celdas de una hoja, sin parsear el XML. */
-export function countSheetContent(xml: string): { readonly rowsWithValues: number; readonly cells: number } {
+/** Filas (elementos `<row>`), filas con algún valor (`<v>`, `<is>` o `<f>`) y celdas de una hoja, sin parsear el XML. */
+export function countSheetContent(xml: string): { readonly rows: number; readonly rowsWithValues: number; readonly cells: number } {
   let rowsWithValues = 0;
-  const chunks = xml.split(/<row[\s>]/);
+  const chunks = xml.split(/<row[\s>/]/);
   for (let index = 1; index < chunks.length; index += 1) {
     const chunk = chunks[index] as string;
     const end = chunk.indexOf('</row>');
     if (/<(v|is|f)[\s>]/.test(end === -1 ? chunk : chunk.slice(0, end))) rowsWithValues += 1;
   }
   const cells = (xml.match(/<c[\s>/]/g) ?? []).length;
-  return { rowsWithValues, cells };
+  return { rows: chunks.length - 1, rowsWithValues, cells };
 }
 
 export interface ArchiveInspection {
@@ -185,8 +187,13 @@ export function inspectXlsxArchive(buffer: Buffer, limits: ArchiveLimits): Archi
   const entries = readCentralDirectory(buffer, limits);
   checkDeclaredEntries(entries, limits);
 
-  // Holgura de celdas por hoja: celdas con formato sin valor y hojas auxiliares de la plantilla.
-  const maxCellsPerSheet = (limits.maxDataRows + 1) * limits.maxColumns + 10_000;
+  // Presupuesto GLOBAL (exceljs carga todas las hojas) de filas, celdas y textos
+  // compartidos, con holgura para celdas con formato y las hojas auxiliares de la
+  // plantilla: acota la memoria de la librería sin depender de lo que declare el archivo.
+  const maxCells = (limits.maxDataRows + 1) * limits.maxColumns + 10_000;
+  const maxRowElements = limits.maxDataRows + 1 + 10_000;
+  let totalCells = 0;
+  let totalRows = 0;
   let uncompressedBytes = 0;
   for (const entry of entries) {
     const name = entry.name.toLowerCase();
@@ -205,7 +212,13 @@ export function inspectXlsxArchive(buffer: Buffer, limits: ArchiveLimits): Archi
       if (counts.rowsWithValues > limits.maxDataRows + 1) {
         throw new ArchiveRejectedError({ kind: 'INVALID', issue: 'TOO_MANY_ROWS', reason: 'SHEET_ROWS' });
       }
-      if (counts.cells > maxCellsPerSheet) throw limitsExceeded('TOO_MANY_CELLS');
+      totalCells += counts.cells;
+      totalRows += counts.rows;
+      if (totalCells > maxCells) throw limitsExceeded('TOO_MANY_CELLS');
+      if (totalRows > maxRowElements) throw limitsExceeded('TOO_MANY_ROW_ELEMENTS');
+    }
+    if (name === 'xl/sharedstrings.xml' && (xml.match(/<si[\s>]/g) ?? []).length > maxCells) {
+      throw limitsExceeded('TOO_MANY_SHARED_STRINGS');
     }
   }
   return { entries: entries.length, uncompressedBytes };

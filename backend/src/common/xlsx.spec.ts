@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 
-import { xlsxFile } from '@/modules/customer-imports/testing/import-fixtures';
+import { rawRow, rawSheetXlsx, xlsxFile } from '@/modules/customer-imports/testing/import-fixtures';
 
 import { readSheetRows, toCellValue, writeTextWorkbook, XlsxReadError } from './xlsx';
 
@@ -80,6 +80,44 @@ describe('readSheetRows (ADR-022, 06 RN-06.11, RN-06.31, PF-06.6, PF-06.53)', ()
   it('UNREADABLE para un ZIP que no es un libro', async () => {
     const garbage = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from('basura')]);
     expect(await issueOf(readSheetRows(garbage, OPTIONS))).toBe('UNREADABLE');
+  });
+});
+
+describe('readSheetRows con estructuras que exceljs expandiría (revisión E5, B-1)', () => {
+  // Los archivos se escriben como XML: exceljs expandiría estas estructuras también al escribirlas.
+  async function timedRead(buffer: Buffer): Promise<{ ms: number; heapMb: number; rows: number }> {
+    const heapBefore = process.memoryUsage().heapUsed;
+    const started = Date.now();
+    const result = await readSheetRows(buffer, OPTIONS);
+    return { ms: Date.now() - started, heapMb: (process.memoryUsage().heapUsed - heapBefore) / 1024 / 1024, rows: result.rows.length };
+  }
+
+  it('una sola celda en la fila 1 048 576 no crea un millón de filas', async () => {
+    const result = await timedRead(rawSheetXlsx(rawRow(1, ['a', 'b']) + rawRow(1048576, ['lejos'])));
+    expect(result.rows).toBe(1);
+    expect(result.ms).toBeLessThan(2000);
+    expect(result.heapMb).toBeLessThan(100);
+  });
+
+  it('combinaciones, validaciones y formatos condicionales de columna completa se ignoran al cargar', async () => {
+    const ranges =
+      '<mergeCells count="1"><mergeCell ref="A3:XFD1048576"/></mergeCells>' +
+      '<conditionalFormatting sqref="A2:XFD1048576"><cfRule type="expression" priority="1"><formula>TRUE</formula></cfRule></conditionalFormatting>' +
+      '<dataValidations count="1"><dataValidation type="list" allowBlank="1" sqref="A2:XFD1048576"><formula1>"S,N"</formula1></dataValidation></dataValidations>' +
+      '<hyperlinks><hyperlink ref="A2:XFD1048576" display="x"/></hyperlinks>';
+    const result = await timedRead(rawSheetXlsx(rawRow(1, ['a', 'b']) + rawRow(2, ['x', 'y']), ranges));
+    expect(result.rows).toBe(1);
+    expect(result.ms).toBeLessThan(2000);
+    expect(result.heapMb).toBeLessThan(100);
+  });
+
+  it('serializa las lecturas: dos lecturas simultáneas devuelven cada una su resultado', async () => {
+    const [first, second] = await Promise.all([
+      readSheetRows(await xlsxFile([['uno']], { headers: ['a'] }), OPTIONS),
+      readSheetRows(await xlsxFile([['dos'], ['tres']], { headers: ['a'] }), OPTIONS),
+    ]);
+    expect(first.rows).toHaveLength(1);
+    expect(second.rows).toHaveLength(2);
   });
 });
 

@@ -88,9 +88,14 @@ export function useValidRowsWithWarnings(importId: string, enabled: boolean) {
   });
 }
 
+/** Clientes del Módulo 2 (`['crm', 'customers']`): la importación los crea fuera de sus pantallas. */
+const importedCustomers = createScopedQueryKeys('crm', 'customers');
+
 /**
  * Las filas cambian de estado al confirmar, al terminar o al cancelar: cuando
- * cambia el estado de la carga (por el sondeo o por una mutación) se recargan.
+ * cambia el estado de la carga (por el sondeo o por una mutación) se recargan. Al
+ * terminar una importación, además el historial y las listas de clientes
+ * (revisión E5, n-4).
  */
 export function useRefreshRowsOnStatusChange(importId: string, status: ImportStatus | undefined): void {
   const queryClient = useQueryClient();
@@ -98,6 +103,10 @@ export function useRefreshRowsOnStatusChange(importId: string, status: ImportSta
   useEffect(() => {
     if (previous.current !== undefined && status !== undefined && previous.current !== status) {
       void queryClient.invalidateQueries({ queryKey: customerImportKeys.rowsOf(importId) });
+      if (isActiveImportStatus(previous.current) && !isActiveImportStatus(status)) {
+        void queryClient.invalidateQueries({ queryKey: customerImportKeys.lists() });
+        void queryClient.invalidateQueries({ queryKey: importedCustomers.all });
+      }
     }
     previous.current = status;
   }, [importId, status, queryClient]);

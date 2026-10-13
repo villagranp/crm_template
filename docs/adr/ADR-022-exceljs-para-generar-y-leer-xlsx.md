@@ -130,8 +130,14 @@ Durante la lectura (los tamaños declarados pueden mentir):
   Se usa `workbook.xlsx.load(buffer)` en memoria, **después** de la guardia ZIP, que ahora
   además descomprime cada entrada con `maxOutputLength` (si el tamaño declarado miente, se
   rechaza), rechaza XML con DTD/entidades sin parsearlo y cuenta filas con valores y celdas por
-  hoja. Así la memoria de la librería queda acotada por los topes de filas y columnas, no por
-  lo que declare el archivo. Tiempo máximo de lectura: 20 s (`PARSE_TIMEOUT`).
+  hoja. Revisión E5: el recuento es un presupuesto **global** de todas las hojas (elementos
+  `<row>`, celdas y textos compartidos); la carga pasa `ignoreNodes` para no expandir los nodos de
+  rango (`mergeCells`, `dataValidations`, `conditionalFormatting`, `hyperlinks`…: un
+  `A1:XFD1048576` de pocos bytes creaba millones de objetos), se recorren solo las filas
+  existentes (`eachRow`) y se lee un XLSX a la vez por proceso. Así la memoria de la librería
+  queda acotada por los topes de filas y columnas, no por lo que declare el archivo. Tiempo
+  máximo de lectura: 20 s (`PARSE_TIMEOUT`; no interrumpe la parte síncrona de la carga, que
+  queda acotada por esos topes).
 - **Escritura:** `stream.xlsx.WorkbookWriter` (plantilla y archivo de errores), celdas con
   `numFmt '@'` y valores neutralizados con `neutralizeFormula` de `common/csv.ts`.
 - `common/xlsx.ts` lo crea el Módulo 6 (`readSheetRows`, `writeTextWorkbook`); el Módulo 5

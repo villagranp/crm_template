@@ -77,6 +77,23 @@ describe('inspectXlsxArchive (06 RN-06.31, H.2, PF-06.26, PF-06.43)', () => {
     expect(() => inspectXlsxArchive(sheet, { ...LIMITS, maxDataRows: 3 })).not.toThrow();
   });
 
+  it('el presupuesto de celdas es global: muchas hojas dentro del tope por hoja se rechazan juntas (revisión E5, M-1)', () => {
+    const cells = Array.from({ length: 60 }, (_value, index) => `<c r="A${index + 1}"><v>1</v></c>`).join('');
+    const sheet = Buffer.from(`<worksheet><sheetData><row r="1">${cells}</row></sheetData></worksheet>`);
+    const limits = { ...LIMITS, maxDataRows: 1, maxColumns: 30 };
+    // Tope = (1 + 1) * 30 + 10 000 = 10 060 celdas en total.
+    const sheets = Array.from({ length: 200 }, (_value, index) => ({ name: `xl/worksheets/sheet${index + 1}.xml`, data: sheet }));
+    const one = minimalXlsxZip(sheets.slice(0, 1));
+    expect(() => inspectXlsxArchive(one, limits)).not.toThrow();
+    expect(rejectionOf(minimalXlsxZip(sheets.slice(0, 170)), { ...limits, maxEntries: 200 })).toMatchObject({ reason: 'TOO_MANY_CELLS' });
+  });
+
+  it('cuenta también las filas sin valores (cada una es un objeto en la librería)', () => {
+    const rows = Array.from({ length: 10_010 }, (_value, index) => `<row r="${index + 1}" s="1" customFormat="1"/>`).join('');
+    const sheet = minimalXlsxZip([{ name: 'xl/worksheets/sheet1.xml', data: Buffer.from(`<worksheet><sheetData>${rows}</sheetData></worksheet>`) }]);
+    expect(rejectionOf(sheet, { ...LIMITS, maxDataRows: 5 })).toMatchObject({ reason: 'TOO_MANY_ROW_ELEMENTS' });
+  });
+
   it('rechaza lo que no es un ZIP', () => {
     expect(rejectionOf(Buffer.from('no soy un zip'))).toEqual({ kind: 'UNSUPPORTED', reason: 'NOT_XLSX' });
   });
@@ -85,6 +102,6 @@ describe('inspectXlsxArchive (06 RN-06.31, H.2, PF-06.26, PF-06.43)', () => {
 describe('countSheetContent', () => {
   it('cuenta solo las filas con valores y todas las celdas', () => {
     const xml = '<sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row><row r="2"><c r="A2" s="1"/></row><row r="3"><c r="A3"><f>1+1</f></c></row></sheetData>';
-    expect(countSheetContent(xml)).toEqual({ rowsWithValues: 2, cells: 3 });
+    expect(countSheetContent(xml)).toEqual({ rows: 3, rowsWithValues: 2, cells: 3 });
   });
 });

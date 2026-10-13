@@ -364,11 +364,11 @@ inexistente (06 H.4). Confirmar y cancelar exigen además ser el autor o tener a
 |---|---|---|---|---|---|
 | 1 | GET | `/customer-imports/settings` | `importaciones.ver` | → `CustomerImportSettingsResponseDto` (habilitación, límites efectivos, columnas) | — |
 | 2 | GET | `/customer-imports/template?format=CSV\|XLSX` | `importaciones.crear` | → archivo `plantilla-clientes-v1.<ext>` (`no-store`) | `400` |
-| 3 | POST | `/customer-imports` | `importaciones.crear` + `clientes.crear` | `multipart/form-data` (`file`) → `201 CustomerImportResponseDto` (`VALIDATED`) + `Location` | `400`, `409 IMPORTS_DISABLED` / `IMPORT_IN_PROGRESS`, `413 FILE_TOO_LARGE`, `415 UNSUPPORTED_FILE_TYPE`, `422 INVALID_IMPORT_FILE`, `429` |
+| 3 | POST | `/customer-imports` | `importaciones.ver` + `importaciones.crear` + `clientes.crear` | `multipart/form-data` (`file`) → `201 CustomerImportResponseDto` (`VALIDATED`) + `Location` | `400`, `409 IMPORTS_DISABLED` / `IMPORT_IN_PROGRESS`, `413 FILE_TOO_LARGE`, `415 UNSUPPORTED_FILE_TYPE`, `422 INVALID_IMPORT_FILE`, `429` |
 | 4 | GET | `/customer-imports` | `importaciones.ver` | `CustomerImportQueryDto` → `PaginatedCustomerImportsDto` | `400` |
 | 5 | GET | `/customer-imports/:id` | `importaciones.ver` | → `CustomerImportResponseDto` (con `canConfirm`, `canCancel`, `hasErrorFile`) | `400`, `404` |
 | 6 | GET | `/customer-imports/:id/rows` | `importaciones.ver` | `CustomerImportRowQueryDto` → `PaginatedCustomerImportRowsDto` | `400`, `404` |
-| 7 | POST | `/customer-imports/:id/confirmation` | `importaciones.crear` + `clientes.crear` | `ConfirmCustomerImportDto` → `202 CustomerImportResponseDto` (`IMPORTING`) + `Location` | `403`, `404`, `409 IMPORTS_DISABLED` / `INVALID_IMPORT_STATUS` / `IMPORT_CHANGED` / `IMPORT_DATA_PURGED`, `422 NO_VALID_ROWS`, `429` |
+| 7 | POST | `/customer-imports/:id/confirmation` | `importaciones.crear` + `clientes.crear` | `ConfirmCustomerImportDto` → `202 CustomerImportResponseDto` (`IMPORTING`) + `Location` | `403`, `404`, `409 IMPORTS_DISABLED` / `IMPORT_IN_PROGRESS` / `INVALID_IMPORT_STATUS` / `IMPORT_CHANGED` / `IMPORT_DATA_PURGED`, `422 NO_VALID_ROWS`, `429` |
 | 8 | POST | `/customer-imports/:id/cancellation` | `importaciones.crear` | → `200 CustomerImportResponseDto` (`CANCELLED`) | `403`, `404`, `409 IMPORTS_DISABLED` / `INVALID_IMPORT_STATUS` |
 | 9 | GET | `/customer-imports/:id/error-file` | `importaciones.ver` | → archivo `errores-<código>.<ext>` (`no-store`; la descarga se audita) | `404` (sin filas no importadas), `409 IMPORT_DATA_PURGED`, `429` |
 

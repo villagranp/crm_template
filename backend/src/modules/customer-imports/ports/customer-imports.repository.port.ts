@@ -128,9 +128,10 @@ export interface StaleImportFilter {
 }
 
 export interface CustomerImportsRepository {
-  /** Serializa las subidas de un usuario (`SELECT … FOR UPDATE` sobre su fila de `users`, RN-06.30). */
+  /** Serializa subidas y confirmaciones de las cargas de un usuario (`SELECT … FOR NO KEY UPDATE` sobre su fila de `users`, RN-06.30). */
   lockStarter(userId: string, tx: TransactionContext): Promise<void>;
-  hasActiveImport(userId: string, tx: TransactionContext): Promise<boolean>;
+  /** Otra carga del usuario en `UPLOADED`/`VALIDATING`/`IMPORTING` (sin contar `excludeImportId`). */
+  hasActiveImport(userId: string, tx: TransactionContext, excludeImportId?: string): Promise<boolean>;
   /** Crea la carga en `VALIDATING` (la subida valida en la misma petición). */
   create(input: NewCustomerImport, tx: TransactionContext): Promise<string>;
   /** Guarda las filas y pasa `VALIDATING → VALIDATED` con contadores y `validatedAt`, todo en una transacción. */
@@ -144,8 +145,8 @@ export interface CustomerImportsRepository {
   /** Filas no importadas, en orden, para el archivo de errores (RN-06.26). */
   listNotImportedRows(importId: string): Promise<CustomerImportRowRecord[]>;
 
-  /** `VALIDATED → IMPORTING` con quién y cuándo confirmó (RN-06.20). */
-  startImporting(importId: string, confirmedById: string): Promise<boolean>;
+  /** `VALIDATED → IMPORTING` con quién y cuándo confirmó (RN-06.20), en la transacción que comprueba RN-06.30. */
+  startImporting(importId: string, confirmedById: string, tx: TransactionContext): Promise<boolean>;
   /** `VALIDATED → CANCELLED`. */
   cancel(importId: string): Promise<boolean>;
   listPendingRows(importId: string): Promise<PendingImportRow[]>;

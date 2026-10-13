@@ -362,6 +362,12 @@ exactos (códigos, `details`, objetos completos), no solo que algo "se llamó".
   - no se reutilizan países de prueba de otra suite (cada suite usa códigos propios con
     `testCountry`);
   - todo parámetro cambiado se restaura (`withParameter`).
+  - si una suite cambia parámetros **globales** que otra lee o cambia a la vez (p. ej. los de
+    clientes: `crm.campos_obligatorios`, `crm.clientes.reglas_duplicidad`,
+    `crm.clientes.unicidad_codigo`), ambas toman el mismo candado con
+    `exclusiveParameters('<nombre>')` en `beforeAll` (con `EXCLUSIVE_TIMEOUT_MS`) y lo liberan en
+    `afterAll`: un candado consultivo de PostgreSQL por esquema que las hace mutuamente
+    excluyentes (`customers.e2e` y `customer-imports.e2e` usan `crm-customer-parameters`).
 
 #### 9.8.3 Reglas de frontend
 

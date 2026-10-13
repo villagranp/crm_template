@@ -19,7 +19,7 @@
 export type CsvReadIssue = 'EMPTY_FILE' | 'INVALID_ENCODING' | 'MALFORMED_CSV' | 'TOO_MANY_ROWS';
 
 /** Motivo técnico de `MALFORMED_CSV` (para el log; nunca contiene datos del archivo). */
-export type CsvMalformedReason = 'UNCLOSED_QUOTE' | 'TEXT_AFTER_QUOTE' | 'RECORD_TOO_LONG' | 'TOO_MANY_COLUMNS';
+export type CsvMalformedReason = 'UNCLOSED_QUOTE' | 'TEXT_AFTER_QUOTE' | 'RECORD_TOO_LONG' | 'TOO_MANY_COLUMNS' | 'FIELD_COUNT_MISMATCH';
 
 export class CsvReadError extends Error {
   constructor(
@@ -108,6 +108,10 @@ export function readCsv(buffer: Uint8Array, limits: CsvReadLimits): CsvReadResul
     endField();
     if (headers === null) {
       headers = cells;
+    } else if (cells.length > headers.length && cells.slice(headers.length).some((cell) => cell.trim() !== '')) {
+      // Más valores que encabezados (p. ej. una coma sin comillas en "Acme, S.A."):
+      // los valores quedarían desplazados de columna. Se rechaza el archivo.
+      throw new CsvReadError('MALFORMED_CSV', 'FIELD_COUNT_MISMATCH');
     } else if (!isBlank(cells)) {
       if (rows.length >= limits.maxRows) throw new CsvReadError('TOO_MANY_ROWS');
       rows.push({ rowNumber: recordIndex, cells });

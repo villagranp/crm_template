@@ -81,6 +81,14 @@ describe('readCsv (06 D-06.2, D-06.3, PF-06.43)', () => {
     });
   });
 
+  it('rechaza un registro con más valores que encabezados (columnas desplazadas); admite celdas vacías de sobra', () => {
+    expect(issueOf(() => readCsv(utf8('a,b\nAcme, S.A.,GT\n'), LIMITS))).toEqual({ issue: 'MALFORMED_CSV', reason: 'FIELD_COUNT_MISMATCH' });
+    expect(readCsv(utf8('a,b\n1,2,,\n3\n'), LIMITS).rows).toEqual([
+      { rowNumber: 1, cells: ['1', '2', '', ''] },
+      { rowNumber: 2, cells: ['3'] },
+    ]);
+  });
+
   it('aborta al superar el máximo de filas de datos (las vacías no cuentan)', () => {
     expect(readCsv(utf8('a\n1\n\n2\n'), { maxRows: 2 }).rows).toHaveLength(2);
     expect(issueOf(() => readCsv(utf8('a\n1\n2\n3\n'), { maxRows: 2 })).issue).toBe('TOO_MANY_ROWS');

@@ -30,6 +30,9 @@ teléfonos). La aplicación no tiene planificador: la operación del entorno pro
 día, desde el directorio del backend y con la `DATABASE_URL` del entorno:
 
 ```bash
+# imagen de producción (el script se compila con el build)
+node dist/src/scripts/purge-customer-import-rows.js
+# desarrollo
 pnpm --filter @app/backend run imports:purge-rows
 ```
 
@@ -38,4 +41,3 @@ pnpm --filter @app/backend run imports:purge-rows
 - Conserva el registro de cada carga, sus contadores, estados e incidencias (no contienen valores).
 - Idempotente; escribe una línea JSON `{"event":"customer_import_rows_purged","purgedRows":N,...}`
   sin datos personales; si falla, sale con código 1.
-- Necesita las dependencias de desarrollo (`ts-node`), igual que las semillas.

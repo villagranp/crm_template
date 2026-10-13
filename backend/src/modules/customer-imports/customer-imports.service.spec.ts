@@ -158,7 +158,9 @@ describe('CustomerImportsService (06 F.1)', () => {
 
     it('pasa a IMPORTING con el confirmador, audita y lanza el procesamiento sin esperarlo', async () => {
       await service.confirm(AUTHOR, 'imp-1', request);
-      expect(repository.startImporting).toHaveBeenCalledWith('imp-1', 'author');
+      expect(repository.lockStarter).toHaveBeenCalledWith('author', TX);
+      expect(repository.hasActiveImport).toHaveBeenCalledWith('author', TX, 'imp-1');
+      expect(repository.startImporting).toHaveBeenCalledWith('imp-1', 'author', TX);
       expect(processor.start).toHaveBeenCalledWith({ importId: 'imp-1', importCode: 'IMP-2026-0001', actor: AUTHOR, includeRowsWithWarnings: true });
       expect(audit.record).toHaveBeenCalledWith('crm.customer_import.confirmed', AUTHOR.audit, expect.objectContaining({ metadata: { code: 'IMP-2026-0001', expectedValidRows: 2, includeRowsWithWarnings: true } }));
     });
@@ -187,6 +189,12 @@ describe('CustomerImportsService (06 F.1)', () => {
       expect(processor.start).not.toHaveBeenCalled();
     });
 
+    it('con otra carga del autor validándose o importándose → 409 IMPORT_IN_PROGRESS (RN-06.30)', async () => {
+      repository.hasActiveImport.mockResolvedValue(true);
+      await expect(service.confirm(AUTHOR, 'imp-1', request)).rejects.toMatchObject({ code: 'IMPORT_IN_PROGRESS' });
+      expect(repository.startImporting).not.toHaveBeenCalled();
+    });
+
     it('deshabilitada → 409 IMPORTS_DISABLED', async () => {
       params['crm.importaciones.habilitada'] = false;
       await expect(service.confirm(AUTHOR, 'imp-1', request)).rejects.toMatchObject({ code: 'IMPORTS_DISABLED' });
@@ -205,6 +213,7 @@ describe('CustomerImportsService (06 F.1)', () => {
 describe('sanitizeFileName (H.2)', () => {
   it('quita control y separadores de ruta y acota a 255', () => {
     expect(sanitizeFileName('a/b\\c\td.csv')).toBe('a_b_c_d.csv');
+    expect(sanitizeFileName(`factura${String.fromCharCode(0x202e)}vsc.exe`)).toBe('factura_vsc.exe');
     expect(sanitizeFileName('x'.repeat(300))).toHaveLength(255);
     expect(sanitizeFileName('   ')).toBe('archivo');
   });

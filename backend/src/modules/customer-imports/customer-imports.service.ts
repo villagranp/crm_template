@@ -120,7 +120,8 @@ export interface ConfirmImportRequest {
 
 /** Nombre original saneado: sin control ni separadores de ruta, ≤ 255 (H.2). Solo dato, nunca ruta ni cabecera. */
 export function sanitizeFileName(name: string): string {
-  const cleaned = name.replace(/[\p{Cc}/\\]/gu, '_').trim();
+  // Control, formato (bidi como U+202E, que haría engañoso el nombre) y separadores de ruta.
+  const cleaned = name.replace(/[\p{Cc}\p{Cf}/\\]/gu, '_').trim();
   return (cleaned || 'archivo').slice(0, MAX_FILE_NAME);
 }
 
@@ -397,7 +398,15 @@ export class CustomerImportsService {
     if (record.validRows === 0) throw noValidRowsError();
     if (record.stats.isPurged) throw importDataPurgedError();
     if (request.expectedValidRows !== record.validRows) throw importChangedError(record.validRows);
-    if (!actor.userId || !(await this.imports.startImporting(importId, actor.userId))) {
+    const confirmerId = actor.userId;
+    if (!confirmerId) throw new PermissionDeniedError(IMPORT_PERMISSIONS.create);
+    const started = await this.transactions.run(async (tx) => {
+      // RN-06.30: el autor de la carga no puede tener otra validándose o importándose.
+      await this.imports.lockStarter(record.startedBy.id, tx);
+      if (await this.imports.hasActiveImport(record.startedBy.id, tx, importId)) throw importInProgressError();
+      return this.imports.startImporting(importId, confirmerId, tx);
+    });
+    if (!started) {
       // Otra confirmación o cancelación ganó la transición condicional (RN-06.20).
       throw invalidImportStatusError('IMPORTING');
     }

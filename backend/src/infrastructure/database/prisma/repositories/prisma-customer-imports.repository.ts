@@ -102,12 +102,12 @@ export class PrismaCustomerImportsRepository implements CustomerImportsRepositor
   constructor(private readonly prisma: PrismaService) {}
 
   async lockStarter(userId: string, tx: TransactionContext): Promise<void> {
-    await prismaClientFor(this.prisma, tx).$queryRaw`SELECT id FROM users WHERE id = ${userId}::uuid FOR UPDATE`;
+    await prismaClientFor(this.prisma, tx).$queryRaw`SELECT id FROM users WHERE id = ${userId}::uuid FOR NO KEY UPDATE`;
   }
 
-  async hasActiveImport(userId: string, tx: TransactionContext): Promise<boolean> {
+  async hasActiveImport(userId: string, tx: TransactionContext, excludeImportId?: string): Promise<boolean> {
     const count = await prismaClientFor(this.prisma, tx).customerImport.count({
-      where: { startedById: userId, status: { in: [...ACTIVE_IMPORT_STATUSES] } },
+      where: { startedById: userId, status: { in: [...ACTIVE_IMPORT_STATUSES] }, ...(excludeImportId ? { id: { not: excludeImportId } } : {}) },
     });
     return count > 0;
   }
@@ -250,8 +250,8 @@ export class PrismaCustomerImportsRepository implements CustomerImportsRepositor
     return rows.map(toRowRecord);
   }
 
-  async startImporting(importId: string, confirmedById: string): Promise<boolean> {
-    const updated = await this.prisma.customerImport.updateMany({
+  async startImporting(importId: string, confirmedById: string, tx: TransactionContext): Promise<boolean> {
+    const updated = await prismaClientFor(this.prisma, tx).customerImport.updateMany({
       where: { id: importId, status: 'VALIDATED' },
       data: { status: 'IMPORTING', confirmedById, confirmedAt: new Date() },
     });

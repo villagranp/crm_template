@@ -40,6 +40,14 @@ describe('readImportFile (06 RN-06.9, RN-06.10, RN-06.31, PF-06.53)', () => {
     expect(readSheet).not.toHaveBeenCalled();
   });
 
+  it('un CSV con más de 30 columnas es TOO_MANY_COLUMNS, como en XLSX (revisión E5, m-4)', async () => {
+    const wide = Buffer.from(`${Array.from({ length: 31 }, (_value, index) => `c${index}`).join(',')}\n`);
+    await expect(readImportFile({ buffer: wide, originalName: 'a.csv', mimeType: 'text/csv' }, 'CSV', LIMITS)).resolves.toMatchObject({
+      ok: false,
+      problems: [{ field: 'columns', issue: 'TOO_MANY_COLUMNS' }],
+    });
+  });
+
   it('vacío, solo encabezados, demasiadas filas y columnas incorrectas → problemas de estructura', async () => {
     const read = (buffer: Buffer) => readImportFile({ buffer, originalName: 'a.csv', mimeType: 'text/csv' }, 'CSV', LIMITS);
     await expect(read(Buffer.alloc(0))).resolves.toMatchObject({ ok: false, problems: [{ field: 'file', issue: 'EMPTY_FILE' }] });

@@ -124,7 +124,8 @@ export class CustomerImportsController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @RequirePermission(IMPORT_PERMISSIONS.create, IMPORT_PERMISSIONS.customersCreate)
+  // `importaciones.ver` también: sin él el autor no podría ver ni confirmar la carga que acaba de crear (revisión E5, m-1).
+  @RequirePermission(IMPORT_PERMISSIONS.view, IMPORT_PERMISSIONS.create, IMPORT_PERMISSIONS.customersCreate)
   @Throttle(UPLOAD_THROTTLE)
   @UseInterceptors(CustomerImportUploadInterceptor)
   @ApiOperation({
@@ -137,7 +138,7 @@ export class CustomerImportsController {
   @ApiBody({ schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' } } } })
   @ApiCreatedResponse({ type: CustomerImportResponseDto, description: '`Location: /api/v1/customer-imports/{id}`' })
   @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED: falta `file`, más de un archivo o campos extra (`details[0].field = "file"`)' })
-  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'PERMISSION_DENIED: falta `importaciones.crear` o `clientes.crear`' })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'PERMISSION_DENIED: falta `importaciones.ver`, `importaciones.crear` o `clientes.crear`' })
   @ApiConflictResponse({ type: ErrorResponseDto, description: `${DISABLED_409} · IMPORT_IN_PROGRESS: el usuario ya tiene una carga validándose o importándose` })
   @ApiPayloadTooLargeResponse({ type: ErrorResponseDto, description: 'FILE_TOO_LARGE: supera `crm.importaciones.max_mb` (NGINX responde 413 sin cuerpo JSON por encima de 10 MB)' })
   @ApiUnsupportedMediaTypeResponse({
