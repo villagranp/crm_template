@@ -22,6 +22,8 @@ export interface CalendarMonthViewProps {
   itemsByDay: ReadonlyMap<string, AgendaItem[]>;
   types: readonly ActivityTypeOption[] | undefined;
   onOpen: (item: AgendaItem) => void;
+  /** Zona del usuario para la hora de cada evento; `undefined` = la del navegador. */
+  timeZone?: string;
   /** `< md`: solo indicadores por día y el detalle del día elegido debajo (E.2). */
   isMobile: boolean;
   /** Móvil: elegir el día cuyo detalle se muestra debajo. */
@@ -70,7 +72,7 @@ function DayNumber({ day, isToday }: { day: CalendarDay; isToday: boolean }) {
  * botón con el número de eventos y el detalle del día elegido va debajo. Hoy se
  * marca con `aria-current="date"` además del estilo.
  */
-export function CalendarMonthView({ referenceKey, todayKey, itemsByDay, types, onOpen, isMobile, onSelectDay, onShowDay }: CalendarMonthViewProps) {
+export function CalendarMonthView({ referenceKey, todayKey, itemsByDay, types, onOpen, timeZone, isMobile, onSelectDay, onShowDay }: CalendarMonthViewProps) {
   const weeks = monthGrid(referenceKey);
   const detailId = useId();
 
@@ -114,7 +116,6 @@ export function CalendarMonthView({ referenceKey, todayKey, itemsByDay, types, o
                     borderRadius: `${layout.radiusPill}px`,
                     typography: 'caption',
                     fontWeight: 'fontWeightBold',
-                    lineHeight: 1.4,
                     visibility: count > 0 ? 'visible' : 'hidden',
                     bgcolor: 'primary.main',
                     color: 'primary.contrastText',
@@ -130,7 +131,7 @@ export function CalendarMonthView({ referenceKey, todayKey, itemsByDay, types, o
           <Typography variant="subtitle2" component="h3" sx={{ px: 0.5, mb: 1, '&::first-letter': { textTransform: 'uppercase' } }}>
             {dayLongLabel(referenceKey)}
           </Typography>
-          <CalendarDayView items={selectedItems} types={types} onOpen={onOpen} />
+          <CalendarDayView items={selectedItems} types={types} onOpen={onOpen} timeZone={timeZone} />
         </Box>
       </Box>
     );
@@ -166,7 +167,7 @@ export function CalendarMonthView({ referenceKey, todayKey, itemsByDay, types, o
               <Stack component="ul" spacing={0.5} sx={{ listStyle: 'none', m: 0, mt: 0.5, p: 0 }}>
                 {items.slice(0, MONTH_CELL_MAX_EVENTS).map((item) => (
                   <Box component="li" key={`${item.kind}-${item.id}`} sx={{ minWidth: 0 }}>
-                    <AgendaEventButton item={item} types={types} onOpen={onOpen} variant="compact" />
+                    <AgendaEventButton item={item} types={types} onOpen={onOpen} timeZone={timeZone} variant="compact" />
                   </Box>
                 ))}
               </Stack>

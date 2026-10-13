@@ -1,4 +1,3 @@
-import { env } from '@/config/env';
 import type { ListQuery } from '@/lib/query-keys';
 import { httpClient, type DownloadedFile } from '@/services/api';
 import type { PaginatedResponse } from '@/types/api';
@@ -44,20 +43,30 @@ export function traceScopeOf(row: FollowUpRow, groupBy: FollowUpGroup): FollowUp
   return groupBy === 'PROJECT' && row.project ? { projectId: row.project.id } : { customerId: row.customer.id };
 }
 
-/** Ruta de la API (sin la base) de un `contentPath`. Sólo rutas relativas: nunca otro origen. */
-export function apiRelativePath(contentPath: string): string {
-  if (!contentPath.startsWith('/') || contentPath.startsWith('//')) {
-    throw new Error('Ruta de descarga no válida');
+/** Únicas rutas de descarga que se aceptan: el contenido de un adjunto de actividad, visita o evento (F.4). */
+const TRACE_CONTENT_PATH = /^\/(activities|visits)\/[0-9a-f-]+\/(events\/[0-9a-f-]+\/)?attachments\/[0-9a-f-]+\/content$/;
+
+/** El `contentPath` recibido no es una ruta de descarga de adjuntos del módulo: no se pide. */
+export class InvalidDownloadPathError extends Error {
+  constructor() {
+    super('Ruta de descarga no válida');
+    this.name = 'InvalidDownloadPathError';
   }
-  const basePath = new URL(env.VITE_API_BASE_URL, window.location.origin).pathname.replace(/\/+$/, '');
-  return basePath && contentPath.startsWith(`${basePath}/`) ? contentPath.slice(basePath.length) : contentPath;
+}
+
+/** `contentPath` si es una ruta de descarga del módulo (relativa a la base de la API); si no, `null`. */
+export function traceAttachmentPath(contentPath: string): string | null {
+  return TRACE_CONTENT_PATH.test(contentPath) ? contentPath : null;
 }
 
 /**
  * Descarga un adjunto de la trazabilidad por la ruta de su dueño (F.4) con el
  * cliente autenticado (nunca un `<a href>`: el token vive en memoria).
- * `contentPath` llega con la base de la API (`/api/v1/...`) y se recorta.
+ * `contentPath` ya es relativa a la base de la API; por defensa, sólo se sigue
+ * si tiene la forma de una ruta de contenido de adjuntos (nunca otro origen ni
+ * otro recurso).
  */
 export function downloadTraceAttachment(attachment: TraceAttachment): Promise<DownloadedFile> {
-  return httpClient.download(apiRelativePath(attachment.contentPath));
+  const path = traceAttachmentPath(attachment.contentPath);
+  return path ? httpClient.download(path) : Promise.reject(new InvalidDownloadPathError());
 }

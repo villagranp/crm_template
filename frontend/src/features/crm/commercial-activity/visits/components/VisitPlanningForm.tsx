@@ -10,6 +10,7 @@ import { CustomerProjectFields } from '../../common/CustomerProjectFields';
 import { OwnerPicker } from '../../common/OwnerPicker';
 import { ParticipantsField } from '../../common/ParticipantsField';
 import { withoutContacts } from '../../common/participants';
+import { formTimeZone } from '../../common/use-commercial-time-zones';
 import { useVisitScheduleConflicts } from '../use-visit-schedule-conflicts';
 import type { VisitFormOptions } from '../visits.api';
 import {
@@ -79,7 +80,9 @@ export function VisitPlanningForm({
   children,
 }: VisitPlanningFormProps) {
   const formId = useId();
-  const context = useMemo(() => ({ mode, requiredFields: options.requiredFields }), [mode, options.requiredFields]);
+  // Zona del usuario (RN-04.9): las fechas se escriben, se validan y se consultan en ella.
+  const timeZone = formTimeZone(options);
+  const context = useMemo(() => ({ mode, requiredFields: options.requiredFields, timeZone }), [mode, options.requiredFields, timeZone]);
   const schema = useMemo(() => buildVisitPlanningSchema(context), [context]);
   const form = useForm<VisitPlanningValues>({ resolver: zodResolver(schema), defaultValues: initialValues });
   const {
@@ -107,6 +110,7 @@ export function VisitPlanningForm({
     end,
     excludeVisitId: visitId,
     enabled: !isPending,
+    timeZone,
   });
   const ownVisits = !ownerId || ownerId === currentUserId;
 
@@ -141,7 +145,7 @@ export function VisitPlanningForm({
             error={Boolean(errors.scheduledStartAt)}
             helperText={
               errors.scheduledStartAt?.message ??
-              (isPastStart(start) ? 'La fecha ya pasó: se registrará como planificación tardía.' : undefined)
+              (isPastStart(start, new Date(), timeZone) ? 'La fecha ya pasó: se registrará como planificación tardía.' : undefined)
             }
           />
         ) : (

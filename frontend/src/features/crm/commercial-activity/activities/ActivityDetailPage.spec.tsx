@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { callsTo, errorResponse, jsonResponse, mockApi, mockUpload, type RouteHandler } from '@/test/api-mocks';
+import { callsTo, deferred, errorResponse, jsonResponse, mockApi, mockUpload, type RouteHandler } from '@/test/api-mocks';
 import { renderWithProviders } from '@/test/render-with-providers';
 
 import {
@@ -35,6 +35,11 @@ function renderPage(state?: unknown) {
     </Routes>,
     { initialEntries: [state ? ({ pathname: '/actividad/actividades/a-1', state } as unknown as string) : '/actividad/actividades/a-1'] },
   );
+}
+
+/** Peticiones `GET` a una ruta con cualquier consulta (`callsTo` exige que la URL termine en la ruta). */
+function listCalls(fetchMock: { mock: { calls: unknown[][] } }, path: string): number {
+  return fetchMock.mock.calls.filter(([input]) => new URL(String(input), 'http://localhost').pathname === `/api/v1${path}`).length;
 }
 
 function api(detail: ActivityDetail | (() => Response), extra: Record<string, RouteHandler> = {}) {
@@ -180,7 +185,8 @@ describe('ActivityDetailPage (F-30, F-33)', () => {
     await userEvent.upload(within(dialog).getByLabelText('Elegir archivos para adjuntar'), new File(['x'], 'grande.pdf', { type: 'application/pdf' }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Completar' }));
 
-    expect(await within(dialog).findByText(/grande\.pdf: El archivo supera el tamaño máximo permitido\. La actividad no se completó/)).toBeInTheDocument();
+    // El mensaje usa el límite de `form-options.attachments` (F4).
+    expect(await within(dialog).findByText(/grande\.pdf: El archivo supera el tamaño máximo permitido \(1 MB\)\. La actividad no se completó/)).toBeInTheDocument();
     expect(uploads[0]?.path).toBe('/activities/a-1/attachments');
     expect(callsTo(fetchMock, 'POST', '/activities/a-1/completion')).toHaveLength(0);
   });
@@ -210,6 +216,57 @@ describe('ActivityDetailPage (F-30, F-33)', () => {
 
     expect(await screen.findByText('Actividad ACT-2026-000001 cancelada.')).toBeInTheDocument();
     expect(bodyOf(callsTo(fetchMock, 'POST', '/activities/a-1/cancellation')[0])).toEqual({ comment: 'Ya no aplica' });
+  });
+
+  it('subir un adjunto desde el panel refresca la actividad (contador de adjuntos) y la lista del panel (F2)', async () => {
+    const fetchMock = api(ACTIVITY_DETAIL);
+    const uploads = mockUpload(() => ({ status: 201, body: { id: 'att-9', fileName: 'acta.pdf' } }));
+    renderPage();
+
+    await screen.findByRole('button', { name: 'Subir archivos' });
+    await waitFor(() => expect(callsTo(fetchMock, 'GET', '/activities/a-1')).toHaveLength(1));
+    await userEvent.upload(screen.getByLabelText('Seleccionar archivos para subir'), new File(['x'], 'acta.pdf', { type: 'application/pdf' }));
+
+    await waitFor(() => expect(uploads).toHaveLength(1));
+    await waitFor(() => expect(callsTo(fetchMock, 'GET', '/activities/a-1')).toHaveLength(2));
+    await waitFor(() => expect(listCalls(fetchMock, '/activities/a-1/attachments')).toBeGreaterThanOrEqual(2));
+  });
+
+  it('el panel comprueba tamaño y tipo con los límites de form-options antes de subir (F4)', async () => {
+    api(ACTIVITY_DETAIL);
+    const uploads = mockUpload(() => ({ status: 201, body: {} }));
+    renderPage();
+
+    await screen.findByRole('button', { name: 'Subir archivos' });
+    const big = new File(['x'], 'enorme.pdf', { type: 'application/pdf' });
+    Object.defineProperty(big, 'size', { value: 2 * 1024 * 1024 });
+    await userEvent.upload(screen.getByLabelText('Seleccionar archivos para subir'), big);
+
+    expect(await screen.findByText(/El archivo supera el tamaño máximo permitido \(1 MB\)/)).toBeInTheDocument();
+    expect(uploads).toHaveLength(0);
+  });
+
+  it('al eliminar sale del detalle sin esperar a la recarga del módulo ni volver a pedir la actividad (F3)', async () => {
+    let deleted = false;
+    const hanging = deferred<Response>();
+    const fetchMock = api(ACTIVITY_DETAIL, {
+      'DELETE /activities/a-1': () => {
+        deleted = true;
+        return new Response(null, { status: 204 });
+      },
+      // Tras eliminar, la recarga del módulo no termina nunca: salir no debe depender de ella.
+      'GET /activities/form-options': () => (deleted ? hanging.promise : jsonResponse(FORM_OPTIONS)),
+    });
+    renderPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Eliminar' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Eliminar actividad' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Eliminar' }));
+
+    expect(await screen.findByText('En /actividad/actividades')).toBeInTheDocument();
+    // Ni el detalle ni sus adjuntos se vuelven a pedir (darían 404).
+    expect(callsTo(fetchMock, 'GET', '/activities/a-1')).toHaveLength(1);
+    expect(listCalls(fetchMock, '/activities/a-1/attachments')).toBe(1);
   });
 
   it('elimina tras confirmar y vuelve al listado; un 409 se muestra en el diálogo', async () => {

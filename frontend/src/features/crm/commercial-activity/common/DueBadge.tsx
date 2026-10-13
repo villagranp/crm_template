@@ -4,6 +4,7 @@ import { Box, Stack, Typography } from '@mui/material';
 
 import type { DueBucket } from './commercial-activity.api';
 import { describeDue, formatDateTime } from './date-time';
+import { useCommercialTimeZones } from './use-commercial-time-zones';
 
 export interface DueBadgeProps {
   /** Vencimiento (instante ISO) o `null` si no tiene. */
@@ -27,6 +28,7 @@ const BUCKET_VIEW: Partial<Record<DueBucket, { label: string; color: string; Ico
  * recalcula. Una actividad cerrada sólo muestra la fecha.
  */
 export function DueBadge({ dueAt, bucket, now }: DueBadgeProps) {
+  const { timeZone } = useCommercialTimeZones();
   if (!dueAt) {
     return (
       <Typography variant="body2" color="text.secondary" component="span">
@@ -50,7 +52,7 @@ export function DueBadge({ dueAt, bucket, now }: DueBadgeProps) {
         </Box>
       ) : null}
       <Typography variant={view ? 'caption' : 'body2'} color={view ? 'text.secondary' : 'text.primary'} component="span">
-        {relative ? `${relative} · ${formatDateTime(dueAt)}` : formatDateTime(dueAt)}
+        {relative ? `${relative} · ${formatDateTime(dueAt, timeZone)}` : formatDateTime(dueAt, timeZone)}
       </Typography>
     </Stack>
   );

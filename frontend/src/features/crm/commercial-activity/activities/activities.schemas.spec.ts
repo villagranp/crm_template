@@ -141,4 +141,20 @@ describe('activities.schemas (RN-04.23, RN-04.24, RN-04.29)', () => {
     expect(activityFormFieldFor('completedAt', true)).toBe('completedAt');
     expect(activityFormFieldFor('desconocido', false)).toBeNull();
   });
+
+  it('lee y escribe las fechas en la zona del usuario (RN-04.9, D-04.17)', () => {
+    const GT = 'America/Guatemala';
+    const input = toCreateActivityInput(values({ dueAt: '2026-10-13T09:00', scheduledAt: '2026-10-12T15:30' }), TYPE_CALL, false, GT);
+    expect(input.dueAt).toBe('2026-10-13T15:00:00.000Z');
+    expect(input.scheduledAt).toBe('2026-10-12T21:30:00.000Z');
+    expect(activityValuesFrom(ACTIVITY_DETAIL, GT).dueAt).toBe('2026-10-13T09:00');
+    expect(emptyActivityValues({ ...FORM_OPTIONS, timeZone: 'Pacific/Kiritimati' }).completedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+
+    // "Ya realizada" a las 11:00: futura en Guatemala (NOW = 10:00 allí), pasada en Madrid (18:00 allí).
+    const done = values({ alreadyDone: true, completedAt: '2026-10-12T11:00', completionResultNotes: 'Hecho' });
+    const schema = (timeZone: string) =>
+      buildActivityFormSchema({ mode: 'create', types: FORM_OPTIONS.types, requiredFields: FORM_OPTIONS.requiredFields, canChooseOwner: false, now: () => NOW, timeZone });
+    expect(schema(GT).safeParse(done).success).toBe(false);
+    expect(schema('Europe/Madrid').safeParse(done).success).toBe(true);
+  });
 });

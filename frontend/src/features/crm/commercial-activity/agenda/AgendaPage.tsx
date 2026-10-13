@@ -12,10 +12,12 @@ import { usePermission } from '@/hooks/use-permission';
 
 import { useActivityFormOptions } from '../activities/activities.queries';
 import { NewActivityMenuButton } from '../activities/components/NewActivityMenuButton';
-import type { AgendaItem, UserRef } from '../common/commercial-activity.api';
+import type { AgendaItem } from '../common/commercial-activity.api';
 import { ACTIVITY_PERMISSIONS, VISIT_PERMISSIONS } from '../common/commercial-activity.permissions';
+import { useOwnerName } from '../common/commercial-activity.queries';
 import { planVisitPath } from '../common/commercial-paths';
 import { todayInTimeZone } from '../common/date-time';
+import { useCommercialTimeZones } from '../common/use-commercial-time-zones';
 
 import { AGENDA_FILTER_KEYS, AGENDA_SORT_FIELDS, toAgendaApiFilters, type AgendaFilterKey, type AgendaFilterValues } from './agenda.api';
 import { CALENDAR_MODES, isValidDayKey, type CalendarMode } from './calendar-grid';
@@ -78,7 +80,9 @@ export function AgendaPage() {
   const requestedMode: CalendarMode = isCalendarMode(modeParam) ? modeParam : isMobile ? 'day' : 'month';
   // En móvil la semana se presenta como Día con la tira de días (E.2).
   const mode: CalendarMode = isMobile && requestedMode === 'week' ? 'day' : requestedMode;
-  const todayKey = todayInTimeZone();
+  const { timeZone, businessTimeZone } = useCommercialTimeZones();
+  // "Hoy" en la zona de negocio (RN-04.9); los eventos se ubican en la zona del usuario.
+  const todayKey = todayInTimeZone(businessTimeZone);
   const dateParam = searchParams.get(PARAM.date);
   const referenceKey = isValidDayKey(dateParam) ? dateParam : todayKey;
 
@@ -101,9 +105,8 @@ export function AgendaPage() {
     () => ({ includeVisit: canViewVisits, activityTypes: canViewActivities ? (options.data?.types ?? NO_TYPES) : NO_TYPES }),
     [canViewVisits, canViewActivities, options.data],
   );
-  // Nombre del asesor filtrado: el elegido en el selector; tras recargar, "Seleccionado" (no hay endpoint por id).
-  const [knownOwner, setKnownOwner] = useState<UserRef | null>(null);
-  const ownerName = filters.ownerId && knownOwner?.id === filters.ownerId ? knownOwner.displayName : null;
+  // Nombre del asesor filtrado, también tras recargar (`owner-options?id=`).
+  const ownerName = useOwnerName(filters.ownerId);
 
   const updateParams = useCallback(
     (changes: Record<string, string | null>) =>
@@ -193,11 +196,7 @@ export function AgendaPage() {
               values={visibleFilters}
               typeOptions={typeOptions}
               showDateRange={view === 'list'}
-              ownerName={ownerName}
-              onApply={(values, owner) => {
-                setKnownOwner(owner);
-                table.setFilters(values);
-              }}
+              onApply={(values) => table.setFilters(values)}
             />
           </Collapse>
           <ActiveAgendaFilterChips
@@ -212,6 +211,7 @@ export function AgendaPage() {
         {view === 'calendar' ? (
           <AgendaCalendar
             filters={apiFilters}
+            timeZone={timeZone}
             mode={mode}
             referenceKey={referenceKey}
             todayKey={todayKey}

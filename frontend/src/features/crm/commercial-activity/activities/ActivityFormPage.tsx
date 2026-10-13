@@ -13,9 +13,11 @@ import { useAuthStore } from '@/stores/auth.store';
 import { stashPendingAttachments, commercialAttachmentsPath } from '../common/attachment-owner';
 import { COMMERCIAL_ERROR_CODES, COMMERCIAL_ERROR_MESSAGES, withReference } from '../common/commercial-activity.errors';
 import { ACTIVITY_PERMISSIONS } from '../common/commercial-activity.permissions';
+import { useInvalidateCommercialActivity } from '../common/commercial-activity.queries';
 import { FilesField } from '../common/FilesField';
 import { uploadFilesInOrder } from '../common/upload-files';
 import { useCommercialPreselection } from '../common/use-commercial-preselection';
+import { formTimeZone } from '../common/use-commercial-time-zones';
 
 import type { ActivityDetail } from './activities.api';
 import { useActivityFormOptions, useCompleteActivity, useCreateActivity } from './activities.queries';
@@ -72,6 +74,7 @@ export function ActivityFormPage() {
   const presetTypeId = searchParams.get('typeId');
 
   const creation = useCreateActivity();
+  const invalidateModule = useInvalidateCommercialActivity();
   const completion = useCompleteActivity();
   const [files, setFiles] = useState<File[]>([]);
   const [stepping, setStepping] = useState(false);
@@ -123,14 +126,19 @@ export function ActivityFormPage() {
   }
 
   const optionsData = options.data;
+  const timeZone = formTimeZone(optionsData);
   const typeOf = (typeId: string) => optionsData.types.find((type) => type.id === typeId);
 
   /** "Ya realizada" con archivos: crear abierta → subir → completar. */
   const createUploadAndComplete = async (values: ActivityFormValues) => {
     setStepping(true);
     try {
-      const created = await creation.mutateAsync(toCreateWithoutCompletion(values, typeOf(values.typeId), canChooseOwner));
-      const upload = await uploadFilesInOrder(commercialAttachmentsPath({ type: 'activity', activityId: created.id }), files);
+      const created = await creation.mutateAsync(toCreateWithoutCompletion(values, typeOf(values.typeId), canChooseOwner, timeZone));
+      const upload = await uploadFilesInOrder(commercialAttachmentsPath({ type: 'activity', activityId: created.id }), files, optionsData.attachments);
+      if (upload.uploaded.length > 0) {
+        // `attachmentCount` del detalle recién guardado en caché y de listas y agenda.
+        void invalidateModule();
+      }
       if (upload.failure) {
         goToDetail(created, {
           severity: 'warning',
@@ -139,7 +147,7 @@ export function ActivityFormPage() {
         return;
       }
       try {
-        const completed = await completion.mutateAsync({ activityId: created.id, input: toCompletionInput(values) });
+        const completed = await completion.mutateAsync({ activityId: created.id, input: toCompletionInput(values, timeZone) });
         goToDetail(completed, { severity: 'success', notice: `Actividad ${completed.code} registrada como realizada.` });
       } catch (error) {
         goToDetail(created, {
@@ -159,7 +167,7 @@ export function ActivityFormPage() {
       void createUploadAndComplete(values);
       return;
     }
-    creation.mutate(toCreateActivityInput(values, typeOf(values.typeId), canChooseOwner), {
+    creation.mutate(toCreateActivityInput(values, typeOf(values.typeId), canChooseOwner, timeZone), {
       onSuccess: (created) => {
         stashPendingAttachments({ type: 'activity', activityId: created.id }, files);
         goToDetail(created, {
@@ -212,6 +220,7 @@ export function ActivityFormPage() {
                 <FilesField
                   files={files}
                   onChange={setFiles}
+                  limits={optionsData.attachments}
                   disabled={isPending}
                   description="Se suben al guardar la actividad (con «Ya realizada», antes de completarla)."
                 />

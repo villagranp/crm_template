@@ -31,14 +31,21 @@ export interface UseAttachmentUploadsResult {
 /**
  * Cola de subidas de adjuntos de un dueño: comprobación previa (sólo ayuda),
  * subida secuencial con progreso y error por archivo. Un fallo no detiene el
- * resto de la cola. Al terminar cada subida se invalida la lista del dueño.
- * Al desmontar se cancela la subida en curso.
+ * resto de la cola. Al terminar cada subida se invalida la lista del dueño y se
+ * llama a `onChanged` (opcional: p. ej. para refrescar los contadores de
+ * adjuntos del módulo dueño). Al desmontar se cancela la subida en curso.
  */
 export function useAttachmentUploads(
   basePath: string,
   limits: AttachmentLimits | undefined,
+  onChanged?: () => void,
 ): UseAttachmentUploadsResult {
   const queryClient = useQueryClient();
+  // La última versión, sin rehacer la cola si quien llama pasa una función nueva en cada render.
+  const onChangedRef = useRef(onChanged);
+  useEffect(() => {
+    onChangedRef.current = onChanged;
+  }, [onChanged]);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [lastUploaded, setLastUploaded] = useState<string | null>(null);
   const chainRef = useRef<Promise<void>>(Promise.resolve());
@@ -69,6 +76,7 @@ export function useAttachmentUploads(
         });
         setUploads((current) => current.filter((item) => item.key !== key));
         setLastUploaded(file.name);
+        onChangedRef.current?.();
         await queryClient.invalidateQueries({ queryKey: attachmentKeys.owner(basePath) });
       } catch (error) {
         if (!signal?.aborted) {

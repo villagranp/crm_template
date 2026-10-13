@@ -18,6 +18,8 @@ export interface VisitScheduleConflictsInput {
   /** Al editar o reprogramar: la propia visita no cuenta. */
   excludeVisitId?: string;
   enabled?: boolean;
+  /** Zona del usuario en la que se leen `start` y `end` (RN-04.9); por defecto, la del navegador. */
+  timeZone?: string;
 }
 
 /** Espera tras el último cambio de fecha, fin o responsable antes de consultar. */
@@ -27,11 +29,11 @@ function buildQuery(input: VisitScheduleConflictsInput): ScheduleConflictsQuery 
   if (input.enabled === false || !input.mode || input.mode === 'NO') {
     return null;
   }
-  const start = fromDateTimeLocalValue(input.start);
+  const start = fromDateTimeLocalValue(input.start, input.timeZone);
   if (!start) {
     return null;
   }
-  const end = fromDateTimeLocalValue(input.end);
+  const end = fromDateTimeLocalValue(input.end, input.timeZone);
   const query: ScheduleConflictsQuery = { start };
   if (end && new Date(end).getTime() >= new Date(start).getTime()) {
     query.end = end;

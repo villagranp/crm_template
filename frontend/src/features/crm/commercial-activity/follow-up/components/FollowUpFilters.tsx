@@ -1,5 +1,5 @@
 import { Box, Button, Chip, FormControlLabel, Stack, Switch, TextField } from '@mui/material';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 
 import { CustomerPicker, type CustomerPickerValue } from '@/features/crm/customers';
 
@@ -8,6 +8,7 @@ import { useCountryOptions } from '../../common/commercial-activity.queries';
 import { CountrySelect } from '../../common/CountrySelect';
 import { formatCalendarDate } from '../../common/date-time';
 import { OwnerPicker } from '../../common/OwnerPicker';
+import { useResyncOnChange } from '../../common/use-resync-on-change';
 import type { FollowUpChipFilter, FollowUpFilterValues, FollowUpFormFilter } from '../follow-up-filters';
 
 const LABELS: Record<FollowUpChipFilter, string> = {
@@ -23,8 +24,6 @@ const LABELS: Record<FollowUpChipFilter, string> = {
 export interface FollowUpFiltersProps {
   /** Filtros aplicados (los de la URL); las fechas, `YYYY-MM-DD`. */
   values: FollowUpFilterValues;
-  /** Nombre del asesor filtrado, si se conoce. */
-  ownerName: string | null;
   /** Fija todos los filtros del formulario de una vez (una sola navegación). */
   onApply: (values: Partial<Record<FollowUpFormFilter, string | undefined>>) => void;
 }
@@ -34,17 +33,18 @@ export interface FollowUpFiltersProps {
  * país del cliente, "sin próxima acción" y rango de última interacción. Se
  * escriben en un borrador y se aplican juntos; viven en la URL.
  */
-export function FollowUpFilters({ values, ownerName, onApply }: FollowUpFiltersProps) {
+export function FollowUpFilters({ values, onApply }: FollowUpFiltersProps) {
   const [draft, setDraft] = useState<FollowUpFilterValues>(values);
-  const [owner, setOwner] = useState<UserRef | null>(null);
-  const [customer, setCustomer] = useState<CustomerPickerValue | { id: string } | null>(null);
+  const [owner, setOwner] = useState<UserRef | { id: string } | null>(values.ownerId ? { id: values.ownerId } : null);
+  const [customer, setCustomer] = useState<CustomerPickerValue | { id: string } | null>(values.customerId ? { id: values.customerId } : null);
 
-  // La URL manda: atrás/adelante o "Limpiar" actualizan el borrador.
-  useEffect(() => {
-    setDraft(values);
-    setOwner(values.ownerId ? { id: values.ownerId, displayName: ownerName ?? 'Asesor seleccionado' } : null);
-    setCustomer(values.customerId ? { id: values.customerId } : null);
-  }, [values, ownerName]);
+  // La URL manda (atrás/adelante, "Limpiar", un chip quitado), pero sólo si
+  // cambian los filtros: un nuevo render con los mismos no borra el borrador.
+  useResyncOnChange(values, (applied) => {
+    setDraft(applied);
+    setOwner(applied.ownerId ? { id: applied.ownerId } : null);
+    setCustomer(applied.customerId ? { id: applied.customerId } : null);
+  });
 
   const set = (key: FollowUpFormFilter, value: string) => setDraft((current) => ({ ...current, [key]: value }));
   const invalidRange = Boolean(draft.lastInteractionFrom && draft.lastInteractionTo && draft.lastInteractionTo < draft.lastInteractionFrom);
@@ -77,7 +77,7 @@ export function FollowUpFilters({ values, ownerName, onApply }: FollowUpFiltersP
         <Box sx={{ gridColumn: { sm: 'span 2' } }}>
           <CustomerPicker label={LABELS.customerId} value={customer} onChange={setCustomer} />
         </Box>
-        <OwnerPicker label={LABELS.ownerId} value={owner} onChange={setOwner} />
+        <OwnerPicker label={LABELS.ownerId} value={owner} fallbackName="Asesor seleccionado" onChange={setOwner} />
         <CountrySelect value={draft.countryId ?? ''} onChange={(countryId) => set('countryId', countryId)} />
         <TextField
           type="date"

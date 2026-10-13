@@ -6,6 +6,27 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 ## [Unreleased]
 
 ### Fixed
+- **CRM Módulo 4 — revisión de código** (`04-actividad-comercial.md`, "Precisiones de implementación"):
+  - Concurrencia (RN-04.2): alta y edición de visitas y actividades bloquean el proyecto vinculado
+    **antes** de validarlo; antes, una eliminación concurrente del proyecto podía dejar un registro
+    nuevo vinculado a un proyecto eliminado (prueba de integración con dos transacciones).
+  - Contrato (aditivo): los `form-options` de visitas y actividades publican `timeZone`,
+    `businessTimeZone` y `attachments`; `owner-options` acepta `id` repetible para resolver
+    nombres con el mismo filtro de alcance; `VisitEventDto.canAttachFiles` (D-04.18, misma regla
+    que la subida). `TraceAttachmentDto.contentPath` pasa a ser relativa a la base de la API.
+    Agenda, calendario, historial, seguimiento y listas de adjuntos ya no anuncian `search` y
+    responden `400` si llega (antes se ignoraba).
+  - Frontend: fechas, entradas `datetime-local`, límites de día y rejilla del calendario en la zona
+    del usuario y "hoy" en la de negocio (RN-04.9, D-04.17, conversión con `Intl` segura ante
+    cambios de horario); límites de adjuntos comprobados antes de subir en todas las pantallas;
+    el chip del asesor muestra su nombre tras recargar; los borradores de filtros ya no se borran
+    al recargar la lista; subir o eliminar adjuntos refresca los contadores del módulo
+    (`AttachmentsSection onChanged`, aditivo); eliminar una actividad sale del detalle sin `404`
+    intermedio; un fallo de las opciones del listado de actividades se avisa con "Reintentar";
+    "Adjuntar archivos al evento" sigue a `canAttachFiles`; `search` nunca se envía a esas
+    colecciones; `lineHeight` del calendario desde la tipografía del tema. `httpClient` envía una
+    lista en `query` como parámetro repetible. E2E PF-04.59: la espera del detalle de la visita
+    acepta solo un UUID (la página también pide `/visits/form-options`).
 - **Observabilidad — status de `http_request`** (`RequestLoggingInterceptor`): un
   `ApplicationError` (401, 403, 404, 409, 422…) se registraba con `statusCode: 500` porque el
   interceptor lo deducía de una propiedad `status` que esas excepciones no tienen; el cliente

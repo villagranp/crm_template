@@ -12,7 +12,8 @@ import type { Interaction } from './commercial-activity.api';
 import { COMMERCIAL_ERROR_MESSAGES, withReference } from './commercial-activity.errors';
 import { interactionHistoryPath } from './commercial-paths';
 import { useInteractions } from './commercial-activity.queries';
-import { formatCalendarDate, formatDate, formatTime, todayInTimeZone } from './date-time';
+import { dayKeyInTimeZone, formatCalendarDate, formatDate, formatTime } from './date-time';
+import { useCommercialTimeZones } from './use-commercial-time-zones';
 
 /** Interacciones por página en la vista compacta (fichas) y en la completa. */
 export const COMPACT_TIMELINE_SIZE = 5;
@@ -24,10 +25,8 @@ export interface InteractionTimelineListProps {
   hideCustomer?: boolean;
   /** Oculta el proyecto (la línea de tiempo ya es de un proyecto). */
   hideProject?: boolean;
-}
-
-function dayKey(occurredAt: string): string {
-  return todayInTimeZone(undefined, new Date(occurredAt));
+  /** Zona de los días y las horas; por defecto, la del usuario (`useCommercialTimeZones`). */
+  timeZone?: string;
 }
 
 /**
@@ -37,15 +36,17 @@ function dayKey(occurredAt: string): string {
  * origen ("Ver visita VIS-…" / "Ver actividad ACT-…"). Los textos libres se
  * pintan como texto (H.4).
  */
-export function InteractionTimelineList({ items, hideCustomer = false, hideProject = false }: InteractionTimelineListProps) {
+export function InteractionTimelineList({ items, hideCustomer = false, hideProject = false, timeZone: explicitTimeZone }: InteractionTimelineListProps) {
+  const zones = useCommercialTimeZones();
+  const timeZone = explicitTimeZone ?? zones.timeZone;
   const groups: { key: string; label: string; items: Interaction[] }[] = [];
   for (const item of items) {
-    const key = dayKey(item.occurredAt);
+    const key = dayKeyInTimeZone(item.occurredAt, timeZone) ?? item.occurredAt;
     const last = groups[groups.length - 1];
     if (last && last.key === key) {
       last.items.push(item);
     } else {
-      groups.push({ key, label: formatDate(item.occurredAt), items: [item] });
+      groups.push({ key, label: formatDate(item.occurredAt, timeZone), items: [item] });
     }
   }
 
@@ -69,7 +70,7 @@ export function InteractionTimelineList({ items, hideCustomer = false, hideProje
                 <Box sx={{ minWidth: 0, pb: 1.5, borderBottom: 1, borderColor: 'divider' }}>
                   <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="baseline">
                     <Typography variant="caption" color="text.secondary">
-                      {formatTime(item.occurredAt)}
+                      {formatTime(item.occurredAt, timeZone)}
                     </Typography>
                     <Typography variant="body2" sx={{ fontWeight: 'fontWeightMedium' }}>
                       {item.typeLabel}

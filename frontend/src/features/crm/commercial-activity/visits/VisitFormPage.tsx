@@ -16,6 +16,7 @@ import { VISIT_PERMISSIONS } from '../common/commercial-activity.permissions';
 import { visitDetailPath } from '../common/commercial-paths';
 import { FilesField } from '../common/FilesField';
 import { useCommercialPreselection } from '../common/use-commercial-preselection';
+import { formTimeZone } from '../common/use-commercial-time-zones';
 
 import { VisitPlanningForm } from './components/VisitPlanningForm';
 import type { ScheduleConflict } from './visits.api';
@@ -101,7 +102,7 @@ export function VisitFormPage() {
   }
 
   const onSubmit = (values: VisitPlanningValues) => {
-    creation.mutate(toCreateVisitInput(values, canChooseOwner), {
+    creation.mutate(toCreateVisitInput(values, canChooseOwner, formTimeZone(options.data)), {
       onSuccess: (created) => {
         stashPendingAttachments({ type: 'visit', visitId: created.id }, files);
         const state: VisitNoticeState = {
@@ -152,7 +153,13 @@ export function VisitFormPage() {
           >
             <Box sx={{ mt: 3 }}>
               <FormSection number={5} title="Adjuntos" columns={1}>
-                <FilesField files={files} onChange={setFiles} disabled={creation.isPending} description="Se suben al guardar la visita." />
+                <FilesField
+                  files={files}
+                  onChange={setFiles}
+                  limits={options.data.attachments}
+                  disabled={creation.isPending}
+                  description="Se suben al guardar la visita."
+                />
               </FormSection>
             </Box>
           </VisitPlanningForm>

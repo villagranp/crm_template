@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
 
+import type { AttachmentLimits } from '@/features/crm/common/attachments.api';
 import { attachmentKeys } from '@/features/crm/common/attachments.queries';
 import { describeApiError } from '@/lib/api-error-view';
 
@@ -20,7 +21,7 @@ export type VisitFilesTarget = { eventType: VisitEventType } | { visit: true };
  * operación ya está hecha y no se deshace). Invalida la lista de adjuntos del
  * dueño y el módulo (contadores de adjuntos de eventos, agenda, seguimiento).
  */
-export function useVisitOperationFiles(visitId: string) {
+export function useVisitOperationFiles(visitId: string, limits?: AttachmentLimits) {
   const queryClient = useQueryClient();
   const [uploading, setUploading] = useState(false);
 
@@ -34,9 +35,9 @@ export function useVisitOperationFiles(visitId: string) {
         let result: UploadFilesResult & { basePath: string | null };
         if ('visit' in target) {
           const basePath = commercialAttachmentsPath({ type: 'visit', visitId });
-          result = { ...(await uploadFilesInOrder(basePath, files)), basePath };
+          result = { ...(await uploadFilesInOrder(basePath, files, limits)), basePath };
         } else {
-          result = await uploadToLatestEvent(visitId, target.eventType, files);
+          result = await uploadToLatestEvent(visitId, target.eventType, files, limits);
         }
         if (result.basePath && result.uploaded.length > 0) {
           void queryClient.invalidateQueries({ queryKey: attachmentKeys.owner(result.basePath) });
@@ -53,7 +54,7 @@ export function useVisitOperationFiles(visitId: string) {
         setUploading(false);
       }
     },
-    [queryClient, visitId],
+    [queryClient, visitId, limits],
   );
 
   return { upload, uploading };

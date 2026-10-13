@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import type { UserRef } from '../common/commercial-activity.api';
 import { EMPTY_COMMERCIAL_LINK, type CommercialLinkValue } from '../common/commercial-link';
-import { fromDateTimeLocalValue, isFutureLocalValue, nowDateTimeLocalValue, toDateTimeLocalValue } from '../common/date-time';
+import { fromDateTimeLocalValue, isFutureLocalValue, isValidTimeZone, nowDateTimeLocalValue, toDateTimeLocalValue } from '../common/date-time';
 import { participantValuesFrom, toParticipantInputs, type ParticipantValue } from '../common/participants';
 
 import type {
@@ -84,6 +84,8 @@ export interface ActivitySchemaContext {
   canChooseOwner: boolean;
   /** Para la validación de "no futura". */
   now?: () => Date;
+  /** Zona del usuario en la que se leen las entradas `datetime-local` (RN-04.9); por defecto, la del navegador. */
+  timeZone?: string;
 }
 
 /** Campos específicos que admite un tipo (los desconocidos se ignoran, como el backend). */
@@ -198,7 +200,7 @@ export function buildActivityFormSchema(context: ActivitySchemaContext) {
         if (isBlank(values.completionResultId) && isBlank(values.completionResultNotes)) {
           fail('completionResultId', RESULT_MESSAGE);
         }
-        if (isFutureLocalValue(values.completedAt, now())) {
+        if (isFutureLocalValue(values.completedAt, now(), context.timeZone)) {
           fail('completedAt', FUTURE_MESSAGE);
         }
       }
@@ -210,9 +212,9 @@ function trimmedOrNull(value: string): string | null {
   return trimmed ? trimmed : null;
 }
 
-function specificValues(values: ActivityFormValues, allowed: readonly ActivitySpecificField[], completing: boolean) {
+function specificValues(values: ActivityFormValues, allowed: readonly ActivitySpecificField[], completing: boolean, timeZone: string | undefined) {
   const all: Required<Pick<CreateActivityInput, ActivitySpecificField>> = {
-    scheduledAt: fromDateTimeLocalValue(values.scheduledAt),
+    scheduledAt: fromDateTimeLocalValue(values.scheduledAt, timeZone),
     durationMinutes: isBlank(values.durationMinutes) ? null : Number(values.durationMinutes),
     participants: toParticipantInputs(values.participants),
     summary: trimmedOrNull(values.summary),
@@ -232,9 +234,9 @@ function specificValues(values: ActivityFormValues, allowed: readonly ActivitySp
 
 type CompletionValues = Pick<ActivityFormValues, 'completedAt' | 'completionResultId' | 'completionResultNotes' | 'completionComment'>;
 
-function completionInput(values: CompletionValues): ActivityCompletionInput {
+function completionInput(values: CompletionValues, timeZone: string | undefined): ActivityCompletionInput {
   return {
-    completedAt: fromDateTimeLocalValue(values.completedAt),
+    completedAt: fromDateTimeLocalValue(values.completedAt, timeZone),
     resultId: trimmedOrNull(values.completionResultId),
     resultNotes: trimmedOrNull(values.completionResultNotes),
     comment: trimmedOrNull(values.completionComment),
@@ -253,7 +255,12 @@ function compact<T extends object>(input: T): T {
  * sin responsable elegido no envía `ownerId` (el backend asigna al usuario).
  * Con "Ya realizada" añade `completion` y no envía `statusId`.
  */
-export function toCreateActivityInput(values: ActivityFormValues, type: ActivityTypeRef | undefined, canChooseOwner: boolean): CreateActivityInput {
+export function toCreateActivityInput(
+  values: ActivityFormValues,
+  type: ActivityTypeRef | undefined,
+  canChooseOwner: boolean,
+  timeZone?: string,
+): CreateActivityInput {
   const completing = values.alreadyDone;
   const input: CreateActivityInput = {
     typeId: values.typeId,
@@ -265,23 +272,28 @@ export function toCreateActivityInput(values: ActivityFormValues, type: Activity
     ownerId: canChooseOwner ? values.owner?.id : undefined,
     priorityId: values.priorityId || undefined,
     statusId: completing ? undefined : values.statusId || undefined,
-    dueAt: fromDateTimeLocalValue(values.dueAt),
-    ...specificValues(values, allowedSpecificFields(type), completing),
+    dueAt: fromDateTimeLocalValue(values.dueAt, timeZone),
+    ...specificValues(values, allowedSpecificFields(type), completing, timeZone),
   };
   const body = compact(input);
-  return completing ? { ...body, completion: compact(completionInput(values)) } : body;
+  return completing ? { ...body, completion: compact(completionInput(values, timeZone)) } : body;
 }
 
 /**
  * Cuerpo del alta sin finalizar, para el camino "Ya realizada" con archivos:
  * se crea abierta, se suben los archivos y después se completa (04 §E.12).
  */
-export function toCreateWithoutCompletion(values: ActivityFormValues, type: ActivityTypeRef | undefined, canChooseOwner: boolean): CreateActivityInput {
-  return toCreateActivityInput({ ...values, alreadyDone: false }, type, canChooseOwner);
+export function toCreateWithoutCompletion(
+  values: ActivityFormValues,
+  type: ActivityTypeRef | undefined,
+  canChooseOwner: boolean,
+  timeZone?: string,
+): CreateActivityInput {
+  return toCreateActivityInput({ ...values, alreadyDone: false }, type, canChooseOwner, timeZone);
 }
 
-export function toCompletionInput(values: CompletionValues): ActivityCompletionInput {
-  return compact(completionInput(values));
+export function toCompletionInput(values: CompletionValues, timeZone?: string): ActivityCompletionInput {
+  return compact(completionInput(values, timeZone));
 }
 
 /**
@@ -290,9 +302,14 @@ export function toCompletionInput(values: CompletionValues): ActivityCompletionI
  * vacíos para que el backend no los rechace al revalidar (`FIELD_NOT_APPLICABLE`).
  * Cliente, responsable, tipo y estado sólo se envían si cambiaron.
  */
-export function toUpdateActivityInput(values: ActivityFormValues, original: ActivityDetail, type: ActivityTypeRef | undefined): UpdateActivityInput {
+export function toUpdateActivityInput(
+  values: ActivityFormValues,
+  original: ActivityDetail,
+  type: ActivityTypeRef | undefined,
+  timeZone?: string,
+): UpdateActivityInput {
   const allowed = allowedSpecificFields(type);
-  const specific = specificValues(values, ACTIVITY_SPECIFIC_FIELDS, false);
+  const specific = specificValues(values, ACTIVITY_SPECIFIC_FIELDS, false, timeZone);
   const cleared: Partial<Record<ActivitySpecificField, unknown>> = {};
   for (const field of ACTIVITY_SPECIFIC_FIELDS) {
     cleared[field] = allowed.includes(field) ? specific[field] : field === 'participants' ? [] : null;
@@ -304,7 +321,7 @@ export function toUpdateActivityInput(values: ActivityFormValues, original: Acti
     projectId: values.link.project?.id ?? null,
     opportunityId: values.link.opportunity?.id ?? null,
     priorityId: values.priorityId || undefined,
-    dueAt: fromDateTimeLocalValue(values.dueAt),
+    dueAt: fromDateTimeLocalValue(values.dueAt, timeZone),
     ...(cleared as Partial<Pick<UpdateActivityInput, ActivitySpecificField>>),
   };
   if (values.typeId !== original.type.id) input.typeId = values.typeId;
@@ -314,7 +331,7 @@ export function toUpdateActivityInput(values: ActivityFormValues, original: Acti
   return input;
 }
 
-/** Valores iniciales del alta (con la preselección ya resuelta). */
+/** Valores iniciales del alta (con la preselección ya resuelta); "ahora" en la zona del usuario de `options`. */
 export function emptyActivityValues(options: ActivityFormOptions, preset: { typeId?: string | null; link?: CommercialLinkValue } = {}): ActivityFormValues {
   const typeId = preset.typeId && options.types.some((type) => type.id === preset.typeId) ? preset.typeId : '';
   return {
@@ -335,7 +352,7 @@ export function emptyActivityValues(options: ActivityFormOptions, preset: { type
     nextAction: '',
     nextActionDate: '',
     alreadyDone: false,
-    completedAt: nowDateTimeLocalValue(),
+    completedAt: nowDateTimeLocalValue(new Date(), isValidTimeZone(options.timeZone) ? options.timeZone : undefined),
     completionResultId: '',
     completionResultNotes: '',
     completionComment: '',
@@ -343,7 +360,7 @@ export function emptyActivityValues(options: ActivityFormOptions, preset: { type
 }
 
 /** Valores de la edición desde el detalle. */
-export function activityValuesFrom(activity: ActivityDetail): ActivityFormValues {
+export function activityValuesFrom(activity: ActivityDetail, timeZone?: string): ActivityFormValues {
   return {
     typeId: activity.type.id,
     subject: activity.subject,
@@ -356,8 +373,8 @@ export function activityValuesFrom(activity: ActivityDetail): ActivityFormValues
     owner: activity.owner,
     priorityId: activity.priority.id,
     statusId: activity.status.id,
-    dueAt: toDateTimeLocalValue(activity.dueAt),
-    scheduledAt: toDateTimeLocalValue(activity.scheduledAt),
+    dueAt: toDateTimeLocalValue(activity.dueAt, timeZone),
+    scheduledAt: toDateTimeLocalValue(activity.scheduledAt, timeZone),
     durationMinutes: activity.durationMinutes === null ? '' : String(activity.durationMinutes),
     participants: participantValuesFrom(activity.participants),
     summary: activity.summary ?? '',

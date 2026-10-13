@@ -8,7 +8,8 @@ import { renderWithProviders } from '@/test/render-with-providers';
 import { INTERACTION, lastQuery, page, signInWith, signOut } from '../testing/fixtures';
 
 import { interactionHistoryPath } from './commercial-paths';
-import { InteractionTimeline } from './InteractionTimeline';
+import { formatTime } from './date-time';
+import { InteractionTimeline, InteractionTimelineList } from './InteractionTimeline';
 
 const ACTIVITY_INTERACTION = {
   ...INTERACTION,
@@ -27,6 +28,22 @@ const ACTIVITY_INTERACTION = {
 
 beforeEach(() => signInWith(['actividades.ver']));
 afterEach(signOut);
+
+describe('InteractionTimelineList con la zona del usuario (RN-04.9)', () => {
+  it('agrupa por el día de la zona indicada, no por el del navegador', () => {
+    // 03:00 UTC del 13: en Guatemala (UTC-6) es el 12 a las 21:00; en Madrid (UTC+2), el 13 a las 05:00.
+    const late = { ...INTERACTION, sourceId: 'v-late', occurredAt: '2026-10-13T03:00:00.000Z' };
+    const morning = { ...ACTIVITY_INTERACTION, occurredAt: '2026-10-12T15:00:00.000Z' };
+
+    const guatemala = renderWithProviders(<InteractionTimelineList items={[late, morning]} timeZone="America/Guatemala" />);
+    expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual(['12 oct 2026']);
+    expect(screen.getByText(formatTime(late.occurredAt, 'America/Guatemala'))).toBeInTheDocument();
+    guatemala.unmount();
+
+    renderWithProviders(<InteractionTimelineList items={[late, morning]} timeZone="Europe/Madrid" />);
+    expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual(['13 oct 2026', '12 oct 2026']);
+  });
+});
 
 describe('InteractionTimeline (E.5, RN-04.33)', () => {
   it('compacta: pide las 5 últimas del cliente, enlaza al origen y al historial completo', async () => {

@@ -24,6 +24,8 @@ export interface AgendaEventButtonProps {
   /** Tipos de actividad (para el icono por tipo). */
   types: readonly ActivityTypeOption[] | undefined;
   onOpen: (item: AgendaItem) => void;
+  /** Zona del usuario para la hora de cada evento; `undefined` = la del navegador. */
+  timeZone?: string;
   /**
    * `compact`: celdas de Mes y columnas de Semana (hora, icono, asunto, cliente,
    * icono de estado y adjuntos). `full`: vista Día y listas del día, con el
@@ -48,12 +50,12 @@ const tint = (group: StatusGroup) => (theme: Theme) => softTintsFor(theme.palett
  * `Space` abren el panel de resumen. El nombre accesible lleva hora, tipo,
  * asunto, cliente y estado (`agendaEventLabel`); lo visible es su resumen.
  */
-export function AgendaEventButton({ item, types, onOpen, variant = 'full' }: AgendaEventButtonProps) {
+export function AgendaEventButton({ item, types, onOpen, timeZone, variant = 'full' }: AgendaEventButtonProps) {
   const cancelled = item.status.group === 'CANCELLED';
   const subjectSx = { overflowWrap: 'anywhere', textDecoration: cancelled ? 'line-through' : undefined } as const;
   const common = {
     onClick: () => onOpen(item),
-    'aria-label': agendaEventLabel(item),
+    'aria-label': agendaEventLabel(item, timeZone),
     sx: {
       width: '100%',
       minWidth: 0,
@@ -74,7 +76,7 @@ export function AgendaEventButton({ item, types, onOpen, variant = 'full' }: Age
         </Box>
         <Box component="span" sx={{ flex: 1, minWidth: 0, display: 'block' }}>
           <Typography component="span" variant="caption" noWrap sx={{ display: 'block', fontWeight: 'fontWeightMedium', ...subjectSx }}>
-            {formatTime(item.date)} · {item.subject}
+            {formatTime(item.date, timeZone)} · {item.subject}
           </Typography>
           <Typography component="span" variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
             {item.customer.legalName}
@@ -96,7 +98,7 @@ export function AgendaEventButton({ item, types, onOpen, variant = 'full' }: Age
       </Box>
       <Box component="span" sx={{ flex: 1, minWidth: 0, display: 'block' }}>
         <Typography component="span" variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 'fontWeightMedium' }}>
-          {agendaTimeRange(item)} · {item.typeLabel}
+          {agendaTimeRange(item, timeZone)} · {item.typeLabel}
         </Typography>
         <Typography component="span" variant="body2" sx={{ display: 'block', fontWeight: 'fontWeightMedium', ...subjectSx }}>
           {item.subject}

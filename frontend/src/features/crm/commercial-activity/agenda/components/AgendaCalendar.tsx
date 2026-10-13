@@ -12,7 +12,7 @@ import type { AgendaItem } from '../../common/commercial-activity.api';
 import { COMMERCIAL_ERROR_MESSAGES, withReference } from '../../common/commercial-activity.errors';
 import type { AgendaApiFilters } from '../agenda.api';
 import { useAgendaCalendar } from '../agenda.queries';
-import { groupByDay, periodLabel, rangeFor, shiftReference, weekDays, type CalendarMode } from '../calendar-grid';
+import { groupByDay, MONDAY, periodLabel, rangeFor, shiftReference, weekDays, type CalendarMode } from '../calendar-grid';
 
 import { CalendarDayView, WeekDayStrip } from './CalendarDayView';
 import { CalendarMonthView } from './CalendarMonthView';
@@ -47,6 +47,8 @@ export interface AgendaEmptyContent {
 export interface AgendaCalendarProps {
   /** Filtros comunes ya traducidos a la API. */
   filters: AgendaApiFilters;
+  /** Zona del usuario (RN-04.9): rango pedido y día de cada evento; `undefined` = la del navegador. */
+  timeZone: string | undefined;
   /** Modo efectivo (en móvil nunca es `week`). */
   mode: CalendarMode;
   referenceKey: string;
@@ -87,12 +89,24 @@ function CalendarSkeleton({ mode }: { mode: CalendarMode }) {
  * `GET /agenda/calendar` del rango visible. En móvil, la vista Día pide la
  * semana entera para que la tira de días muestre cuántos eventos tiene cada uno.
  */
-export function AgendaCalendar({ filters, mode, referenceKey, todayKey, isMobile, types, onOpen, onNavigate, onModeChange, empty }: AgendaCalendarProps) {
+export function AgendaCalendar({
+  filters,
+  timeZone,
+  mode,
+  referenceKey,
+  todayKey,
+  isMobile,
+  types,
+  onOpen,
+  onNavigate,
+  onModeChange,
+  empty,
+}: AgendaCalendarProps) {
   const rangeMode: CalendarMode = isMobile && mode === 'day' ? 'week' : mode;
-  const range = useMemo(() => rangeFor(rangeMode, referenceKey), [rangeMode, referenceKey]);
+  const range = useMemo(() => rangeFor(rangeMode, referenceKey, MONDAY, timeZone), [rangeMode, referenceKey, timeZone]);
   const calendar = useAgendaCalendar({ ...filters, ...range });
   const items = calendar.data?.data;
-  const itemsByDay = useMemo(() => groupByDay(items ?? []), [items]);
+  const itemsByDay = useMemo(() => groupByDay(items ?? [], timeZone), [items, timeZone]);
   const labels = NAVIGATION_LABELS[mode];
   const modeOptions = isMobile ? MODE_OPTIONS.filter((option) => option.value !== 'week') : MODE_OPTIONS;
 
@@ -134,6 +148,7 @@ export function AgendaCalendar({ filters, mode, referenceKey, todayKey, isMobile
         itemsByDay={itemsByDay}
         types={types}
         onOpen={onOpen}
+        timeZone={timeZone}
         isMobile={isMobile}
         onSelectDay={(key) => onNavigate(key)}
         onShowDay={(key) => onModeChange('day', key)}
@@ -147,6 +162,7 @@ export function AgendaCalendar({ filters, mode, referenceKey, todayKey, isMobile
         itemsByDay={itemsByDay}
         types={types}
         onOpen={onOpen}
+        timeZone={timeZone}
         onShowDay={(key) => onModeChange('day', key)}
       />
     );
@@ -154,7 +170,7 @@ export function AgendaCalendar({ filters, mode, referenceKey, todayKey, isMobile
     body = (
       <>
         {strip}
-        <CalendarDayView items={itemsByDay.get(referenceKey) ?? []} types={types} onOpen={onOpen} />
+        <CalendarDayView items={itemsByDay.get(referenceKey) ?? []} types={types} onOpen={onOpen} timeZone={timeZone} />
       </>
     );
   }

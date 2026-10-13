@@ -86,7 +86,7 @@ export function toAgendaApiFilters(filters: AgendaFilterValues): AgendaApiFilter
  * Consulta del listado: paginación y orden de `useTableQueryState` + filtros
  * traducidos + rango `YYYY-MM-DD` de la URL como instantes del día completo.
  */
-export function toAgendaListQuery(tableQuery: ListQuery, filters: AgendaFilterValues): ListQuery {
+export function toAgendaListQuery(tableQuery: ListQuery, filters: AgendaFilterValues, timeZone?: string): ListQuery {
   const query: ListQuery = {
     page: tableQuery.page,
     pageSize: tableQuery.pageSize,
@@ -94,8 +94,8 @@ export function toAgendaListQuery(tableQuery: ListQuery, filters: AgendaFilterVa
     sortOrder: tableQuery.sortOrder,
     ...toAgendaApiFilters(filters),
   };
-  const from = startOfDayIso(filters.from);
-  const to = endOfDayIso(filters.to);
+  const from = startOfDayIso(filters.from, timeZone);
+  const to = endOfDayIso(filters.to, timeZone);
   if (from) {
     query.from = from;
   }

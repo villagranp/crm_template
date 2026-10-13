@@ -13,13 +13,15 @@ export interface CalendarDayViewProps {
   items: readonly AgendaItem[];
   types: readonly ActivityTypeOption[] | undefined;
   onOpen: (item: AgendaItem) => void;
+  /** Zona del usuario para la hora de cada evento; `undefined` = la del navegador. */
+  timeZone?: string;
 }
 
 /**
  * Vista Día (04 §E.2): lista de los eventos del día por hora, con el resumen
  * completo de cada uno. También es el detalle del día en el Mes móvil.
  */
-export function CalendarDayView({ items, types, onOpen }: CalendarDayViewProps) {
+export function CalendarDayView({ items, types, onOpen, timeZone }: CalendarDayViewProps) {
   if (items.length === 0) {
     return (
       <Typography variant="body2" color="text.secondary" sx={{ px: 0.5, py: 2 }}>
@@ -31,7 +33,7 @@ export function CalendarDayView({ items, types, onOpen }: CalendarDayViewProps) 
     <Stack component="ul" spacing={1} sx={{ listStyle: 'none', m: 0, p: 0 }}>
       {items.map((item) => (
         <Box component="li" key={`${item.kind}-${item.id}`} sx={{ minWidth: 0 }}>
-          <AgendaEventButton item={item} types={types} onOpen={onOpen} variant="full" />
+          <AgendaEventButton item={item} types={types} onOpen={onOpen} timeZone={timeZone} variant="full" />
         </Box>
       ))}
     </Stack>
@@ -75,7 +77,6 @@ export function WeekDayStrip({ days, selectedKey, todayKey, counts, onSelect }: 
               px: 1,
               flexDirection: 'column',
               gap: 0,
-              lineHeight: 1.2,
               borderColor: selected ? undefined : 'divider',
               fontWeight: day.key === todayKey ? 'fontWeightBold' : undefined,
               textDecoration: day.key === todayKey && !selected ? 'underline' : undefined,

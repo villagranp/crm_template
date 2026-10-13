@@ -3,7 +3,7 @@ import PendingActionsOutlinedIcon from '@mui/icons-material/PendingActionsOutlin
 import TaskAltOutlinedIcon from '@mui/icons-material/TaskAltOutlined';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import { Alert, Box, Button, Chip, Collapse, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material';
-import { useId, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { DataTable, FilterChips, ListToolbar, useTableQueryState, type DataTableColumn } from '@/components/data';
@@ -26,6 +26,7 @@ import { ActivityTypeLabel } from '../activities/components/ActivityTypeLabel';
 import { NewActivityMenuButton } from '../activities/components/NewActivityMenuButton';
 import { COMMERCIAL_ERROR_MESSAGES, withReference } from '../common/commercial-activity.errors';
 import { ACTIVITY_PERMISSIONS } from '../common/commercial-activity.permissions';
+import { useOwnerName } from '../common/commercial-activity.queries';
 import { DueBadge } from '../common/DueBadge';
 import { StatusChip } from '../common/StatusChip';
 
@@ -84,12 +85,16 @@ export function PendingActivitiesPage() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const { filters } = table.state;
-  const formFilters: ActivityFilterValues = Object.fromEntries(FORM_FILTERS.flatMap((key) => (filters[key as PendingFilterKey] ? [[key, filters[key as PendingFilterKey]]] : [])));
+  // Memorizado: el borrador del panel sólo se reinicia si cambian los filtros aplicados.
+  const formFilters = useMemo<ActivityFilterValues>(
+    () => Object.fromEntries(FORM_FILTERS.flatMap((key) => (filters[key as PendingFilterKey] ? [[key, filters[key as PendingFilterKey]]] : []))),
+    [filters],
+  );
   const activeFilterCount = Object.keys(formFilters).length;
   const [filtersOpen, setFiltersOpen] = useState(activeFilterCount > 0);
   const counts = pending.data?.counts;
   const bucket = filters.bucket ?? '';
-  const ownerName = (filters.ownerId && pending.data?.data.find((row) => row.owner.id === filters.ownerId)?.owner.displayName) || null;
+  const ownerName = useOwnerName(filters.ownerId);
   const clearFilters = () => table.setFilters(Object.fromEntries(FORM_FILTERS.map((key) => [key, undefined])));
 
   let emptyTitle = 'No tienes actividades pendientes';
@@ -148,7 +153,6 @@ export function PendingActivitiesPage() {
               fields={FORM_FILTERS}
               values={formFilters}
               options={options.data}
-              ownerName={ownerName}
               onApply={(values) => table.setFilters(values as Partial<Record<PendingFilterKey, string>>)}
             />
           </Collapse>

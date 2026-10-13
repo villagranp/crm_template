@@ -168,8 +168,11 @@ describe('VisitDetailPage (F-25, PF-04.52, PF-04.68)', () => {
     expect(within(attendees).getByText('Pedro Externo · Externo')).toBeInTheDocument();
     expect(within(attendees).getByText('Luis Gerente · Usuario interno')).toBeInTheDocument();
     await userEvent.click(within(attendees).getByTitle('Quitar a Luis Gerente'));
-    await userEvent.type(within(dialog).getByLabelText('Temas tratados'), 'Precios');
-    await userEvent.type(within(dialog).getByLabelText('Próxima acción'), 'Enviar cotización');
+    // Se pega el texto (un solo evento de entrada): teclear letra a letra repinta el diálogo entero cada vez.
+    await userEvent.click(within(dialog).getByLabelText('Temas tratados'));
+    await userEvent.paste('Precios');
+    await userEvent.click(within(dialog).getByLabelText('Próxima acción'));
+    await userEvent.paste('Enviar cotización');
     fireEvent.change(within(dialog).getByLabelText('Fecha de la próxima acción'), { target: { value: '2099-01-15' } });
     await userEvent.upload(within(dialog).getByLabelText('Elegir archivos para adjuntar'), new File(['x'], 'acta.pdf', { type: 'application/pdf' }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Registrar realizada' }));
@@ -374,7 +377,7 @@ describe('VisitDetailPage (F-25, PF-04.52, PF-04.68)', () => {
         attachmentCount: 1,
       }),
       visitEvent({ id: 'ev-old', eventType: 'CANCELLED', performedBy: OTHER_USER, occurredAt: '2026-01-01T10:00:00.000Z', attachmentCount: 0 }),
-      visitEvent({ id: 'ev-new', eventType: 'COMPLETED', occurredAt: new Date().toISOString(), attachmentCount: 0 }),
+      visitEvent({ id: 'ev-new', eventType: 'COMPLETED', occurredAt: new Date().toISOString(), attachmentCount: 0, canAttachFiles: true }),
     ]);
     renderPage();
 
@@ -386,5 +389,39 @@ describe('VisitDetailPage (F-25, PF-04.52, PF-04.68)', () => {
     expect(within(history).getAllByRole('button')).toHaveLength(2);
     expect(within(history).getByRole('button', { name: 'Adjuntos del evento (1)' })).toBeInTheDocument();
     expect(within(history).getByRole('button', { name: 'Adjuntar archivos al evento' })).toBeInTheDocument();
+  });
+
+  it('"Adjuntar archivos al evento" sigue a canAttachFiles del backend, no a una regla del navegador (D-04.18)', async () => {
+    api(PENDING_VISIT, {}, [
+      // Propio y reciente, pero el backend no lo permite (p. ej. sin visitas.editar ni visitas.cerrar).
+      visitEvent({ id: 'ev-own', eventType: 'COMPLETED', occurredAt: new Date().toISOString(), canAttachFiles: false }),
+      // Ajeno y antiguo según el reloj del navegador, pero el backend lo permite.
+      visitEvent({ id: 'ev-other', eventType: 'CONFIRMED', performedBy: OTHER_USER, occurredAt: '2026-01-01T10:00:00.000Z', canAttachFiles: true }),
+    ]);
+    renderPage();
+
+    const history = await screen.findByRole('list', { name: 'Eventos de la visita' });
+    const items = within(history).getAllByRole('listitem');
+    expect(within(items[0] as HTMLElement).queryByRole('button', { name: 'Adjuntar archivos al evento' })).not.toBeInTheDocument();
+    expect(within(items[1] as HTMLElement).getByRole('button', { name: 'Adjuntar archivos al evento' })).toBeInTheDocument();
+  });
+
+  it('los adjuntos de la visita y de sus eventos usan los límites de form-options de visitas (F4)', async () => {
+    api(PENDING_VISIT, {}, [visitEvent({ id: 'ev-new', eventType: 'COMPLETED', canAttachFiles: true })]);
+    const uploads = mockUpload(() => ({ status: 201, body: {} }));
+    renderPage();
+
+    const panel = await screen.findByRole('region', { name: 'Adjuntos' });
+    await waitFor(() => expect(within(panel).getByRole('button', { name: 'Subir archivos' })).toBeInTheDocument());
+    const notAllowed = new File(['x'], 'notas.txt', { type: 'text/plain' });
+    await userEvent.upload(within(panel).getByLabelText('Seleccionar archivos para subir'), notAllowed, { applyAccept: false });
+    expect(await within(panel).findByText(/El tipo de archivo no está permitido/)).toBeInTheDocument();
+    expect(within(panel).getByLabelText('Seleccionar archivos para subir')).toHaveAttribute('accept', 'application/pdf,image/png');
+
+    const history = screen.getByRole('list', { name: 'Eventos de la visita' });
+    await userEvent.click(within(history).getByRole('button', { name: 'Adjuntar archivos al evento' }));
+    const eventInput = await within(history).findByLabelText('Seleccionar archivos para subir');
+    expect(eventInput).toHaveAttribute('accept', 'application/pdf,image/png');
+    expect(uploads).toHaveLength(0);
   });
 });

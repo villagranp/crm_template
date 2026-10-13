@@ -1,3 +1,4 @@
+import type { AttachmentLimits } from '@/features/crm/common/attachments.api';
 import type { ListQuery } from '@/lib/query-keys';
 import { httpClient } from '@/services/api';
 import type { PaginatedResponse } from '@/types/api';
@@ -58,6 +59,19 @@ export interface OpportunityRef {
 export type DueBucket = 'OVERDUE' | 'DUE_SOON' | 'PENDING';
 
 export type RecordKind = 'VISIT' | 'ACTIVITY';
+
+/**
+ * Contexto común (aditivo) de `GET /activities/form-options` y
+ * `GET /visits/form-options` (`CommercialFormContextDto`).
+ */
+export interface CommercialFormContext {
+  /** Zona del perfil del usuario (`users.time_zone`): instantes (`*_at`) y entradas `datetime-local`. */
+  timeZone: string;
+  /** `crm.zona_horaria_negocio`: fechas sin hora y "hoy". */
+  businessTimeZone: string;
+  /** `crm.adjuntos.max_mb` y `crm.adjuntos.tipos_permitidos`: comprobación previa en el navegador. */
+  attachments: AttachmentLimits & { enabled: boolean };
+}
 
 // ---------------------------------------------------------------------------
 // Participantes (`participant.dto.ts`, RN-04.6)
@@ -165,7 +179,7 @@ export interface TraceAttachment {
   sourceId: string;
   sourceCode: string;
   eventId: string | null;
-  /** Ruta de descarga por el dueño (F.4), con la base de la API (`/api/v1/…`): se recorta con `apiRelativePath` antes de usar `httpClient`. */
+  /** Ruta de descarga por el dueño (F.4), relativa a la base de la API (`/visits/{id}/attachments/{aid}/content`). */
   contentPath: string;
   sourcePath: string;
 }
@@ -191,6 +205,17 @@ export interface InteractionQuery {
   sortOrder?: 'asc' | 'desc';
 }
 
+/**
+ * Copia de una consulta sin `search`: `/agenda`, `/interactions`, `/follow-ups`
+ * y las listas de adjuntos del módulo no lo admiten (`400`), aunque llegue en la
+ * URL desde `useTableQueryState`.
+ */
+export function withoutSearch(query: ListQuery): ListQuery {
+  const result: ListQuery = { ...query };
+  delete result.search;
+  return result;
+}
+
 export function listInteractions(query: InteractionQuery): Promise<PaginatedResponse<Interaction>> {
   return httpClient.get<PaginatedResponse<Interaction>>('/interactions', { query: { ...query } });
 }
@@ -206,6 +231,20 @@ export function getFollowUpTrace(scope: FollowUpScope): Promise<FollowUpTrace> {
 /** Usuarios activos dentro del alcance (responsable, asesor, participante interno). */
 export function listOwnerOptions(query: ListQuery): Promise<PaginatedResponse<UserRef>> {
   return httpClient.get<PaginatedResponse<UserRef>>('/commercial-activity/owner-options', { query });
+}
+
+/** Máximo de `id` repetibles en `owner-options` (`MAX_FILTER_VALUES` del backend). */
+export const OWNER_IDS_MAX = 50;
+
+/**
+ * Sólo esos usuarios (`id` repetible), con el mismo filtro de alcance: para
+ * poner nombre a un asesor ya elegido (p. ej. tras recargar con `?ownerId=`).
+ * Los que están fuera del alcance o inactivos no vuelven.
+ */
+export function listOwnersByIds(ids: readonly string[]): Promise<PaginatedResponse<UserRef>> {
+  return httpClient.get<PaginatedResponse<UserRef>>('/commercial-activity/owner-options', {
+    query: { id: ids.slice(0, OWNER_IDS_MAX), page: 1, pageSize: OWNER_IDS_MAX },
+  });
 }
 
 // ---------------------------------------------------------------------------

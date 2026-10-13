@@ -317,7 +317,8 @@ test.describe.serial('CRM · Actividad comercial', () => {
 
     // Su manager (TEAM, con visitas.administrar) la ve pero no puede confirmarla (AC-04.62).
     const managerPage = await sessionFor(browser, manager);
-    const managerDetail = waitForApi(managerPage, 'GET', /^\/visits\/[^/]+$/);
+    // Solo el detalle (UUID): la página también pide `/visits/form-options` (zonas y límites de adjuntos).
+    const managerDetail = waitForApi(managerPage, 'GET', /^\/visits\/[0-9a-f-]{36}$/);
     await managerPage.goto(visitUrl);
     const managerView = (await (await managerDetail).json()) as { code: string; allowedActions: string[] };
     expect(managerView.code).toBe(code);

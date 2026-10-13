@@ -2,7 +2,7 @@ import type { ListQuery } from '@/lib/query-keys';
 import { httpClient } from '@/services/api';
 import type { PaginatedResponse } from '@/types/api';
 
-import type { CatalogRef, CustomerRef, ParticipantDto, ParticipantInput, ProjectRef, StatusRef, UserRef } from '../common/commercial-activity.api';
+import type { CatalogRef, CommercialFormContext, CustomerRef, ParticipantDto, ParticipantInput, ProjectRef, StatusRef, UserRef } from '../common/commercial-activity.api';
 
 /**
  * Cliente HTTP de visitas (04 §F.1). Los tipos reflejan
@@ -137,6 +137,11 @@ export interface VisitEvent {
   performedBy: UserRef;
   occurredAt: string;
   attachmentCount: number;
+  /**
+   * Puede adjuntar archivos al evento: quien lo ejecutó, con `visitas.editar` o
+   * `visitas.cerrar`, en los 15 minutos siguientes (D-04.18, lo calcula el backend).
+   */
+  canAttachFiles: boolean;
 }
 
 export interface VisitStatusOption extends CatalogRef {
@@ -150,7 +155,7 @@ export interface VisitCatalogOption extends CatalogRef {
 }
 
 /** `VisitFormOptionsDto` (D-04.10): toda lista de valores sale de aquí. */
-export interface VisitFormOptions {
+export interface VisitFormOptions extends CommercialFormContext {
   statuses: VisitStatusOption[];
   rescheduleReasons: VisitCatalogOption[];
   cancellationReasons: VisitCatalogOption[];

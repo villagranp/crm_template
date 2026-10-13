@@ -24,6 +24,7 @@ import { formatCalendarDate, formatDateTime, formatMinutes } from '../common/dat
 import { DueBadge } from '../common/DueBadge';
 import { participantLabel, participantValuesFrom, PARTICIPANT_KIND_LABELS } from '../common/participants';
 import { StatusChip } from '../common/StatusChip';
+import { formTimeZone, useCommercialTimeZones } from '../common/use-commercial-time-zones';
 
 import type { ActivityDetail, ActivitySpecificField } from './activities.api';
 import { useActivity, useActivityFormOptions, useDeleteActivity, useUpdateActivity } from './activities.queries';
@@ -39,8 +40,8 @@ function isNoticeState(state: unknown): state is ActivityNoticeState {
   return typeof state === 'object' && state !== null && typeof (state as ActivityNoticeState).notice === 'string';
 }
 
-function byWhen(user: { displayName: string } | null, at: string): string {
-  return user ? `${user.displayName} · ${formatDateTime(at)}` : formatDateTime(at);
+function byWhen(user: { displayName: string } | null, at: string, timeZone: string | undefined): string {
+  return user ? `${user.displayName} · ${formatDateTime(at, timeZone)}` : formatDateTime(at, timeZone);
 }
 
 function textOrDash(value: string | null | undefined): string {
@@ -48,10 +49,10 @@ function textOrDash(value: string | null | undefined): string {
 }
 
 /** Valor de un campo específico para la ficha. */
-function specificValue(activity: ActivityDetail, field: ActivitySpecificField) {
+function specificValue(activity: ActivityDetail, field: ActivitySpecificField, timeZone: string | undefined) {
   switch (field) {
     case 'scheduledAt':
-      return formatDateTime(activity.scheduledAt);
+      return formatDateTime(activity.scheduledAt, timeZone);
     case 'durationMinutes':
       return formatMinutes(activity.durationMinutes);
     case 'participants': {
@@ -89,7 +90,9 @@ export function ActivityDetailPage() {
   const currentUserName = useAuthStore((state) => state.user?.displayName ?? '');
   const activity = useActivity(activityId);
   const [editing, setEditing] = useState(false);
-  const options = useActivityFormOptions(editing);
+  // Siempre: el formulario de edición y los límites de adjuntos (`attachments`) salen de aquí.
+  const options = useActivityFormOptions();
+  const { timeZone } = useCommercialTimeZones();
   const update = useUpdateActivity(activityId);
   const removal = useDeleteActivity(activityId);
   const [dialog, setDialog] = useState<'complete' | 'cancel' | 'delete' | null>(null);
@@ -195,7 +198,7 @@ export function ActivityDetailPage() {
 
   const onSave = (values: ActivityFormValues) => {
     const type = options.data?.types.find((item) => item.id === values.typeId) ?? (values.typeId === data.type.id ? data.type : undefined);
-    update.mutate(toUpdateActivityInput(values, data, type), {
+    update.mutate(toUpdateActivityInput(values, data, type, formTimeZone(options.data)), {
       onSuccess: (saved) => {
         setEditing(false);
         setNotice({ severity: 'success', notice: `Actividad ${saved.code} actualizada.` });
@@ -248,7 +251,7 @@ export function ActivityDetailPage() {
                 <ActivityForm
                   mode="edit"
                   options={options.data}
-                  initialValues={activityValuesFrom(data)}
+                  initialValues={activityValuesFrom(data, formTimeZone(options.data))}
                   current={{ type: data.type, priority: data.priority, status: data.status, result: data.result }}
                   canChooseOwner={canChooseOwner}
                   fixedOwnerName={data.owner.displayName || currentUserName}
@@ -305,7 +308,7 @@ export function ActivityDetailPage() {
                   <DetailList
                     items={allowed.map((field) => ({
                       label: ACTIVITY_FIELD_LABELS[field],
-                      value: specificValue(data, field),
+                      value: specificValue(data, field, timeZone),
                       wide: WIDE_FIELDS.includes(field),
                     }))}
                   />
@@ -318,13 +321,13 @@ export function ActivityDetailPage() {
                     items={
                       data.completion
                         ? [
-                            { label: 'Fecha de finalización', value: formatDateTime(data.completion.completedAt) },
+                            { label: 'Fecha de finalización', value: formatDateTime(data.completion.completedAt, timeZone) },
                             { label: 'Completada por', value: textOrDash(data.completion.completedBy?.displayName) },
                             { label: 'Resultado', value: textOrDash(data.result?.label) },
                             { label: 'Notas del resultado', value: textOrDash(data.resultNotes) },
                             { label: 'Comentario', value: textOrDash(data.completion.comment), wide: true },
                           ]
-                        : [{ label: 'Cancelada el', value: formatDateTime(data.cancelledAt) }]
+                        : [{ label: 'Cancelada el', value: formatDateTime(data.cancelledAt, timeZone) }]
                     }
                   />
                 </DetailSection>
@@ -333,8 +336,8 @@ export function ActivityDetailPage() {
               <DetailSection title="Registro">
                 <DetailList
                   items={[
-                    { label: 'Creada', value: byWhen(data.createdBy, data.createdAt) },
-                    { label: 'Última modificación', value: byWhen(data.updatedBy, data.updatedAt) },
+                    { label: 'Creada', value: byWhen(data.createdBy, data.createdAt, timeZone) },
+                    { label: 'Última modificación', value: byWhen(data.updatedBy, data.updatedAt, timeZone) },
                   ]}
                 />
               </DetailSection>
@@ -342,7 +345,12 @@ export function ActivityDetailPage() {
           </Card>
         )}
 
-        <AttachmentsPanel owner={{ type: 'activity', activityId: data.id }} canManage={can('EDIT')} uploadPendingFromCreation />
+        <AttachmentsPanel
+          owner={{ type: 'activity', activityId: data.id }}
+          canManage={can('EDIT')}
+          limits={options.data?.attachments}
+          uploadPendingFromCreation
+        />
       </Stack>
 
       <ActivityCompletionDialog

@@ -5,6 +5,7 @@ import { EntityDialog } from '@/components/data';
 import { describeApiError } from '@/lib/api-error-view';
 
 import { COMMERCIAL_ERROR_MESSAGES, withReference } from '../../common/commercial-activity.errors';
+import { formTimeZone } from '../../common/use-commercial-time-zones';
 import type { VisitDetail, VisitFormOptions } from '../visits.api';
 import { useUpdateVisit } from '../visits.queries';
 import { toUpdateVisitInput, visitPlanningValuesFrom, type VisitPlanningValues } from '../visits.schemas';
@@ -38,7 +39,7 @@ export function VisitPlanningDialog({ open, visit, options, canChooseOwner, curr
   }, [open, reset]);
 
   const onSubmit = (values: VisitPlanningValues) => {
-    update.mutate(toUpdateVisitInput(values, visit), {
+    update.mutate(toUpdateVisitInput(values, visit, formTimeZone(options)), {
       onSuccess: (saved) => {
         onDone(saved);
         onClose();
@@ -54,7 +55,7 @@ export function VisitPlanningDialog({ open, visit, options, canChooseOwner, curr
         <VisitPlanningForm
           mode="edit"
           options={options}
-          initialValues={visitPlanningValuesFrom(visit)}
+          initialValues={visitPlanningValuesFrom(visit, formTimeZone(options))}
           canChooseOwner={canChooseOwner}
           fixedOwnerName={visit.owner.displayName}
           currentUserId={currentUserId}

@@ -280,4 +280,31 @@ describe('AttachmentsSection', () => {
     expect(uploads[0]?.path).toBe(BASE);
     expect(await screen.findByText('Se subió «contrato.pdf».')).toBeInTheDocument();
   });
+
+  it('avisa al dueño con onChanged tras subir y tras eliminar, y no si falla (opción aditiva)', async () => {
+    const user = userEvent.setup();
+    let listed: AttachmentDto[] = [CONTRACT];
+    mockApi({
+      [`GET ${BASE}`]: () => page(listed),
+      [`DELETE ${BASE}/att-1`]: () => {
+        listed = [];
+        return new Response(null, { status: 204 });
+      },
+    });
+    mockUpload((request) => (request.path === BASE ? { status: 201, body: { ...CONTRACT, id: 'att-2', fileName: 'plano.png' } } : { status: 500 }));
+    const onChanged = vi.fn();
+    renderSection({ onChanged });
+
+    await screen.findByText('contrato.pdf');
+    await user.upload(fileInput(), file('demasiado.pdf', 'application/pdf', 11 * 1024 * 1024));
+    expect(await screen.findByText(/demasiado\.pdf/)).toBeInTheDocument();
+    expect(onChanged).not.toHaveBeenCalled();
+
+    await user.upload(fileInput(), file('plano.png', 'image/png'));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole('button', { name: 'Eliminar contrato.pdf' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Eliminar adjunto' })).getByRole('button', { name: 'Eliminar' }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2));
+  });
 });

@@ -1,7 +1,9 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { attachmentKeys } from '@/features/crm/common/attachments.queries';
 import type { ListQuery } from '@/lib/query-keys';
 
+import { commercialAttachmentsPath } from '../common/attachment-owner';
 import { commercialAreaKeys, invalidateCommercialActivity } from '../common/commercial-activity.queries';
 
 import {
@@ -48,12 +50,21 @@ export function usePendingActivities(query: ListQuery) {
   });
 }
 
-export function useActivityFormOptions(enabled = true) {
+/**
+ * Un lector pasivo (`passive`, p. ej. la zona horaria de cada celda) usa la
+ * caché sin provocar recargas al montarse: si la consulta falló, no la reintenta
+ * cada vez que aparece otro componente (eso lo decide la pantalla, con su aviso
+ * y su "Reintentar").
+ */
+const PASSIVE_READER = { refetchOnMount: false, retryOnMount: false, refetchOnWindowFocus: false } as const;
+
+export function useActivityFormOptions(enabled = true, { passive = false }: { passive?: boolean } = {}) {
   return useQuery({
     queryKey: activityKeys.formOptions(),
     queryFn: getActivityFormOptions,
     staleTime: FORM_OPTIONS_STALE_TIME_MS,
     enabled,
+    ...(passive ? PASSIVE_READER : {}),
   });
 }
 
@@ -113,10 +124,13 @@ export function useDeleteActivity(activityId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => deleteActivity(activityId),
-    // Quien elimina sale del detalle: se quita de la caché y se recarga todo lo demás.
+    // Quien elimina sale del detalle: se quitan de la caché el detalle y sus
+    // adjuntos (sin volver a pedirlos: darían `404`) y el resto se recarga en
+    // segundo plano. No se espera a esa recarga para salir del detalle.
     onSuccess: () => {
       queryClient.removeQueries({ queryKey: activityKeys.detail(activityId) });
-      return invalidateCommercialActivity(queryClient);
+      queryClient.removeQueries({ queryKey: attachmentKeys.owner(commercialAttachmentsPath({ type: 'activity', activityId })) });
+      void invalidateCommercialActivity(queryClient);
     },
   });
 }

@@ -3,11 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { errorResponse, jsonResponse, mockApi, type RouteHandler } from '@/test/api-mocks';
+import { deferred, errorResponse, jsonResponse, mockApi, type RouteHandler } from '@/test/api-mocks';
 import { renderWithProviders } from '@/test/render-with-providers';
 
 import { endOfDayIso, startOfDayIso } from '../common/date-time';
-import { ASESOR_PERMISSIONS, lastQuery, page, signInWith, signOut, simulateWideScreen } from '../testing/fixtures';
+import { ASESOR_PERMISSIONS, lastQuery, OTHER_USER, page, signInWith, signOut, simulateWideScreen } from '../testing/fixtures';
 import { VISIT_FORM_OPTIONS, VISIT_LIST_ITEM } from '../testing/visit-fixtures';
 
 import { VisitsPage } from './VisitsPage';
@@ -106,6 +106,33 @@ describe('VisitsPage (F-25, AC-04.19)', () => {
     expect(query.get('unregistered')).toBe('true');
     expect(query.get('statusGroup')).toBe('PENDING');
     expect(within(screen.getByLabelText('Filtros activos')).getByText('Sin registrar')).toBeInTheDocument();
+  });
+
+  it('un refresco de la lista no borra el borrador de filtros sin aplicar (F1)', async () => {
+    const user = userEvent.setup();
+    const reply = deferred<Response>();
+    const fetchMock = api({ 'GET /visits': () => reply.promise });
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: 'Filtros' }));
+    const filters = screen.getByRole('search', { name: 'Filtros de visitas' });
+    await user.type(within(filters).getByLabelText('Desde'), '2026-10-01');
+
+    reply.resolve(page([VISIT_LIST_ITEM]));
+    await screen.findByRole('table', { name: 'Visitas' });
+    expect(within(filters).getByLabelText('Desde')).toHaveValue('2026-10-01');
+
+    await user.click(within(filters).getByRole('button', { name: 'Aplicar filtros' }));
+    await waitFor(() => expect(lastQuery(fetchMock, '/visits').get('from')).toBe(startOfDayIso('2026-10-01')));
+  });
+
+  it('tras recargar, el asesor del filtro se resuelve por id en el chip y en el selector (F6)', async () => {
+    const fetchMock = api({ 'GET /commercial-activity/owner-options': () => page([OTHER_USER]) });
+    renderPage(`/actividad/visitas?ownerId=${OTHER_USER.id}`);
+
+    expect(await within(screen.getByLabelText('Filtros activos')).findByText('Asesor: Luis Gerente')).toBeInTheDocument();
+    expect(lastQuery(fetchMock, '/commercial-activity/owner-options').getAll('id')).toEqual([OTHER_USER.id]);
+    expect(within(screen.getByRole('search', { name: 'Filtros de visitas' })).getByRole('combobox', { name: 'Asesor' })).toHaveValue('Luis Gerente');
   });
 
   it('ordena por cliente en el servidor', async () => {

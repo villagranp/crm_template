@@ -15,9 +15,12 @@ import type { ListQuery } from '@/lib/query-keys';
 import { AttachmentCount } from '../common/AttachmentCount';
 import { COMMERCIAL_ERROR_MESSAGES, withReference } from '../common/commercial-activity.errors';
 import { COMMERCIAL_RELATED_PERMISSIONS, VISIT_PERMISSIONS } from '../common/commercial-activity.permissions';
+import { useOwnerName } from '../common/commercial-activity.queries';
 import { planVisitPath, visitDetailPath } from '../common/commercial-paths';
-import { endOfDayIso, formatDateTime, startOfDayIso } from '../common/date-time';
+import { endOfDayIso, startOfDayIso } from '../common/date-time';
 import { StatusChip } from '../common/StatusChip';
+import { useCommercialTimeZones } from '../common/use-commercial-time-zones';
+import { ZonedDateTime } from '../common/ZonedDateTime';
 
 import { ActiveVisitFilterChips, VisitFilters } from './components/VisitFilters';
 import { rescheduleLabel, VISIT_FIELD_TEXT, VISIT_FILTER_FIELDS, type VisitFilterValues } from './visit-format';
@@ -37,7 +40,9 @@ const COLUMNS: DataTableColumn<VisitListItem>[] = [
       const rescheduled = rescheduleLabel(visit.rescheduleCount);
       return (
         <Box sx={{ minWidth: 0 }}>
-          <Typography variant="body2">{formatDateTime(visit.scheduledStartAt)}</Typography>
+          <Typography variant="body2">
+            <ZonedDateTime value={visit.scheduledStartAt} />
+          </Typography>
           {rescheduled ? (
             <Typography variant="caption" color="text.secondary">
               {rescheduled}
@@ -74,12 +79,15 @@ const COLUMNS: DataTableColumn<VisitListItem>[] = [
   { id: 'attachments', header: VISIT_FIELD_TEXT.attachments, align: 'right', hideOnMobile: true, render: (visit) => <AttachmentCount count={visit.attachmentCount} /> },
 ];
 
-/** Las fechas de los filtros viajan en la URL como `YYYY-MM-DD` y a la API como instantes del día completo. */
-function toApiQuery(query: ListQuery): ListQuery {
+/**
+ * Las fechas de los filtros viajan en la URL como `YYYY-MM-DD` y a la API como
+ * instantes del día completo en la zona del usuario.
+ */
+function toApiQuery(query: ListQuery, timeZone: string | undefined): ListQuery {
   return {
     ...query,
-    from: startOfDayIso(typeof query.from === 'string' ? query.from : undefined),
-    to: endOfDayIso(typeof query.to === 'string' ? query.to : undefined),
+    from: startOfDayIso(typeof query.from === 'string' ? query.from : undefined, timeZone),
+    to: endOfDayIso(typeof query.to === 'string' ? query.to : undefined, timeZone),
   };
 }
 
@@ -99,16 +107,21 @@ export function VisitsPage() {
     sortableFields: VISIT_SORT_FIELDS,
     defaultSort: DEFAULT_SORT,
   });
-  const apiQuery = useMemo(() => toApiQuery(table.apiQuery), [table.apiQuery]);
+  const { timeZone } = useCommercialTimeZones();
+  const apiQuery = useMemo(() => toApiQuery(table.apiQuery, timeZone), [table.apiQuery, timeZone]);
   const visits = useVisits(apiQuery);
   const options = useVisitFormOptions();
 
   const { filters, search } = table.state;
-  const formFilters: VisitFilterValues = Object.fromEntries(VISIT_FILTER_FIELDS.flatMap((key) => (filters[key] ? [[key, filters[key]]] : [])));
+  // Memorizado: el borrador del panel sólo se reinicia si cambian los filtros aplicados.
+  const formFilters = useMemo<VisitFilterValues>(
+    () => Object.fromEntries(VISIT_FILTER_FIELDS.flatMap((key) => (filters[key] ? [[key, filters[key]]] : []))),
+    [filters],
+  );
   const activeFilterCount = Object.keys(formFilters).length;
   const [filtersOpen, setFiltersOpen] = useState(activeFilterCount > 0);
   const hasFilters = Boolean(search) || activeFilterCount > 0 || Boolean(filters.projectId) || Boolean(filters.statusGroup);
-  const ownerName = (filters.ownerId && visits.data?.data.find((row) => row.owner.id === filters.ownerId)?.owner.displayName) || null;
+  const ownerName = useOwnerName(filters.ownerId);
 
   const clearFilters = () => table.setFilters(Object.fromEntries(VISIT_FILTER_KEYS.map((key) => [key, undefined])));
   const clearAll = () => {
@@ -148,7 +161,7 @@ export function VisitsPage() {
           }}
         >
           <Collapse in={filtersOpen} id={filtersPanelId}>
-            <VisitFilters values={formFilters} options={options.data} ownerName={ownerName} onApply={(values) => table.setFilters(values)} />
+            <VisitFilters values={formFilters} options={options.data} onApply={(values) => table.setFilters(values)} />
           </Collapse>
           <ActiveVisitFilterChips
             values={formFilters}

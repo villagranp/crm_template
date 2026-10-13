@@ -1,6 +1,7 @@
 import { Typography } from '@mui/material';
 
 import { formatCalendarDate, todayInTimeZone } from './date-time';
+import { useCommercialTimeZones } from './use-commercial-time-zones';
 
 export interface NextActionDateProps {
   /** Fecha de calendario `YYYY-MM-DD` o `null`. */
@@ -16,7 +17,9 @@ export interface NextActionDateProps {
  * "pasada", nunca sólo color) si es hoy o ya pasó. Las fechas de calendario no
  * tienen zona: se comparan como texto `YYYY-MM-DD`.
  */
-export function NextActionDate({ date, prefix = '', today = todayInTimeZone() }: NextActionDateProps) {
+export function NextActionDate({ date, prefix = '', today: explicitToday }: NextActionDateProps) {
+  const { businessTimeZone } = useCommercialTimeZones();
+  const today = explicitToday ?? todayInTimeZone(businessTimeZone);
   if (!date) {
     return null;
   }

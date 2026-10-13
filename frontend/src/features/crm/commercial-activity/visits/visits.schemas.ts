@@ -57,9 +57,9 @@ function trimmedOrNull(value: string): string | null {
   return trimmed ? trimmed : null;
 }
 
-/** Instante (ms) de un valor `datetime-local`, o `null`. */
-function localTime(value: string): number | null {
-  const iso = fromDateTimeLocalValue(value);
+/** Instante (ms) de un valor `datetime-local` en la zona del usuario, o `null`. */
+function localTime(value: string, timeZone?: string): number | null {
+  const iso = fromDateTimeLocalValue(value, timeZone);
   return iso === null ? null : new Date(iso).getTime();
 }
 
@@ -141,6 +141,8 @@ export interface VisitPlanningContext {
   mode: 'create' | 'edit';
   /** `form-options.requiredFields` (base + `crm.campos_obligatorios.visit`). */
   requiredFields: readonly string[];
+  /** Zona del usuario en la que se leen las entradas `datetime-local` (RN-04.9); por defecto, la del navegador. */
+  timeZone?: string;
 }
 
 /** Campo del DTO → campo del formulario de planificación. */
@@ -213,11 +215,11 @@ export function buildVisitPlanningSchema(context: VisitPlanningContext) {
         }
       }
 
-      const start = localTime(values.scheduledStartAt);
+      const start = localTime(values.scheduledStartAt, context.timeZone);
       if (context.mode === 'create' && !isBlank(values.scheduledStartAt) && start === null) {
         fail('scheduledStartAt', DATE_MESSAGE);
       }
-      const end = localTime(values.scheduledEndAt);
+      const end = localTime(values.scheduledEndAt, context.timeZone);
       if (!isBlank(values.scheduledEndAt) && end === null) {
         fail('scheduledEndAt', DATE_MESSAGE);
       } else if (start !== null && end !== null && end < start) {
@@ -247,7 +249,7 @@ export function emptyVisitPlanningValues(link: CommercialLinkValue = EMPTY_COMME
 }
 
 /** Valores de la edición de la planificación desde el detalle (sólo invitados). */
-export function visitPlanningValuesFrom(visit: VisitDetail): VisitPlanningValues {
+export function visitPlanningValuesFrom(visit: VisitDetail, timeZone?: string): VisitPlanningValues {
   return {
     link: {
       customer: { id: visit.customer.id, crmCode: visit.customer.crmCode, legalName: visit.customer.legalName, countryId: '' },
@@ -255,8 +257,8 @@ export function visitPlanningValuesFrom(visit: VisitDetail): VisitPlanningValues
       opportunity: null,
     },
     owner: visit.owner,
-    scheduledStartAt: toDateTimeLocalValue(visit.scheduledStartAt),
-    scheduledEndAt: toDateTimeLocalValue(visit.scheduledEndAt),
+    scheduledStartAt: toDateTimeLocalValue(visit.scheduledStartAt, timeZone),
+    scheduledEndAt: toDateTimeLocalValue(visit.scheduledEndAt, timeZone),
     objective: visit.objective,
     location: visit.location ?? '',
     ...reminderValuesFrom(visit.reminderMinutesBefore),
@@ -268,13 +270,13 @@ export function visitPlanningValuesFrom(visit: VisitDetail): VisitPlanningValues
  * Cuerpo del alta (F.1). Sin responsable elegido no envía `ownerId` (el backend
  * asigna al usuario). Los vacíos se omiten.
  */
-export function toCreateVisitInput(values: VisitPlanningValues, canChooseOwner: boolean): CreateVisitInput {
+export function toCreateVisitInput(values: VisitPlanningValues, canChooseOwner: boolean, timeZone?: string): CreateVisitInput {
   const input: CreateVisitInput = {
     customerId: values.link.customer?.id ?? '',
     projectId: values.link.project?.id ?? null,
     ownerId: canChooseOwner ? values.owner?.id : undefined,
-    scheduledStartAt: fromDateTimeLocalValue(values.scheduledStartAt) ?? '',
-    scheduledEndAt: fromDateTimeLocalValue(values.scheduledEndAt),
+    scheduledStartAt: fromDateTimeLocalValue(values.scheduledStartAt, timeZone) ?? '',
+    scheduledEndAt: fromDateTimeLocalValue(values.scheduledEndAt, timeZone),
     objective: values.objective.trim(),
     location: trimmedOrNull(values.location),
     reminderMinutesBefore: reminderMinutesFrom(values.reminderAmount, values.reminderUnit),
@@ -289,10 +291,10 @@ export function toCreateVisitInput(values: VisitPlanningValues, canChooseOwner: 
  * Nunca la fecha de inicio (`422 USE_RESCHEDULE`) ni el cliente. El responsable
  * sólo si cambió (un `ownerId` igual no exige `administrar`).
  */
-export function toUpdateVisitInput(values: VisitPlanningValues, original: VisitDetail): UpdateVisitInput {
+export function toUpdateVisitInput(values: VisitPlanningValues, original: VisitDetail, timeZone?: string): UpdateVisitInput {
   const input: UpdateVisitInput = {
     projectId: values.link.project?.id ?? null,
-    scheduledEndAt: fromDateTimeLocalValue(values.scheduledEndAt),
+    scheduledEndAt: fromDateTimeLocalValue(values.scheduledEndAt, timeZone),
     objective: values.objective.trim(),
     location: trimmedOrNull(values.location),
     reminderMinutesBefore: reminderMinutesFrom(values.reminderAmount, values.reminderUnit),
@@ -305,8 +307,8 @@ export function toUpdateVisitInput(values: VisitPlanningValues, original: VisitD
 }
 
 /** `true` si el inicio ya pasó: se permite planificar en el pasado con aviso (D-04.5). */
-export function isPastStart(value: string, now: Date = new Date()): boolean {
-  const time = localTime(value);
+export function isPastStart(value: string, now: Date = new Date(), timeZone?: string): boolean {
+  const time = localTime(value, timeZone);
   return time !== null && time < now.getTime();
 }
 
@@ -359,7 +361,7 @@ export function isCompletionFieldRequired(field: VisitCompletionField, requiredF
   return requiredFields.some((required) => COMPLETION_FIELD[required] === field);
 }
 
-export function buildVisitCompletionSchema(requiredFields: readonly string[], now: () => Date = () => new Date()) {
+export function buildVisitCompletionSchema(requiredFields: readonly string[], now: () => Date = () => new Date(), timeZone?: string) {
   return z
     .object({
       actualStartAt: z.string(),
@@ -383,18 +385,18 @@ export function buildVisitCompletionSchema(requiredFields: readonly string[], no
         }
       }
 
-      const start = localTime(values.actualStartAt);
+      const start = localTime(values.actualStartAt, timeZone);
       if (!isBlank(values.actualStartAt) && start === null) {
         fail('actualStartAt', DATE_MESSAGE);
-      } else if (isFutureLocalValue(values.actualStartAt, now())) {
+      } else if (isFutureLocalValue(values.actualStartAt, now(), timeZone)) {
         fail('actualStartAt', FUTURE_MESSAGE);
       }
-      const end = localTime(values.actualEndAt);
+      const end = localTime(values.actualEndAt, timeZone);
       if (!isBlank(values.actualEndAt) && end === null) {
         fail('actualEndAt', DATE_MESSAGE);
       } else if (start !== null && end !== null && end < start) {
         fail('actualEndAt', RANGE_MESSAGE);
-      } else if (isFutureLocalValue(values.actualEndAt, now())) {
+      } else if (isFutureLocalValue(values.actualEndAt, now(), timeZone)) {
         fail('actualEndAt', FUTURE_MESSAGE);
       }
     });
@@ -405,12 +407,12 @@ export function buildVisitCompletionSchema(requiredFields: readonly string[], no
  * (si no, ahora) y los asistentes son los invitados (editables, E.8); al
  * corregir, los datos guardados y los asistentes (`ATTENDED`).
  */
-export function visitCompletionValuesFrom(visit: VisitDetail, now: Date = new Date()): VisitCompletionValues {
+export function visitCompletionValuesFrom(visit: VisitDetail, now: Date = new Date(), timeZone?: string): VisitCompletionValues {
   const completion = visit.completion;
   if (completion) {
     return {
-      actualStartAt: toDateTimeLocalValue(completion.actualStartAt),
-      actualEndAt: toDateTimeLocalValue(completion.actualEndAt),
+      actualStartAt: toDateTimeLocalValue(completion.actualStartAt, timeZone),
+      actualEndAt: toDateTimeLocalValue(completion.actualEndAt, timeZone),
       attendees: participantValuesFrom(visit.participants, 'ATTENDED'),
       topics: completion.topics ?? '',
       agreements: completion.agreements ?? '',
@@ -424,7 +426,7 @@ export function visitCompletionValuesFrom(visit: VisitDetail, now: Date = new Da
   const planned = new Date(visit.scheduledStartAt);
   const plannedPassed = !Number.isNaN(planned.getTime()) && planned.getTime() <= now.getTime();
   return {
-    actualStartAt: plannedPassed ? toDateTimeLocalValue(visit.scheduledStartAt) : nowDateTimeLocalValue(now),
+    actualStartAt: plannedPassed ? toDateTimeLocalValue(visit.scheduledStartAt, timeZone) : nowDateTimeLocalValue(now, timeZone),
     actualEndAt: '',
     attendees: participantValuesFrom(visit.participants, 'INVITED'),
     topics: '',
@@ -441,10 +443,10 @@ export function visitCompletionValuesFrom(visit: VisitDetail, now: Date = new Da
  * Cuerpo de la realización. Con `PUT` (corrección) sustituye a la guardada, así
  * que se envían todos los campos (`null` = vacío) para no borrar sin querer.
  */
-export function toVisitCompletionInput(values: VisitCompletionValues): VisitCompletionInput {
+export function toVisitCompletionInput(values: VisitCompletionValues, timeZone?: string): VisitCompletionInput {
   return {
-    actualStartAt: fromDateTimeLocalValue(values.actualStartAt) ?? '',
-    actualEndAt: fromDateTimeLocalValue(values.actualEndAt),
+    actualStartAt: fromDateTimeLocalValue(values.actualStartAt, timeZone) ?? '',
+    actualEndAt: fromDateTimeLocalValue(values.actualEndAt, timeZone),
     attendees: toParticipantInputs(values.attendees),
     topics: trimmedOrNull(values.topics),
     agreements: trimmedOrNull(values.agreements),
@@ -512,13 +514,13 @@ function requireReason(values: VisitReasonValues, ctx: z.RefinementCtx): void {
  * Reprogramar: nueva fecha obligatoria, distinta de la vigente y no pasada
  * (D-04.5); fin opcional y coherente; motivo de la lista y/o escrito.
  */
-export function buildVisitRescheduleSchema(currentStartAt: string, now: () => Date = () => new Date()) {
+export function buildVisitRescheduleSchema(currentStartAt: string, now: () => Date = () => new Date(), timeZone?: string) {
   const current = new Date(currentStartAt).getTime();
   return z
     .object({ newScheduledStartAt: z.string(), newScheduledEndAt: z.string(), ...reasonShape() })
     .superRefine((values, ctx) => {
       const fail = (path: keyof VisitRescheduleValues, message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
-      const start = localTime(values.newScheduledStartAt);
+      const start = localTime(values.newScheduledStartAt, timeZone);
       if (isBlank(values.newScheduledStartAt)) {
         fail('newScheduledStartAt', REQUIRED_MESSAGE);
       } else if (start === null) {
@@ -528,7 +530,7 @@ export function buildVisitRescheduleSchema(currentStartAt: string, now: () => Da
       } else if (start < now().getTime()) {
         fail('newScheduledStartAt', 'No puede estar en el pasado.');
       }
-      const end = localTime(values.newScheduledEndAt);
+      const end = localTime(values.newScheduledEndAt, timeZone);
       if (!isBlank(values.newScheduledEndAt) && end === null) {
         fail('newScheduledEndAt', DATE_MESSAGE);
       } else if (start !== null && end !== null && end < start) {
@@ -546,10 +548,10 @@ function reasonInput(values: VisitReasonValues): VisitCancellationInput {
   return compact({ reasonId: trimmedOrNull(values.reasonId), reasonText: trimmedOrNull(values.reasonText), comment: trimmedOrNull(values.comment) });
 }
 
-export function toVisitReschedulingInput(values: VisitRescheduleValues): VisitReschedulingInput {
+export function toVisitReschedulingInput(values: VisitRescheduleValues, timeZone?: string): VisitReschedulingInput {
   return {
-    newScheduledStartAt: fromDateTimeLocalValue(values.newScheduledStartAt) ?? '',
-    ...compact({ newScheduledEndAt: fromDateTimeLocalValue(values.newScheduledEndAt) }),
+    newScheduledStartAt: fromDateTimeLocalValue(values.newScheduledStartAt, timeZone) ?? '',
+    ...compact({ newScheduledEndAt: fromDateTimeLocalValue(values.newScheduledEndAt, timeZone) }),
     ...reasonInput(values),
   };
 }

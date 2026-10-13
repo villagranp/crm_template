@@ -1,5 +1,5 @@
 import { Box, Button, Chip, MenuItem, Stack, TextField } from '@mui/material';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 
 import { CustomerPicker, type CustomerPickerValue } from '@/features/crm/customers';
 import { usePermission } from '@/hooks/use-permission';
@@ -11,6 +11,7 @@ import { useCountryOptions, useCustomerLookup } from '../../common/commercial-ac
 import { CountrySelect } from '../../common/CountrySelect';
 import { formatCalendarDate } from '../../common/date-time';
 import { OwnerPicker } from '../../common/OwnerPicker';
+import { useResyncOnChange } from '../../common/use-resync-on-change';
 import { AGENDA_FILTER_LABELS, STATUS_GROUP_LABELS } from '../agenda-format';
 import { AGENDA_STATUS_GROUPS, VISIT_TYPE_FILTER, type AgendaFilterKey, type AgendaFilterValues } from '../agenda.api';
 
@@ -29,9 +30,8 @@ export interface AgendaFiltersProps {
   typeOptions: AgendaTypeOptions;
   /** El listado pide el rango; el calendario lo fija según la vista. */
   showDateRange: boolean;
-  ownerName: string | null;
-  /** Fija todos los filtros de una vez (una sola navegación); recibe también el asesor elegido, para su chip. */
-  onApply: (values: AgendaFilterValues, owner: UserRef | null) => void;
+  /** Fija todos los filtros de una vez (una sola navegación). */
+  onApply: (values: AgendaFilterValues) => void;
 }
 
 function typeLabel(value: string, options: AgendaTypeOptions): string {
@@ -47,17 +47,18 @@ function typeLabel(value: string, options: AgendaTypeOptions): string {
  * RN-04.35) y cliente; en el listado, además, el rango de fechas. Se escriben
  * en un borrador y se aplican juntos; viven en la URL.
  */
-export function AgendaFilters({ values, typeOptions, showDateRange, ownerName, onApply }: AgendaFiltersProps) {
+export function AgendaFilters({ values, typeOptions, showDateRange, onApply }: AgendaFiltersProps) {
   const [draft, setDraft] = useState<AgendaFilterValues>(values);
-  const [owner, setOwner] = useState<UserRef | null>(null);
-  const [customer, setCustomer] = useState<CustomerPickerValue | { id: string } | null>(null);
+  const [owner, setOwner] = useState<UserRef | { id: string } | null>(values.ownerId ? { id: values.ownerId } : null);
+  const [customer, setCustomer] = useState<CustomerPickerValue | { id: string } | null>(values.customerId ? { id: values.customerId } : null);
 
-  // La URL manda: atrás/adelante o "Limpiar" actualizan el borrador.
-  useEffect(() => {
-    setDraft(values);
-    setOwner(values.ownerId ? { id: values.ownerId, displayName: ownerName ?? 'Asesor seleccionado' } : null);
-    setCustomer(values.customerId ? { id: values.customerId } : null);
-  }, [values, ownerName]);
+  // La URL manda (atrás/adelante, "Limpiar", un chip quitado), pero sólo si
+  // cambian los filtros: un nuevo render con los mismos no borra el borrador.
+  useResyncOnChange(values, (applied) => {
+    setDraft(applied);
+    setOwner(applied.ownerId ? { id: applied.ownerId } : null);
+    setCustomer(applied.customerId ? { id: applied.customerId } : null);
+  });
 
   const set = (key: AgendaFilterKey, value: string) => setDraft((current) => ({ ...current, [key]: value }));
   const rangeInvalid = showDateRange && Boolean(draft.from && draft.to && draft.to < draft.from);
@@ -68,7 +69,7 @@ export function AgendaFilters({ values, typeOptions, showDateRange, ownerName, o
     if (rangeInvalid) {
       return;
     }
-    onApply({ ...draft, ownerId: owner?.id, customerId: customer?.id }, owner);
+    onApply({ ...draft, ownerId: owner?.id, customerId: customer?.id });
   };
 
   return (
@@ -81,7 +82,7 @@ export function AgendaFilters({ values, typeOptions, showDateRange, ownerName, o
           alignItems: 'start',
         }}
       >
-        <OwnerPicker label={AGENDA_FILTER_LABELS.ownerId} value={owner} onChange={setOwner} />
+        <OwnerPicker label={AGENDA_FILTER_LABELS.ownerId} value={owner} fallbackName="Asesor seleccionado" onChange={setOwner} />
         <CountrySelect label={AGENDA_FILTER_LABELS.countryId} value={draft.countryId ?? ''} onChange={(value) => set('countryId', value)} />
         <TextField select size="small" label={AGENDA_FILTER_LABELS.type} value={draft.type ?? ''} onChange={(event) => set('type', event.target.value)}>
           <MenuItem value="">Todos</MenuItem>

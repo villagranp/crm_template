@@ -1,5 +1,5 @@
 import { Box, Button, Chip, FormControlLabel, MenuItem, Stack, Switch, TextField } from '@mui/material';
-import { useEffect, useId, useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent } from 'react';
 
 import { CustomerPicker, type CustomerPickerValue } from '@/features/crm/customers';
 
@@ -7,6 +7,7 @@ import type { UserRef } from '../../common/commercial-activity.api';
 import { useCustomerLookup } from '../../common/commercial-activity.queries';
 import { formatCalendarDate } from '../../common/date-time';
 import { OwnerPicker } from '../../common/OwnerPicker';
+import { useResyncOnChange } from '../../common/use-resync-on-change';
 import type { ActivityFormOptions } from '../activities.api';
 
 /** Filtros que puede ofrecer una pantalla de actividades (los nombres son los de la API). */
@@ -43,8 +44,6 @@ export interface ActivityFiltersProps {
   /** Filtros aplicados (los de la URL). Las fechas van como `YYYY-MM-DD`. */
   values: ActivityFilterValues;
   options: ActivityFormOptions | undefined;
-  /** Nombre del asesor filtrado, si se conoce (para el selector y el chip). */
-  ownerName: string | null;
   /** Fija todos los filtros de una vez (una sola navegación). */
   onApply: (values: ActivityFilterValues) => void;
   /** Nombre accesible del formulario. */
@@ -58,18 +57,19 @@ const DATE_FIELDS: readonly ActivityFilterField[] = ['scheduledFrom', 'scheduled
  * en un borrador y se aplican juntos; viven en la URL. Tipos, estados y
  * prioridades salen de `form-options`; asesores de `owner-options`.
  */
-export function ActivityFilters({ fields, values, options, ownerName, onApply, label }: ActivityFiltersProps) {
+export function ActivityFilters({ fields, values, options, onApply, label }: ActivityFiltersProps) {
   const formId = useId();
   const [draft, setDraft] = useState<ActivityFilterValues>(values);
-  const [owner, setOwner] = useState<UserRef | null>(null);
-  const [customer, setCustomer] = useState<CustomerPickerValue | { id: string } | null>(null);
+  const [owner, setOwner] = useState<UserRef | { id: string } | null>(values.ownerId ? { id: values.ownerId } : null);
+  const [customer, setCustomer] = useState<CustomerPickerValue | { id: string } | null>(values.customerId ? { id: values.customerId } : null);
 
-  // La URL manda: atrás/adelante o "Limpiar" actualizan el borrador.
-  useEffect(() => {
-    setDraft(values);
-    setOwner(values.ownerId ? { id: values.ownerId, displayName: ownerName ?? 'Asesor seleccionado' } : null);
-    setCustomer(values.customerId ? { id: values.customerId } : null);
-  }, [values, ownerName]);
+  // La URL manda (atrás/adelante, "Limpiar", un chip quitado), pero sólo si
+  // cambian los filtros: un nuevo render con los mismos no borra el borrador.
+  useResyncOnChange(values, (applied) => {
+    setDraft(applied);
+    setOwner(applied.ownerId ? { id: applied.ownerId } : null);
+    setCustomer(applied.customerId ? { id: applied.customerId } : null);
+  });
 
   const set = (key: ActivityFilterField, value: string) => setDraft((current) => ({ ...current, [key]: value }));
   const has = (field: ActivityFilterField) => fields.includes(field);
@@ -111,7 +111,7 @@ export function ActivityFilters({ fields, values, options, ownerName, onApply, l
         {has('typeId') ? catalogSelect('typeId', options?.types) : null}
         {has('statusId') ? catalogSelect('statusId', options?.statuses) : null}
         {has('priorityId') ? catalogSelect('priorityId', options?.priorities) : null}
-        {has('ownerId') ? <OwnerPicker label={ACTIVITY_FILTER_LABELS.ownerId} value={owner} onChange={setOwner} /> : null}
+        {has('ownerId') ? <OwnerPicker label={ACTIVITY_FILTER_LABELS.ownerId} value={owner} fallbackName="Asesor seleccionado" onChange={setOwner} /> : null}
         {has('customerId') ? (
           <Box sx={{ gridColumn: { sm: 'span 2' } }}>
             <CustomerPicker label={ACTIVITY_FILTER_LABELS.customerId} value={customer} onChange={setCustomer} />

@@ -1,6 +1,6 @@
 import type { VisitDetail, VisitEvent, VisitFormOptions, VisitListItem } from '../visits/visits.api';
 
-import { CUSTOMER_REF, ME, OTHER_USER, PROJECT_REF, RESULT_OK } from './fixtures';
+import { CUSTOMER_REF, FORM_CONTEXT, ME, OTHER_USER, PROJECT_REF, RESULT_OK } from './fixtures';
 
 /**
  * Datos de las pruebas de visitas (04 §E.6–E.8). Ficticios (dominios
@@ -17,6 +17,7 @@ export const RESCHEDULE_REASON = { id: 'mr-cliente', code: 'CLIENTE', label: 'So
 export const CANCEL_REASON = { id: 'mc-cliente', code: 'CLIENTE', label: 'El cliente canceló', sortOrder: 1 };
 
 export const VISIT_FORM_OPTIONS: VisitFormOptions = {
+  ...FORM_CONTEXT,
   statuses: [VISIT_STATUS_SCHEDULED, VISIT_STATUS_RESCHEDULED, VISIT_STATUS_DONE, VISIT_STATUS_CONFIRMED, VISIT_STATUS_CANCELLED],
   rescheduleReasons: [RESCHEDULE_REASON],
   cancellationReasons: [CANCEL_REASON],
@@ -126,6 +127,7 @@ export function visitEvent(overrides: Partial<VisitEvent> = {}): VisitEvent {
     performedBy: ME,
     occurredAt: '2026-10-01T15:00:00.000Z',
     attachmentCount: 0,
+    canAttachFiles: false,
     ...overrides,
   };
 }

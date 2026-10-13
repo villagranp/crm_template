@@ -2,13 +2,17 @@
  * Cálculo del calendario de la agenda (04 §E.2, D-04.1): sin librerías, solo
  * `Date` e `Intl` nativos. Funciones puras, sin React.
  *
- * - Los días se identifican con su clave local `YYYY-MM-DD` (zona del
- *   navegador, igual que `common/date-time.ts` mientras el contrato no publique
- *   la zona del perfil, D-04.17).
- * - Las fechas se construyen siempre por componentes (`new Date(año, mes, día)`)
- *   y nunca sumando milisegundos: así un cambio de horario no desplaza un día.
+ * - Los días se identifican con su clave `YYYY-MM-DD`. La rejilla es aritmética
+ *   de calendario pura (fechas UTC construidas por componentes y formateadas en
+ *   UTC), así que no depende de la zona del navegador ni de sus cambios de
+ *   horario.
+ * - Lo que une la rejilla con los instantes (`rangeFor`, `dayKeyOfInstant`,
+ *   `groupByDay`) recibe la zona del usuario (RN-04.9, D-04.17); omitida, la
+ *   del navegador.
  * - La semana empieza en lunes (es-MX); `weekStartsOn` permite otra.
  */
+
+import { cachedDateTimeFormat, dayKeyInTimeZone, startOfDayEpoch } from '../common/date-time';
 
 export type CalendarMode = 'month' | 'week' | 'day';
 
@@ -26,9 +30,6 @@ const LOCALE = 'es-MX';
 const DAYS_PER_WEEK = 7;
 const DAY_MS = 86_400_000;
 const DAY_KEY = /^(\d{4})-(\d{2})-(\d{2})$/;
-const LAST_HOUR = 23;
-const LAST_MINUTE = 59;
-const LAST_MS = 999;
 
 export interface CalendarDay {
   /** `YYYY-MM-DD` local. */
@@ -50,12 +51,17 @@ function pad(value: number): string {
   return String(value).padStart(2, '0');
 }
 
-/** Clave local `YYYY-MM-DD` de una fecha. */
-export function toDayKey(date: Date): string {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+/** Fecha de calendario (medianoche UTC) por componentes. */
+function utcDate(year: number, month: number, day: number): Date {
+  return new Date(Date.UTC(year, month, day));
 }
 
-/** Medianoche local del día `YYYY-MM-DD`; `null` si la clave no es una fecha real (p. ej. 2026-02-30). */
+/** Clave `YYYY-MM-DD` de una fecha de calendario (sus componentes UTC). */
+export function toDayKey(date: Date): string {
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+}
+
+/** Fecha de calendario (medianoche UTC) del día `YYYY-MM-DD`; `null` si la clave no es una fecha real (p. ej. 2026-02-30). */
 export function parseDayKey(key: string | null | undefined): Date | null {
   const match = key ? DAY_KEY.exec(key) : null;
   if (!match) {
@@ -64,8 +70,8 @@ export function parseDayKey(key: string | null | undefined): Date | null {
   const year = Number(match[1]);
   const month = Number(match[2]) - 1;
   const day = Number(match[3]);
-  const date = new Date(year, month, day);
-  return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day ? date : null;
+  const date = utcDate(year, month, day);
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month && date.getUTCDate() === day ? date : null;
 }
 
 export function isValidDayKey(key: string | null | undefined): key is string {
@@ -81,7 +87,7 @@ function requireDay(key: string): Date {
 }
 
 function addDays(date: Date, days: number): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+  return utcDate(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + days);
 }
 
 /** Clave del día desplazado `days` días. */
@@ -90,12 +96,12 @@ export function addDaysToKey(key: string, days: number): string {
 }
 
 function daysInMonth(year: number, month: number): number {
-  return new Date(year, month + 1, 0).getDate();
+  return utcDate(year, month + 1, 0).getUTCDate();
 }
 
 /** Primer día de la semana que contiene `date`. */
 function startOfWeek(date: Date, weekStartsOn: WeekStart): Date {
-  const offset = (date.getDay() - weekStartsOn + DAYS_PER_WEEK) % DAYS_PER_WEEK;
+  const offset = (date.getUTCDay() - weekStartsOn + DAYS_PER_WEEK) % DAYS_PER_WEEK;
   return addDays(date, -offset);
 }
 
@@ -104,7 +110,7 @@ export function weekDays(key: string, weekStartsOn: WeekStart = MONDAY): Calenda
   const start = startOfWeek(requireDay(key), weekStartsOn);
   return Array.from({ length: DAYS_PER_WEEK }, (_, index) => {
     const date = addDays(start, index);
-    return { key: toDayKey(date), dayOfMonth: date.getDate(), inMonth: true };
+    return { key: toDayKey(date), dayOfMonth: date.getUTCDate(), inMonth: true };
   });
 }
 
@@ -114,10 +120,10 @@ export function weekDays(key: string, weekStartsOn: WeekStart = MONDAY): Calenda
  */
 export function monthGrid(key: string, weekStartsOn: WeekStart = MONDAY): CalendarDay[][] {
   const reference = requireDay(key);
-  const year = reference.getFullYear();
-  const month = reference.getMonth();
-  const first = new Date(year, month, 1);
-  const last = new Date(year, month, daysInMonth(year, month));
+  const year = reference.getUTCFullYear();
+  const month = reference.getUTCMonth();
+  const first = utcDate(year, month, 1);
+  const last = utcDate(year, month, daysInMonth(year, month));
   const gridStart = startOfWeek(first, weekStartsOn);
   const gridEnd = addDays(startOfWeek(last, weekStartsOn), DAYS_PER_WEEK - 1);
 
@@ -126,7 +132,7 @@ export function monthGrid(key: string, weekStartsOn: WeekStart = MONDAY): Calend
     weeks.push(
       Array.from({ length: DAYS_PER_WEEK }, (_, index) => {
         const date = addDays(cursor, index);
-        return { key: toDayKey(date), dayOfMonth: date.getDate(), inMonth: date.getMonth() === month };
+        return { key: toDayKey(date), dayOfMonth: date.getUTCDate(), inMonth: date.getUTCMonth() === month };
       }),
     );
   }
@@ -141,24 +147,33 @@ export function visibleDays(mode: CalendarMode, key: string, weekStartsOn: WeekS
     case 'week':
       return weekDays(key, weekStartsOn);
     case 'day':
-      return [{ key, dayOfMonth: requireDay(key).getDate(), inMonth: true }];
+      return [{ key, dayOfMonth: requireDay(key).getUTCDate(), inMonth: true }];
   }
+}
+
+/** Medianoche del día `key` en la zona (ms). */
+function zonedStartOfDay(key: string, timeZone: string | undefined): number {
+  const start = startOfDayEpoch(key, timeZone);
+  if (start === null) {
+    throw new RangeError(`Fecha de calendario no válida: ${key}`);
+  }
+  return start;
 }
 
 /**
  * Rango `{from, to}` para `GET /agenda/calendar`: del inicio de la primera
- * celda visible al final de la última. Un mes ocupa como mucho 6 semanas = 42
- * días, el tope del backend (D-04.12). Si un cambio de horario alargara el rango
- * más de 42 días exactos, `to` se recorta a `from + 42 días` para no recibir
- * `400 RANGE_TOO_WIDE` (solo se pierde, en ese caso, la última hora).
+ * celda visible al final de la última, en la zona del usuario. Un mes ocupa
+ * como mucho 6 semanas = 42 días, el tope del backend (D-04.12). Si un cambio
+ * de horario alargara el rango más de 42 días exactos, `to` se recorta a
+ * `from + 42 días` para no recibir `400 RANGE_TOO_WIDE` (solo se pierde, en ese
+ * caso, la última hora).
  */
-export function rangeFor(mode: CalendarMode, key: string, weekStartsOn: WeekStart = MONDAY): CalendarRange {
+export function rangeFor(mode: CalendarMode, key: string, weekStartsOn: WeekStart = MONDAY, timeZone?: string): CalendarRange {
   const days = visibleDays(mode, key, weekStartsOn);
-  const first = requireDay(days[0]?.key ?? key);
-  const lastDay = requireDay(days[days.length - 1]?.key ?? key);
-  const last = new Date(lastDay.getFullYear(), lastDay.getMonth(), lastDay.getDate(), LAST_HOUR, LAST_MINUTE, LAST_MINUTE, LAST_MS);
-  const cap = first.getTime() + CALENDAR_MAX_RANGE_DAYS * DAY_MS;
-  return { from: first.toISOString(), to: new Date(Math.min(last.getTime(), cap)).toISOString() };
+  const first = zonedStartOfDay(days[0]?.key ?? key, timeZone);
+  const afterLast = zonedStartOfDay(addDaysToKey(days[days.length - 1]?.key ?? key, 1), timeZone);
+  const cap = first + CALENDAR_MAX_RANGE_DAYS * DAY_MS;
+  return { from: new Date(first).toISOString(), to: new Date(Math.min(afterLast - 1, cap)).toISOString() };
 }
 
 /**
@@ -170,9 +185,9 @@ export function shiftReference(mode: CalendarMode, key: string, delta: number): 
   const date = requireDay(key);
   switch (mode) {
     case 'month': {
-      const target = new Date(date.getFullYear(), date.getMonth() + delta, 1);
-      const day = Math.min(date.getDate(), daysInMonth(target.getFullYear(), target.getMonth()));
-      return toDayKey(new Date(target.getFullYear(), target.getMonth(), day));
+      const target = utcDate(date.getUTCFullYear(), date.getUTCMonth() + delta, 1);
+      const day = Math.min(date.getUTCDate(), daysInMonth(target.getUTCFullYear(), target.getUTCMonth()));
+      return toDayKey(utcDate(target.getUTCFullYear(), target.getUTCMonth(), day));
     }
     case 'week':
       return toDayKey(addDays(date, delta * DAYS_PER_WEEK));
@@ -181,24 +196,23 @@ export function shiftReference(mode: CalendarMode, key: string, delta: number): 
   }
 }
 
-/** Clave local del día de un instante ISO; `null` si no es válido. */
-export function dayKeyOfInstant(instant: string): string | null {
-  const date = new Date(instant);
-  return Number.isNaN(date.getTime()) ? null : toDayKey(date);
+/** Clave del día de un instante ISO en la zona indicada; `null` si no es válido. */
+export function dayKeyOfInstant(instant: string, timeZone?: string): string | null {
+  return dayKeyInTimeZone(instant, timeZone);
 }
 
 /**
- * Agrupa eventos por su día local (`YYYY-MM-DD`), cada grupo ordenado por
- * instante ascendente (a igual hora, se conserva el orden de llegada).
+ * Agrupa eventos por su día (`YYYY-MM-DD`) en la zona indicada, cada grupo
+ * ordenado por instante ascendente (a igual hora, se conserva el orden de llegada).
  */
-export function groupByDay<T extends { date: string }>(items: readonly T[]): Map<string, T[]> {
+export function groupByDay<T extends { date: string }>(items: readonly T[], timeZone?: string): Map<string, T[]> {
   const sorted = items
     .map((item, index) => ({ item, index, time: new Date(item.date).getTime() }))
     .filter((entry) => !Number.isNaN(entry.time))
     .sort((left, right) => left.time - right.time || left.index - right.index);
   const groups = new Map<string, T[]>();
   for (const { item } of sorted) {
-    const key = dayKeyOfInstant(item.date);
+    const key = dayKeyOfInstant(item.date, timeZone);
     if (key === null) {
       continue;
     }
@@ -212,8 +226,9 @@ export function groupByDay<T extends { date: string }>(items: readonly T[]): Map
   return groups;
 }
 
+/** Formatea una fecha de calendario en UTC, donde viven sus componentes. */
 function format(options: Intl.DateTimeFormatOptions, date: Date): string {
-  return new Intl.DateTimeFormat(LOCALE, options).format(date);
+  return cachedDateTimeFormat(LOCALE, { ...options, timeZone: 'UTC' }).format(date);
 }
 
 /** Mes abreviado sin punto final ("oct"). */
@@ -243,14 +258,14 @@ export function periodLabel(mode: CalendarMode, key: string, weekStartsOn: WeekS
       const days = weekDays(key, weekStartsOn);
       const start = requireDay(days[0]?.key ?? key);
       const end = requireDay(days[DAYS_PER_WEEK - 1]?.key ?? key);
-      const endText = `${end.getDate()} ${shortMonth(end)} ${end.getFullYear()}`;
-      if (start.getFullYear() !== end.getFullYear()) {
-        return `${start.getDate()} ${shortMonth(start)} ${start.getFullYear()} – ${endText}`;
+      const endText = `${end.getUTCDate()} ${shortMonth(end)} ${end.getUTCFullYear()}`;
+      if (start.getUTCFullYear() !== end.getUTCFullYear()) {
+        return `${start.getUTCDate()} ${shortMonth(start)} ${start.getUTCFullYear()} – ${endText}`;
       }
-      if (start.getMonth() !== end.getMonth()) {
-        return `${start.getDate()} ${shortMonth(start)} – ${endText}`;
+      if (start.getUTCMonth() !== end.getUTCMonth()) {
+        return `${start.getUTCDate()} ${shortMonth(start)} – ${endText}`;
       }
-      return `${start.getDate()} – ${endText}`;
+      return `${start.getUTCDate()} – ${endText}`;
     }
   }
 }
@@ -265,7 +280,7 @@ export interface WeekdayName {
 /** Nombres de los días en el orden de la rejilla, empezando en `weekStartsOn`. */
 export function weekdayNames(weekStartsOn: WeekStart = MONDAY): WeekdayName[] {
   // 2026-10-04 es domingo: base fija para recorrer los siete días.
-  const sunday = new Date(2026, 9, 4);
+  const sunday = utcDate(2026, 9, 4);
   return Array.from({ length: DAYS_PER_WEEK }, (_, index) => {
     const date = addDays(sunday, (weekStartsOn + index) % DAYS_PER_WEEK);
     return { short: format({ weekday: 'short' }, date).replace(/\.$/, ''), long: format({ weekday: 'long' }, date) };

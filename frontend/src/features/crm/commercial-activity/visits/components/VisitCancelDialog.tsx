@@ -35,7 +35,7 @@ const FIELDS: readonly (keyof VisitReasonValues)[] = ['reasonId', 'reasonText', 
 export function VisitCancelDialog({ open, visit, options, onClose, onDone }: VisitCancelDialogProps) {
   const descriptionId = useId();
   const cancellation = useCancelVisit(visit.id);
-  const files = useVisitOperationFiles(visit.id);
+  const files = useVisitOperationFiles(visit.id, options?.attachments);
   const [selected, setSelected] = useState<File[]>([]);
   const schema = useMemo(() => buildVisitCancelSchema(), []);
   const { control, handleSubmit, reset, setError } = useForm<VisitReasonValues>({ resolver: zodResolver(schema), defaultValues: EMPTY });
@@ -84,7 +84,13 @@ export function VisitCancelDialog({ open, visit, options, onClose, onDone }: Vis
       <Stack spacing={2}>
         <DialogContentText id={descriptionId}>La visita quedará cancelada y no podrá reactivarse. Se conserva con su historial.</DialogContentText>
         <ReasonFields control={control} reasons={options?.cancellationReasons ?? []} disabled={pending} />
-        <FilesField files={selected} onChange={setSelected} disabled={pending} description="Se adjuntan a la cancelación al confirmarla." />
+        <FilesField
+          files={selected}
+          onChange={setSelected}
+          limits={options?.attachments}
+          disabled={pending}
+          description="Se adjuntan a la cancelación al confirmarla."
+        />
         {files.uploading ? (
           <Typography role="status" variant="body2" color="text.secondary">
             Subiendo archivos…

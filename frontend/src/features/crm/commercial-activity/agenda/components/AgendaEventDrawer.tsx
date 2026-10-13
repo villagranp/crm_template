@@ -17,6 +17,7 @@ import { projectDetailPath, type AgendaItem } from '../../common/commercial-acti
 import { COMMERCIAL_ERROR_MESSAGES, withReference } from '../../common/commercial-activity.errors';
 import { COMMERCIAL_RELATED_PERMISSIONS } from '../../common/commercial-activity.permissions';
 import { formatDateTime } from '../../common/date-time';
+import { useCommercialTimeZones } from '../../common/use-commercial-time-zones';
 import { StatusChip } from '../../common/StatusChip';
 import { isOpenAgendaActivity } from '../agenda-format';
 
@@ -28,12 +29,13 @@ export interface AgendaEventDrawerProps {
   onCompleted: (activity: ActivityDetail) => void;
 }
 
-function dateText(item: AgendaItem): string {
-  return item.endDate ? `${formatDateTime(item.date)} – ${formatDateTime(item.endDate)}` : formatDateTime(item.date);
+function dateText(item: AgendaItem, timeZone: string | undefined): string {
+  return item.endDate ? `${formatDateTime(item.date, timeZone)} – ${formatDateTime(item.endDate, timeZone)}` : formatDateTime(item.date, timeZone);
 }
 
 function SummaryContent({ item, onCompleted }: { item: AgendaItem; onCompleted: (activity: ActivityDetail) => void }) {
   const canSeeCustomers = usePermission(COMMERCIAL_RELATED_PERMISSIONS.viewCustomers);
+  const { timeZone } = useCommercialTimeZones();
   const openActivity = isOpenAgendaActivity(item);
   // Las operaciones permitidas solo las conoce el detalle (`allowedActions`, AC-04.57).
   const detail = useActivity(openActivity ? item.id : undefined);
@@ -41,7 +43,7 @@ function SummaryContent({ item, onCompleted }: { item: AgendaItem; onCompleted: 
   const canComplete = openActivity && detail.data?.allowedActions.includes('COMPLETE') === true;
 
   const items = [
-    { label: 'Fecha y hora', value: dateText(item), wide: true },
+    { label: 'Fecha y hora', value: dateText(item, timeZone), wide: true },
     { label: 'Tipo', value: item.typeLabel },
     { label: 'Responsable', value: item.owner.displayName },
     {

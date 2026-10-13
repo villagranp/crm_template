@@ -49,6 +49,14 @@ export interface AttachmentsSectionProps {
    * sección. Debe "consumir" los archivos para no subirlos dos veces.
    */
   takeInitialFiles?: () => readonly File[];
+  /**
+   * Tras cada subida o eliminación correcta (aditivo): el dueño refresca lo que
+   * dependa de sus adjuntos (p. ej. `attachmentCount` en listas y agenda). La
+   * lista de la sección se refresca siempre.
+   */
+  onChanged?: () => void;
+  /** Formatea la fecha de subida (por defecto, en la zona del navegador). */
+  formatDate?: (isoDate: string) => string;
 }
 
 function UploadRow({ upload, onDismiss }: { upload: UploadItem; onDismiss: (key: string) => void }) {
@@ -111,6 +119,8 @@ export function AttachmentsSection({
   title = 'Adjuntos',
   emptyMessage = 'Todavía no hay adjuntos.',
   takeInitialFiles,
+  onChanged,
+  formatDate = formatAttachmentDate,
 }: AttachmentsSectionProps) {
   const titleId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -119,9 +129,9 @@ export function AttachmentsSection({
   const [toDelete, setToDelete] = useState<AttachmentDto | null>(null);
 
   const attachments = useAttachments(basePath, { page, pageSize });
-  const deletion = useDeleteAttachment(basePath);
+  const deletion = useDeleteAttachment(basePath, onChanged);
   const download = useDownloadAttachment(basePath);
-  const { uploads, lastUploaded, enqueue, dismiss } = useAttachmentUploads(basePath, limits);
+  const { uploads, lastUploaded, enqueue, dismiss } = useAttachmentUploads(basePath, limits, onChanged);
 
   // Sólo al montar: `takeInitialFiles` consume los archivos, así que una
   // segunda ejecución (modo estricto) no encuentra nada que subir.
@@ -177,7 +187,7 @@ export function AttachmentsSection({
       id: 'createdAt',
       header: 'Fecha',
       hideOnMobile: true,
-      render: (attachment) => formatAttachmentDate(attachment.createdAt),
+      render: (attachment) => formatDate(attachment.createdAt),
     },
   ];
 

@@ -244,3 +244,32 @@ describe('reprogramar y cancelar (RN-04.19, RN-04.20)', () => {
     expect(toVisitCancellationInput({ reasonId: '', reasonText: ' Lluvia ', comment: '' })).toEqual({ reasonText: 'Lluvia' });
   });
 });
+
+describe('zona del usuario en las entradas datetime-local (RN-04.9, D-04.17)', () => {
+  const GT = 'America/Guatemala';
+
+  it('planificación: lee y escribe las fechas en la zona indicada', () => {
+    const values = planning({ scheduledStartAt: '2026-10-20T09:00', scheduledEndAt: '2026-10-20T10:30' });
+    expect(toCreateVisitInput(values, false, GT)).toMatchObject({
+      scheduledStartAt: '2026-10-20T15:00:00.000Z',
+      scheduledEndAt: '2026-10-20T16:30:00.000Z',
+    });
+    expect(toCreateVisitInput(values, false, 'Europe/Madrid').scheduledStartAt).toBe('2026-10-20T07:00:00.000Z');
+    expect(visitPlanningValuesFrom(PENDING_VISIT, GT).scheduledStartAt).toBe(toDateTimeLocalValue(PENDING_VISIT.scheduledStartAt, GT));
+    expect(isPastStart('2026-10-12T07:00', NOW, GT)).toBe(false);
+    expect(isPastStart('2026-10-12T07:00', NOW, 'Europe/Madrid')).toBe(true);
+  });
+
+  it('realización y reprogramación: "no futura" y "no pasada" se comparan en la zona indicada', () => {
+    // NOW = 12:00 UTC: en Guatemala son las 06:00; en Madrid, las 14:00.
+    const completion = { ...visitCompletionValuesFrom(DONE_VISIT, NOW), actualStartAt: '2026-10-12T10:00', actualEndAt: '' };
+    expect(buildVisitCompletionSchema(['actualStartAt'], () => NOW, GT).safeParse(completion).success).toBe(false);
+    expect(buildVisitCompletionSchema(['actualStartAt'], () => NOW, 'Europe/Madrid').safeParse(completion).success).toBe(true);
+    expect(toVisitCompletionInput(completion, GT).actualStartAt).toBe('2026-10-12T16:00:00.000Z');
+
+    const reschedule = { newScheduledStartAt: '2026-10-12T10:00', newScheduledEndAt: '', reasonId: 'mr-1', reasonText: '', comment: '' };
+    expect(buildVisitRescheduleSchema(PENDING_VISIT.scheduledStartAt, () => NOW, GT).safeParse(reschedule).success).toBe(true);
+    expect(buildVisitRescheduleSchema(PENDING_VISIT.scheduledStartAt, () => NOW, 'Europe/Madrid').safeParse(reschedule).success).toBe(false);
+    expect(toVisitReschedulingInput(reschedule, GT).newScheduledStartAt).toBe('2026-10-12T16:00:00.000Z');
+  });
+});

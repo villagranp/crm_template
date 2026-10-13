@@ -70,7 +70,7 @@ export function attachmentsText(count: number): string {
  * evento se entiende igual sin ver colores ni iconos. Ejemplo:
  * "10:00, Llamada: Seguimiento; cliente: Constructora Peña S.A.; estado: Pendiente".
  */
-export function agendaEventLabel(item: AgendaItem): string {
+export function agendaEventLabel(item: AgendaItem, timeZone?: string): string {
   const status = [agendaStatusText(item)];
   if (item.isRescheduled) {
     status.push('Reprogramada');
@@ -78,14 +78,14 @@ export function agendaEventLabel(item: AgendaItem): string {
   if (item.isUnregistered) {
     status.push('Sin registrar');
   }
-  const parts = [`${formatTime(item.date)}, ${item.typeLabel}: ${item.subject}`, `cliente: ${item.customer.legalName}`, `estado: ${status.join(', ')}`];
+  const parts = [`${formatTime(item.date, timeZone)}, ${item.typeLabel}: ${item.subject}`, `cliente: ${item.customer.legalName}`, `estado: ${status.join(', ')}`];
   if (item.attachmentCount > 0) {
     parts.push(attachmentsText(item.attachmentCount));
   }
   return parts.join('; ');
 }
 
-/** "10:00" o "10:00 – 11:30". */
-export function agendaTimeRange(item: Pick<AgendaItem, 'date' | 'endDate'>): string {
-  return item.endDate ? `${formatTime(item.date)} – ${formatTime(item.endDate)}` : formatTime(item.date);
+/** "10:00" o "10:00 – 11:30", en la zona del usuario. */
+export function agendaTimeRange(item: Pick<AgendaItem, 'date' | 'endDate'>, timeZone?: string): string {
+  return item.endDate ? `${formatTime(item.date, timeZone)} – ${formatTime(item.endDate, timeZone)}` : formatTime(item.date, timeZone);
 }

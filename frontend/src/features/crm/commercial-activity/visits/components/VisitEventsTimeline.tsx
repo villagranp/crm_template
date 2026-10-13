@@ -4,33 +4,25 @@ import { useId, useState } from 'react';
 
 import { EmptyState } from '@/components/data';
 import { MaterialSymbol } from '@/components/layout/MaterialSymbol';
+import type { AttachmentLimits } from '@/features/crm/common/attachments.api';
 import { describeApiError } from '@/lib/api-error-view';
 
 import { AttachmentsPanel } from '../../common/AttachmentsPanel';
 import { COMMERCIAL_ERROR_MESSAGES, withReference } from '../../common/commercial-activity.errors';
 import { formatDateTime } from '../../common/date-time';
-import { EVENT_ATTACHMENT_WINDOW_MS, VISIT_EVENT_ICONS, VISIT_EVENT_LABELS } from '../visit-format';
+import { VISIT_EVENT_ICONS, VISIT_EVENT_LABELS } from '../visit-format';
 import type { VisitEvent } from '../visits.api';
 import { useVisitEvents } from '../visits.queries';
 
 export interface VisitEventsTimelineProps {
   visitId: string;
-  /** Usuario de la sesión: sólo quien ejecutó un evento puede adjuntarle archivos (D-04.18). */
-  currentUserId: string | null;
-  /** Instante de referencia para la ventana de 15 minutos (por defecto, ahora). */
-  now?: Date;
+  /** `form-options.attachments` de visitas: comprobación previa de los archivos. */
+  limits?: AttachmentLimits;
+  /** Zona del usuario para las fechas; `undefined` = la del navegador. */
+  timeZone?: string;
 }
 
-/** ¿Se ofrece "Subir" en el evento? Experiencia de usuario: el backend decide (`403`/`409`) y sus errores se muestran. */
-function canAttachTo(event: VisitEvent, currentUserId: string | null, now: Date): boolean {
-  if (event.performedBy.id !== currentUserId) {
-    return false;
-  }
-  const occurred = new Date(event.occurredAt).getTime();
-  return !Number.isNaN(occurred) && now.getTime() - occurred <= EVENT_ATTACHMENT_WINDOW_MS;
-}
-
-function describeChange(event: VisitEvent): string[] {
+function describeChange(event: VisitEvent, timeZone: string | undefined): string[] {
   const lines: string[] = [];
   if (event.fromStatus && event.fromStatus.id !== event.toStatus.id) {
     lines.push(`Estado: ${event.fromStatus.label} → ${event.toStatus.label}`);
@@ -38,7 +30,7 @@ function describeChange(event: VisitEvent): string[] {
     lines.push(`Estado: ${event.toStatus.label}`);
   }
   if (event.previousScheduledStartAt || event.newScheduledStartAt) {
-    lines.push(`Fecha: ${formatDateTime(event.previousScheduledStartAt)} → ${formatDateTime(event.newScheduledStartAt)}`);
+    lines.push(`Fecha: ${formatDateTime(event.previousScheduledStartAt, timeZone)} → ${formatDateTime(event.newScheduledStartAt, timeZone)}`);
   }
   const reason = [event.reason?.label, event.reasonText?.trim()].filter(Boolean).join(' · ');
   if (reason) {
@@ -50,9 +42,18 @@ function describeChange(event: VisitEvent): string[] {
   return lines;
 }
 
-function EventItem({ visitId, event, canAttach }: { visitId: string; event: VisitEvent; canAttach: boolean }) {
+interface EventItemProps {
+  visitId: string;
+  event: VisitEvent;
+  limits: AttachmentLimits | undefined;
+  timeZone: string | undefined;
+}
+
+function EventItem({ visitId, event, limits, timeZone }: EventItemProps) {
   const panelId = useId();
   const [open, setOpen] = useState(false);
+  // Quien ejecutó el evento, con permiso y dentro de los 15 minutos: lo calcula el backend (D-04.18).
+  const canAttach = event.canAttachFiles;
   const showAttachments = event.attachmentCount > 0 || canAttach;
   const label = VISIT_EVENT_LABELS[event.eventType];
 
@@ -66,9 +67,9 @@ function EventItem({ visitId, event, canAttach }: { visitId: string; event: Visi
           {label}
         </Typography>
         <Typography variant="caption" color="text.secondary" component="p">
-          {`${formatDateTime(event.occurredAt)} · ${event.performedBy.displayName}`}
+          {`${formatDateTime(event.occurredAt, timeZone)} · ${event.performedBy.displayName}`}
         </Typography>
-        {describeChange(event).map((line) => (
+        {describeChange(event, timeZone).map((line) => (
           <Typography key={line} variant="body2" sx={{ overflowWrap: 'anywhere', whiteSpace: 'pre-line' }}>
             {line}
           </Typography>
@@ -90,6 +91,7 @@ function EventItem({ visitId, event, canAttach }: { visitId: string; event: Visi
                 <AttachmentsPanel
                   owner={{ type: 'visitEvent', visitId, eventId: event.id }}
                   canManage={canAttach}
+                  limits={limits}
                   title={`Adjuntos: ${label.toLowerCase()}`}
                 />
               </Box>
@@ -105,11 +107,12 @@ function EventItem({ visitId, event, canAttach }: { visitId: string; event: Visi
  * Historial de la visita (04 §E.8, `GET /visits/{id}/events`): un evento por
  * planificar, reprogramar, realizar, confirmar y cancelar, en orden
  * cronológico, con estado anterior → nuevo, fecha anterior → nueva, motivo,
- * comentario, usuario, fecha y adjuntos del evento. Quien ejecutó un evento
- * puede adjuntarle archivos durante 15 minutos (D-04.18); los adjuntos de un
- * evento no se eliminan.
+ * comentario, usuario, fecha y adjuntos del evento. "Adjuntar archivos al
+ * evento" se ofrece si el backend lo permite (`canAttachFiles`: quien lo
+ * ejecutó, con permiso, durante 15 minutos, D-04.18); los adjuntos de un evento
+ * no se eliminan.
  */
-export function VisitEventsTimeline({ visitId, currentUserId, now = new Date() }: VisitEventsTimelineProps) {
+export function VisitEventsTimeline({ visitId, limits, timeZone }: VisitEventsTimelineProps) {
   const events = useVisitEvents(visitId);
 
   if (events.isPending) {
@@ -149,7 +152,7 @@ export function VisitEventsTimeline({ visitId, currentUserId, now = new Date() }
   return (
     <Stack component="ol" aria-label="Eventos de la visita" spacing={1.5} sx={{ listStyle: 'none', m: 0, p: 0 }}>
       {events.data.map((event) => (
-        <EventItem key={event.id} visitId={visitId} event={event} canAttach={canAttachTo(event, currentUserId, now)} />
+        <EventItem key={event.id} visitId={visitId} event={event} limits={limits} timeZone={timeZone} />
       ))}
     </Stack>
   );

@@ -9,7 +9,8 @@ import type { ActivityTypeOption } from '../../activities/activities.api';
 import { AttachmentCount } from '../../common/AttachmentCount';
 import type { AgendaItem } from '../../common/commercial-activity.api';
 import { COMMERCIAL_ERROR_MESSAGES, withReference } from '../../common/commercial-activity.errors';
-import { formatDateTime } from '../../common/date-time';
+import { useCommercialTimeZones } from '../../common/use-commercial-time-zones';
+import { ZonedDateTime } from '../../common/ZonedDateTime';
 import { StatusChip } from '../../common/StatusChip';
 import { agendaIconName } from '../agenda-format';
 import { toAgendaListQuery, type AgendaFilterKey, type AgendaFilterValues } from '../agenda.api';
@@ -27,7 +28,7 @@ export interface AgendaListProps {
 
 function buildColumns(types: readonly ActivityTypeOption[] | undefined): DataTableColumn<AgendaItem>[] {
   return [
-    { id: 'date', header: 'Fecha y hora', sortable: true, render: (item) => formatDateTime(item.date) },
+    { id: 'date', header: 'Fecha y hora', sortable: true, render: (item) => <ZonedDateTime value={item.date} /> },
     {
       id: 'kind',
       header: 'Tipo',
@@ -80,7 +81,8 @@ function buildColumns(types: readonly ActivityTypeOption[] | undefined): DataTab
  * (`DataTable`). Cada fila abre el panel de resumen.
  */
 export function AgendaList({ table, filters, types, onOpen, empty }: AgendaListProps) {
-  const query = useMemo(() => toAgendaListQuery(table.apiQuery, filters), [table.apiQuery, filters]);
+  const { timeZone } = useCommercialTimeZones();
+  const query = useMemo(() => toAgendaListQuery(table.apiQuery, filters, timeZone), [table.apiQuery, filters, timeZone]);
   const agenda = useAgendaList(query);
   const columns = useMemo(() => buildColumns(types), [types]);
 

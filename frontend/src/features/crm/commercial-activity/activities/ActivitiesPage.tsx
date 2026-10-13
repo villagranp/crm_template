@@ -1,7 +1,7 @@
 import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import TaskAltOutlinedIcon from '@mui/icons-material/TaskAltOutlined';
-import { Box, Button, Chip, Collapse, Paper, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip, Collapse, Paper, Typography } from '@mui/material';
 import { useId, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -14,9 +14,12 @@ import type { ListQuery } from '@/lib/query-keys';
 
 import { COMMERCIAL_ERROR_MESSAGES, withReference } from '../common/commercial-activity.errors';
 import { ACTIVITY_PERMISSIONS } from '../common/commercial-activity.permissions';
-import { endOfDayIso, formatDateTime, startOfDayIso } from '../common/date-time';
+import { useOwnerName } from '../common/commercial-activity.queries';
+import { endOfDayIso, startOfDayIso } from '../common/date-time';
 import { DueBadge } from '../common/DueBadge';
 import { StatusChip } from '../common/StatusChip';
+import { useCommercialTimeZones } from '../common/use-commercial-time-zones';
+import { ZonedDateTime } from '../common/ZonedDateTime';
 
 import { ACTIVITY_FILTER_KEYS, ACTIVITY_SORT_FIELDS, type ActivityFilterKey, type ActivityListItem } from './activities.api';
 import { useActivities, useActivityFormOptions } from './activities.queries';
@@ -57,7 +60,7 @@ const COLUMNS: DataTableColumn<ActivityListItem>[] = [
   { id: 'customerName', header: ACTIVITY_FIELD_TEXT.customer, sortable: true, render: (activity) => activity.customer.legalName },
   { id: 'project', header: ACTIVITY_FIELD_TEXT.project, hideOnMobile: true, render: (activity) => activity.project?.name ?? '—' },
   { id: 'ownerName', header: ACTIVITY_FIELD_TEXT.owner, sortable: true, hideOnMobile: true, render: (activity) => activity.owner.displayName },
-  { id: 'scheduledAt', header: ACTIVITY_FIELD_TEXT.scheduledAt, sortable: true, hideOnMobile: true, render: (activity) => formatDateTime(activity.scheduledAt) },
+  { id: 'scheduledAt', header: ACTIVITY_FIELD_TEXT.scheduledAt, sortable: true, hideOnMobile: true, render: (activity) => <ZonedDateTime value={activity.scheduledAt} /> },
   { id: 'dueAt', header: ACTIVITY_FIELD_TEXT.dueAt, sortable: true, render: (activity) => <DueBadge dueAt={activity.dueAt} bucket={activity.dueBucket} /> },
   { id: 'priority', header: ACTIVITY_FIELD_TEXT.priority, sortable: true, hideOnMobile: true, render: (activity) => <Chip size="small" variant="outlined" label={activity.priority.label} /> },
   { id: 'status', header: ACTIVITY_FIELD_TEXT.status, sortable: true, render: (activity) => <StatusChip label={activity.status.label} group={activity.status.group} /> },
@@ -79,14 +82,17 @@ const COLUMNS: DataTableColumn<ActivityListItem>[] = [
   },
 ];
 
-/** Las fechas de los filtros viajan en la URL como `YYYY-MM-DD` y a la API como instantes del día completo. */
-function toApiQuery(query: ListQuery): ListQuery {
+/**
+ * Las fechas de los filtros viajan en la URL como `YYYY-MM-DD` y a la API como
+ * instantes del día completo en la zona del usuario.
+ */
+function toApiQuery(query: ListQuery, timeZone: string | undefined): ListQuery {
   const result: ListQuery = { ...query };
   for (const key of DAY_START_FILTERS) {
-    result[key] = startOfDayIso(typeof query[key] === 'string' ? (query[key] as string) : undefined);
+    result[key] = startOfDayIso(typeof query[key] === 'string' ? (query[key] as string) : undefined, timeZone);
   }
   for (const key of DAY_END_FILTERS) {
-    result[key] = endOfDayIso(typeof query[key] === 'string' ? (query[key] as string) : undefined);
+    result[key] = endOfDayIso(typeof query[key] === 'string' ? (query[key] as string) : undefined, timeZone);
   }
   return result;
 }
@@ -105,16 +111,21 @@ export function ActivitiesPage() {
     sortableFields: ACTIVITY_SORT_FIELDS,
     defaultSort: DEFAULT_SORT,
   });
-  const apiQuery = useMemo(() => toApiQuery(table.apiQuery), [table.apiQuery]);
+  const { timeZone } = useCommercialTimeZones();
+  const apiQuery = useMemo(() => toApiQuery(table.apiQuery, timeZone), [table.apiQuery, timeZone]);
   const activities = useActivities(apiQuery);
   const options = useActivityFormOptions();
 
   const { filters, search } = table.state;
-  const formFilters: ActivityFilterValues = Object.fromEntries(FORM_FILTERS.flatMap((key) => (filters[key] ? [[key, filters[key]]] : [])));
+  // Memorizado: el borrador del panel sólo se reinicia si cambian los filtros aplicados.
+  const formFilters = useMemo<ActivityFilterValues>(
+    () => Object.fromEntries(FORM_FILTERS.flatMap((key) => (filters[key] ? [[key, filters[key]]] : []))),
+    [filters],
+  );
   const activeFilterCount = Object.keys(formFilters).length;
   const [filtersOpen, setFiltersOpen] = useState(activeFilterCount > 0);
   const hasFilters = Boolean(search) || activeFilterCount > 0 || Boolean(filters.projectId) || Boolean(filters.opportunityId);
-  const ownerName = (filters.ownerId && activities.data?.data.find((row) => row.owner.id === filters.ownerId)?.owner.displayName) || null;
+  const ownerName = useOwnerName(filters.ownerId);
 
   const clearFilters = () => table.setFilters(Object.fromEntries(ACTIVITY_FILTER_KEYS.map((key) => [key, undefined])));
   const clearAll = () => {
@@ -129,6 +140,20 @@ export function ActivitiesPage() {
         breadcrumbs={crmBreadcrumbs({ label: 'Actividad comercial' }, { label: TITLE })}
         actions={canCreate ? <NewActivityMenuButton types={options.data?.types} /> : undefined}
       />
+
+      {options.isError ? (
+        <Alert
+          severity="error"
+          sx={{ mb: 2 }}
+          action={
+            <Button color="inherit" size="small" onClick={() => void options.refetch()}>
+              Reintentar
+            </Button>
+          }
+        >
+          {`No se pudieron cargar los tipos, estados y prioridades: los filtros por catálogo y "Nueva actividad" no están disponibles. ${withReference(describeApiError(options.error, COMMERCIAL_ERROR_MESSAGES))}`}
+        </Alert>
+      ) : null}
 
       <Paper component="section" aria-label="Listado de actividades" sx={{ overflow: 'hidden', boxShadow: 1 }}>
         <ListToolbar
@@ -158,7 +183,6 @@ export function ActivitiesPage() {
               fields={FORM_FILTERS}
               values={formFilters}
               options={options.data}
-              ownerName={ownerName}
               onApply={(values) => table.setFilters(values)}
             />
           </Collapse>

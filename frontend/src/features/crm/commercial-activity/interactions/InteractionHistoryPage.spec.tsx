@@ -7,7 +7,7 @@ import { errorResponse, jsonResponse, mockApi } from '@/test/api-mocks';
 import { renderWithProviders } from '@/test/render-with-providers';
 
 import { endOfDayIso, formatDate, formatDateTime, startOfDayIso } from '../common/date-time';
-import { ASESOR_PERMISSIONS, CUSTOMER_REF, FORM_OPTIONS, INTERACTION, lastQuery, page, signInWith, signOut, simulateWideScreen } from '../testing/fixtures';
+import { ASESOR_PERMISSIONS, CUSTOMER_REF, FORM_OPTIONS, INTERACTION, lastQuery, ME, page, signInWith, signOut, simulateWideScreen } from '../testing/fixtures';
 import { ACTIVITY_INTERACTION, FROZEN_NOW } from '../testing/read-model-fixtures';
 
 import { InteractionHistoryPage } from './InteractionHistoryPage';
@@ -45,6 +45,7 @@ function routes(interactions = () => page([INTERACTION, ACTIVITY_INTERACTION])) 
     'GET /interactions': interactions,
     'GET /activities/form-options': () => jsonResponse(FORM_OPTIONS),
     'GET /customers/c-1': () => jsonResponse({ ...CUSTOMER_REF, country: { id: 'mx' } }),
+    'GET /commercial-activity/owner-options': () => page([ME]),
   });
 }
 
@@ -215,7 +216,8 @@ describe('InteractionHistoryPage (F-24, PF-04.55)', () => {
     expect(within(chips).getByText('Cliente: Constructora Peña S.A.')).toBeInTheDocument();
     expect(within(chips).getByText('Proyecto: Torre Norte')).toBeInTheDocument();
     expect(within(chips).getByText('Oportunidad: Seleccionada')).toBeInTheDocument();
-    expect(within(chips).getByText('Usuario: Ana Asesora')).toBeInTheDocument();
+    expect(await within(chips).findByText('Usuario: Ana Asesora')).toBeInTheDocument();
+    expect(lastQuery(fetchMock, '/commercial-activity/owner-options').getAll('id')).toEqual(['u-1']);
     // La línea de tiempo ya es de ese cliente y proyecto: no los repite.
     expect(screen.getByText('Ana Asesora · Próxima acción: Enviar cotización (20 oct 2026)')).toBeInTheDocument();
 
@@ -223,6 +225,16 @@ describe('InteractionHistoryPage (F-24, PF-04.55)', () => {
     await waitFor(() => expect(lastQuery(fetchMock, '/interactions').get('customerId')).toBeNull());
     expect(lastQuery(fetchMock, '/interactions').get('projectId')).toBeNull();
     expect(lastQuery(fetchMock, '/interactions').get('opportunityId')).toBeNull();
+  });
+
+  it('nunca envía `search` a /interactions aunque llegue en la URL (la API responde 400)', async () => {
+    const fetchMock = routes();
+    renderPage('/actividad/historial?search=algo&resultId=r-ok');
+
+    await screen.findByRole('link', { name: 'Ver visita VIS-2026-00001' });
+    const query = lastQuery(fetchMock, '/interactions');
+    expect(query.get('resultId')).toBe('r-ok');
+    expect(query.has('search')).toBe(false);
   });
 
   it('error con referencia y reintento; vacío con filtros con "Limpiar filtros"; vacío sin filtros', async () => {

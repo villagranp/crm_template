@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 
 import { createScopedQueryKeys, type ListQuery } from '@/lib/query-keys';
 
@@ -12,6 +12,7 @@ import {
   listInteractions,
   listOpenOpportunities,
   listOwnerOptions,
+  listOwnersByIds,
   type FollowUpScope,
   type InteractionQuery,
 } from './commercial-activity.api';
@@ -43,6 +44,7 @@ const readKeys = commercialAreaKeys('read-models');
 
 export const commercialLookupKeys = {
   owners: (query: ListQuery) => [...lookupKeys.all, 'owners', query] as const,
+  ownersByIds: (ids: readonly string[]) => [...lookupKeys.all, 'owners-by-id', ids] as const,
   customer: (customerId: string) => [...lookupKeys.all, 'customer', customerId] as const,
   contacts: (customerId: string, query: ListQuery) => [...lookupKeys.all, 'contacts', customerId, query] as const,
   projects: (customerId: string, query: ListQuery) => [...lookupKeys.all, 'projects', customerId, query] as const,
@@ -78,6 +80,34 @@ export function useOwnerOptions(search: string, enabled: boolean) {
     enabled,
     placeholderData: keepPreviousData,
   });
+}
+
+/** Los nombres de usuario cambian poco. */
+const OWNER_NAMES_STALE_TIME_MS = 5 * 60_000;
+const NO_OWNER_NAMES: ReadonlyMap<string, string> = new Map();
+
+/**
+ * Nombres de usuarios ya elegidos (filtro de asesor o de usuario tras recargar)
+ * con `owner-options?id=` (D-04.10). Devuelve `id → nombre` sólo de los que el
+ * backend devuelve (dentro del alcance y activos); el resto, sin nombre: la
+ * pantalla usa su texto de respaldo.
+ */
+export function useOwnerNames(ids: readonly (string | null | undefined)[]): ReadonlyMap<string, string> {
+  const unique = [...new Set(ids.filter((id): id is string => Boolean(id)))].sort();
+  const owners = useQuery({
+    queryKey: commercialLookupKeys.ownersByIds(unique),
+    queryFn: () => listOwnersByIds(unique),
+    enabled: unique.length > 0,
+    staleTime: OWNER_NAMES_STALE_TIME_MS,
+  });
+  const data = unique.length > 0 ? owners.data : undefined;
+  return useMemo(() => (data ? new Map(data.data.map((user) => [user.id, user.displayName])) : NO_OWNER_NAMES), [data]);
+}
+
+/** Nombre de un usuario elegido (`null` mientras carga o si no está en el alcance). */
+export function useOwnerName(id: string | null | undefined): string | null {
+  const names = useOwnerNames([id]);
+  return id ? (names.get(id) ?? null) : null;
 }
 
 export function useCustomerLookup(customerId: string | undefined) {

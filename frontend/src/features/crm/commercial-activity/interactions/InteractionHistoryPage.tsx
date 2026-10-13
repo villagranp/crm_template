@@ -15,12 +15,14 @@ import { describeApiError } from '@/lib/api-error-view';
 import type { ListQuery } from '@/lib/query-keys';
 
 import { useActivityFormOptions } from '../activities/activities.queries';
-import type { Interaction } from '../common/commercial-activity.api';
+import { withoutSearch, type Interaction } from '../common/commercial-activity.api';
 import { COMMERCIAL_ERROR_MESSAGES, withReference } from '../common/commercial-activity.errors';
 import { ACTIVITY_PERMISSIONS, COMMERCIAL_RELATED_PERMISSIONS } from '../common/commercial-activity.permissions';
-import { useCustomerLookup } from '../common/commercial-activity.queries';
-import { endOfDayIso, formatDateTime, startOfDayIso } from '../common/date-time';
+import { useCustomerLookup, useOwnerName } from '../common/commercial-activity.queries';
+import { endOfDayIso, startOfDayIso } from '../common/date-time';
 import { InteractionTimelineList } from '../common/InteractionTimeline';
+import { useCommercialTimeZones } from '../common/use-commercial-time-zones';
+import { ZonedDateTime } from '../common/ZonedDateTime';
 import { sourceLinkText } from '../follow-up/follow-up-format';
 
 import { ActiveInteractionFilterChips, InteractionFilters } from './components/InteractionFilters';
@@ -35,7 +37,7 @@ const VIEW_PARAM = 'view';
 type HistoryView = 'timeline' | 'table';
 
 const COLUMNS: DataTableColumn<Interaction>[] = [
-  { id: 'occurredAt', header: 'Fecha', sortable: true, render: (item) => formatDateTime(item.occurredAt) },
+  { id: 'occurredAt', header: 'Fecha', sortable: true, render: (item) => <ZonedDateTime value={item.occurredAt} /> },
   { id: 'type', header: 'Tipo', render: (item) => item.typeLabel },
   { id: 'user', header: 'Usuario', render: (item) => item.user.displayName },
   { id: 'customer', header: 'Cliente', primary: true, render: (item) => item.customer.legalName },
@@ -68,11 +70,14 @@ const COLUMNS: DataTableColumn<Interaction>[] = [
   },
 ];
 
-/** `from`/`to` viajan en la URL como `YYYY-MM-DD` y a la API como instantes del día completo (zona del navegador). */
-function toApiQuery(query: ListQuery): ListQuery {
+/**
+ * `from`/`to` viajan en la URL como `YYYY-MM-DD` y a la API como instantes del
+ * día completo (zona del usuario). `/interactions` no admite `search` (`400`).
+ */
+function toApiQuery(query: ListQuery, timeZone: string | undefined): ListQuery {
   const from = typeof query.from === 'string' ? query.from : undefined;
   const to = typeof query.to === 'string' ? query.to : undefined;
-  return { ...query, from: startOfDayIso(from), to: endOfDayIso(to) };
+  return { ...withoutSearch(query), from: startOfDayIso(from, timeZone), to: endOfDayIso(to, timeZone) };
 }
 
 interface TimelineViewProps {
@@ -175,7 +180,8 @@ export function InteractionHistoryPage() {
     sortableFields: INTERACTION_SORT_FIELDS,
     defaultSort: DEFAULT_INTERACTION_SORT,
   });
-  const apiQuery = useMemo(() => toApiQuery(table.apiQuery), [table.apiQuery]);
+  const { timeZone } = useCommercialTimeZones();
+  const apiQuery = useMemo(() => toApiQuery(table.apiQuery, timeZone), [table.apiQuery, timeZone]);
   const history = useInteractionHistory(apiQuery);
   const options = useActivityFormOptions(canViewActivities);
   const rows = history.data?.data;
@@ -206,11 +212,12 @@ export function InteractionHistoryPage() {
   const [filtersOpen, setFiltersOpen] = useState(activeFilterCount > 0);
 
   const customerLookup = useCustomerLookup(canViewCustomers ? filters.customerId : undefined);
+  const userName = useOwnerName(filters.userId);
   const names = {
     customer: (filters.customerId && rows?.find((item) => item.customer.id === filters.customerId)?.customer.legalName) || customerLookup.data?.legalName || null,
     project: (filters.projectId && rows?.find((item) => item.project?.id === filters.projectId)?.project?.name) || null,
     opportunity: (filters.opportunityId && rows?.find((item) => item.opportunity?.id === filters.opportunityId)?.opportunity?.code) || null,
-    user: (filters.userId && rows?.find((item) => item.user.id === filters.userId)?.user.displayName) || null,
+    user: userName,
   };
 
   const clearFilters = () => table.setFilters(Object.fromEntries(INTERACTION_FILTER_KEYS.map((key) => [key, undefined])));
@@ -272,7 +279,7 @@ export function InteractionHistoryPage() {
           }
         >
           <Collapse in={filtersOpen} id={filtersPanelId} unmountOnExit>
-            <InteractionFilters values={formValues} options={options.data} userName={names.user} onApply={(values) => table.setFilters(values)} />
+            <InteractionFilters values={formValues} options={options.data} onApply={(values) => table.setFilters(values)} />
           </Collapse>
           <ActiveInteractionFilterChips values={chipValues} options={options.data} names={names} onRemove={removeFilter} onClear={clearFilters} />
         </ListToolbar>

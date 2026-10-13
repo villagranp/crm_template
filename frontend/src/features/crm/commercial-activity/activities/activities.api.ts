@@ -4,6 +4,7 @@ import type { PaginatedResponse } from '@/types/api';
 
 import type {
   CatalogRef,
+  CommercialFormContext,
   CustomerRef,
   DueBucket,
   OpportunityRef,
@@ -146,7 +147,7 @@ export interface CatalogOption extends CatalogRef {
 }
 
 /** `ActivityFormOptionsDto` (D-04.10): toda lista de valores del formulario y de los filtros sale de aquí. */
-export interface ActivityFormOptions {
+export interface ActivityFormOptions extends CommercialFormContext {
   types: ActivityTypeOption[];
   statuses: ActivityStatusOption[];
   priorities: ActivityPriorityOption[];

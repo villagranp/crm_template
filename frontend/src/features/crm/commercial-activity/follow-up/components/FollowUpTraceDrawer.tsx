@@ -14,10 +14,12 @@ import { COMMERCIAL_ERROR_MESSAGES, isNotFoundError, withReference } from '../..
 import { useFollowUpTrace } from '../../common/commercial-activity.queries';
 import { interactionHistoryPath } from '../../common/commercial-paths';
 import { formatDateTime } from '../../common/date-time';
+import { useCommercialTimeZones } from '../../common/use-commercial-time-zones';
+import { ZonedDateTime } from '../../common/ZonedDateTime';
 import { InteractionTimelineList } from '../../common/InteractionTimeline';
 import { NextActionDate } from '../../common/NextActionDate';
 import { StatusChip } from '../../common/StatusChip';
-import { traceScopeOf, type FollowUpGroup } from '../follow-up.api';
+import { InvalidDownloadPathError, traceScopeOf, type FollowUpGroup } from '../follow-up.api';
 import { sourceDetailPath, sourceLinkText } from '../follow-up-format';
 import { useDownloadTraceAttachment } from '../follow-up.queries';
 
@@ -69,7 +71,8 @@ function TraceSummary({ row }: { row: FollowUpRow }) {
           label: 'Última interacción',
           value: last ? (
             <>
-              {`${formatDateTime(last.occurredAt)} · ${last.typeLabel} · `}
+              <ZonedDateTime value={last.occurredAt} />
+              {` · ${last.typeLabel} · `}
               <Link component={RouterLink} to={sourceDetailPath(last)}>
                 {sourceLinkText(last.sourceType, last.sourceCode)}
               </Link>
@@ -119,6 +122,7 @@ function TraceSummary({ row }: { row: FollowUpRow }) {
 
 function TraceAttachments({ attachments }: { attachments: readonly TraceAttachment[] }) {
   const download = useDownloadTraceAttachment();
+  const { timeZone } = useCommercialTimeZones();
 
   if (attachments.length === 0) {
     return (
@@ -132,7 +136,9 @@ function TraceAttachments({ attachments }: { attachments: readonly TraceAttachme
     <Stack spacing={1.5}>
       {download.isError ? (
         <Alert severity="error" onClose={() => download.reset()}>
-          {`No se pudo descargar el archivo. ${withReference(describeApiError(download.error, COMMERCIAL_ERROR_MESSAGES))}`}
+          {download.error instanceof InvalidDownloadPathError
+            ? 'No se pudo descargar el archivo: el enlace de descarga no es válido.'
+            : `No se pudo descargar el archivo. ${withReference(describeApiError(download.error, COMMERCIAL_ERROR_MESSAGES))}`}
         </Alert>
       ) : null}
       <Stack component="ul" aria-label="Adjuntos" spacing={1.25} sx={{ listStyle: 'none', m: 0, p: 0 }}>
@@ -151,7 +157,7 @@ function TraceAttachments({ attachments }: { attachments: readonly TraceAttachme
                 {attachment.fileName}
               </Typography>
               <Typography variant="caption" color="text.secondary" component="p">
-                {`${formatFileSize(attachment.sizeBytes)} · ${formatDateTime(attachment.createdAt)} · ${ATTACHMENT_OWNER_TEXT[attachment.ownerType]} `}
+                {`${formatFileSize(attachment.sizeBytes)} · ${formatDateTime(attachment.createdAt, timeZone)} · ${ATTACHMENT_OWNER_TEXT[attachment.ownerType]} `}
                 <Link component={RouterLink} to={attachment.sourcePath}>
                   {attachment.sourceCode}
                 </Link>
@@ -214,7 +220,8 @@ function TraceContent({ trace, scope }: { trace: FollowUpTrace; scope: FollowUpS
               >
                 <Box sx={{ minWidth: 0 }}>
                   <Typography variant="caption" color="text.secondary">
-                    {`${formatDateTime(item.date)} · ${item.typeLabel}`}
+                    <ZonedDateTime value={item.date} />
+                    {` · ${item.typeLabel}`}
                   </Typography>
                   <Link component={RouterLink} to={item.detailPath} variant="body2" sx={{ display: 'block', overflowWrap: 'anywhere' }}>
                     {`${item.code} · ${item.subject}`}

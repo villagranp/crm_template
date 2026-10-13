@@ -36,8 +36,6 @@ export const VISIT_EVENT_ICONS: Record<VisitEventType, string> = {
   CANCELLED: 'event_busy',
 };
 
-/** Ventana para adjuntar a un evento ya ocurrido (D-04.18). La decide el backend; aquí sólo se usa para ofrecer o no "Subir". */
-export const EVENT_ATTACHMENT_WINDOW_MS = 15 * 60_000;
 
 /** "Reprogramada ×2" (E.6). */
 export function rescheduleLabel(count: number): string | null {

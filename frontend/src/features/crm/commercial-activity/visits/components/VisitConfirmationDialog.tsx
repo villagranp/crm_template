@@ -7,6 +7,8 @@ import { DetailList, DialogFooter, EntityDialog } from '@/components/data';
 import { describeApiError } from '@/lib/api-error-view';
 
 import { COMMERCIAL_ERROR_MESSAGES, commercialFieldErrors, withReference } from '../../common/commercial-activity.errors';
+import type { AttachmentLimits } from '@/features/crm/common/attachments.api';
+
 import { formatCalendarDate, formatDateTime } from '../../common/date-time';
 import { FilesField } from '../../common/FilesField';
 import type { VisitDetail } from '../visits.api';
@@ -18,6 +20,10 @@ import { useVisitOperationFiles } from './use-visit-operation-files';
 export interface VisitConfirmationDialogProps {
   open: boolean;
   visit: VisitDetail;
+  /** `form-options.attachments` de visitas: comprobación previa de los archivos. */
+  limits?: AttachmentLimits;
+  /** Zona del usuario para la fecha real; `undefined` = la del navegador. */
+  timeZone?: string;
   onClose: () => void;
   onDone: (visit: VisitDetail, warning: string | null) => void;
 }
@@ -37,9 +43,9 @@ function textOrDash(value: string | null | undefined): string {
  * en solo lectura para revisarla; el resumen es obligatorio si la realización no
  * tiene resumen ni comentarios. Los archivos se suben al evento `CONFIRMED`.
  */
-export function VisitConfirmationDialog({ open, visit, onClose, onDone }: VisitConfirmationDialogProps) {
+export function VisitConfirmationDialog({ open, visit, limits, timeZone, onClose, onDone }: VisitConfirmationDialogProps) {
   const confirmation = useConfirmVisit(visit.id);
-  const files = useVisitOperationFiles(visit.id);
+  const files = useVisitOperationFiles(visit.id, limits);
   const [selected, setSelected] = useState<File[]>([]);
   const summaryRequired = confirmationSummaryRequired(visit);
   const schema = useMemo(() => buildVisitConfirmationSchema(summaryRequired), [summaryRequired]);
@@ -98,7 +104,7 @@ export function VisitConfirmationDialog({ open, visit, onClose, onDone }: VisitC
           <Box component="section" aria-label="Realización registrada" sx={{ p: 2, borderRadius: 1, border: 1, borderColor: 'divider' }}>
             <DetailList
               items={[
-                { label: 'Fecha real', value: formatDateTime(completion.actualStartAt) },
+                { label: 'Fecha real', value: formatDateTime(completion.actualStartAt, timeZone) },
                 { label: 'Resultado', value: textOrDash(completion.result?.label) },
                 { label: 'Resumen del resultado', value: textOrDash(completion.resultSummary), wide: true },
                 { label: 'Comentarios', value: textOrDash(completion.comments), wide: true },
@@ -127,7 +133,7 @@ export function VisitConfirmationDialog({ open, visit, onClose, onDone }: VisitC
           }
           slotProps={{ htmlInput: { maxLength: VISIT_LIMITS.confirmationSummary } }}
         />
-        <FilesField files={selected} onChange={setSelected} disabled={pending} description="Se adjuntan a la confirmación." />
+        <FilesField files={selected} onChange={setSelected} limits={limits} disabled={pending} description="Se adjuntan a la confirmación." />
         {files.uploading ? (
           <Typography role="status" variant="body2" color="text.secondary">
             Subiendo archivos…

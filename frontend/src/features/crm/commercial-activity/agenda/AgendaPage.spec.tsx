@@ -17,7 +17,7 @@ import {
   localIso,
   simulateNarrowScreen,
 } from '../testing/agenda-fixtures';
-import { ACTIVITY_DETAIL, ASESOR_PERMISSIONS, bodyOf, FORM_OPTIONS, lastQuery, page, signInWith, signOut, simulateWideScreen } from '../testing/fixtures';
+import { ACTIVITY_DETAIL, ASESOR_PERMISSIONS, bodyOf, FORM_OPTIONS, lastQuery, OTHER_USER, page, signInWith, signOut, simulateWideScreen } from '../testing/fixtures';
 
 import { AgendaPage } from './AgendaPage';
 
@@ -109,7 +109,7 @@ describe('AgendaPage — calendario (F-21, PF-04.48)', () => {
     expect(query.get('kind')).toBeNull();
   });
 
-  it('navega anterior / hoy / siguiente y entre Mes, Semana y Día, con el estado en la URL (AC-04.3)', async () => {
+  it('navega al mes siguiente y vuelve a hoy, con el estado en la URL (AC-04.3)', async () => {
     const fetchMock = api({});
     renderPage();
     await screen.findByRole('button', { name: ACTIVITY_LABEL });
@@ -123,6 +123,12 @@ describe('AgendaPage — calendario (F-21, PF-04.48)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Hoy' }));
     expect(screen.getByRole('heading', { name: 'octubre de 2026', level: 2 })).toBeInTheDocument();
     expect(currentUrl()).toBe('/actividad/agenda');
+  });
+
+  it('navega entre Semana y Día con anterior / siguiente, con el estado en la URL (AC-04.3)', async () => {
+    const fetchMock = api({});
+    renderPage();
+    await screen.findByRole('button', { name: ACTIVITY_LABEL });
 
     await userEvent.click(screen.getByRole('button', { name: 'Semana' }));
     expect(screen.getByRole('heading', { name: '12 – 18 oct 2026', level: 2 })).toBeInTheDocument();
@@ -232,6 +238,28 @@ describe('AgendaPage — filtros (AC-04.3)', () => {
     await waitFor(() => expect(calendarQuery(fetchMock).get('statusGroup')).toBeNull());
     expect(calendarQuery(fetchMock).get('ownerId')).toBe('u-2');
     expect(currentUrl()).toBe('/actividad/agenda?ownerId=u-2&customerId=c-1');
+  });
+
+  it('tras recargar, el chip del asesor muestra su nombre con owner-options?id= (F6)', async () => {
+    const fetchMock = api({ 'GET /commercial-activity/owner-options': () => page([OTHER_USER]) });
+    renderPage(`/actividad/agenda?ownerId=${OTHER_USER.id}`);
+
+    expect(await screen.findByText('Asesor: Luis Gerente')).toBeInTheDocument();
+    expect(lastQuery(fetchMock, '/commercial-activity/owner-options').getAll('id')).toEqual([OTHER_USER.id]);
+  });
+
+  it('el rango y los días del calendario son los de la zona del usuario y "hoy" el de la zona de negocio (RN-04.9)', async () => {
+    // 14:00 UTC del 12 de octubre: en Kiritimati (UTC+14) ya son las 04:00 del 13.
+    vi.setSystemTime(new Date('2026-10-12T14:00:00.000Z'));
+    const fetchMock = api({
+      'GET /activities/form-options': () => jsonResponse({ ...FORM_OPTIONS, timeZone: 'Pacific/Kiritimati', businessTimeZone: 'Pacific/Kiritimati' }),
+    });
+    renderPage();
+
+    await waitFor(() => expect(calendarQuery(fetchMock).get('from')).toBe('2026-09-27T10:00:00.000Z'));
+    expect(calendarQuery(fetchMock).get('to')).toBe('2026-11-01T09:59:59.999Z');
+    const today = await screen.findByRole('region', { name: /^martes, 13 de octubre de 2026/ });
+    expect(today).toHaveAttribute('aria-current', 'date');
   });
 
   it('sin `visitas.ver` el tipo no ofrece "Visita"; sin permisos de alta no hay acciones', async () => {

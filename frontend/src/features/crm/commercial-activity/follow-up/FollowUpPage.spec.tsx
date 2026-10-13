@@ -8,10 +8,10 @@ import { callsTo, errorResponse, jsonResponse, mockApi } from '@/test/api-mocks'
 import { renderWithProviders } from '@/test/render-with-providers';
 
 import { endOfDayIso, formatDateTime, startOfDayIso } from '../common/date-time';
-import { ASESOR_PERMISSIONS, lastQuery, page, signInWith, signOut, simulateWideScreen } from '../testing/fixtures';
-import { ACTIVITY_FOLLOW_UP_ROW, FROZEN_NOW, FULL_TRACE, followUpRow, PROJECT_FOLLOW_UP_ROW, TRACE_ATTACHMENT } from '../testing/read-model-fixtures';
+import { ASESOR_PERMISSIONS, lastQuery, ME, page, signInWith, signOut, simulateWideScreen } from '../testing/fixtures';
+import { ACTIVITY_FOLLOW_UP_ROW, FROZEN_NOW, FULL_TRACE, followUpRow, PROJECT_FOLLOW_UP_ROW, TRACE_ATTACHMENT, TRACE_CONTENT_PATH } from '../testing/read-model-fixtures';
 
-import { apiRelativePath } from './follow-up.api';
+import { traceAttachmentPath } from './follow-up.api';
 import { FollowUpPage } from './FollowUpPage';
 
 vi.mock('@/lib/save-file', () => ({ saveFile: vi.fn() }));
@@ -199,7 +199,11 @@ describe('FollowUpPage (F-23, PF-04.55)', () => {
   });
 
   it('cliente, asesor y proyecto desde la URL se envían y se muestran como chips; quitar uno conserva la agrupación', async () => {
-    const fetchMock = mockApi({ 'GET /follow-ups': () => page([PROJECT_FOLLOW_UP_ROW]), 'GET /customers/c-1': () => jsonResponse({ ...followUpRow().customer, country: { id: 'mx' } }) });
+    const fetchMock = mockApi({
+      'GET /follow-ups': () => page([PROJECT_FOLLOW_UP_ROW]),
+      'GET /customers/c-1': () => jsonResponse({ ...followUpRow().customer, country: { id: 'mx' } }),
+      'GET /commercial-activity/owner-options': () => page([ME]),
+    });
     renderPage('/actividad/seguimiento?groupBy=PROJECT&customerId=c-1&ownerId=u-1&projectId=p-1');
 
     await screen.findByRole('table', { name: 'Seguimiento por proyecto' });
@@ -209,13 +213,25 @@ describe('FollowUpPage (F-23, PF-04.55)', () => {
     expect(query.get('projectId')).toBe('p-1');
     const chips = screen.getByLabelText('Filtros activos');
     expect(within(chips).getByText('Cliente: Constructora Peña S.A.')).toBeInTheDocument();
-    expect(within(chips).getByText('Asesor: Ana Asesora')).toBeInTheDocument();
+    // El nombre del asesor sale de `owner-options?id=` (F6), no de las filas.
+    expect(await within(chips).findByText('Asesor: Ana Asesora')).toBeInTheDocument();
+    expect(lastQuery(fetchMock, '/commercial-activity/owner-options').getAll('id')).toEqual(['u-1']);
     expect(within(chips).getByText('Proyecto: Torre Norte')).toBeInTheDocument();
 
     const projectChip = within(chips).getByText('Proyecto: Torre Norte').closest('.MuiChip-root') as HTMLElement;
     await userEvent.click(within(projectChip).getByTestId('CancelIcon'));
     await waitFor(() => expect(lastQuery(fetchMock, '/follow-ups').get('projectId')).toBeNull());
     expect(lastQuery(fetchMock, '/follow-ups').get('groupBy')).toBe('PROJECT');
+  });
+
+  it('nunca envía `search` a /follow-ups aunque llegue en la URL (la API responde 400)', async () => {
+    const fetchMock = mockApi({ 'GET /follow-ups': () => page([followUpRow()]) });
+    renderPage('/actividad/seguimiento?search=pe%C3%B1a&withoutNextAction=true');
+
+    await screen.findByRole('table', { name: 'Seguimiento por cliente' });
+    const query = lastQuery(fetchMock, '/follow-ups');
+    expect(query.get('withoutNextAction')).toBe('true');
+    expect(query.has('search')).toBe(false);
   });
 
   it('vacío sin filtros, vacío con filtros con "Limpiar filtros", y error con referencia y reintento', async () => {
@@ -244,7 +260,7 @@ describe('FollowUpTraceDrawer (AC-04.13, PF-04.55)', () => {
     const fetchMock = mockApi({
       'GET /follow-ups': () => page([followUpRow()]),
       'GET /follow-ups/trace': () => jsonResponse(FULL_TRACE),
-      'GET /visits/v-1/attachments/att-1/content': () =>
+      [`GET ${TRACE_CONTENT_PATH}`]: () =>
         new Response('%PDF', { status: 200, headers: { 'content-type': 'application/pdf', 'content-disposition': 'attachment; filename="acta de visita.pdf"' } }),
     });
     renderPage();
@@ -281,8 +297,8 @@ describe('FollowUpTraceDrawer (AC-04.13, PF-04.55)', () => {
 
     await userEvent.click(within(attachments).getByRole('button', { name: 'Descargar acta de visita.pdf' }));
     await waitFor(() => expect(saveFile).toHaveBeenCalledWith(expect.anything(), 'acta de visita.pdf'));
-    expect(callsTo(fetchMock, 'GET', '/api/v1/visits/v-1/attachments/att-1/content')).toHaveLength(1);
-    expect(callsTo(fetchMock, 'GET', '/api/v1/api/v1/visits/v-1/attachments/att-1/content')).toHaveLength(0);
+    expect(callsTo(fetchMock, 'GET', `/api/v1${TRACE_CONTENT_PATH}`)).toHaveLength(1);
+    expect(callsTo(fetchMock, 'GET', `/api/v1/api/v1${TRACE_CONTENT_PATH}`)).toHaveLength(0);
   });
 
   it('se abre con Enter; en la vista por proyecto pide la trazabilidad del proyecto', async () => {
@@ -341,7 +357,7 @@ describe('FollowUpTraceDrawer (AC-04.13, PF-04.55)', () => {
     mockApi({
       'GET /follow-ups': () => page([followUpRow()]),
       'GET /follow-ups/trace': () => jsonResponse(FULL_TRACE),
-      'GET /visits/v-1/attachments/att-1/content': () => errorResponse(403, 'PERMISSION_DENIED'),
+      [`GET ${TRACE_CONTENT_PATH}`]: () => errorResponse(403, 'PERMISSION_DENIED'),
     });
     renderPage();
 
@@ -354,11 +370,30 @@ describe('FollowUpTraceDrawer (AC-04.13, PF-04.55)', () => {
   });
 });
 
-describe('apiRelativePath', () => {
-  it('recorta la base de la API y rechaza rutas que no son relativas', () => {
-    expect(apiRelativePath(TRACE_ATTACHMENT.contentPath)).toBe('/visits/v-1/attachments/att-1/content');
-    expect(apiRelativePath('/activities/a-1/attachments/x/content')).toBe('/activities/a-1/attachments/x/content');
-    expect(() => apiRelativePath('https://otro.example/x')).toThrow('Ruta de descarga no válida');
-    expect(() => apiRelativePath('//otro.example/x')).toThrow('Ruta de descarga no válida');
+describe('traceAttachmentPath', () => {
+  it('acepta sólo rutas de contenido de adjuntos del módulo, relativas a la base de la API', () => {
+    const id = '0b6e1c2a-0000-4000-8000-000000000001';
+    expect(traceAttachmentPath(TRACE_ATTACHMENT.contentPath)).toBe(TRACE_CONTENT_PATH);
+    expect(traceAttachmentPath(`/activities/${id}/attachments/${id}/content`)).toBe(`/activities/${id}/attachments/${id}/content`);
+    expect(traceAttachmentPath(`/visits/${id}/events/${id}/attachments/${id}/content`)).toBe(`/visits/${id}/events/${id}/attachments/${id}/content`);
+    expect(traceAttachmentPath(`/api/v1/visits/${id}/attachments/${id}/content`)).toBeNull();
+    expect(traceAttachmentPath('https://otro.example/x')).toBeNull();
+    expect(traceAttachmentPath(`//otro.example/visits/${id}/attachments/${id}/content`)).toBeNull();
+    expect(traceAttachmentPath(`/visits/${id}/attachments/${id}/content/../../../users`)).toBeNull();
+    expect(traceAttachmentPath(`/customers/${id}/attachments/${id}/content`)).toBeNull();
+  });
+
+  it('una ruta de descarga inesperada no se pide y se avisa', async () => {
+    const fetchMock = mockApi({
+      'GET /follow-ups': () => page([followUpRow()]),
+      'GET /follow-ups/trace': () => jsonResponse({ ...FULL_TRACE, attachments: [{ ...TRACE_ATTACHMENT, contentPath: 'https://otro.example/robar' }] }),
+    });
+    renderPage();
+
+    await userEvent.click(await screen.findByRole('link', { name: 'Ver la trazabilidad de Constructora Peña S.A.' }));
+    await userEvent.click(await within(drawer()).findByRole('button', { name: 'Descargar acta de visita.pdf' }));
+    expect(await within(drawer()).findByRole('alert')).toHaveTextContent('No se pudo descargar el archivo: el enlace de descarga no es válido.');
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('otro.example'))).toBe(false);
+    expect(saveFile).not.toHaveBeenCalled();
   });
 });

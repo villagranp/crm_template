@@ -48,12 +48,21 @@ export function useVisits(query: ListQuery) {
   });
 }
 
-export function useVisitFormOptions(enabled = true) {
+/**
+ * Un lector pasivo (`passive`, p. ej. la zona horaria de cada celda) usa la
+ * caché sin provocar recargas al montarse: si la consulta falló, no la reintenta
+ * cada vez que aparece otro componente (eso lo decide la pantalla, con su aviso
+ * y su "Reintentar").
+ */
+const PASSIVE_READER = { refetchOnMount: false, retryOnMount: false, refetchOnWindowFocus: false } as const;
+
+export function useVisitFormOptions(enabled = true, { passive = false }: { passive?: boolean } = {}) {
   return useQuery({
     queryKey: visitKeys.formOptions(),
     queryFn: getVisitFormOptions,
     staleTime: FORM_OPTIONS_STALE_TIME_MS,
     enabled,
+    ...(passive ? PASSIVE_READER : {}),
   });
 }
 

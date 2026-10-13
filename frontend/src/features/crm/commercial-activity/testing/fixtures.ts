@@ -44,7 +44,22 @@ export const PRIORITY_HIGH = { id: 'pr-alta', code: 'ALTA', label: 'Alta', sortO
 export const PRIORITY_MEDIUM = { id: 'pr-media', code: 'MEDIA', label: 'Media', sortOrder: 2, weight: 20 };
 export const RESULT_OK = { id: 'r-ok', code: 'INTERESADO', label: 'Interesado', sortOrder: 1 };
 
+/**
+ * Zona del navegador de la máquina de pruebas: los `form-options` la publican
+ * como zona del usuario y de negocio para que las pruebas que comparan con
+ * `new Date('…T00:00')` sigan valiendo en cualquier máquina. Las pruebas de
+ * zona fijan otra explícitamente.
+ */
+export const BROWSER_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+/** Límites de adjuntos de los `form-options` del módulo (D.5). */
+export const ATTACHMENT_OPTIONS = { enabled: true, maxMb: 1, allowedTypes: ['application/pdf', 'image/png'] };
+
+/** Contexto común de los `form-options` del módulo (`CommercialFormContextDto`). */
+export const FORM_CONTEXT = { timeZone: BROWSER_TIME_ZONE, businessTimeZone: BROWSER_TIME_ZONE, attachments: ATTACHMENT_OPTIONS };
+
 export const FORM_OPTIONS: ActivityFormOptions = {
+  ...FORM_CONTEXT,
   types: [TYPE_CALL, TYPE_EMAIL, TYPE_TASK],
   statuses: [STATUS_PENDING, STATUS_IN_PROGRESS, STATUS_DONE, STATUS_CANCELLED],
   priorities: [PRIORITY_HIGH, PRIORITY_MEDIUM],

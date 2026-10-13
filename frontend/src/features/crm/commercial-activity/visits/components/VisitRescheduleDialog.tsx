@@ -9,6 +9,7 @@ import { describeApiError } from '@/lib/api-error-view';
 import { COMMERCIAL_ERROR_MESSAGES, commercialFieldErrors, withReference } from '../../common/commercial-activity.errors';
 import { formatDateTime } from '../../common/date-time';
 import { FilesField } from '../../common/FilesField';
+import { formTimeZone } from '../../common/use-commercial-time-zones';
 import { useVisitScheduleConflicts } from '../use-visit-schedule-conflicts';
 import type { VisitDetail, VisitFormOptions } from '../visits.api';
 import { useRescheduleVisit } from '../visits.queries';
@@ -41,9 +42,11 @@ const FIELDS: readonly (keyof VisitRescheduleValues)[] = ['newScheduledStartAt',
  */
 export function VisitRescheduleDialog({ open, visit, options, currentUserId, onClose, onDone }: VisitRescheduleDialogProps) {
   const reschedule = useRescheduleVisit(visit.id);
-  const files = useVisitOperationFiles(visit.id);
+  const files = useVisitOperationFiles(visit.id, options?.attachments);
   const [selected, setSelected] = useState<File[]>([]);
-  const schema = useMemo(() => buildVisitRescheduleSchema(visit.scheduledStartAt), [visit.scheduledStartAt]);
+  // Zona del usuario (RN-04.9): la nueva fecha se escribe y se valida en ella.
+  const timeZone = formTimeZone(options);
+  const schema = useMemo(() => buildVisitRescheduleSchema(visit.scheduledStartAt, undefined, timeZone), [visit.scheduledStartAt, timeZone]);
   const { register, control, handleSubmit, reset, setError, watch, formState } = useForm<VisitRescheduleValues>({
     resolver: zodResolver(schema),
     defaultValues: EMPTY,
@@ -76,11 +79,12 @@ export function VisitRescheduleDialog({ open, visit, options, currentUserId, onC
     end: watch('newScheduledEndAt'),
     excludeVisitId: visit.id,
     enabled: open,
+    timeZone,
   });
 
   const pending = reschedule.isPending || files.uploading;
   const submit = (values: VisitRescheduleValues) => {
-    reschedule.mutate(toVisitReschedulingInput(values), {
+    reschedule.mutate(toVisitReschedulingInput(values, timeZone), {
       onSuccess: async (saved) => {
         const warning = await files.upload({ eventType: 'RESCHEDULED' }, selected);
         onDone(saved, warning);
@@ -104,7 +108,7 @@ export function VisitRescheduleDialog({ open, visit, options, currentUserId, onC
     >
       <Stack spacing={2}>
         <Typography variant="body2" color="text.secondary">
-          {`Fecha vigente: ${formatDateTime(visit.scheduledStartAt)}. La visita conserva su código y su historial.`}
+          {`Fecha vigente: ${formatDateTime(visit.scheduledStartAt, timeZone)}. La visita conserva su código y su historial.`}
         </Typography>
         <TextField
           {...register('newScheduledStartAt')}
@@ -125,7 +129,13 @@ export function VisitRescheduleDialog({ open, visit, options, currentUserId, onC
         />
         <ScheduleConflictAlert conflicts={conflicts.conflicts} mode={options?.conflictMode} ownVisits={ownVisit} />
         <ReasonFields control={control} reasons={options?.rescheduleReasons ?? []} disabled={pending} />
-        <FilesField files={selected} onChange={setSelected} disabled={pending} description="Se adjuntan a la reprogramación al guardarla." />
+        <FilesField
+          files={selected}
+          onChange={setSelected}
+          limits={options?.attachments}
+          disabled={pending}
+          description="Se adjuntan a la reprogramación al guardarla."
+        />
         {files.uploading ? (
           <Typography role="status" variant="body2" color="text.secondary">
             Subiendo archivos…

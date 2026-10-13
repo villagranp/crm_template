@@ -55,6 +55,8 @@ marcador provisional).
 
 - `<submódulo>.api.ts`: funciones sobre `httpClient` (`@/services/api`). Nunca `fetch` ni
   `XMLHttpRequest` sueltos. Los tipos reflejan los DTO del plan (§F), no el modelo de Prisma.
+- Parámetros repetibles: una lista en `query` se envía como `id=a&id=b`
+  (`httpClient.get(path, { query: { id: ['a', 'b'] } })`).
 - Subidas con progreso: `httpClient.upload(path, formData, { onProgress })` (mismo token,
   renovación y errores que el resto). Descargas: `httpClient.download` + `saveFile`; nunca un
   `<a href>` a la API (el token vive en memoria) ni abrir el archivo en línea (ADR-021).
@@ -80,6 +82,7 @@ marcador provisional).
 | `crmBreadcrumbs({ label: 'Clientes', to: ROUTE_PATHS.crm.customers }, { label: 'Ficha' })` | Migas: Inicio › … |
 | `AttachmentsSection takeInitialFiles` | Archivos elegidos en un formulario de alta que se suben en la ficha tras el `201` (D-02.15); progreso y errores `413`/`422` por archivo |
 | `AttachmentsSection canDelete={false}` | Subir sin eliminar (adjuntos de un evento de visita, 04 §F.4) |
+| `AttachmentsSection onChanged` / `formatDate` | Opciones aditivas: `onChanged` se llama tras cada subida o eliminación correcta (el dueño refresca sus contadores; Actividad comercial invalida la raíz del módulo); `formatDate` formatea la fecha de subida (p. ej. en la zona del usuario). Sin ellas, el comportamiento de Clientes no cambia |
 | `customers/index.ts` | Barril público para otros módulos: `CustomerPicker` (valor `{ id, crmCode, legalName, countryId }`; acepta `{ id }` preseleccionado) y `customerDetailPath(id)` |
 
 ### Piezas comunes de Actividad comercial (`commercial-activity/common/`)
@@ -91,21 +94,25 @@ importan desde otros submódulos: lo público para 02/03 está en `commercial-ac
 |---|---|
 | `commercial-activity.permissions.ts` | `ACTIVITY_PERMISSIONS`, `VISIT_PERMISSIONS` (`visitas.*`, `actividades.*`) |
 | `commercial-activity.errors.ts` | `COMMERCIAL_ERROR_MESSAGES` (códigos de 04 §F.5), `commercialFieldErrors(error)` (`details[].field` → mensaje, `participants.0.contactId` → `participants`), `withReference`, `isNotFoundError` |
-| `commercial-activity.api.ts` / `.queries.ts` | Tipos de los DTO compartidos (`StatusRef`, `AgendaItem`, `Interaction`, `FollowUpTrace`…), lookups (`owner-options`, cliente, contactos activos, proyectos y oportunidades del contrato de 03) y claves bajo `['crm', 'commercial-activity']` con `invalidateCommercialActivity` |
-| `date-time.ts` | `formatDateTime`/`formatDate`/`formatTime` (zona del usuario, hoy la del navegador), `formatCalendarDate`, `todayInTimeZone`, `describeDue`, `toDateTimeLocalValue`/`fromDateTimeLocalValue`, `startOfDayIso`/`endOfDayIso` |
+| `commercial-activity.api.ts` / `.queries.ts` | Tipos de los DTO compartidos (`StatusRef`, `AgendaItem`, `Interaction`, `FollowUpTrace`, `CommercialFormContext`…), lookups (`owner-options`, cliente, contactos activos, proyectos y oportunidades del contrato de 03), `withoutSearch(query)` (`/agenda`, `/interactions`, `/follow-ups` y los adjuntos no admiten `search`) y claves bajo `['crm', 'commercial-activity']` con `invalidateCommercialActivity` |
+| `useOwnerNames(ids)` / `useOwnerName(id)` | Nombre de usuarios ya elegidos (filtro de asesor o usuario tras recargar) con `owner-options?id=` (repetible, máx. 50). Sólo devuelve los que están en el alcance y activos; si no vuelve, la pantalla muestra su respaldo ("Seleccionado") |
+| `date-time.ts` | Todo con zona explícita (`timeZone` opcional; omitida = la del navegador): `formatDateTime`/`formatDate`/`formatTime`, `toDateTimeLocalValue`/`fromDateTimeLocalValue`/`nowDateTimeLocalValue`/`isFutureLocalValue` (desfase calculado con `Intl` en el propio instante, seguro ante cambios de horario), `startOfDayIso`/`endOfDayIso` (un día con cambio de horario dura 23 o 25 h), `dayKeyInTimeZone`, `todayInTimeZone`; además `formatCalendarDate` (sin zona), `describeDue`, `isValidTimeZone` |
+| `useCommercialTimeZones()` + `formTimeZone(options)` | Zonas de RN-04.9 de los `form-options` del módulo (los de actividades con `actividades.ver`; si no, los de visitas): `timeZone` (perfil del usuario: instantes, entradas `datetime-local`, días de la agenda y del historial) y `businessTimeZone` (`crm.zona_horaria_negocio`: "hoy" y fechas de calendario). Lector pasivo de la caché (no recarga al montarse); mientras carga o si falla, la zona del navegador. Los formularios y diálogos usan `formTimeZone(options)` de sus propios `form-options` |
+| `ZonedDateTime` (`value`, `format?`) | Texto de un instante en la zona del usuario, para celdas de tabla |
+| `useResyncOnChange(values, onChange)` | Borradores de filtros: se reinician cuando cambia el **contenido** de los filtros aplicados (URL), no por un nuevo render con los mismos (p. ej. al recargar la lista) |
 | `StatusChip` (`label`, `group`, `isRescheduled?`, `isUnregistered?`) | Estado con color + icono + texto (RN-04.35) |
-| `DueBadge` (`dueAt`, `bucket`, `now?`) | Vencimiento: marca vencida/próxima, relativo y absoluto (RN-04.31) |
+| `DueBadge` (`dueAt`, `bucket`, `now?`) | Vencimiento: marca vencida/próxima, relativo y absoluto en la zona del usuario (RN-04.31) |
 | `CustomerProjectFields` (`value`, `onChange(value, change)`, `withOpportunity?`, `customerReadOnly?`, `customerHelperText?`, `errors?`, `disabled?`) | Cliente → proyecto → oportunidad; cambiar de cliente limpia lo que depende; degrada sin el Módulo 3 |
 | `useCommercialPreselection({ customerId, projectId, opportunityId })` | Resuelve la preselección de la URL: `{ isResolving, value, problems }` |
 | `ParticipantsField` (`customerId`, `value`, `onChange`, `label?`, `required?`, `disabled?`, `error?`, `helperText?`) + `participants.ts` | Contactos (con `contactos.ver`), usuarios y externos; `toParticipantInputs`, `participantValuesFrom(dtos, role?)`, `withoutContacts` |
-| `OwnerPicker` (`label`, `value`, `onChange`, `excludeIds?`…) | Usuarios de `owner-options` (responsable, asesor, participante) |
-| `AttachmentsPanel` (`owner`, `canManage`, `limits?`, `title?`, `emptyMessage?`, `uploadPendingFromCreation?`) + `attachment-owner.ts` | Adjuntos de actividad, visita o evento (`commercialAttachmentsPath`, `stashPendingAttachments`/`takePendingAttachments`) |
-| `FilesField` + `uploadFilesInOrder(basePath, files)` | Elegir archivos en un formulario o diálogo y subirlos en orden, parando en el primer fallo |
+| `OwnerPicker` (`label`, `value`, `onChange`, `fallbackName?`, `excludeIds?`…) | Usuarios de `owner-options` (responsable, asesor, participante). `value` puede ser sólo `{ id }` (un filtro de la URL): el nombre se resuelve con `useOwnerName` |
+| `AttachmentsPanel` (`owner`, `canManage`, `limits?`, `title?`, `emptyMessage?`, `uploadPendingFromCreation?`) + `attachment-owner.ts` | Adjuntos de actividad, visita o evento (`commercialAttachmentsPath`, `stashPendingAttachments`/`takePendingAttachments`). `limits` = `form-options.attachments` del módulo (actividades en una actividad, visitas en una visita o evento). Subir o eliminar invalida la raíz del módulo (`attachmentCount` de listas, agenda, eventos y seguimiento) |
+| `FilesField` (`limits?`) + `uploadFilesInOrder(basePath, files, limits?)` | Elegir archivos en un formulario o diálogo y subirlos en orden, parando en el primer fallo; con `limits`, un archivo demasiado grande o de un tipo no admitido se detecta antes de enviarlo |
 | `InteractionTimeline` (`customerId?`, `projectId?`, `opportunityId?`, `compact?`) / `InteractionTimelineList` (`items`, `hideCustomer?`, `hideProject?`) | Historial de interacciones agrupado por día con enlace al origen |
 | `commercial-paths.ts` | `interactionHistoryPath`, `planVisitPath`, `visitDetailPath` |
 | `CountrySelect` (`value`, `onChange`, `label?`, `disabled?`) + `useCountryOptions(enabled)` | Filtro "país del cliente" con los países de `GET /customers/form-options` (02 F2); sin `clientes.ver` no se ofrece |
 | `AttachmentCount` (`count`) | Columna "Adjuntos": icono + número con nombre accesible ("3 adjuntos") |
-| `NextActionDate` (`date`, `prefix?`, `today?`) | Fecha de próxima acción resaltada con color **y** texto ("(hoy)", "(pasada)") |
+| `NextActionDate` (`date`, `prefix?`, `today?`) | Fecha de próxima acción resaltada con color **y** texto ("(hoy)", "(pasada)"); "hoy" en la zona de negocio |
 
 Opciones aditivas de `@/components/data` usadas por el CRM: `DataTable` `onRowClick` + `getRowLabel`
 (fila navegable con teclado, `role="link"`) y `useTableQueryState({ paramPrefix })` para varias

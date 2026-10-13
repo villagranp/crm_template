@@ -10,6 +10,7 @@ import { commercialFieldErrors } from '../../common/commercial-activity.errors';
 import { CustomerProjectFields } from '../../common/CustomerProjectFields';
 import { OwnerPicker } from '../../common/OwnerPicker';
 import { withoutContacts } from '../../common/participants';
+import { formTimeZone } from '../../common/use-commercial-time-zones';
 import type { ActivityFormOptions, ActivitySpecificField, ActivityTypeRef } from '../activities.api';
 import {
   ACTIVITY_LIMITS,
@@ -83,8 +84,8 @@ export function ActivityForm({
     [current, options.types],
   );
   const schema = useMemo(
-    () => buildActivityFormSchema({ mode, types, requiredFields: options.requiredFields, canChooseOwner }),
-    [mode, types, options.requiredFields, canChooseOwner],
+    () => buildActivityFormSchema({ mode, types, requiredFields: options.requiredFields, canChooseOwner, timeZone: formTimeZone(options) }),
+    [mode, types, options, canChooseOwner],
   );
   const form = useForm<ActivityFormValues>({ resolver: zodResolver(schema), defaultValues: initialValues });
   const {

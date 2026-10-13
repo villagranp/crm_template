@@ -1,5 +1,5 @@
 import { Box, Button, Chip, MenuItem, Stack, TextField } from '@mui/material';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 
 import { CustomerPicker, type CustomerPickerValue } from '@/features/crm/customers';
 
@@ -7,6 +7,7 @@ import type { ActivityFormOptions } from '../../activities/activities.api';
 import type { UserRef } from '../../common/commercial-activity.api';
 import { formatCalendarDate } from '../../common/date-time';
 import { OwnerPicker } from '../../common/OwnerPicker';
+import { useResyncOnChange } from '../../common/use-resync-on-change';
 import { VISIT_TYPE_VALUE, type InteractionChipFilter, type InteractionFilterValues, type InteractionFormFilter } from '../interaction-filters';
 
 const LABELS: Record<InteractionChipFilter, string> = {
@@ -31,7 +32,6 @@ export interface InteractionFiltersProps {
   values: InteractionFilterValues;
   /** Tipos de actividad y resultados (`/activities/form-options`); sin ellos sólo se ofrece "Visita". */
   options: ActivityFormOptions | undefined;
-  userName: string | null;
   onApply: (values: Partial<Record<InteractionFormFilter, string | undefined>>) => void;
 }
 
@@ -39,17 +39,18 @@ export interface InteractionFiltersProps {
  * Filtros del historial (04 §E.5): rango de fechas, cliente, usuario, tipo
  * (Visita o tipo de actividad) y resultado. Se aplican juntos y viven en la URL.
  */
-export function InteractionFilters({ values, options, userName, onApply }: InteractionFiltersProps) {
+export function InteractionFilters({ values, options, onApply }: InteractionFiltersProps) {
   const [draft, setDraft] = useState<InteractionFilterValues>(values);
-  const [user, setUser] = useState<UserRef | null>(null);
-  const [customer, setCustomer] = useState<CustomerPickerValue | { id: string } | null>(null);
+  const [user, setUser] = useState<UserRef | { id: string } | null>(values.userId ? { id: values.userId } : null);
+  const [customer, setCustomer] = useState<CustomerPickerValue | { id: string } | null>(values.customerId ? { id: values.customerId } : null);
 
-  // La URL manda: atrás/adelante o "Limpiar" actualizan el borrador.
-  useEffect(() => {
-    setDraft(values);
-    setUser(values.userId ? { id: values.userId, displayName: userName ?? 'Usuario seleccionado' } : null);
-    setCustomer(values.customerId ? { id: values.customerId } : null);
-  }, [values, userName]);
+  // La URL manda (atrás/adelante, "Limpiar", un chip quitado), pero sólo si
+  // cambian los filtros: un nuevo render con los mismos no borra el borrador.
+  useResyncOnChange(values, (applied) => {
+    setDraft(applied);
+    setUser(applied.userId ? { id: applied.userId } : null);
+    setCustomer(applied.customerId ? { id: applied.customerId } : null);
+  });
 
   const set = (key: InteractionFormFilter, value: string) => setDraft((current) => ({ ...current, [key]: value }));
   const typeValue = draft.sourceType === VISIT_TYPE_VALUE ? VISIT_TYPE_VALUE : (draft.typeId ?? '');
@@ -113,7 +114,7 @@ export function InteractionFilters({ values, options, userName, onApply }: Inter
         <Box sx={{ gridColumn: { sm: 'span 2' } }}>
           <CustomerPicker label={LABELS.customerId} value={customer} onChange={setCustomer} />
         </Box>
-        <OwnerPicker label={LABELS.userId} value={user} onChange={setUser} />
+        <OwnerPicker label={LABELS.userId} value={user} fallbackName="Usuario seleccionado" onChange={setUser} />
         <TextField select size="small" label={LABELS.typeId} value={typeValue} onChange={(event) => setType(event.target.value)}>
           <MenuItem value="">Todos</MenuItem>
           <MenuItem value={VISIT_TYPE_VALUE}>Visita</MenuItem>

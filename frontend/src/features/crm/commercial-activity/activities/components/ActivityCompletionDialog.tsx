@@ -12,8 +12,10 @@ import { describeApiError } from '@/lib/api-error-view';
 import { commercialAttachmentsPath } from '../../common/attachment-owner';
 import { COMMERCIAL_ERROR_MESSAGES, commercialFieldErrors, withReference } from '../../common/commercial-activity.errors';
 import { isFutureLocalValue, nowDateTimeLocalValue } from '../../common/date-time';
+import { invalidateCommercialActivity } from '../../common/commercial-activity.queries';
 import { FilesField } from '../../common/FilesField';
 import { uploadFilesInOrder } from '../../common/upload-files';
+import { formTimeZone } from '../../common/use-commercial-time-zones';
 import type { ActivityDetail } from '../activities.api';
 import { useActivityFormOptions, useCompleteActivity } from '../activities.queries';
 import { ACTIVITY_LIMITS, toCompletionInput } from '../activities.schemas';
@@ -36,7 +38,7 @@ interface CompletionValues {
 
 const RESULT_MESSAGE = 'Indica un resultado de la lista o escribe notas.';
 
-function buildSchema(now: () => Date) {
+function buildSchema(now: () => Date, timeZone: string | undefined) {
   return z
     .object({
       completedAt: z.string(),
@@ -48,7 +50,7 @@ function buildSchema(now: () => Date) {
       if (!values.completionResultId.trim() && !values.completionResultNotes.trim()) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['completionResultId'], message: RESULT_MESSAGE });
       }
-      if (isFutureLocalValue(values.completedAt, now())) {
+      if (isFutureLocalValue(values.completedAt, now(), timeZone)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['completedAt'], message: 'No puede ser futura.' });
       }
     });
@@ -77,7 +79,9 @@ export function ActivityCompletionDialog({ open, activity, onClose, onCompleted 
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const schema = useMemo(() => buildSchema(() => new Date()), []);
+  // Zona del usuario (RN-04.9): la fecha de finalización se escribe y se valida en ella.
+  const timeZone = formTimeZone(options.data);
+  const schema = useMemo(() => buildSchema(() => new Date(), timeZone), [timeZone]);
   const {
     register,
     control,
@@ -93,12 +97,17 @@ export function ActivityCompletionDialog({ open, activity, onClose, onCompleted 
   const { reset: resetCompletion } = completion;
   useEffect(() => {
     if (open) {
-      reset({ completedAt: nowDateTimeLocalValue(), completionResultId: '', completionResultNotes: '', completionComment: '' });
       setFiles([]);
       setUploadError(null);
       resetCompletion();
     }
-  }, [open, reset, resetCompletion]);
+  }, [open, resetCompletion]);
+  // "Ahora" en la zona del usuario; se recalcula si la zona llega con el diálogo ya abierto.
+  useEffect(() => {
+    if (open) {
+      reset({ completedAt: nowDateTimeLocalValue(new Date(), timeZone), completionResultId: '', completionResultNotes: '', completionComment: '' });
+    }
+  }, [open, reset, timeZone]);
 
   useEffect(() => {
     for (const [apiField, message] of Object.entries(commercialFieldErrors(completion.error))) {
@@ -122,11 +131,13 @@ export function ActivityCompletionDialog({ open, activity, onClose, onCompleted 
     if (files.length > 0) {
       const basePath = commercialAttachmentsPath({ type: 'activity', activityId: activity.id });
       setUploading(true);
-      const result = await uploadFilesInOrder(basePath, files);
+      const result = await uploadFilesInOrder(basePath, files, options.data?.attachments);
       setUploading(false);
       setFiles((current) => current.filter((file) => !result.uploaded.includes(file)));
       if (result.uploaded.length > 0) {
+        // La lista del dueño y los contadores de adjuntos del módulo (bandeja, agenda, detalle).
         void queryClient.invalidateQueries({ queryKey: attachmentKeys.owner(basePath) });
+        void invalidateCommercialActivity(queryClient);
       }
       if (result.failure) {
         setUploadError(`${result.failure.file.name}: ${result.failure.message} La actividad no se completó; quita el archivo o inténtalo de nuevo.`);
@@ -134,7 +145,7 @@ export function ActivityCompletionDialog({ open, activity, onClose, onCompleted 
       }
     }
     completion.mutate(
-      { activityId: activity.id, input: toCompletionInput(values) },
+      { activityId: activity.id, input: toCompletionInput(values, timeZone) },
       {
         onSuccess: (detail) => {
           onCompleted?.(detail);
@@ -227,6 +238,7 @@ export function ActivityCompletionDialog({ open, activity, onClose, onCompleted 
             <FilesField
               files={files}
               onChange={setFiles}
+              limits={options.data?.attachments}
               disabled={pending}
               description="Se suben a la actividad antes de completarla."
             />

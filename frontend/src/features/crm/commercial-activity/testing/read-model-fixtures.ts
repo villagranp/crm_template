@@ -84,6 +84,9 @@ export const ACTIVITY_FOLLOW_UP_ROW: FollowUpRow = followUpRow({
 /** Fila de la vista por proyecto. */
 export const PROJECT_FOLLOW_UP_ROW: FollowUpRow = followUpRow({ project: PROJECT_REF, nextActionDate: '2026-10-20' });
 
+/** Ruta de descarga del adjunto de la trazabilidad: relativa a la base de la API, con ids reales (uuid). */
+export const TRACE_CONTENT_PATH = '/visits/0b6e1c2a-0000-4000-8000-000000000001/attachments/0b6e1c2a-0000-4000-8000-0000000000a1/content';
+
 export const TRACE_ATTACHMENT: TraceAttachment = {
   id: 'att-1',
   fileName: 'acta de visita.pdf',
@@ -96,7 +99,7 @@ export const TRACE_ATTACHMENT: TraceAttachment = {
   sourceId: 'v-1',
   sourceCode: 'VIS-2026-00001',
   eventId: null,
-  contentPath: '/api/v1/visits/v-1/attachments/att-1/content',
+  contentPath: TRACE_CONTENT_PATH,
   sourcePath: '/actividad/visitas/v-1',
 };
 

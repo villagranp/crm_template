@@ -1,6 +1,7 @@
 import { Alert, AlertTitle, Box, Typography } from '@mui/material';
 
 import { formatDateTime, formatTime } from '../../common/date-time';
+import { useCommercialTimeZones } from '../../common/use-commercial-time-zones';
 import type { ScheduleConflict, ScheduleConflictMode } from '../visits.api';
 
 export interface ScheduleConflictAlertProps {
@@ -13,8 +14,8 @@ export interface ScheduleConflictAlertProps {
   saved?: boolean;
 }
 
-function describeConflict(conflict: ScheduleConflict): string {
-  const range = `${formatDateTime(conflict.scheduledStartAt)} a ${formatTime(conflict.effectiveEndAt)}`;
+function describeConflict(conflict: ScheduleConflict, timeZone: string | undefined): string {
+  const range = `${formatDateTime(conflict.scheduledStartAt, timeZone)} a ${formatTime(conflict.effectiveEndAt, timeZone)}`;
   // Una visita fuera del alcance llega sin código ni cliente (no se revelan sus datos, AC-04.59).
   if (!conflict.isVisible || !conflict.code) {
     return `Otra visita del responsable, de ${range}`;
@@ -30,6 +31,7 @@ function describeConflict(conflict: ScheduleConflict): string {
  * respuesta.
  */
 export function ScheduleConflictAlert({ conflicts, mode, ownVisits = true, saved = false }: ScheduleConflictAlertProps) {
+  const { timeZone } = useCommercialTimeZones();
   if (conflicts.length === 0) {
     return null;
   }
@@ -45,7 +47,7 @@ export function ScheduleConflictAlert({ conflicts, mode, ownVisits = true, saved
       <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
         {conflicts.map((conflict, index) => (
           <Typography component="li" variant="body2" key={conflict.visitId ?? `oculta-${index}`} sx={{ overflowWrap: 'anywhere' }}>
-            {describeConflict(conflict)}
+            {describeConflict(conflict, timeZone)}
           </Typography>
         ))}
       </Box>

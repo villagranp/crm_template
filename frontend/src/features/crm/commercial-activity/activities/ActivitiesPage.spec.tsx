@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { deferred, errorResponse, jsonResponse, mockApi } from '@/test/api-mocks';
 import { renderWithProviders } from '@/test/render-with-providers';
 
-import { ACTIVITY_LIST_ITEM, FORM_OPTIONS, lastQuery, page, signInWith, signOut, simulateWideScreen, TYPE_CALL } from '../testing/fixtures';
+import { ACTIVITY_LIST_ITEM, FORM_OPTIONS, lastQuery, OTHER_USER, page, signInWith, signOut, simulateWideScreen, TYPE_CALL } from '../testing/fixtures';
 
 import { ActivitiesPage } from './ActivitiesPage';
 
@@ -25,10 +25,11 @@ function renderPage(initialEntry = '/actividad/actividades') {
   );
 }
 
-function api(list: () => Response | Promise<Response>) {
+function api(list: () => Response | Promise<Response>, extra: Record<string, () => Response | Promise<Response>> = {}) {
   return mockApi({
     'GET /activities': list,
     'GET /activities/form-options': () => jsonResponse(FORM_OPTIONS),
+    ...extra,
   });
 }
 
@@ -118,6 +119,71 @@ describe('ActivitiesPage (F-30, AC-04.42)', () => {
     expect(options.map((option) => option.textContent)).toEqual(['Llamada', 'Correo', 'Tarea']);
     await userEvent.click(options[0] as HTMLElement);
     expect(await screen.findByText(`En /actividad/actividades/nueva?typeId=${TYPE_CALL.id}`)).toBeInTheDocument();
+  });
+
+  it('un refresco de la lista no borra el borrador de filtros sin aplicar (F1)', async () => {
+    const user = userEvent.setup();
+    const reply = deferred<Response>();
+    const fetchMock = api(() => reply.promise);
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: 'Filtros' }));
+    const filters = screen.getByRole('search', { name: 'Filtros de actividades' });
+    await user.click(within(filters).getByRole('combobox', { name: 'Prioridad' }));
+    await user.click(await screen.findByRole('option', { name: 'Alta' }));
+    expect(within(filters).getByRole('combobox', { name: 'Prioridad' })).toHaveTextContent('Alta');
+
+    // Llega la lista: la página vuelve a pintarse con los mismos filtros aplicados.
+    reply.resolve(page([ACTIVITY_LIST_ITEM]));
+    await screen.findByText('ACT-2026-000001');
+    expect(within(filters).getByRole('combobox', { name: 'Prioridad' })).toHaveTextContent('Alta');
+
+    await user.click(within(filters).getByRole('button', { name: 'Aplicar filtros' }));
+    await waitFor(() => expect(lastQuery(fetchMock, '/activities').get('priorityId')).toBe('pr-alta'));
+  });
+
+  it('tras recargar, el chip del asesor muestra su nombre (owner-options?id=); si no vuelve, "Seleccionado" (F6)', async () => {
+    const fetchMock = api(() => page([ACTIVITY_LIST_ITEM]), {
+      'GET /commercial-activity/owner-options': () => page([OTHER_USER]),
+    });
+    const first = renderPage(`/actividad/actividades?ownerId=${OTHER_USER.id}`);
+
+    expect(await screen.findByText('Asesor: Luis Gerente', { selector: '.MuiChip-label' })).toBeInTheDocument();
+    expect(lastQuery(fetchMock, '/commercial-activity/owner-options').getAll('id')).toEqual([OTHER_USER.id]);
+    first.unmount();
+
+    api(() => page([ACTIVITY_LIST_ITEM]), { 'GET /commercial-activity/owner-options': () => page([]) });
+    renderPage('/actividad/actividades?ownerId=u-fuera');
+    await screen.findByText('ACT-2026-000001');
+    expect(await screen.findByText('Asesor: Seleccionado', { selector: '.MuiChip-label' })).toBeInTheDocument();
+  });
+
+  it('si fallan las opciones del formulario, lo avisa con reintento en lugar de dejar los filtros deshabilitados sin más (F10)', async () => {
+    let optionCalls = 0;
+    api(() => page([ACTIVITY_LIST_ITEM]), {
+      'GET /activities/form-options': () => {
+        optionCalls += 1;
+        return optionCalls === 1 ? errorResponse(500, 'INTERNAL_ERROR') : jsonResponse(FORM_OPTIONS);
+      },
+    });
+    renderPage();
+
+    const alert = await screen.findByText(/No se pudieron cargar los tipos, estados y prioridades/);
+    expect(alert).toHaveTextContent('Referencia: corr-test');
+    await userEvent.click(within(alert.closest('.MuiAlert-root') as HTMLElement).getByRole('button', { name: 'Reintentar' }));
+    await waitFor(() => expect(screen.queryByText(/No se pudieron cargar los tipos/)).not.toBeInTheDocument());
+    expect(optionCalls).toBe(2);
+  });
+
+  it('convierte el rango de fechas en instantes del día en la zona del usuario, no en la del navegador (RN-04.9)', async () => {
+    const fetchMock = api(() => page([ACTIVITY_LIST_ITEM]), {
+      'GET /activities/form-options': () => jsonResponse({ ...FORM_OPTIONS, timeZone: 'Pacific/Kiritimati', businessTimeZone: 'Pacific/Kiritimati' }),
+    });
+    renderPage('/actividad/actividades?dueFrom=2026-10-01&dueTo=2026-10-01');
+
+    // Kiritimati: UTC+14 todo el año.
+    await waitFor(() => expect(lastQuery(fetchMock, '/activities').get('dueFrom')).toBe('2026-09-30T10:00:00.000Z'));
+    expect(lastQuery(fetchMock, '/activities').get('dueTo')).toBe('2026-10-01T09:59:59.999Z');
   });
 
   it('sin actividades.crear no ofrece "Nueva actividad"; una fila abre el detalle con teclado', async () => {

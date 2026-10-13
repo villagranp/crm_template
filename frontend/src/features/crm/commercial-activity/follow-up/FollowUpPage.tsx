@@ -12,12 +12,14 @@ import { describeApiError } from '@/lib/api-error-view';
 import type { ListQuery } from '@/lib/query-keys';
 
 import { AttachmentCount } from '../common/AttachmentCount';
-import { projectDetailPath, type FollowUpRow } from '../common/commercial-activity.api';
+import { projectDetailPath, withoutSearch, type FollowUpRow } from '../common/commercial-activity.api';
 import { COMMERCIAL_ERROR_MESSAGES, withReference } from '../common/commercial-activity.errors';
 import { COMMERCIAL_RELATED_PERMISSIONS } from '../common/commercial-activity.permissions';
-import { useCustomerLookup } from '../common/commercial-activity.queries';
-import { endOfDayIso, formatDateTime, startOfDayIso } from '../common/date-time';
+import { useCustomerLookup, useOwnerName } from '../common/commercial-activity.queries';
+import { endOfDayIso, startOfDayIso } from '../common/date-time';
 import { NextActionDate } from '../common/NextActionDate';
+import { useCommercialTimeZones } from '../common/use-commercial-time-zones';
+import { ZonedDateTime } from '../common/ZonedDateTime';
 
 import { ActiveFollowUpFilterChips, FollowUpFilters } from './components/FollowUpFilters';
 import { FollowUpTraceDrawer } from './components/FollowUpTraceDrawer';
@@ -89,7 +91,8 @@ function buildColumns(groupBy: FollowUpGroup): DataTableColumn<FollowUpRow>[] {
         row.lastInteraction ? (
           <Box component="span" sx={{ display: 'block' }}>
             <Typography component="span" variant="body2" sx={{ display: 'block' }}>
-              {`${formatDateTime(row.lastInteraction.occurredAt)} · ${row.lastInteraction.typeLabel}`}
+              <ZonedDateTime value={row.lastInteraction.occurredAt} />
+              {` · ${row.lastInteraction.typeLabel}`}
             </Typography>
             <Link component={RouterLink} to={sourceDetailPath(row.lastInteraction)} variant="body2" onClick={stopRowActivation}>
               {sourceLinkText(row.lastInteraction.sourceType, row.lastInteraction.sourceCode)}
@@ -135,12 +138,13 @@ function toGroup(value: string | undefined): FollowUpGroup {
 
 /**
  * La agrupación siempre se envía explícita; las fechas viajan en la URL como
- * `YYYY-MM-DD` y a la API como instantes del día completo (zona del navegador).
+ * `YYYY-MM-DD` y a la API como instantes del día completo (zona del usuario).
+ * `/follow-ups` no admite `search` (`400`): aunque llegue en la URL, no se envía.
  */
-function toApiQuery(query: ListQuery, groupBy: FollowUpGroup): ListQuery {
+function toApiQuery(query: ListQuery, groupBy: FollowUpGroup, timeZone: string | undefined): ListQuery {
   const from = typeof query.lastInteractionFrom === 'string' ? query.lastInteractionFrom : undefined;
   const to = typeof query.lastInteractionTo === 'string' ? query.lastInteractionTo : undefined;
-  return { ...query, groupBy, lastInteractionFrom: startOfDayIso(from), lastInteractionTo: endOfDayIso(to) };
+  return { ...withoutSearch(query), groupBy, lastInteractionFrom: startOfDayIso(from, timeZone), lastInteractionTo: endOfDayIso(to, timeZone) };
 }
 
 /**
@@ -160,7 +164,8 @@ export function FollowUpPage() {
   });
   const { filters } = table.state;
   const groupBy = toGroup(filters.groupBy);
-  const apiQuery = useMemo(() => toApiQuery(table.apiQuery, groupBy), [table.apiQuery, groupBy]);
+  const { timeZone } = useCommercialTimeZones();
+  const apiQuery = useMemo(() => toApiQuery(table.apiQuery, groupBy, timeZone), [table.apiQuery, groupBy, timeZone]);
   const followUps = useFollowUps(apiQuery);
   const rows = followUps.data?.data;
 
@@ -177,7 +182,7 @@ export function FollowUpPage() {
   const hasFilters = Object.keys(chipValues).length > 0;
   const [filtersOpen, setFiltersOpen] = useState(activeFilterCount > 0);
 
-  const ownerName = (filters.ownerId && rows?.find((row) => row.responsible?.id === filters.ownerId)?.responsible?.displayName) || null;
+  const ownerName = useOwnerName(filters.ownerId);
   const customerLookup = useCustomerLookup(canListCountries ? filters.customerId : undefined);
   const customerName =
     (filters.customerId && rows?.find((row) => row.customer.id === filters.customerId)?.customer.legalName) || customerLookup.data?.legalName || null;
@@ -224,7 +229,7 @@ export function FollowUpPage() {
           }
         >
           <Collapse in={filtersOpen} id={filtersPanelId} unmountOnExit>
-            <FollowUpFilters values={formValues} ownerName={ownerName} onApply={(values) => table.setFilters(values)} />
+            <FollowUpFilters values={formValues} onApply={(values) => table.setFilters(values)} />
           </Collapse>
           <ActiveFollowUpFilterChips
             values={chipValues}

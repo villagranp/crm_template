@@ -1,7 +1,12 @@
+import { useCallback } from 'react';
+
 import type { AttachmentLimits } from '@/features/crm/common/attachments.api';
 import { AttachmentsSection } from '@/features/crm/common/AttachmentsSection';
 
 import { commercialAttachmentsPath, takePendingAttachments, type CommercialAttachmentOwner } from './attachment-owner';
+import { useInvalidateCommercialActivity } from './commercial-activity.queries';
+import { formatDateTime } from './date-time';
+import { useCommercialTimeZones } from './use-commercial-time-zones';
 
 export interface AttachmentsPanelProps {
   owner: CommercialAttachmentOwner;
@@ -12,9 +17,9 @@ export interface AttachmentsPanelProps {
    */
   canManage: boolean;
   /**
-   * Límites para ayudar antes de subir. El contrato de Actividad comercial aún
-   * no los publica: sin ellos, decide el backend (`413`/`422`, que se muestran
-   * con su mensaje).
+   * Límites para ayudar antes de subir (`form-options.attachments` del módulo:
+   * los de actividades en una actividad, los de visitas en una visita). Sin
+   * ellos, decide el backend (`413`/`422`, que se muestran con su mensaje).
    */
   limits?: AttachmentLimits;
   title?: string;
@@ -39,6 +44,11 @@ const EMPTY_MESSAGES: Record<CommercialAttachmentOwner['type'], string> = {
  */
 export function AttachmentsPanel({ owner, canManage, limits, title, emptyMessage, uploadPendingFromCreation = false }: AttachmentsPanelProps) {
   const basePath = commercialAttachmentsPath(owner);
+  // Subir o eliminar cambia `attachmentCount` de listas, agenda, eventos y seguimiento.
+  const invalidateModule = useInvalidateCommercialActivity();
+  const onChanged = useCallback(() => void invalidateModule(), [invalidateModule]);
+  const { timeZone } = useCommercialTimeZones();
+  const formatDate = useCallback((isoDate: string) => formatDateTime(isoDate, timeZone), [timeZone]);
   // `AttachmentsSection` la llama una sola vez al montar.
   const takeInitialFiles = uploadPendingFromCreation ? () => takePendingAttachments(owner) : undefined;
 
@@ -51,6 +61,8 @@ export function AttachmentsPanel({ owner, canManage, limits, title, emptyMessage
       title={title}
       emptyMessage={emptyMessage ?? EMPTY_MESSAGES[owner.type]}
       takeInitialFiles={takeInitialFiles}
+      onChanged={onChanged}
+      formatDate={formatDate}
     />
   );
 }

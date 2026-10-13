@@ -4,11 +4,17 @@ import { useEffect, useState } from 'react';
 import { SEARCH_DEBOUNCE_MS } from '@/components/data';
 
 import type { UserRef } from './commercial-activity.api';
-import { useOwnerOptions } from './commercial-activity.queries';
+import { useOwnerName, useOwnerOptions } from './commercial-activity.queries';
 
 export interface OwnerPickerProps {
   label: string;
-  value: UserRef | null;
+  /**
+   * Usuario elegido. Si sólo se conoce el id (p. ej. un filtro de la URL tras
+   * recargar), el nombre se resuelve con `owner-options?id=`.
+   */
+  value: UserRef | { id: string } | null;
+  /** Texto mientras se resuelve el nombre o si el usuario ya no está en el alcance. */
+  fallbackName?: string;
   onChange: (user: UserRef | null) => void;
   required?: boolean;
   disabled?: boolean;
@@ -25,7 +31,21 @@ export interface OwnerPickerProps {
  * para el responsable, el filtro de asesor y los participantes internos de
  * visitas y actividades. La asignación la vuelve a validar el backend.
  */
-export function OwnerPicker({ label, value, onChange, required, disabled, error, helperText, name, excludeIds }: OwnerPickerProps) {
+export function OwnerPicker({
+  label,
+  value: rawValue,
+  fallbackName = 'Usuario seleccionado',
+  onChange,
+  required,
+  disabled,
+  error,
+  helperText,
+  name,
+  excludeIds,
+}: OwnerPickerProps) {
+  const known = rawValue && 'displayName' in rawValue && rawValue.displayName ? rawValue : null;
+  const resolvedName = useOwnerName(rawValue && !known ? rawValue.id : null);
+  const value: UserRef | null = rawValue ? (known ?? { id: rawValue.id, displayName: resolvedName ?? fallbackName }) : null;
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const [search, setSearch] = useState('');

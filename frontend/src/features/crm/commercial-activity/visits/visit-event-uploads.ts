@@ -1,3 +1,5 @@
+import type { AttachmentLimits } from '@/features/crm/common/attachments.api';
+
 import { commercialAttachmentsPath } from '../common/attachment-owner';
 import { uploadFilesInOrder, type UploadFilesResult } from '../common/upload-files';
 
@@ -19,7 +21,12 @@ export interface EventUploadResult extends UploadFilesResult {
  * devuelve con su mensaje ya traducido. La operación ya está hecha: quien llama
  * avisa de que el archivo no quedó adjunto.
  */
-export async function uploadToLatestEvent(visitId: string, eventType: VisitEventType, files: readonly File[]): Promise<EventUploadResult> {
+export async function uploadToLatestEvent(
+  visitId: string,
+  eventType: VisitEventType,
+  files: readonly File[],
+  limits?: AttachmentLimits,
+): Promise<EventUploadResult> {
   if (files.length === 0) {
     return { uploaded: [], failure: null, basePath: null };
   }
@@ -34,6 +41,6 @@ export async function uploadToLatestEvent(visitId: string, eventType: VisitEvent
     };
   }
   const basePath = commercialAttachmentsPath({ type: 'visitEvent', visitId, eventId: event.id });
-  const result = await uploadFilesInOrder(basePath, files);
+  const result = await uploadFilesInOrder(basePath, files, limits);
   return { ...result, basePath };
 }

@@ -9,6 +9,7 @@ import { describeApiError } from '@/lib/api-error-view';
 import { COMMERCIAL_ERROR_MESSAGES, commercialFieldErrors, withReference } from '../../common/commercial-activity.errors';
 import { FilesField } from '../../common/FilesField';
 import { ParticipantsField } from '../../common/ParticipantsField';
+import { formTimeZone } from '../../common/use-commercial-time-zones';
 import type { VisitDetail, VisitFormOptions } from '../visits.api';
 import { useVisitCompletion } from '../visits.queries';
 import {
@@ -45,13 +46,15 @@ export interface VisitCompletionDialogProps {
  */
 export function VisitCompletionDialog({ open, mode, visit, options, onClose, onDone }: VisitCompletionDialogProps) {
   const completion = useVisitCompletion(visit.id, mode);
-  const files = useVisitOperationFiles(visit.id);
+  const files = useVisitOperationFiles(visit.id, options?.attachments);
   const [selected, setSelected] = useState<File[]>([]);
+  // Zona del usuario (RN-04.9): las fechas reales se escriben y se validan en ella.
+  const timeZone = formTimeZone(options);
   const requiredFields = useMemo(() => options?.completionRequiredFields ?? [], [options?.completionRequiredFields]);
-  const schema = useMemo(() => buildVisitCompletionSchema(requiredFields), [requiredFields]);
+  const schema = useMemo(() => buildVisitCompletionSchema(requiredFields, undefined, timeZone), [requiredFields, timeZone]);
   const { register, control, handleSubmit, reset, setError, formState } = useForm<VisitCompletionValues>({
     resolver: zodResolver(schema),
-    defaultValues: visitCompletionValuesFrom(visit),
+    defaultValues: visitCompletionValuesFrom(visit, undefined, timeZone),
   });
   const { errors } = formState;
   const required = (field: VisitCompletionField) => isCompletionFieldRequired(field, requiredFields);
@@ -59,13 +62,13 @@ export function VisitCompletionDialog({ open, mode, visit, options, onClose, onD
   const { reset: resetMutation } = completion;
   useEffect(() => {
     if (open) {
-      reset(visitCompletionValuesFrom(visit));
+      reset(visitCompletionValuesFrom(visit, undefined, timeZone));
       setSelected([]);
       resetMutation();
     }
     // Se reinicia al abrir; no al refrescar la visita con el diálogo abierto.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, reset, resetMutation]);
+  }, [open, reset, resetMutation, timeZone]);
 
   useEffect(() => {
     for (const [apiField, message] of Object.entries(commercialFieldErrors(completion.error))) {
@@ -78,7 +81,7 @@ export function VisitCompletionDialog({ open, mode, visit, options, onClose, onD
 
   const pending = completion.isPending || files.uploading;
   const submit = (values: VisitCompletionValues) => {
-    completion.mutate(toVisitCompletionInput(values), {
+    completion.mutate(toVisitCompletionInput(values, timeZone), {
       onSuccess: async (saved) => {
         const warning = await files.upload(mode === 'record' ? { eventType: 'COMPLETED' } : { visit: true }, selected);
         onDone(saved, warning);
@@ -205,6 +208,7 @@ export function VisitCompletionDialog({ open, mode, visit, options, onClose, onD
         <FilesField
           files={selected}
           onChange={setSelected}
+          limits={options?.attachments}
           disabled={pending}
           description={mode === 'record' ? 'Se adjuntan al registro de la realización.' : 'Se adjuntan a la visita.'}
         />

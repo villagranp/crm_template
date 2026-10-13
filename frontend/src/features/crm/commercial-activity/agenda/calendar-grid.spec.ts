@@ -27,10 +27,10 @@ function localIso(year: number, month: number, day: number, hours = 0, minutes =
 const DAY_MS = 86_400_000;
 
 describe('claves de día', () => {
-  it('convierte entre fecha local y `YYYY-MM-DD`', () => {
-    expect(toDayKey(new Date(2026, 9, 12, 23, 59))).toBe('2026-10-12');
-    expect(toDayKey(new Date(2026, 0, 5))).toBe('2026-01-05');
-    expect(parseDayKey('2026-10-12')?.getTime()).toBe(new Date(2026, 9, 12).getTime());
+  it('convierte entre fecha de calendario y `YYYY-MM-DD` sin depender de la zona de la máquina', () => {
+    expect(toDayKey(new Date(Date.UTC(2026, 9, 12)))).toBe('2026-10-12');
+    expect(toDayKey(new Date(Date.UTC(2026, 0, 5)))).toBe('2026-01-05');
+    expect(parseDayKey('2026-10-12')?.getTime()).toBe(Date.UTC(2026, 9, 12));
   });
 
   it('rechaza claves con formato inválido o fechas inexistentes', () => {
@@ -188,6 +188,45 @@ describe('rangeFor (from/to para GET /agenda/calendar)', () => {
     const span = new Date(range.to).getTime() - new Date(range.from).getTime();
     expect(span).toBeLessThanOrEqual(CALENDAR_MAX_RANGE_DAYS * DAY_MS);
     expect(span).toBeGreaterThan((CALENDAR_MAX_RANGE_DAYS - 1) * DAY_MS);
+  });
+});
+
+describe('con la zona del usuario (RN-04.9, D-04.17)', () => {
+  it('rangeFor acota los días en la zona indicada, no en la del navegador', () => {
+    expect(rangeFor('day', '2026-10-12', undefined, 'America/Guatemala')).toEqual({
+      from: '2026-10-12T06:00:00.000Z',
+      to: '2026-10-13T05:59:59.999Z',
+    });
+    expect(rangeFor('day', '2026-10-12', undefined, 'Europe/Madrid')).toEqual({
+      from: '2026-10-11T22:00:00.000Z',
+      to: '2026-10-12T21:59:59.999Z',
+    });
+  });
+
+  it('rangeFor de una semana con cambio de horario (Madrid, 25 oct 2026) dura 7 días y 1 h', () => {
+    const range = rangeFor('week', '2026-10-21', undefined, 'Europe/Madrid');
+    expect(range).toEqual({ from: '2026-10-18T22:00:00.000Z', to: '2026-10-25T22:59:59.999Z' });
+  });
+
+  it('un mes de 6 semanas con cambio de horario no supera el tope de 42 días', () => {
+    // Marzo de 2026 en Madrid: 23 feb – 5 abr, con el adelanto del 29 de marzo (un día de 23 h).
+    const range = rangeFor('month', '2026-03-15', undefined, 'Europe/Madrid');
+    expect(range.from).toBe('2026-02-22T23:00:00.000Z');
+    expect(new Date(range.to).getTime() - new Date(range.from).getTime()).toBeLessThanOrEqual(CALENDAR_MAX_RANGE_DAYS * DAY_MS);
+    expect(range.to).toBe('2026-04-05T21:59:59.999Z');
+  });
+
+  it('dayKeyOfInstant y groupByDay agrupan por el día de la zona indicada', () => {
+    // 03:00 UTC del 13: en Guatemala (UTC-6) aún es el 12; en Madrid (UTC+2), el 13.
+    expect(dayKeyOfInstant('2026-10-13T03:00:00Z', 'America/Guatemala')).toBe('2026-10-12');
+    expect(dayKeyOfInstant('2026-10-13T03:00:00Z', 'Europe/Madrid')).toBe('2026-10-13');
+    const late = { id: 'late', date: '2026-10-13T03:00:00Z' };
+    const morning = { id: 'morning', date: '2026-10-12T15:00:00Z' };
+    const guatemala = groupByDay([late, morning], 'America/Guatemala');
+    expect([...guatemala.keys()]).toEqual(['2026-10-12']);
+    expect(guatemala.get('2026-10-12')?.map((item) => item.id)).toEqual(['morning', 'late']);
+    const madrid = groupByDay([late, morning], 'Europe/Madrid');
+    expect([...madrid.keys()]).toEqual(['2026-10-12', '2026-10-13']);
   });
 });
 

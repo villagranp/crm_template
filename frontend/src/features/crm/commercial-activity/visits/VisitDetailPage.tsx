@@ -25,6 +25,7 @@ import { VISIT_PERMISSIONS } from '../common/commercial-activity.permissions';
 import { formatCalendarDate, formatDateTime } from '../common/date-time';
 import { participantLabel, participantValuesFrom, PARTICIPANT_KIND_LABELS } from '../common/participants';
 import { StatusChip } from '../common/StatusChip';
+import { useCommercialTimeZones } from '../common/use-commercial-time-zones';
 
 import { ScheduleConflictAlert } from './components/ScheduleConflictAlert';
 import { VisitCancelDialog } from './components/VisitCancelDialog';
@@ -54,11 +55,11 @@ function textOrDash(value: string | null | undefined): string {
   return value?.trim() ? value : '—';
 }
 
-function byWhen(user: { displayName: string } | null, at: string | null): string {
+function byWhen(user: { displayName: string } | null, at: string | null, timeZone: string | undefined): string {
   if (!at) {
     return '—';
   }
-  return user ? `${user.displayName} · ${formatDateTime(at)}` : formatDateTime(at);
+  return user ? `${user.displayName} · ${formatDateTime(at, timeZone)}` : formatDateTime(at, timeZone);
 }
 
 function participantsText(visit: VisitDetail, role: 'INVITED' | 'ATTENDED'): string {
@@ -93,7 +94,10 @@ export function VisitDetailPage() {
   const currentUserId = useAuthStore((state) => state.user?.id ?? null);
   const visit = useVisit(visitId);
   const hasActions = (visit.data?.allowedActions.length ?? 0) > 0;
-  const options = useVisitFormOptions(hasActions);
+  // Siempre: los diálogos y los límites de adjuntos (`attachments`) salen de aquí.
+  const options = useVisitFormOptions();
+  const { timeZone } = useCommercialTimeZones();
+  const limits = options.data?.attachments;
   const initialState = isNoticeState(location.state) ? location.state : null;
   const [dialog, setDialog] = useState<VisitDialog | null>(null);
   const [notice, setNotice] = useState<Notice | null>(initialState ? { severity: initialState.severity, notice: initialState.notice } : null);
@@ -244,17 +248,21 @@ export function VisitDetailPage() {
                     label: VISIT_FIELD_TEXT.status,
                     value: <StatusChip label={data.status.label} group={data.status.group} isRescheduled={data.status.isRescheduled} isUnregistered={data.isUnregistered} />,
                   },
-                  { label: 'Fecha y hora vigente', value: formatDateTime(data.scheduledStartAt) },
+                  { label: 'Fecha y hora vigente', value: formatDateTime(data.scheduledStartAt, timeZone) },
                   {
                     label: VISIT_FIELD_TEXT.scheduledEndAt,
-                    value: data.scheduledEndAt ? formatDateTime(data.scheduledEndAt) : `${formatDateTime(data.effectiveEndAt)} (duración por defecto)`,
+                    value: data.scheduledEndAt
+                      ? formatDateTime(data.scheduledEndAt, timeZone)
+                      : `${formatDateTime(data.effectiveEndAt, timeZone)} (duración por defecto)`,
                   },
-                  ...(rescheduled ? [{ label: 'Fecha original', value: `${formatDateTime(data.originalScheduledAt)} · ${rescheduled}` }] : []),
+                  ...(rescheduled ? [{ label: 'Fecha original', value: `${formatDateTime(data.originalScheduledAt, timeZone)} · ${rescheduled}` }] : []),
                   { label: VISIT_FIELD_TEXT.objective, value: data.objective, wide: true },
                   { label: VISIT_FIELD_TEXT.location, value: textOrDash(data.location) },
                   {
                     label: VISIT_FIELD_TEXT.reminder,
-                    value: data.reminderAt ? `${formatReminder(data.reminderMinutesBefore)} · ${formatDateTime(data.reminderAt)}` : formatReminder(data.reminderMinutesBefore),
+                    value: data.reminderAt
+                      ? `${formatReminder(data.reminderMinutesBefore)} · ${formatDateTime(data.reminderAt, timeZone)}`
+                      : formatReminder(data.reminderMinutesBefore),
                   },
                   { label: VISIT_FIELD_TEXT.participants, value: participantsText(data, 'INVITED'), wide: true },
                 ]}
@@ -270,8 +278,8 @@ export function VisitDetailPage() {
               {completion ? (
                 <DetailList
                   items={[
-                    { label: 'Fecha real', value: formatDateTime(completion.actualStartAt) },
-                    { label: 'Fin real', value: formatDateTime(completion.actualEndAt) },
+                    { label: 'Fecha real', value: formatDateTime(completion.actualStartAt, timeZone) },
+                    { label: 'Fin real', value: formatDateTime(completion.actualEndAt, timeZone) },
                     { label: VISIT_FIELD_TEXT.attendees, value: participantsText(data, 'ATTENDED'), wide: true },
                     { label: 'Temas tratados', value: textOrDash(completion.topics), wide: true },
                     { label: 'Acuerdos', value: textOrDash(completion.agreements), wide: true },
@@ -280,7 +288,7 @@ export function VisitDetailPage() {
                     { label: 'Comentarios', value: textOrDash(completion.comments), wide: true },
                     { label: 'Próxima acción', value: textOrDash(completion.nextAction) },
                     { label: 'Fecha de la próxima acción', value: formatCalendarDate(completion.nextActionDate) },
-                    { label: 'Registrada por', value: byWhen(completion.recordedBy, completion.recordedAt) },
+                    { label: 'Registrada por', value: byWhen(completion.recordedBy, completion.recordedAt, timeZone) },
                   ]}
                 />
               ) : (
@@ -292,11 +300,11 @@ export function VisitDetailPage() {
 
             <DetailSection number={3} title={data.cancelledAt ? 'Cancelación' : 'Confirmación'}>
               {data.cancelledAt ? (
-                <DetailList items={[{ label: 'Cancelada el', value: formatDateTime(data.cancelledAt) }]} />
+                <DetailList items={[{ label: 'Cancelada el', value: formatDateTime(data.cancelledAt, timeZone) }]} />
               ) : data.confirmation ? (
                 <DetailList
                   items={[
-                    { label: 'Confirmada', value: byWhen(data.confirmation.confirmedBy, data.confirmation.confirmedAt) },
+                    { label: 'Confirmada', value: byWhen(data.confirmation.confirmedBy, data.confirmation.confirmedAt, timeZone) },
                     { label: 'Resumen', value: textOrDash(data.confirmation.summary), wide: true },
                   ]}
                 />
@@ -310,8 +318,8 @@ export function VisitDetailPage() {
             <DetailSection title="Registro">
               <DetailList
                 items={[
-                  { label: 'Creada', value: byWhen(data.createdBy, data.createdAt) },
-                  { label: 'Última modificación', value: byWhen(data.updatedBy, data.updatedAt) },
+                  { label: 'Creada', value: byWhen(data.createdBy, data.createdAt, timeZone) },
+                  { label: 'Última modificación', value: byWhen(data.updatedBy, data.updatedAt, timeZone) },
                 ]}
               />
             </DetailSection>
@@ -321,7 +329,7 @@ export function VisitDetailPage() {
         <Card component="section" aria-label="Historial de la visita">
           <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
             <DetailSection number={4} title="Historial">
-              <VisitEventsTimeline visitId={data.id} currentUserId={currentUserId} />
+              <VisitEventsTimeline visitId={data.id} limits={limits} timeZone={timeZone} />
             </DetailSection>
           </CardContent>
         </Card>
@@ -329,6 +337,7 @@ export function VisitDetailPage() {
         <AttachmentsPanel
           owner={{ type: 'visit', visitId: data.id }}
           canManage={can('EDIT') || can('CORRECT_COMPLETION')}
+          limits={limits}
           uploadPendingFromCreation
         />
       </Stack>
@@ -352,7 +361,14 @@ export function VisitDetailPage() {
             onClose={() => setDialog(null)}
             onDone={done(dialog === 'correct' ? 'correct' : 'complete')}
           />
-          <VisitConfirmationDialog open={dialog === 'confirm'} visit={data} onClose={() => setDialog(null)} onDone={done('confirm')} />
+          <VisitConfirmationDialog
+            open={dialog === 'confirm'}
+            visit={data}
+            limits={limits}
+            timeZone={timeZone}
+            onClose={() => setDialog(null)}
+            onDone={done('confirm')}
+          />
           <VisitRescheduleDialog
             open={dialog === 'reschedule'}
             visit={data}

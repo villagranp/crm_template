@@ -17,6 +17,7 @@ import { formatDateTime } from '../common/date-time';
 import { COMPACT_TIMELINE_SIZE, InteractionTimelineList } from '../common/InteractionTimeline';
 import { NextActionDate } from '../common/NextActionDate';
 import { StatusChip } from '../common/StatusChip';
+import { useCommercialTimeZones } from '../common/use-commercial-time-zones';
 
 export type CommercialActivitySectionProps = FollowUpScope;
 
@@ -38,6 +39,7 @@ function SectionCard({ titleId, children }: { titleId: string; children: ReactNo
 }
 
 function TraceContent({ trace, scope }: { trace: FollowUpTrace; scope: FollowUpScope }) {
+  const { timeZone } = useCommercialTimeZones();
   const { row } = trace;
   const recent = trace.interactions.slice(0, COMPACT_TIMELINE_SIZE);
   const upcoming = trace.upcoming.slice(0, UPCOMING_SIZE);
@@ -49,7 +51,7 @@ function TraceContent({ trace, scope }: { trace: FollowUpTrace; scope: FollowUpS
           items={[
             {
               label: 'Última interacción',
-              value: row.lastInteraction ? `${formatDateTime(row.lastInteraction.occurredAt)} · ${row.lastInteraction.typeLabel} (${row.lastInteraction.sourceCode})` : 'Sin interacciones',
+              value: row.lastInteraction ? `${formatDateTime(row.lastInteraction.occurredAt, timeZone)} · ${row.lastInteraction.typeLabel} (${row.lastInteraction.sourceCode})` : 'Sin interacciones',
             },
             { label: 'Responsable', value: row.responsible?.displayName ?? '—' },
             {
@@ -89,7 +91,7 @@ function TraceContent({ trace, scope }: { trace: FollowUpTrace; scope: FollowUpS
               >
                 <Box sx={{ minWidth: 0 }}>
                   <Typography variant="caption" color="text.secondary">
-                    {`${formatDateTime(item.date)} · ${item.typeLabel}`}
+                    {`${formatDateTime(item.date, timeZone)} · ${item.typeLabel}`}
                   </Typography>
                   <Link component={RouterLink} to={item.detailPath} variant="body2" sx={{ display: 'block', overflowWrap: 'anywhere' }}>
                     {`${item.code} · ${item.subject}`}
