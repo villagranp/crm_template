@@ -134,6 +134,16 @@ describe('AlertsPanel', () => {
     expect(screen.getByRole('checkbox', { name: 'Asignadas a mí' })).toBeChecked();
   });
 
+  it('error del resumen: mensaje con referencia (RN-01.8)', async () => {
+    mockApi({
+      'GET /dashboard/alerts/summary': () => errorResponse(500, 'INTERNAL_ERROR'),
+      'GET /dashboard/alerts': () => jsonResponse(alertsPage([dashboardAlert()])),
+    });
+    renderWithProviders(<AlertsPanel />);
+
+    expect(await screen.findByText(/Referencia: corr-test/)).toBeInTheDocument();
+  });
+
   it('error de la bandeja: mensaje con referencia y reintento', async () => {
     let calls = 0;
     mockApi({

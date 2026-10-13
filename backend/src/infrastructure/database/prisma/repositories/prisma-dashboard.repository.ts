@@ -60,6 +60,13 @@ interface EventRow {
   progress: string | null;
 }
 
+const SQL_ALIAS = /^[a-z][a-z0-9_]*$/;
+
+function alias(name: string): Prisma.Sql {
+  if (!SQL_ALIAS.test(name)) throw new Error(`Invalid SQL alias: ${name}`);
+  return Prisma.raw(name);
+}
+
 /** Columnas comunes de cada rama del `UNION ALL` de la actividad reciente, en este orden. */
 function columns(
   eventType: RecentActivityEventType,
@@ -231,8 +238,14 @@ export class PrismaDashboardRepository implements DashboardReadModel {
         projectId: Prisma.sql`p.id`,
       };
       // Cambio de etapa y resultado de la misma operación comparten `changed_at` (misma transacción).
-      const sameOperation = (stageAlias: string, resultAlias: string): Prisma.Sql =>
-        Prisma.sql`${Prisma.raw(resultAlias)}.opportunity_id = ${Prisma.raw(stageAlias)}.opportunity_id AND ${Prisma.raw(resultAlias)}.changed_at = ${Prisma.raw(stageAlias)}.changed_at`;
+      const sameOperation = (stageAlias: string, resultAlias: string): Prisma.Sql => {
+        const h = alias(stageAlias);
+        const rh = alias(resultAlias);
+        return Prisma.sql`${rh}.opportunity_id = ${h}.opportunity_id AND ${rh}.changed_at = ${h}.changed_at`;
+      };
+      // Solo registrar o cambiar un resultado junto con la etapa es un cierre; anularlo
+      // (reapertura, 03 plan REOPEN) se muestra como el cambio de etapa con la nota (RN-01.23).
+      const closing = Prisma.sql`rh.action IN ('RECORDED', 'CHANGED')`;
       if (wanted('OPORTUNIDAD_ETAPA')) {
         branches.push(Prisma.sql`${columns('OPORTUNIDAD_ETAPA', {
           ...opportunityParts,
@@ -240,6 +253,7 @@ export class PrismaDashboardRepository implements DashboardReadModel {
           occurredAt: Prisma.sql`h.changed_at`,
           fromLabel: Prisma.sql`fs.label`,
           toLabel: Prisma.sql`ts.label`,
+          action: Prisma.sql`(SELECT rh.action FROM opportunity_result_history rh WHERE ${sameOperation('h', 'rh')} AND rh.action = 'CLEARED' LIMIT 1)`,
         })}
           FROM opportunity_stage_history h
           JOIN opportunities o ON o.id = h.opportunity_id
@@ -247,7 +261,7 @@ export class PrismaDashboardRepository implements DashboardReadModel {
           JOIN catalog_items ts ON ts.id = h.to_stage_id
           ${opportunityBase}
            AND h.from_stage_id IS NOT NULL AND h.changed_at >= ${since}
-           AND NOT EXISTS (SELECT 1 FROM opportunity_result_history rh WHERE ${sameOperation('h', 'rh')})`);
+           AND NOT EXISTS (SELECT 1 FROM opportunity_result_history rh WHERE ${sameOperation('h', 'rh')} AND ${closing})`);
       }
       if (wanted('OPORTUNIDAD_CERRADA') || wanted('OPORTUNIDAD_RESULTADO')) {
         const resultParts = { ...opportunityParts, eventId: Prisma.sql`rh.id`, occurredAt: Prisma.sql`rh.changed_at`, outcome: Prisma.sql`rh.outcome`, action: Prisma.sql`rh.action` };
@@ -258,7 +272,7 @@ export class PrismaDashboardRepository implements DashboardReadModel {
             JOIN opportunities o ON o.id = rh.opportunity_id
             JOIN catalog_items fs ON fs.id = h.from_stage_id
             JOIN catalog_items ts ON ts.id = h.to_stage_id
-            ${opportunityBase} AND rh.changed_at >= ${since}`);
+            ${opportunityBase} AND rh.changed_at >= ${since} AND ${closing}`);
         }
         if (wanted('OPORTUNIDAD_RESULTADO')) {
           branches.push(Prisma.sql`${columns('OPORTUNIDAD_RESULTADO', resultParts)}

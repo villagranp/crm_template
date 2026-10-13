@@ -84,10 +84,13 @@ describe('CommercialMetricsService (01 F.2, KPI-01…KPI-10)', () => {
     });
   });
 
-  it('KPI-03/04: ganadas = WON + PARTIAL; perdidas = LOST', async () => {
+  it('KPI-03/04: ganadas = WON + PARTIAL; perdidas = LOST; countOutcomes las lee una sola vez', async () => {
     const period = { from: '2026-10-01', to: '2026-10-31' };
     await expect(service.countWonOpportunities(ctx(), period)).resolves.toEqual({ total: 2, won: 1, partial: 1 });
     await expect(service.countLostOpportunities(ctx(), period)).resolves.toBe(3);
+    readModel.countOpportunitiesByOutcome.mockClear();
+    await expect(service.countOutcomes(ctx(), period)).resolves.toEqual({ won: { total: 2, won: 1, partial: 1 }, lost: 3 });
+    expect(readModel.countOpportunitiesByOutcome).toHaveBeenCalledTimes(1);
   });
 
   it('KPI-05: ventana de 6 meses, total null sin toneladas, meses vacíos en 0', async () => {
@@ -124,16 +127,23 @@ describe('CommercialMetricsService (01 F.2, KPI-01…KPI-10)', () => {
       const items = await service.targetCompliance(ctx('OWN'), october);
       expect(readModel.listTargets).toHaveBeenCalledWith({ userIds: ['me'], teamIds: [], countryIds: [], allCountries: false }, [2026]);
       expect(items[0]).toMatchObject({ targetId: 't1', achievedValue: '2.0000', compliancePercent: '50.00', subject: { type: 'USER', id: 'me' }, currencyCode: null });
+      expect(readModel.unitByCode).toHaveBeenCalledWith('TON');
+      await service.targetCompliance(ctx('OWN'), october, 'T');
+      expect(readModel.unitByCode).toHaveBeenLastCalledWith('T');
       expect(items[1]?.compliancePercent).toBeNull();
       expect(readModel.achieved).toHaveBeenCalledWith(expect.objectContaining({ metric: 'WON_OPPORTUNITIES', subject: { kind: 'OWNERS', ownerIds: ['me'] }, period: october }));
     });
 
-    it('TEAM: metas de los equipos que lidera o de su equipo principal; logrado con sus miembros', async () => {
-      readModel.listTargets.mockResolvedValue([target({ userId: null, teamId: 'team-1', subjectLabel: 'Equipo' })]);
+    it('TEAM: metas de los equipos que lidera o de su equipo principal; logrado con sus miembros (leídos una vez por equipo)', async () => {
+      readModel.listTargets.mockResolvedValue([
+        target({ userId: null, teamId: 'team-1', subjectLabel: 'Equipo' }),
+        target({ id: 't2', userId: null, teamId: 'team-1', subjectLabel: 'Equipo', metric: 'VISITS' }),
+      ]);
       const items = await service.targetCompliance(ctx('TEAM'), october);
       expect(readModel.listTargets).toHaveBeenCalledWith({ userIds: [], teamIds: ['team-1'], countryIds: [], allCountries: false }, [2026]);
       expect(readModel.achieved).toHaveBeenCalledWith(expect.objectContaining({ subject: { kind: 'OWNERS', ownerIds: ['me', 'other'] } }));
       expect(items[0]?.subject).toEqual({ type: 'TEAM', id: 'team-1', label: 'Equipo' });
+      expect(readModel.teamOwnerIds).toHaveBeenCalledTimes(1);
     });
 
     it('COUNTRY: metas de su país; ORGANIZATION: suma de metas de país por métrica', async () => {

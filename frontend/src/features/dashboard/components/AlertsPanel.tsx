@@ -252,10 +252,11 @@ export function AlertsPanel() {
     },
   ];
 
-  const errorView = alerts.isError ? describeApiError(alerts.error) : null;
-  const errorMessage = errorView
-    ? `${errorView.message}${errorView.correlationId ? ` Referencia: ${errorView.correlationId}` : ''}`
-    : null;
+  const withReference = (error: unknown): string => {
+    const view = describeApiError(error);
+    return `${view.message}${view.correlationId ? ` Referencia: ${view.correlationId}` : ''}`;
+  };
+  const errorMessage = alerts.isError ? withReference(alerts.error) : null;
 
   const toggleType = (type: AlertType) => state.update({ type: state.type === type ? null : type });
 
@@ -295,7 +296,7 @@ export function AlertsPanel() {
               </Button>
             }
           >
-            {describeApiError(summary.error).message}
+            {withReference(summary.error)}
           </Alert>
         ) : summary.data.items.length > 0 ? (
           <Box

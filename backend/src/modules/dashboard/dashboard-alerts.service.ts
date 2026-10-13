@@ -66,7 +66,7 @@ export function alertDescription(record: AlertRecord, now: Date, timeZone: strin
     case 'ACTIVIDAD_VENCIDA': {
       const elapsed = wholeDaysBetween(record.referenceDate, now);
       const when = elapsed === 0 ? 'hoy' : `hace ${days(elapsed)}`;
-      return truncate(`Actividad ${record.sourceCode} «${record.subject}» vencida ${when}`, 300);
+      return truncate(`Actividad ${record.sourceCode} «${record.subject}» vencida ${when}`);
     }
     case 'VISITA_SIN_CONFIRMAR': {
       const [year, month, day] = calendarDateIn(record.referenceDate, timeZone).split('-');

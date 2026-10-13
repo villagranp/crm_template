@@ -498,6 +498,27 @@ describe('actividad (PF-01.28–PF-01.32, PF-01.46, AC-01.21–AC-01.26)', () =>
     expect(json).not.toContain('5555 0000');
   });
 
+  it('una reapertura (etapa + resultado anulado en la misma operación) es un solo cambio de etapa, nunca "cerrada" (RN-01.23)', async () => {
+    const user = await seller();
+    const project = await projectOf(user);
+    const opportunity = await insertOpportunity(context.prisma, { projectId: project, ownerId: user.id, stageCode: 'COTIZANDO' });
+    const at = new Date(Date.now() - HOUR);
+    const stage = await context.prisma.opportunityStageHistory.create({
+      data: {
+        opportunityId: opportunity,
+        fromStageId: await catalogItemId(context.prisma, 'crm.etapa_oportunidad', 'GANADO'),
+        toStageId: await catalogItemId(context.prisma, 'crm.etapa_oportunidad', 'COTIZANDO'),
+        changedById: user.id,
+        changedAt: at,
+      },
+    });
+    const cleared = await context.prisma.opportunityResultHistory.create({ data: { opportunityId: opportunity, action: 'CLEARED', changedById: user.id, changedAt: at } });
+
+    const events = (await api(context, user.token).get('/dashboard/recent-activity?types=OPORTUNIDAD_ETAPA,OPORTUNIDAD_CERRADA,OPORTUNIDAD_RESULTADO').expect(200)).body.data as Event[];
+    expect(events.map((event) => [event.id, event.summary])).toEqual([[`OPORTUNIDAD_ETAPA:${stage.id}`, 'Ganado → Cotizando · resultado anulado']]);
+    expect(events.some((event) => event.id === `OPORTUNIDAD_CERRADA:${cleared.id}` || event.id === `OPORTUNIDAD_RESULTADO:${cleared.id}`)).toBe(false);
+  });
+
   it('solo actividades.ver y OWN: solo eventos de sus actividades; filtro por tipo y ventana (AC-01.25, PF-01.32)', async () => {
     const user = await crmUser(context, { roleCodes: ['usuario'], grant: ['actividades.ver'] });
     const other = await seller();

@@ -10,6 +10,7 @@ describe('resúmenes de la actividad reciente (01 D.5, RN-01.21, RN-01.23)', () 
     ['INTERACCION', 'VISIT', { subject: 'Revisar obra' }, 'Visita: Revisar obra'],
     ['INTERACCION', 'ACTIVITY', { subject: 'Llamada' }, 'Interacción: Llamada'],
     ['OPORTUNIDAD_ETAPA', 'OPPORTUNITY', { fromLabel: 'Contactado', toLabel: 'Cotizando' }, 'Contactado → Cotizando'],
+    ['OPORTUNIDAD_ETAPA', 'OPPORTUNITY', { fromLabel: 'Ganado', toLabel: 'Cotizando', action: 'CLEARED' }, 'Ganado → Cotizando · resultado anulado'],
     ['OPORTUNIDAD_CERRADA', 'OPPORTUNITY', { fromLabel: 'Cotizando', toLabel: 'Ganado', outcome: 'WON' }, 'Cotizando → Ganado · Ganada'],
     ['OPORTUNIDAD_RESULTADO', 'OPPORTUNITY', { action: 'CHANGED', outcome: 'PARTIAL' }, 'Resultado modificado: Ganada parcial'],
     ['OPORTUNIDAD_RESULTADO', 'OPPORTUNITY', { action: 'CLEARED' }, 'Resultado eliminado'],

@@ -77,12 +77,8 @@ export class DashboardIndicatorsService {
   async opportunities(actor: CustomerActor, request: PeriodRequest): Promise<OpportunityIndicators> {
     const ctx = await this.context.metricContext(actor, 'opportunities');
     const period = this.resolvePeriod(request, ctx);
-    const [open, won, lost] = await Promise.all([
-      this.metrics.countOpenOpportunities(ctx),
-      this.metrics.countWonOpportunities(ctx, period),
-      this.metrics.countLostOpportunities(ctx, period),
-    ]);
-    return { open, won, lost, period };
+    const [open, outcomes] = await Promise.all([this.metrics.countOpenOpportunities(ctx), this.metrics.countOutcomes(ctx, period)]);
+    return { open, won: outcomes.won, lost: outcomes.lost, period };
   }
 
   async forecast(actor: CustomerActor): Promise<ForecastWindowSummary> {
@@ -111,8 +107,11 @@ export class DashboardIndicatorsService {
   }
 
   async targets(actor: CustomerActor, request: PeriodRequest): Promise<TargetIndicators> {
-    const ctx = await this.context.metricContext(actor, 'targets');
+    const [ctx, unit] = await Promise.all([
+      this.context.metricContext(actor, 'targets'),
+      this.parameters.get<string>(DASHBOARD_PARAMETERS.tonnageUnit),
+    ]);
     const period = this.resolvePeriod(request, ctx);
-    return { period, items: await this.metrics.targetCompliance(ctx, period) };
+    return { period, items: await this.metrics.targetCompliance(ctx, period, unit) };
   }
 }

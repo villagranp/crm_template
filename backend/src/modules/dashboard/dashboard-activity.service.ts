@@ -54,7 +54,8 @@ export function eventSummary(record: Pick<RecentActivityRecord, 'eventType' | 's
     case 'INTERACCION':
       return truncate(record.sourceType === 'VISIT' ? `Visita: ${subject}` : `Interacción: ${subject}`);
     case 'OPORTUNIDAD_ETAPA':
-      return truncate(transition);
+      // Reapertura: el cambio de etapa anula el resultado en la misma operación (RN-01.23).
+      return truncate(detail.action === 'CLEARED' ? `${transition} · resultado anulado` : transition);
     case 'OPORTUNIDAD_CERRADA':
       return truncate(outcome ? `${transition} · ${outcome}` : transition);
     case 'OPORTUNIDAD_RESULTADO':

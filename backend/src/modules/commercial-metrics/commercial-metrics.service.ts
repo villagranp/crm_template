@@ -134,16 +134,19 @@ export class CommercialMetricsService {
 
   /** KPI-03: ganadas = `WON` + `PARTIAL` decididas en el período (DM-15). */
   async countWonOpportunities(ctx: MetricContext, period: DateRange): Promise<{ total: number; won: number; partial: number }> {
-    const rows = await this.readModel.countOpportunitiesByOutcome(ctx.scope, period);
-    const won = rows.find((row) => row.outcome === 'WON')?.count ?? 0;
-    const partial = rows.find((row) => row.outcome === 'PARTIAL')?.count ?? 0;
-    return { total: won + partial, won, partial };
+    return (await this.countOutcomes(ctx, period)).won;
   }
 
   /** KPI-04: perdidas = `LOST` decididas en el período. */
   async countLostOpportunities(ctx: MetricContext, period: DateRange): Promise<number> {
+    return (await this.countOutcomes(ctx, period)).lost;
+  }
+
+  /** KPI-03 y KPI-04 con una sola lectura (Inicio pide ambos a la vez, H.5). */
+  async countOutcomes(ctx: MetricContext, period: DateRange): Promise<{ won: { total: number; won: number; partial: number }; lost: number }> {
     const rows = await this.readModel.countOpportunitiesByOutcome(ctx.scope, period);
-    return rows.find((row) => row.outcome === 'LOST')?.count ?? 0;
+    const count = (outcome: 'WON' | 'LOST' | 'PARTIAL'): number => rows.find((row) => row.outcome === outcome)?.count ?? 0;
+    return { won: { total: count('WON') + count('PARTIAL'), won: count('WON'), partial: count('PARTIAL') }, lost: count('LOST') };
   }
 
   /**
@@ -195,7 +198,7 @@ export class CommercialMetricsService {
    * equipos que lidera o de su equipo principal; COUNTRY → de su país;
    * ORGANIZATION → suma de las metas de país por métrica.
    */
-  async targetCompliance(ctx: MetricContext, period: DateRange): Promise<TargetCompliance[]> {
+  async targetCompliance(ctx: MetricContext, period: DateRange, tonnageUnitCode = 'TON'): Promise<TargetCompliance[]> {
     const { scope } = ctx;
     const userId = scope.userId;
     if (!userId) return [];
@@ -214,7 +217,7 @@ export class CommercialMetricsService {
     const [visitStatuses, activityStatuses, tonnageUnit] = await Promise.all([
       this.readModel.catalogItems(METRIC_CATALOGS.visitStatus),
       this.readModel.catalogItems(METRIC_CATALOGS.activityStatus),
-      this.readModel.unitByCode('TON'),
+      this.readModel.unitByCode(tonnageUnitCode),
     ]);
     const instants = periodInstants(period, ctx.businessTimeZone);
     const achievedFor = (metric: TargetMetric, subject: AchievementSubject): Promise<string> =>
@@ -229,9 +232,11 @@ export class CommercialMetricsService {
       });
 
     const groups = await this.groupTargets(targets, scope.dataScope === 'ORGANIZATION');
+    // Logrado de todos los grupos en paralelo (H.5: sin consultas en serie por meta).
+    const achievedValues = await Promise.all(groups.map((group) => achievedFor(group.metric, group.achievementSubject)));
     const items: TargetCompliance[] = [];
-    for (const group of groups) {
-      const achievedValue = await achievedFor(group.metric, group.achievementSubject);
+    for (const [index, group] of groups.entries()) {
+      const achievedValue = achievedValues[index] as string;
       items.push({
         targetId: group.targetId,
         metric: group.metric,
@@ -294,6 +299,8 @@ export class CommercialMetricsService {
       groups.set(key, group);
     }
     const result = [];
+    // Miembros de cada equipo leídos una sola vez aunque tenga metas de varias métricas.
+    const teamOwners = new Map<string, Promise<string[]>>();
     for (const { targets: members } of groups.values()) {
       const first = members[0] as SalesTargetRecord;
       result.push({
@@ -304,15 +311,19 @@ export class CommercialMetricsService {
           members.map((member) => member.targetValue),
           SCALE,
         ),
-        achievementSubject: await this.achievementSubject(first),
+        achievementSubject: await this.achievementSubject(first, teamOwners),
       });
     }
     return result;
   }
 
-  private async achievementSubject(target: SalesTargetRecord): Promise<AchievementSubject> {
+  private async achievementSubject(target: SalesTargetRecord, teamOwners: Map<string, Promise<string[]>>): Promise<AchievementSubject> {
     if (target.userId) return { kind: 'OWNERS', ownerIds: [target.userId] };
-    if (target.teamId) return { kind: 'OWNERS', ownerIds: await this.readModel.teamOwnerIds(target.teamId) };
+    if (target.teamId) {
+      const teamId = target.teamId;
+      if (!teamOwners.has(teamId)) teamOwners.set(teamId, this.readModel.teamOwnerIds(teamId));
+      return { kind: 'OWNERS', ownerIds: await (teamOwners.get(teamId) as Promise<string[]>) };
+    }
     if (target.countryId) return { kind: 'COUNTRY', countryId: target.countryId };
     return { kind: 'ALL' };
   }
