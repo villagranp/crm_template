@@ -316,6 +316,23 @@ export const zIndex = {
   toast: 60,
 } as const;
 
+/**
+ * Prioridad de alertas y pendientes (Panel de control, 01 §E.5): color
+ * **semántico** según el peso del catálogo `crm.prioridad` (`metadata.weight`),
+ * nunca según el código ni la etiqueta. Siempre acompaña al texto de la
+ * prioridad (el color nunca es el único indicador). Los nombres son los
+ * colores de la paleta de MUI, que salen de `semantic`.
+ */
+export const priorityTones = {
+  /** Peso mínimo de la prioridad alta (`ALTA` = 3 en la semilla). */
+  highMinWeight: 3,
+  /** Peso mínimo de la prioridad media (`MEDIA` = 2). */
+  mediumMinWeight: 2,
+  high: 'error',
+  medium: 'warning',
+  low: 'info',
+} as const;
+
 /** Serie monocromática para gráficas; verde/ámbar/rojo sólo si la serie ES un estado. */
 export const chartSeries = [brand[600], brand[500], brand[400], brand[300], brand[200]] as const;
 
