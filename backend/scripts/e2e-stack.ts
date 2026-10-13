@@ -21,6 +21,9 @@
  *     Si llega E2E_NO_FORECAST_PASSWORD (12+), crea en el esquema un rol propio
  *     «asesor sin forecast» (el asesor sin `forecast.*`) y un usuario activo con
  *     él (E2E_NO_FORECAST_EMAIL, por defecto sin.forecast@e2e.invalid), y lo imprime.
+ *     Si llega E2E_NO_COMMERCIAL_PASSWORD (12+), crea un usuario activo con el rol
+ *     esencial `usuario` (sin permisos comerciales; E2E_NO_COMMERCIAL_EMAIL, por
+ *     defecto sin.comercial@e2e.invalid) para el recorrido de Inicio, y lo imprime.
  *
  *   pnpm exec ts-node --transpile-only scripts/e2e-stack.ts drop
  *     Borra el esquema.
@@ -30,7 +33,7 @@
 import { execSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 
 import { PasswordService } from '../src/modules/auth/password.service';
 
@@ -41,6 +44,8 @@ const DEFAULT_ASESOR_EMAIL = 'asesor1.gt@demo.invalid';
 const DEFAULT_MANAGER_EMAIL = 'manager.gt@demo.invalid';
 const DEFAULT_NO_FORECAST_EMAIL = 'sin.forecast@e2e.invalid';
 const NO_FORECAST_ROLE_CODE = 'e2e_asesor_sin_forecast';
+const DEFAULT_NO_COMMERCIAL_EMAIL = 'sin.comercial@e2e.invalid';
+const BASIC_ROLE_CODE = 'usuario';
 const MIN_PASSWORD_LENGTH = 12;
 const HTTP_OK = 200;
 const HTTP_NOT_FOUND = 404;
@@ -218,6 +223,64 @@ async function activate(): Promise<void> {
     }
     console.log(`E2E_NO_FORECAST_EMAIL=${email}`);
   }
+
+  // Usuario sin permisos comerciales (01 PF-01.48): solo si llega su contraseña; si no, esa prueba se salta.
+  const noCommercialPassword = process.env.E2E_NO_COMMERCIAL_PASSWORD;
+  if (noCommercialPassword) {
+    if (noCommercialPassword.length < MIN_PASSWORD_LENGTH) {
+      throw new Error(`E2E_NO_COMMERCIAL_PASSWORD debe tener ${MIN_PASSWORD_LENGTH}+ caracteres.`);
+    }
+    const email = await ensureNoCommercialUser(noCommercialPassword);
+    const check = await api(baseUrl, '/auth/login', { method: 'POST', body: JSON.stringify({ email, password: noCommercialPassword }) });
+    if (check.status !== HTTP_OK) {
+      throw new Error(`El login de ${email} respondió ${check.status}.`);
+    }
+    console.log(`E2E_NO_COMMERCIAL_EMAIL=${email}`);
+  }
+}
+
+interface E2EUser {
+  email: string;
+  lastName: string;
+  roleId: string;
+  passwordHash: string;
+}
+
+/** Usuario activo de prueba con un único rol y contraseña sin cambio pendiente. Idempotente. */
+async function upsertE2EUser(tx: Prisma.TransactionClient, { email, lastName, roleId, passwordHash }: E2EUser): Promise<void> {
+  const user = await tx.user.upsert({
+    where: { emailNormalized: email.toLowerCase() },
+    update: { status: 'ACTIVE' },
+    create: {
+      email,
+      emailNormalized: email.toLowerCase(),
+      firstName: 'E2E',
+      lastName,
+      displayName: `E2E ${lastName}`,
+      status: 'ACTIVE',
+    },
+  });
+  await tx.userRole.deleteMany({ where: { userId: user.id } });
+  await tx.userRole.create({ data: { userId: user.id, roleId } });
+  await tx.userCredential.upsert({
+    where: { userId: user.id },
+    update: { passwordHash, mustChangePassword: false, failedAttempts: 0, lockedUntil: null },
+    create: { userId: user.id, passwordHash, mustChangePassword: false },
+  });
+}
+
+/**
+ * Usuario activo con el rol esencial `usuario` (sin permisos, solo la opción «Inicio»): el
+ * panel le muestra Hero, accesos y el aviso de RN-01.7. Solo en el esquema aislado; idempotente.
+ */
+async function ensureNoCommercialUser(password: string): Promise<string> {
+  const email = process.env.E2E_NO_COMMERCIAL_EMAIL ?? DEFAULT_NO_COMMERCIAL_EMAIL;
+  const passwordHash = await new PasswordService().hash(password);
+  await withPrisma(async (prisma) => {
+    const role = await prisma.role.findUniqueOrThrow({ where: { code: BASIC_ROLE_CODE }, select: { id: true } });
+    await prisma.$transaction((tx) => upsertE2EUser(tx, { email, lastName: 'Sin comercial', roleId: role.id, passwordHash }));
+  });
+  return email;
 }
 
 /**
@@ -257,25 +320,7 @@ async function ensureNoForecastUser(password: string): Promise<string> {
       await tx.roleMenuOption.deleteMany({ where: { roleId: role.id } });
       await tx.roleMenuOption.createMany({ data: menuOptionIds.map((menuOptionId) => ({ roleId: role.id, menuOptionId })) });
 
-      const user = await tx.user.upsert({
-        where: { emailNormalized: email.toLowerCase() },
-        update: { status: 'ACTIVE' },
-        create: {
-          email,
-          emailNormalized: email.toLowerCase(),
-          firstName: 'E2E',
-          lastName: 'Sin forecast',
-          displayName: 'E2E Sin forecast',
-          status: 'ACTIVE',
-        },
-      });
-      await tx.userRole.deleteMany({ where: { userId: user.id } });
-      await tx.userRole.create({ data: { userId: user.id, roleId: role.id } });
-      await tx.userCredential.upsert({
-        where: { userId: user.id },
-        update: { passwordHash, mustChangePassword: false, failedAttempts: 0, lockedUntil: null },
-        create: { userId: user.id, passwordHash, mustChangePassword: false },
-      });
+      await upsertE2EUser(tx, { email, lastName: 'Sin forecast', roleId: role.id, passwordHash });
     });
   });
   return email;
