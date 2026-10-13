@@ -6,6 +6,7 @@ import { createScopedQueryKeys, type ListQuery } from '@/lib/query-keys';
 import {
   getCustomerLookup,
   getFollowUpTrace,
+  listCountryOptions,
   listCustomerContacts,
   listCustomerProjectsLookup,
   listInteractions,
@@ -46,6 +47,7 @@ export const commercialLookupKeys = {
   contacts: (customerId: string, query: ListQuery) => [...lookupKeys.all, 'contacts', customerId, query] as const,
   projects: (customerId: string, query: ListQuery) => [...lookupKeys.all, 'projects', customerId, query] as const,
   opportunities: (projectId: string, query: ListQuery) => [...lookupKeys.all, 'opportunities', projectId, query] as const,
+  countries: () => [...lookupKeys.all, 'countries'] as const,
 };
 
 export const commercialReadKeys = {
@@ -128,5 +130,18 @@ export function useFollowUpTrace(scope: FollowUpScope, enabled = true) {
     queryKey: commercialReadKeys.trace(scope),
     queryFn: () => getFollowUpTrace(scope),
     enabled,
+  });
+}
+
+/** Los países cambian poco. */
+const COUNTRY_OPTIONS_STALE_TIME_MS = 10 * 60_000;
+
+/** Países activos para el filtro de país (con `clientes.ver`; si no, `enabled = false`). */
+export function useCountryOptions(enabled: boolean) {
+  return useQuery({
+    queryKey: commercialLookupKeys.countries(),
+    queryFn: listCountryOptions,
+    enabled,
+    staleTime: COUNTRY_OPTIONS_STALE_TIME_MS,
   });
 }

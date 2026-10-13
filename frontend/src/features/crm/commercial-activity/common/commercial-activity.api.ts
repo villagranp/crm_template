@@ -165,7 +165,7 @@ export interface TraceAttachment {
   sourceId: string;
   sourceCode: string;
   eventId: string | null;
-  /** Ruta de descarga por el dueño (F.4), relativa a la API. */
+  /** Ruta de descarga por el dueño (F.4), con la base de la API (`/api/v1/…`): se recorta con `apiRelativePath` antes de usar `httpClient`. */
   contentPath: string;
   sourcePath: string;
 }
@@ -211,6 +211,26 @@ export function listOwnerOptions(query: ListQuery): Promise<PaginatedResponse<Us
 // ---------------------------------------------------------------------------
 // Recursos de otros módulos (04 §F.7)
 // ---------------------------------------------------------------------------
+
+/** País para el filtro "país del cliente" (agenda, visitas, seguimiento). */
+export interface CountryOptionRef {
+  id: string;
+  name: string;
+}
+
+/** Lo que este módulo usa de `CustomerFormOptionsDto` (02 F2): sólo la lista de países activos. */
+interface CustomerFormOptionsCountries {
+  countries: { id: string; name: string }[];
+}
+
+/**
+ * Países activos para los filtros (04 §F.7: "la lista que publique 02 en sus
+ * `form-options`"). Exige `clientes.ver`: sin él, el filtro de país no se ofrece.
+ */
+export async function listCountryOptions(): Promise<CountryOptionRef[]> {
+  const options = await httpClient.get<CustomerFormOptionsCountries>('/customers/form-options');
+  return options.countries.map((country) => ({ id: country.id, name: country.name }));
+}
 
 /** Lo que este módulo usa de `CustomerResponseDto` (02 F4) para resolver una preselección. */
 export interface CustomerLookup {

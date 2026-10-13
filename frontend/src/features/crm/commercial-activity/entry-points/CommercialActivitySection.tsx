@@ -13,8 +13,9 @@ import { COMMERCIAL_ERROR_MESSAGES, isNotFoundError, withReference } from '../co
 import { ACTIVITY_PERMISSIONS, VISIT_PERMISSIONS } from '../common/commercial-activity.permissions';
 import { useFollowUpTrace } from '../common/commercial-activity.queries';
 import { interactionHistoryPath } from '../common/commercial-paths';
-import { formatCalendarDate, formatDateTime, todayInTimeZone } from '../common/date-time';
+import { formatDateTime } from '../common/date-time';
 import { COMPACT_TIMELINE_SIZE, InteractionTimelineList } from '../common/InteractionTimeline';
+import { NextActionDate } from '../common/NextActionDate';
 import { StatusChip } from '../common/StatusChip';
 
 export type CommercialActivitySectionProps = FollowUpScope;
@@ -33,20 +34,6 @@ function SectionCard({ titleId, children }: { titleId: string; children: ReactNo
       </Box>
       {children}
     </Card>
-  );
-}
-
-function NextActionDate({ date }: { date: string | null }) {
-  if (!date) {
-    return null;
-  }
-  // "Hoy" en zona de negocio (RN-04.9): resaltada si es hoy o ya pasó (E.4).
-  const today = todayInTimeZone();
-  const due = date <= today;
-  return (
-    <Typography component="span" variant="body2" sx={{ color: due ? 'warning.main' : 'text.secondary', fontWeight: due ? 'fontWeightMedium' : undefined }}>
-      {` · ${formatCalendarDate(date)}${date === today ? ' (hoy)' : date < today ? ' (pasada)' : ''}`}
-    </Typography>
   );
 }
 
@@ -70,7 +57,7 @@ function TraceContent({ trace, scope }: { trace: FollowUpTrace; scope: FollowUpS
               value: row.nextAction ? (
                 <>
                   {row.nextAction}
-                  <NextActionDate date={row.nextActionDate} />
+                  <NextActionDate date={row.nextActionDate} prefix=" · " />
                 </>
               ) : (
                 'Sin próxima acción'

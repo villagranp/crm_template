@@ -11,7 +11,8 @@ features/crm/
   crm-routes.ts            ruta + permiso + página lazy de cada pantalla del CRM
   common/                  piezas propias del CRM compartidas por varios submódulos
   customers/               Módulo 2 (Clientes): CustomersPage.tsx, customers.api.ts, …, components/, index.ts
-  commercial-activity/     Módulo 4 (Actividad comercial): common/, activities/, pending/, entry-points/ (barril para 02/03)
+  commercial-activity/     Módulo 4 (Actividad comercial): common/, activities/, pending/, visits/, agenda/,
+                           follow-up/, interactions/, entry-points/ (barril para 02/03)
   projects/                (llega con el Módulo 3)
 ```
 
@@ -24,10 +25,16 @@ features/crm/
 | Listado de actividades | `commercial-activity/activities/` | `/actividad/actividades` | `actividades.ver` | Sí: `actividad-actividades` |
 | Alta de actividad | `commercial-activity/activities/` | `/actividad/actividades/nueva` | `actividades.crear` | No (preselección `?customerId=&projectId=&opportunityId=&typeId=`) |
 | Detalle y edición de actividad | `commercial-activity/activities/` | `/actividad/actividades/:activityId` | `actividades.ver` | No (ruta con parámetro, D-04.13) |
+| Agenda (calendario y listado) | `commercial-activity/agenda/` | `/actividad/agenda` | `actividades.ver` | Sí: `actividad-agenda` |
+| Seguimiento comercial | `commercial-activity/follow-up/` | `/actividad/seguimiento` | `actividades.ver` | Sí: `actividad-seguimiento` |
+| Historial de interacciones | `commercial-activity/interactions/` | `/actividad/historial` | `actividades.ver` | Sí: `actividad-historial` (acepta `?customerId=&projectId=&opportunityId=`) |
+| Listado de visitas | `commercial-activity/visits/` | `/actividad/visitas` | `visitas.ver` | Sí: `actividad-visitas` |
+| Planificar visita | `commercial-activity/visits/` | `/actividad/visitas/nueva` | `visitas.crear` | No (preselección `?customerId=&projectId=`) |
+| Detalle de visita | `commercial-activity/visits/` | `/actividad/visitas/:visitId` | `visitas.ver` | No (ruta con parámetro, D-04.13) |
 
 Las rutas de Actividad comercial viven en `commercial-activity/commercial-activity-routes.ts`
-(agregadas en `crm-routes.ts`); agenda, seguimiento, historial y visitas siguen con el marcador
-provisional `CommercialActivityPendingPage` hasta su tanda.
+(agregadas en `crm-routes.ts`); todas las pantallas de 04 §E.1 están entregadas (ya no hay
+marcador provisional).
 
 - La página (`<Pantalla>Page.tsx`) conserva su **export con nombre**: `crm-routes.ts` la carga con
   `React.lazy` por ese nombre.
@@ -96,6 +103,9 @@ importan desde otros submódulos: lo público para 02/03 está en `commercial-ac
 | `FilesField` + `uploadFilesInOrder(basePath, files)` | Elegir archivos en un formulario o diálogo y subirlos en orden, parando en el primer fallo |
 | `InteractionTimeline` (`customerId?`, `projectId?`, `opportunityId?`, `compact?`) / `InteractionTimelineList` (`items`, `hideCustomer?`, `hideProject?`) | Historial de interacciones agrupado por día con enlace al origen |
 | `commercial-paths.ts` | `interactionHistoryPath`, `planVisitPath`, `visitDetailPath` |
+| `CountrySelect` (`value`, `onChange`, `label?`, `disabled?`) + `useCountryOptions(enabled)` | Filtro "país del cliente" con los países de `GET /customers/form-options` (02 F2); sin `clientes.ver` no se ofrece |
+| `AttachmentCount` (`count`) | Columna "Adjuntos": icono + número con nombre accesible ("3 adjuntos") |
+| `NextActionDate` (`date`, `prefix?`, `today?`) | Fecha de próxima acción resaltada con color **y** texto ("(hoy)", "(pasada)") |
 
 Opciones aditivas de `@/components/data` usadas por el CRM: `DataTable` `onRowClick` + `getRowLabel`
 (fila navegable con teclado, `role="link"`) y `useTableQueryState({ paramPrefix })` para varias

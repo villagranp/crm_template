@@ -29,4 +29,6 @@ export const VISIT_PERMISSIONS = {
 export const COMMERCIAL_RELATED_PERMISSIONS = {
   /** Contactos del cliente como participantes (RN-04.6, 02 H.5). */
   viewContacts: 'contactos.ver',
+  /** Lista de países del filtro (`GET /customers/form-options`, 02 F2). */
+  viewCustomers: 'clientes.ver',
 } as const;

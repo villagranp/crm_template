@@ -1,0 +1,158 @@
+import { Box, Button, Chip, FormControlLabel, MenuItem, Stack, Switch, TextField } from '@mui/material';
+import { useEffect, useId, useState, type FormEvent } from 'react';
+
+import { CustomerPicker, type CustomerPickerValue } from '@/features/crm/customers';
+
+import type { UserRef } from '../../common/commercial-activity.api';
+import { useCountryOptions, useCustomerLookup } from '../../common/commercial-activity.queries';
+import { CountrySelect } from '../../common/CountrySelect';
+import { formatCalendarDate } from '../../common/date-time';
+import { OwnerPicker } from '../../common/OwnerPicker';
+import type { VisitFormOptions } from '../visits.api';
+
+import type { VisitFilterField, VisitFilterValues } from '../visit-format';
+
+export type { VisitFilterField, VisitFilterValues };
+
+const LABELS: Record<VisitFilterField, string> = {
+  from: 'Desde',
+  to: 'Hasta',
+  statusId: 'Estado',
+  ownerId: 'Asesor',
+  customerId: 'Cliente',
+  countryId: 'País',
+  unregistered: 'Sin registrar',
+  pendingConfirmation: 'Pendientes de confirmar',
+};
+
+export interface VisitFiltersProps {
+  values: VisitFilterValues;
+  options: VisitFormOptions | undefined;
+  /** Nombre del asesor filtrado, si se conoce. */
+  ownerName: string | null;
+  /** Fija todos los filtros de una vez (una sola navegación). */
+  onApply: (values: VisitFilterValues) => void;
+}
+
+/**
+ * Filtros combinables del listado de visitas (04 §E.6): rango de fechas,
+ * estado (catálogo `crm.estado_visita`), asesor, cliente, país, "sin
+ * registrar" (RN-04.22) y "pendientes de confirmar". Se escriben en un
+ * borrador y se aplican juntos; viven en la URL.
+ */
+export function VisitFilters({ values, options, ownerName, onApply }: VisitFiltersProps) {
+  const formId = useId();
+  const [draft, setDraft] = useState<VisitFilterValues>(values);
+  const [owner, setOwner] = useState<UserRef | null>(null);
+  const [customer, setCustomer] = useState<CustomerPickerValue | { id: string } | null>(null);
+
+  // La URL manda: atrás/adelante o "Limpiar" actualizan el borrador.
+  useEffect(() => {
+    setDraft(values);
+    setOwner(values.ownerId ? { id: values.ownerId, displayName: ownerName ?? 'Asesor seleccionado' } : null);
+    setCustomer(values.customerId ? { id: values.customerId } : null);
+  }, [values, ownerName]);
+
+  const set = (key: VisitFilterField, value: string) => setDraft((current) => ({ ...current, [key]: value }));
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onApply({ ...draft, ownerId: owner?.id, customerId: customer?.id });
+  };
+  const statuses = [...(options?.statuses ?? [])].sort((left, right) => left.sortOrder - right.sortOrder);
+
+  return (
+    <Box component="form" id={formId} role="search" aria-label="Filtros de visitas" noValidate onSubmit={submit} sx={{ pt: 2 }}>
+      <Box
+        sx={{
+          display: 'grid',
+          gap: 2,
+          gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' },
+          alignItems: 'start',
+        }}
+      >
+        <TextField type="date" size="small" label={LABELS.from} value={draft.from ?? ''} onChange={(event) => set('from', event.target.value)} />
+        <TextField type="date" size="small" label={LABELS.to} value={draft.to ?? ''} onChange={(event) => set('to', event.target.value)} />
+        <TextField select size="small" label={LABELS.statusId} value={draft.statusId ?? ''} onChange={(event) => set('statusId', event.target.value)} disabled={!options}>
+          <MenuItem value="">Todos</MenuItem>
+          {statuses.map((status) => (
+            <MenuItem key={status.id} value={status.id}>
+              {status.label}
+            </MenuItem>
+          ))}
+        </TextField>
+        <OwnerPicker label={LABELS.ownerId} value={owner} onChange={setOwner} />
+        <Box sx={{ gridColumn: { sm: 'span 2' } }}>
+          <CustomerPicker label={LABELS.customerId} value={customer} onChange={setCustomer} />
+        </Box>
+        <CountrySelect value={draft.countryId ?? ''} onChange={(countryId) => set('countryId', countryId)} />
+        <Stack>
+          <FormControlLabel
+            control={<Switch checked={draft.unregistered === 'true'} onChange={(event) => set('unregistered', event.target.checked ? 'true' : '')} />}
+            label={LABELS.unregistered}
+          />
+          <FormControlLabel
+            control={
+              <Switch checked={draft.pendingConfirmation === 'true'} onChange={(event) => set('pendingConfirmation', event.target.checked ? 'true' : '')} />
+            }
+            label={LABELS.pendingConfirmation}
+          />
+        </Stack>
+      </Box>
+      <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 2 }}>
+        <Button type="submit">Aplicar filtros</Button>
+      </Stack>
+    </Box>
+  );
+}
+
+export interface ActiveVisitFilterChipsProps {
+  values: VisitFilterValues;
+  options: VisitFormOptions | undefined;
+  ownerName: string | null;
+  /** Para el nombre del país del chip (sólo si se ofrece el filtro). */
+  countriesEnabled: boolean;
+  onRemove: (key: VisitFilterField) => void;
+  onClear: () => void;
+}
+
+/** Chips de los filtros activos del listado de visitas, cada uno con su "quitar", y "Limpiar". */
+export function ActiveVisitFilterChips({ values, options, ownerName, countriesEnabled, onRemove, onClear }: ActiveVisitFilterChipsProps) {
+  const customer = useCustomerLookup(values.customerId);
+  const countries = useCountryOptions(countriesEnabled && Boolean(values.countryId));
+  const entries = (Object.entries(values) as [VisitFilterField, string | undefined][]).filter((entry): entry is [VisitFilterField, string] =>
+    Boolean(entry[1]),
+  );
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const display = (key: VisitFilterField, value: string): string | null => {
+    switch (key) {
+      case 'statusId':
+        return options?.statuses.find((item) => item.id === value)?.label ?? 'Seleccionado';
+      case 'ownerId':
+        return ownerName ?? 'Seleccionado';
+      case 'customerId':
+        return customer.data?.legalName ?? 'Seleccionado';
+      case 'countryId':
+        return countries.data?.find((item) => item.id === value)?.name ?? 'Seleccionado';
+      case 'unregistered':
+      case 'pendingConfirmation':
+        return null;
+      default:
+        return formatCalendarDate(value);
+    }
+  };
+
+  return (
+    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center" sx={{ pt: 2 }} aria-label="Filtros activos">
+      {entries.map(([key, value]) => {
+        const shown = display(key, value);
+        return <Chip key={key} label={shown === null ? LABELS[key] : `${LABELS[key]}: ${shown}`} onDelete={() => onRemove(key)} />;
+      })}
+      <Button size="small" variant="text" onClick={onClear}>
+        Limpiar
+      </Button>
+    </Stack>
+  );
+}

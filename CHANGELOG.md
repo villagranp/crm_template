@@ -34,6 +34,23 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   `AttachmentsPanel`, `InteractionTimeline`, `date-time.ts`) y puntos de entrada
   (`NewActivityButton`, `PlanVisitButton`, `CommercialActivitySection`) integrados en la ficha
   del cliente. Iconos del módulo en `MaterialSymbol`. `AttachmentsSection` gana `canDelete`.
+- **CRM Módulo 4 — Actividad comercial, frontend (segunda mitad)**
+  (`frontend/src/features/crm/commercial-activity/`, `04-actividad-comercial.md` "Precisiones"):
+  - Visitas (E.6–E.8): listado con filtros en la URL (rango, estado, asesor, cliente, país, "sin
+    registrar", "pendientes de confirmar"), planificar con preselección por query string, aviso de
+    conflicto horario con *debounce* que nunca bloquea "Guardar", aviso de fecha pasada y
+    recordatorio en minutos u horas; detalle con Planificación, Realización, Confirmación,
+    Historial de eventos y Adjuntos, y diálogos Editar planificación, Registrar realizada /
+    Corregir realización, Confirmar (solo con `CONFIRM` en `allowedActions`), Reprogramar y
+    Cancelar. Los archivos de cada operación se suben a su evento (D-04.18).
+  - Agenda (E.2): calendario propio sin librería (D-04.1) con vistas Mes, Semana y Día,
+    `calendar-grid.ts`, vista Día con tira de días en móvil, listado conmutable (`view=`), filtros
+    en la URL con chips, panel de resumen con "Ver detalle" y "Completar", y aviso de `truncated`.
+  - Seguimiento (E.4) por cliente o por proyecto con `FollowUpTraceDrawer` (línea de tiempo,
+    próximas visitas y actividades, adjuntos descargables) e historial de interacciones (E.5) con
+    línea de tiempo o tabla, filtros y orden invertible.
+  - Piezas comunes nuevas: `CountrySelect`/`useCountryOptions`, `AttachmentCount`,
+    `NextActionDate`. Se elimina el marcador provisional `CommercialActivityPendingPage`.
 - **CRM Módulo 2 — Clientes / Cuentas, frontend** (`frontend/src/features/crm/customers/`):
   búsqueda con filtros y estado en la URL, alta con aviso de duplicados y archivos que se suben
   tras crear, ficha con edición según `capabilities`, baja y restauración, contactos con
