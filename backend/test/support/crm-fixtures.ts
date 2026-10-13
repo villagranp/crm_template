@@ -202,20 +202,53 @@ export async function insertProject(
 /** Actividad mínima en un estado del catálogo `crm.estado_actividad` (`PENDIENTE` = abierta). */
 export async function insertActivity(
   prisma: PrismaClient,
-  options: { customerId: string; ownerId: string; statusCode?: string },
+  options: {
+    customerId: string;
+    ownerId: string;
+    statusCode?: string;
+    typeCode?: string;
+    priorityCode?: string;
+    projectId?: string | null;
+    dueAt?: Date | null;
+    scheduledAt?: Date | null;
+    subject?: string;
+    deletedAt?: Date | null;
+  },
 ): Promise<string> {
   const activity = await prisma.activity.create({
     data: {
       code: `TEST-ACT-${uniqueSuffix()}`,
-      typeId: await catalogItemId(prisma, 'crm.tipo_actividad', 'LLAMADA'),
-      subject: 'Actividad de prueba',
+      typeId: await catalogItemId(prisma, 'crm.tipo_actividad', options.typeCode ?? 'LLAMADA'),
+      subject: options.subject ?? 'Actividad de prueba',
       customerId: options.customerId,
+      projectId: options.projectId ?? null,
       ownerId: options.ownerId,
       statusId: await catalogItemId(prisma, 'crm.estado_actividad', options.statusCode ?? 'PENDIENTE'),
-      priorityId: await catalogItemId(prisma, 'crm.prioridad', 'MEDIA'),
+      priorityId: await catalogItemId(prisma, 'crm.prioridad', options.priorityCode ?? 'MEDIA'),
+      dueAt: options.dueAt ?? null,
+      scheduledAt: options.scheduledAt ?? null,
+      deletedAt: options.deletedAt ?? null,
     },
   });
   return activity.id;
+}
+
+/** Oportunidad mínima de un proyecto (vínculos de actividades, 04 RN-04.1). */
+export async function insertOpportunity(
+  prisma: PrismaClient,
+  options: { projectId: string; ownerId: string; deletedAt?: Date | null },
+): Promise<string> {
+  const opportunity = await prisma.opportunity.create({
+    data: {
+      code: `TEST-OPO-${uniqueSuffix()}`,
+      projectId: options.projectId,
+      ownerId: options.ownerId,
+      stageId: await catalogItemId(prisma, 'crm.etapa_oportunidad', 'CONTACTADO'),
+      opportunityDate: new Date(),
+      deletedAt: options.deletedAt ?? null,
+    },
+  });
+  return opportunity.id;
 }
 
 /** Visita mínima en un estado de `crm.estado_visita` (`PROGRAMADA` = pendiente). */

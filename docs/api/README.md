@@ -174,6 +174,44 @@ del alcance sin poder operar, `403`.
 Los `422` de validación devuelven **todas** las incidencias en `details[]` (`field`, `code`,
 `message`); el `code` de la respuesta es el de la primera. Ningún mensaje repite el valor recibido.
 
+## Endpoints del CRM — Módulo 4 · Actividad comercial (actividades)
+
+Especificación: [`04-actividad-comercial.md`](../implementation-plans/crm/04-actividad-comercial.md) §F.2, §F.3.
+Etiqueta OpenAPI `commercial-activity`. Primera entrega del backend: actividades, bandeja y
+opciones. Visitas, agenda, interacciones, seguimiento y adjuntos llegan en la siguiente etapa.
+Todos exigen sesión (`401` sin token). Fuera del alcance o inexistente → `404` idéntico.
+
+| Método | Ruta | Permiso | Entrada → salida | Errores |
+|---|---|---|---|---|
+| GET | `/activities` | `actividades.ver` | `ListActivitiesQueryDto` → `PaginatedActivitiesDto` | `400` (`sortBy` fuera de lista blanca, filtros) |
+| GET | `/activities/pending` | `actividades.ver` | `ListPendingActivitiesQueryDto` (`bucket` repetible) → `PendingActivitiesResponseDto` (`data`, `pagination`, `counts`) | `400` |
+| GET | `/activities/form-options` | `actividades.ver` | → `ActivityFormOptionsDto` | — |
+| GET | `/activities/:id` | `actividades.ver` | → `ActivityDetailDto` (con `access` y `allowedActions`) | `400` (UUID), `404` |
+| POST | `/activities` | `actividades.crear` (+ `actividades.cerrar` con `completion`; + `actividades.administrar` con `ownerId` ajeno) | `CreateActivityDto` → `201 ActivityDetailDto` + `Location` | `400`, `403`, `404` (cliente), `422` |
+| PATCH | `/activities/:id` | `actividades.editar` (propia) / + `actividades.administrar` (ajena) | `UpdateActivityDto` → `ActivityDetailDto` | `403`, `404`, `409 RECORD_READ_ONLY` / `INVALID_STATUS_TRANSITION`, `422` |
+| POST | `/activities/:id/completion` | `actividades.cerrar` (propia) / + `actividades.administrar` (ajena) | `ActivityCompletionDto` → `ActivityDetailDto` | `403`, `404`, `409 INVALID_STATUS_TRANSITION`, `422 RESULT_REQUIRED` / `ACTUAL_DATE_IN_FUTURE` |
+| POST | `/activities/:id/cancellation` | `actividades.editar` (propia) / + `actividades.administrar` (ajena) | `ActivityCancellationDto` → `ActivityDetailDto` | `403`, `404`, `409 INVALID_STATUS_TRANSITION` |
+| DELETE | `/activities/:id` | `actividades.eliminar` (en su alcance) | → `204` (lógica) | `403`, `404`, `409 RECORD_READ_ONLY` (completada) |
+| GET | `/commercial-activity/owner-options` | `actividades.ver` **o** `visitas.ver` (`@RequireAnyPermission`) | `OwnerOptionsQueryDto` → `PaginatedOwnerOptionsDto` | `400`, `403` sin ninguno |
+
+`@RequireAnyPermission` (addendum de ADR-008) se publica en OpenAPI con la extensión
+`x-required-permissions-any-of: { permissions, semantics: "ANY_OF" }`.
+
+### Códigos de error nuevos (04 F.5, parte de actividades)
+
+| Status | Código | Cuándo |
+|---|---|---|
+| 409 | `RECORD_READ_ONLY` | Editar una actividad completada o cancelada; eliminar una completada |
+| 409 | `INVALID_STATUS_TRANSITION` | Completar o cancelar fuera de un estado abierto; otro usuario cambió el estado o la eliminó entretanto (`details[0].reason = CONCURRENT_CHANGE`) |
+| 422 | `REQUIRED_FIELD_MISSING` | Base + `crm.campos_obligatorios.activity` (todos en `details[]`) |
+| 422 | `FIELD_NOT_APPLICABLE` | Campo específico que el tipo no admite (`metadata.fields`), todos en `details[]` |
+| 422 | `USE_LIFECYCLE_OPERATION` | `statusId` no abierto en el alta o la edición, o junto a `completion` |
+| 422 | `RESULT_REQUIRED` · `ACTUAL_DATE_IN_FUTURE` | Completar sin resultado · fecha de finalización futura |
+| 422 | `UNKNOWN_REFERENCE` · `INACTIVE_REFERENCE` | Proyecto, oportunidad o usuario participante inexistente o no visible · eliminado / inactivo en un vínculo nuevo |
+| 422 | `PROJECT_CUSTOMER_MISMATCH` · `OPPORTUNITY_PROJECT_MISMATCH` · `OPPORTUNITY_REQUIRES_PROJECT` | RN-04.1 |
+| 422 | `OWNER_NOT_ELIGIBLE` | Responsable inactivo, fuera del alcance de `actividades.administrar` o sin `actividades.ver` |
+| 422 | `INVALID_CONTACT` | Además del uso de 02: cambiar el cliente con contactos del anterior como participantes |
+
 ## Contract rules
 
 1. Breaking a published contract requires a new URI version (`/api/v2/...`)

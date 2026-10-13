@@ -12,6 +12,7 @@ import { AttachmentsModule } from './modules/attachments/attachments.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CatalogsModule } from './modules/catalogs/catalogs.module';
+import { CommercialActivityModule } from './modules/commercial-activity/commercial-activity.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { ParametersCoreModule } from './modules/parameters/parameters-core.module';
 import { ParametersModule } from './modules/parameters/parameters.module';
@@ -55,6 +56,8 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     AttachmentsModule,
     // CRM · Módulo 2: clientes, contactos y sus adjuntos (02).
     CustomersModule,
+    // CRM · Módulo 4: actividad comercial (04).
+    CommercialActivityModule,
     HealthModule,
   ],
   providers: [

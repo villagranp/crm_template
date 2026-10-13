@@ -3,7 +3,6 @@ import { Prisma } from '@prisma/client';
 
 import { createPage, type Page } from '@/infrastructure/database/ports/pagination';
 import type { TransactionContext } from '@/infrastructure/database/ports/transaction.port';
-import type { VisibilityScope } from '@/modules/access/visibility-scope';
 import type { CustomerDuplicateRuleKey } from '@/modules/customers/duplicate-rules';
 import {
   type CountryLookup,
@@ -29,7 +28,9 @@ import {
 
 import { prismaClientFor } from '../prisma-transaction';
 import { PrismaService } from '../prisma.service';
-import { andSql, escapeLikePattern, normalizedTextSql, orSql, uuidInSql } from '../sql-text';
+import { andSql, escapeLikePattern, isEmptyScope, normalizedTextSql, orSql, visibilityScopeSql } from '../sql-text';
+
+import { eligibleUserWhere } from './user-eligibility';
 
 const UNIQUE_VIOLATION = 'P2002';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -49,16 +50,6 @@ function alias(name: string): Prisma.Sql {
   return Prisma.raw(name);
 }
 
-/** `owner IN (…) OR country IN (…)` de un alcance sobre dos columnas; `TRUE` si es `ALL`. */
-function scopeSql(scope: VisibilityScope, ownerColumn: Prisma.Sql, countryColumn: Prisma.Sql): Prisma.Sql {
-  if (scope.kind === 'ALL') return Prisma.sql`TRUE`;
-  return orSql([uuidInSql(ownerColumn, scope.ownerIds), uuidInSql(countryColumn, scope.countryIds)]);
-}
-
-function scopeIsEmpty(scope: VisibilityScope): boolean {
-  return scope.kind === 'FILTERED' && scope.ownerIds.length === 0 && scope.countryIds.length === 0;
-}
-
 /**
  * Predicado SQL de visibilidad de clientes (02 H.1) sobre el alias `customerAlias`
  * de `customers`. **No** incluye el filtro de eliminados: lo añade cada consulta.
@@ -75,9 +66,9 @@ function scopeIsEmpty(scope: VisibilityScope): boolean {
 export function customerVisibilitySql(customerAlias: string, visibility: CustomerVisibility): Prisma.Sql {
   const c = alias(customerAlias);
   if (visibility.direct.kind === 'ALL') return Prisma.sql`TRUE`;
-  const direct = scopeSql(visibility.direct, Prisma.sql`${c}.sales_owner_id`, Prisma.sql`${c}.country_id`);
-  if (scopeIsEmpty(visibility.inherited)) return direct;
-  const projectScope = scopeSql(visibility.inherited, Prisma.sql`p.owner_id`, Prisma.sql`p.country_id`);
+  const direct = visibilityScopeSql(visibility.direct, Prisma.sql`${c}.sales_owner_id`, Prisma.sql`${c}.country_id`);
+  if (isEmptyScope(visibility.inherited)) return direct;
+  const projectScope = visibilityScopeSql(visibility.inherited, Prisma.sql`p.owner_id`, Prisma.sql`p.country_id`);
   return Prisma.sql`(${direct} OR EXISTS (
     SELECT 1 FROM projects p
     WHERE p.customer_id = ${c}.id AND p.deleted_at IS NULL AND ${projectScope}
@@ -92,7 +83,7 @@ export function customerVisibilityWhere(visibility: CustomerVisibility): Prisma.
     { salesOwnerId: { in: [...direct.ownerIds] } },
     { countryId: { in: [...direct.countryIds] } },
   ];
-  if (!scopeIsEmpty(inherited)) {
+  if (!isEmptyScope(inherited)) {
     const projectScope: Prisma.ProjectWhereInput =
       inherited.kind === 'ALL'
         ? {}
@@ -253,29 +244,8 @@ function isCustomerCodeViolation(error: unknown): boolean {
 }
 
 /** Usuario elegible como responsable (D-02.2): ACTIVE, no eliminado, permiso efectivo y dentro del conjunto asignable. */
-function eligibleUserWhere(requiredPermission: string, assignable: SalesOwnerAssignableSet, now: Date): Prisma.UserWhereInput {
-  const vigente = { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] };
-  const conditions: Prisma.UserWhereInput[] = [
-    {
-      OR: [
-        {
-          roles: {
-            some: {
-              ...vigente,
-              role: { isActive: true, deletedAt: null, permissions: { some: { permission: { code: requiredPermission } } } },
-            },
-          },
-        },
-        { permissions: { some: { ...vigente, effect: 'GRANT', permission: { code: requiredPermission } } } },
-      ],
-    },
-    // Una denegación directa vigente gana siempre (ADR-018).
-    { permissions: { none: { ...vigente, effect: 'DENY', permission: { code: requiredPermission } } } },
-  ];
-  if (assignable.kind === 'FILTERED') {
-    conditions.push({ OR: [{ id: { in: [...assignable.userIds] } }, { countryId: { in: [...assignable.countryIds] } }] });
-  }
-  return { status: 'ACTIVE', deletedAt: null, AND: conditions };
+function eligibleSalesOwnerWhere(requiredPermission: string, assignable: SalesOwnerAssignableSet, now: Date): Prisma.UserWhereInput {
+  return eligibleUserWhere([requiredPermission], assignable, now);
 }
 
 /**
@@ -606,7 +576,7 @@ export class PrismaCustomersRepository implements CustomersRepository {
     tx?: TransactionContext,
   ): Promise<string | null> {
     const db = prismaClientFor(this.prisma, tx);
-    const eligible = eligibleUserWhere(requiredPermission, assignable, new Date());
+    const eligible = eligibleSalesOwnerWhere(requiredPermission, assignable, new Date());
     if (lookup.by === 'id') {
       if (!UUID_PATTERN.test(lookup.value)) return null;
       const user = await db.user.findFirst({ where: { id: lookup.value, ...eligible }, select: { id: true } });
@@ -625,7 +595,7 @@ export class PrismaCustomersRepository implements CustomersRepository {
   async listEligibleSalesOwners(search: SalesOwnerSearch): Promise<Page<SalesOwnerOptionRecord>> {
     const term = search.search?.trim();
     const where: Prisma.UserWhereInput = {
-      ...eligibleUserWhere(search.requiredPermission, search.assignable, new Date()),
+      ...eligibleSalesOwnerWhere(search.requiredPermission, search.assignable, new Date()),
       ...(term
         ? {
             OR: [
