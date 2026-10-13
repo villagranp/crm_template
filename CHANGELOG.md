@@ -55,6 +55,19 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   - NGINX: una sola cabecera `Cache-Control: no-store` en las respuestas de la API.
 
 ### Added
+- **CRM Módulo 4 — Actividad comercial, completado** (F-21…F-33, `matriz-trazabilidad.md`):
+  backend, frontend y E2E en verde. Pendiente al integrar el Módulo 3: montar los puntos de
+  entrada de E.11 en la ficha del proyecto y quitar la simulación del 03 en PF-04.58.
+- **CRM Módulo 4 — Actividad comercial, backend** (`backend/src/modules/commercial-activity/`,
+  `docs/api/README.md`): decorador `@RequireAnyPermission` (addendum ADR-008); actividades
+  (alta con gestión ya realizada, edición, completar, cancelar, eliminación lógica, bandeja de
+  pendientes); visitas (planificar con aviso de conflicto horario, editar, registrar y corregir
+  realización, confirmar solo por el dueño, reprogramar, cancelar, historial de eventos); agenda
+  y calendario, historial de interacciones sobre `crm_interactions_v`, seguimiento por cliente y
+  por proyecto; adjuntos por dueño (visita, evento, actividad); `form-options` y `owner-options`;
+  `CommercialActivityUsageQuery` para los módulos 2 y 3; rutas y opciones de menú `actividad-*`.
+  Sin cambios de esquema. Proyecto y oportunidad se validan con un puerto propio sobre las tablas
+  de Fase 0 mientras el Módulo 3 no esté integrado.
 - **CRM Módulo 4 — Actividad comercial, E2E** (`frontend/tests/e2e/crm-commercial-activity.e2e.spec.ts`,
   PF-04.58–61; TESTING.md «E2E de Actividad comercial»): llamada «ya realizada» desde el proyecto
   (Módulo 3 simulado en el navegador), visita con aviso de conflicto, reprogramación, registro y
