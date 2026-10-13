@@ -62,6 +62,37 @@ export interface ConversionOptions {
   /** Campo del DTO para `details[].field`. Por defecto `measureUnitId`. */
   readonly field?: string;
   readonly tx?: TransactionContext;
+  /** Unidad de tonelaje ya leída (`tonnageUnit()` antes de abrir la transacción). */
+  readonly tonnageUnit?: TonnageUnit;
+}
+
+/**
+ * Contexto de una resolución dentro de la transacción de un caso de uso: `tx` para leer
+ * reglas y familias con la conexión de la transacción y `tonnageUnit` **leída antes** de
+ * abrirla, porque el parámetro se lee con `ParameterReader` (pool). Con ambos, la
+ * resolución no abre ninguna conexión extra mientras se sostienen bloqueos (AGENTS §9.12,
+ * 03 "Precisiones", Revisión E5, M1).
+ */
+export interface ResolveContext {
+  readonly tx?: TransactionContext;
+  readonly tonnageUnit?: TonnageUnit;
+}
+
+function lookupKeyOf(lookup: ConversionLookup): string {
+  return `${lookup.fromUnitId}|${lookup.productId ?? ''}|${lookup.projectTypeId ?? ''}`;
+}
+
+/** Clave estable de una búsqueda (la de los mapas de `resolveMany`). */
+export function conversionLookupKey(lookup: ConversionLookup): string {
+  return lookupKeyOf(lookup);
+}
+
+function validUuid(value: string | null | undefined): string | null {
+  return value && UUID_PATTERN.test(value) ? value : null;
+}
+
+function sameUuid(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
 }
 
 function toResolved(rule: ConversionRuleRecord, toUnit: TonnageUnit): ResolvedConversion {
@@ -101,9 +132,12 @@ export class UnitConversionResolver {
     return { id: unit.id, code: unit.code, symbol: unit.symbol };
   }
 
-  /** Regla aplicable de mayor precedencia, o `null` ("sin conversión"). */
-  async resolve(lookup: ConversionLookup, tx?: TransactionContext): Promise<ResolvedConversion | null> {
-    const toUnit = await this.tonnageUnit(tx);
+  /**
+   * Regla aplicable de mayor precedencia, o `null` ("sin conversión"). Dentro de una
+   * transacción con bloqueos se pasa siempre `tonnageUnit` ya leída (ver `ResolveContext`).
+   */
+  async resolve(lookup: ConversionLookup, tx?: TransactionContext, tonnageUnit?: TonnageUnit): Promise<ResolvedConversion | null> {
+    const toUnit = tonnageUnit ?? (await this.tonnageUnit(tx));
     if (!UUID_PATTERN.test(lookup.fromUnitId)) {
       return null;
     }
@@ -113,11 +147,51 @@ export class UnitConversionResolver {
     return rule ? toResolved(rule, toUnit) : null;
   }
 
+  /**
+   * Varias búsquedas de una vez (lote del forecast, Revisión E5, m3): la unidad de
+   * tonelaje se lee una vez, las familias y las reglas con una consulta cada una, y la
+   * selección es la misma función pura que `resolve` (resultados idénticos). Devuelve un
+   * mapa por clave de búsqueda (`conversionLookupKey`).
+   */
+  async resolveMany(lookups: readonly ConversionLookup[], context: ResolveContext = {}): Promise<Map<string, ResolvedConversion | null>> {
+    const result = new Map<string, ResolvedConversion | null>();
+    const distinct = new Map(lookups.map((lookup) => [lookupKeyOf(lookup), lookup]));
+    if (distinct.size === 0) return result;
+    const toUnit = context.tonnageUnit ?? (await this.tonnageUnit(context.tx));
+    const valid = [...distinct.entries()].filter(([key, lookup]) => {
+      if (UUID_PATTERN.test(lookup.fromUnitId)) return true;
+      result.set(key, null);
+      return false;
+    });
+    const productIds = [...new Set(valid.map(([, lookup]) => validUuid(lookup.productId)).filter((id): id is string => id !== null))];
+    const families = productIds.length > 0 ? await this.reader.findProductFamilyIds(productIds, context.tx) : new Map<string, string>();
+    const targets = valid.map(([key, lookup]) => {
+      const productId = validUuid(lookup.productId);
+      const keys: ConversionKeys = {
+        productId,
+        productFamilyId: productId ? (families.get(productId) ?? families.get(productId.toLowerCase()) ?? null) : null,
+        projectTypeId: validUuid(lookup.projectTypeId),
+      };
+      return { key, target: { fromUnitId: lookup.fromUnitId, toUnitId: toUnit.id, keys } satisfies ConversionTarget };
+    });
+    const fromUnitIds = [...new Set(targets.map(({ target }) => target.fromUnitId))];
+    const scopeKeys = [...new Set(targets.flatMap(({ target }) => scopeKeysFor(target.keys)))];
+    const candidates = targets.length > 0 ? await this.reader.findRulesForMany(fromUnitIds, toUnit.id, scopeKeys, context.tx) : [];
+    for (const { key, target } of targets) {
+      const rule = selectConversionRule(
+        candidates.filter((candidate) => sameUuid(candidate.fromUnitId, target.fromUnitId)),
+        target,
+      );
+      result.set(key, rule ? toResolved(rule, toUnit) : null);
+    }
+    return result;
+  }
+
   /** Como `resolve`, pero sin regla → `422 CONVERSION_RULE_NOT_FOUND` (RN-03.27, AC-03.32). */
   async require(lookup: ConversionLookup, options: ConversionOptions = {}): Promise<ResolvedConversion> {
-    const resolved = await this.resolve(lookup, options.tx);
+    const toUnit = options.tonnageUnit ?? (await this.tonnageUnit(options.tx));
+    const resolved = await this.resolve(lookup, options.tx, toUnit);
     if (!resolved) {
-      const toUnit = await this.tonnageUnit(options.tx);
       throw conversionRuleNotFoundError(options.field ?? 'measureUnitId', { fromUnitId: lookup.fromUnitId, toUnitCode: toUnit.code });
     }
     return resolved;
@@ -131,7 +205,7 @@ export class UnitConversionResolver {
    */
   async assertApplicable(ruleId: string, lookup: ConversionLookup, options: ConversionOptions = {}): Promise<ResolvedConversion> {
     const field = options.field ?? 'conversionRuleId';
-    const toUnit = await this.tonnageUnit(options.tx);
+    const toUnit = options.tonnageUnit ?? (await this.tonnageUnit(options.tx));
     const rule = UUID_PATTERN.test(ruleId) ? await this.reader.findRuleById(ruleId, options.tx) : null;
     if (!rule) {
       throw invalidConversionRuleError(field, ruleId, ['NOT_FOUND']);

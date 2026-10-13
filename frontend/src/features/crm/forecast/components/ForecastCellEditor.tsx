@@ -89,6 +89,7 @@ export function ForecastCellEditor({
       <Tooltip title={updated ?? ''} describeChild disableHoverListener={!updated} disableFocusListener={!updated}>
         <Box
           tabIndex={updated ? 0 : undefined}
+          role={updated ? 'group' : undefined}
           aria-label={updated ? `${label}: ${formatQuantity(cell.quantity, unitSymbol)}. ${updated}` : undefined}
           sx={{ px: 1, py: 0.5, borderRadius: 1, bgcolor: 'action.disabledBackground', color: 'text.secondary', textAlign: 'right', minWidth: 0 }}
         >

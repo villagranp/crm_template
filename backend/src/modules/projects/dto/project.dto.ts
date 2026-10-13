@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsOptional, IsString, IsUUID, Length, MaxLength, ValidateIf } from 'class-validator';
 
+import { toLowerCaseUuid } from '@/common/dto/uuid-transform';
 import { PaginationMetaDto } from '@/common/dto/paginated-response.dto';
 import { CatalogValueDto, CountryRefDto, UserRefDto } from '@/modules/customers/dto/customer.dto';
 import { isPresent, trim } from '@/modules/customers/dto/dto-transforms';
@@ -26,11 +27,13 @@ export class CreateProjectDto {
   name!: string;
 
   @ApiProperty({ format: 'uuid', description: 'Cliente visible, no eliminado y con estado activo (`CustomerReferenceGuard`, RN-03.2)' })
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   customerId!: string;
 
   @ApiPropertyOptional({ format: 'uuid', description: 'País activo. Omitido: el del cliente (RN-03.5)' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   countryId?: string;
 
@@ -72,6 +75,7 @@ export class CreateProjectDto {
     description: 'Asesor. Omitido: el actor. Otro usuario exige `proyectos.administrar` (`403 FIELD_NOT_EDITABLE`) y ser ACTIVE, con `proyectos.ver` y de su alcance (`422 INVALID_OWNER`)',
   })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   ownerId?: string;
 
@@ -93,11 +97,13 @@ export class UpdateProjectDto {
 
   @ApiPropertyOptional({ format: 'uuid', description: 'Solo sin visitas ni actividades vinculadas (`409 PROJECT_CUSTOMER_LOCKED`, RN-03.10); cliente activo' })
   @ValidateIf(isPresent)
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   customerId?: string;
 
   @ApiPropertyOptional({ format: 'uuid', description: 'País activo' })
   @ValidateIf(isPresent)
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   countryId?: string;
 
@@ -136,6 +142,7 @@ export class UpdateProjectDto {
 
   @ApiPropertyOptional({ format: 'uuid', description: 'Reasignar asesor: `proyectos.administrar` con el proyecto en su alcance' })
   @ValidateIf(isPresent)
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   ownerId?: string;
 

@@ -501,16 +501,17 @@ describe('Asociar un producto (POST)', () => {
     expect(await context.prisma.projectProduct.count({ where: { projectId, deletedAt: null } })).toBe(3);
   });
 
-  it('dos asociaciones idénticas que esperan al mismo bloqueo consultivo dejan una sola fila activa: 201 y 409 (RN-03.59)', async () => {
+  it('dos asociaciones idénticas que esperan al bloqueo de la fila del proyecto dejan una sola fila activa: 201 y 409 (RN-03.59)', async () => {
     const owner = await advisor();
     const projectId = await ownProject(owner);
     const base = await unit();
     const item = await product({ baseUnitId: base.id });
-    const key = `crm:project-product:${projectId}:none:${item.id}`;
     const client = api(context, owner.token);
 
+    // RN-03.59 la protege el `FOR UPDATE` del proyecto que toma toda escritura de
+    // asociaciones (el bloqueo consultivo por clave era redundante; Revisión E5).
     const holder = holdTransaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+      await tx.$queryRaw`SELECT id FROM projects WHERE id = ${projectId}::uuid FOR UPDATE`;
     });
     let statuses: number[] = [];
     let conflict: request.Response | undefined;

@@ -29,7 +29,11 @@ function setup() {
   const repository = {
     listDuplicable: jest.fn().mockResolvedValue([{ productId: 'product-1', productActive: true, unitId: 'unit-var', unitActive: true, quantity: '10.0000' }]),
   };
-  const access = { findVisible: jest.fn().mockResolvedValue(toVisibleProject(source, makeScopes())), scopes: jest.fn().mockResolvedValue(makeScopes()) };
+  const access = {
+    findVisible: jest.fn().mockResolvedValue(toVisibleProject(source, makeScopes())),
+    scopes: jest.fn().mockResolvedValue(makeScopes()),
+    isAssignableOwner: jest.fn().mockResolvedValue(true),
+  };
   const service = new ProjectDuplicationService(
     repository as unknown as ProjectProductsRepository,
     access as unknown as ProjectAccessService,
@@ -38,10 +42,24 @@ function setup() {
     { toDetail: jest.fn().mockReturnValue({}) } as unknown as ProjectsService,
     conversions as unknown as UnitConversionResolver,
   );
-  return { service, creation, conversions, repository };
+  return { service, creation, conversions, repository, access };
 }
 
 describe('ProjectDuplicationService (F-12)', () => {
+  it('sin ownerId: un administrador cuyo alcance de administrar no incluye al asesor del origen duplica a su nombre (Revisión E5)', async () => {
+    const { service, creation, access } = setup();
+    access.isAssignableOwner.mockResolvedValue(false);
+    await service.duplicate(makeActor(ADMIN), 'project-1', { name: 'Copia', copy: COPY_ALL });
+    expect(access.isAssignableOwner).toHaveBeenCalledWith(expect.anything(), 'user-2', makeScopes());
+    expect(creation.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ ownerId: 'user-1' }), expect.anything());
+  });
+
+  it('ownerId en mayúsculas se normaliza; indicarse a sí mismo no exige administrar (Revisión E5, m1)', async () => {
+    const { service, creation } = setup();
+    await service.duplicate(makeActor(CREATOR), 'project-1', { name: 'Copia', copy: COPY_ALL, ownerId: 'USER-1' });
+    expect(creation.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ ownerId: 'user-1' }), expect.anything());
+  });
+
   it('recalcula el tonelaje con la regla vigente y copia productos sin oportunidad con el estado inicial; evento `duplicated`', async () => {
     const { service, creation, conversions } = setup();
     await service.duplicate(makeActor(ADMIN), 'project-1', { name: 'Copia', copy: COPY_ALL });

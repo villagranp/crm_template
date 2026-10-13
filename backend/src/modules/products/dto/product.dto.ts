@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsIn, IsOptional, IsUUID } from 'class-validator';
 
+import { toLowerCaseUuid } from '@/common/dto/uuid-transform';
 import { PaginationMetaDto } from '@/common/dto/paginated-response.dto';
 import { PaginationQueryDto } from '@/common/dto/pagination-query.dto';
 import { toOptionalBoolean } from '@/modules/customers/dto/dto-transforms';
@@ -18,6 +19,7 @@ export class ProductsQueryDto extends PaginationQueryDto {
 
   @ApiPropertyOptional({ format: 'uuid', description: 'Familia del producto' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   familyId?: string;
 
@@ -73,16 +75,19 @@ export class UnitsOfMeasureDto {
 
 export class ResolveConversionQueryDto {
   @ApiProperty({ format: 'uuid', description: 'Unidad de la cantidad (la del proyecto o de la línea)' })
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   fromUnitId!: string;
 
   @ApiPropertyOptional({ format: 'uuid', description: 'Con producto: precedencia de línea PRODUCT > PRODUCT_FAMILY > PROJECT_TYPE > GLOBAL' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   productId?: string;
 
   @ApiPropertyOptional({ format: 'uuid', description: 'Tipo de proyecto (`crm.tipo_proyecto`) para el ámbito PROJECT_TYPE' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   projectTypeId?: string;
 }

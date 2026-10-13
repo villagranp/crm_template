@@ -81,6 +81,31 @@ export class ProjectAccessService {
   }
 
   /**
+   * Dentro de la transacción de una escritura: toma la fila del proyecto con `FOR UPDATE`
+   * y **vuelve a decidir** visibilidad (`404`) y edición (`403`) sobre el registro
+   * bloqueado, no sobre la lectura previa (03 "Precisiones", Revisión E5, M4): si el asesor
+   * cambió entre tanto, quien dejó de ser dueño y no administra recibe `403`. Usa los
+   * alcances ya resueltos (`scopes`) y solo la conexión de `tx` (AGENTS §9.12).
+   */
+  async lockEditable(actor: ProjectActor, projectId: string, scopes: ProjectAccessScopes, tx: TransactionContext): Promise<VisibleProject> {
+    if (!(await this.projects.lockProject(projectId, 'UPDATE', tx))) throw projectNotFound(projectId);
+    const visible = await this.findVisible(actor, projectId, { scopes, tx });
+    if (!canEditProject(actor, visible.subject)) {
+      throw new PermissionDeniedError(missingEditPermission(actor, visible.subject));
+    }
+    return visible;
+  }
+
+  /**
+   * ¿`userId` es asignable como asesor por el actor? (RN-03.6, D-03.16): en su conjunto
+   * asignable, `ACTIVE` y con `proyectos.ver`. Lectura fuera de transacción.
+   */
+  async isAssignableOwner(actor: ProjectActor, userId: string, scopes: ProjectAccessScopes): Promise<boolean> {
+    if (actor.userId !== null && actor.userId.toLowerCase() === userId.toLowerCase()) return true;
+    return (await this.projects.findEligibleOwner(userId, this.assignableOwners(actor, scopes), PROJECT_PERMISSIONS.view)) !== null;
+  }
+
+  /**
    * Usuarios asignables como asesor (RN-03.6, D-03.16): sin `proyectos.administrar`,
    * solo el propio actor; con él, los de su alcance (TEAM: miembros y responsables con
    * subequipos; COUNTRY: su país; ORGANIZATION: todos).

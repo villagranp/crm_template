@@ -17,7 +17,9 @@ import { z } from 'zod';
  *   0–100 para porcentajes (`Decimal(5,2)`); 8 decimales para factores y tipos de
  *   cambio (`Decimal(19,8)`).
  * - **Presentación**: `es-GT` (punto decimal, coma de miles: `1,234.50`). Los
- *   separadores se toman de `Intl` una vez; los valores nunca pasan por `Intl`.
+ *   separadores son constantes (no se leen de `Intl`): así el texto que se
+ *   escribe y el que se muestra no dependen de los datos de configuración
+ *   regional del navegador o de Node (revisión E5). Los valores nunca pasan por `Intl`.
  *
  * Validar aquí es experiencia de usuario: el backend valida de nuevo y redondea
  * (`HALF_UP`, D-03.13). Los totales y conversiones oficiales son los del backend;
@@ -58,20 +60,8 @@ export type DecimalIssue =
 
 export type DecimalParseResult = { ok: true; value: string } | { ok: false; issue: DecimalIssue };
 
-interface Separators {
-  decimal: string;
-  group: string;
-}
-
-function readSeparators(locale: string): Separators {
-  const parts = new Intl.NumberFormat(locale).formatToParts(1234567.5);
-  return {
-    decimal: parts.find((part) => part.type === 'decimal')?.value ?? '.',
-    group: parts.find((part) => part.type === 'group')?.value ?? ',',
-  };
-}
-
-const SEPARATORS = readSeparators(DECIMAL_LOCALE);
+/** Separadores de `es-GT`, fijos: punto decimal y coma de miles. */
+const SEPARATORS = { decimal: '.', group: ',' } as const;
 const CANONICAL = /^(-)?(\d+)(?:\.(\d+))?$/;
 const GROUP_SPACES = /[\s  ]/g;
 

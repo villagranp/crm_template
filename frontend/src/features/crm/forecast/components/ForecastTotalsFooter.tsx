@@ -4,6 +4,7 @@ import { Box, Button, Stack, TableCell, TableFooter, TableRow, Typography } from
 import { useId, useState } from 'react';
 
 import { formatQuantity, formatTonnage } from '@/features/crm/common/decimal';
+import { zIndex } from '@/theme/tokens';
 
 import type { ForecastTotals, YearMonth } from '../forecast.api';
 import { periodHeader, periodKey } from '../forecast-format';
@@ -35,7 +36,7 @@ export function ForecastTotalsFooter({ totals, periods, leadingColumns, trailing
   const byPeriod = new Map(totals.periods.map((period) => [periodKey(period), period]));
   const span = leadingColumns + periods.length + 1 + trailingColumns;
   const head = (text: string) => (
-    <TableCell component="th" scope="row" colSpan={leadingColumns} sx={{ fontWeight: 'fontWeightMedium', position: 'sticky', left: 0, bgcolor: 'background.subtle', zIndex: 1 }}>
+    <TableCell component="th" scope="row" colSpan={leadingColumns} sx={{ fontWeight: 'fontWeightMedium', position: 'sticky', left: 0, bgcolor: 'background.subtle', zIndex: zIndex.stickyCell }}>
       {text}
     </TableCell>
   );

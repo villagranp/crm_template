@@ -87,9 +87,11 @@ export interface ProjectProductsRepository {
   totalsRows(projectId: string): Promise<ProjectProductTotalsRow[]>;
   /** Asociación no eliminada del proyecto, o `null`. */
   findById(projectId: string, projectProductId: string, tx?: TransactionContext): Promise<ProjectProductRecord | null>;
-  /** Bloqueo consultivo por `(projectId, opportunityId|null, productId)` (RN-03.59). Requiere `tx`. */
-  lockAssociationKey(projectId: string, opportunityId: string | null, productId: string, tx: TransactionContext): Promise<void>;
-  /** Asociación activa con la misma clave (excluyendo `excludeId`), o `null`. */
+  /**
+   * Asociación activa con la misma clave (excluyendo `excludeId`), o `null`. RN-03.59 se
+   * protege con la fila del proyecto bloqueada (`FOR UPDATE`) por toda escritura de
+   * asociaciones: no hace falta otro bloqueo (Revisión E5).
+   */
   findActiveDuplicate(
     key: { readonly projectId: string; readonly opportunityId: string | null; readonly productId: string; readonly excludeId: string | null },
     tx: TransactionContext,
@@ -97,7 +99,8 @@ export interface ProjectProductsRepository {
   /** ¿La oportunidad existe, no está eliminada y es de este proyecto? (RN-03.56). */
   opportunityBelongsToProject(projectId: string, opportunityId: string, tx?: TransactionContext): Promise<boolean>;
   create(input: CreateProjectProductInput, tx: TransactionContext): Promise<string>;
-  update(projectId: string, projectProductId: string, input: ProjectProductWrite, actorId: string | null, tx: TransactionContext): Promise<void>;
+  /** Escribe **solo** las columnas presentes en `input` (Revisión E5, M3). */
+  update(projectId: string, projectProductId: string, input: Partial<ProjectProductWrite>, actorId: string | null, tx: TransactionContext): Promise<void>;
   softDelete(projectId: string, projectProductId: string, actorId: string | null, tx: TransactionContext): Promise<void>;
   /** Otras asociaciones activas del mismo producto en el proyecto (RN-03.61). */
   countOtherActive(projectId: string, productId: string, excludeId: string, tx: TransactionContext): Promise<number>;

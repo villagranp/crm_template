@@ -2,8 +2,9 @@ import { ApiPropertyOptional, OmitType } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsIn, IsOptional, IsUUID } from 'class-validator';
 
+import { toLowerCaseUuid } from '@/common/dto/uuid-transform';
 import { PaginationQueryDto } from '@/common/dto/pagination-query.dto';
-import { IsCalendarDateString, MAX_FILTER_VALUES, toList } from '@/modules/projects/dto/dto-helpers';
+import { IsCalendarDateString, MAX_FILTER_VALUES, toList, toUuidList } from '@/modules/projects/dto/dto-helpers';
 
 import { OPPORTUNITY_DATE_FIELDS, OPPORTUNITY_SORT_FIELDS, type OpportunityDateField, type OpportunitySortField } from '../ports/opportunities.repository.port';
 import { OUTCOMES } from '../opportunity-result-rules';
@@ -14,7 +15,7 @@ const DATE_NOTE = 'Fecha de calendario `YYYY-MM-DD`';
 function uuidList(): PropertyDecorator {
   return (target: object, property: string | symbol) => {
     IsOptional()(target, property);
-    Transform(toList)(target, property);
+    Transform(toUuidList)(target, property);
     IsArray()(target, property);
     ArrayMaxSize(MAX_FILTER_VALUES)(target, property);
     IsUUID('all', { each: true })(target, property);
@@ -96,6 +97,7 @@ export class StageSummaryQueryDto extends OmitType(OpportunityQueryDto, ['page',
 export class OpportunityFormOptionsQueryDto {
   @ApiPropertyOptional({ format: 'uuid', description: 'Proyecto visible: añade `currencies` (monedas admitidas y por defecto, RN-03.78)' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   projectId?: string;
 }

@@ -14,6 +14,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 
+import { toLowerCaseUuid } from '@/common/dto/uuid-transform';
 import { PaginationMetaDto } from '@/common/dto/paginated-response.dto';
 import { PaginationQueryDto } from '@/common/dto/pagination-query.dto';
 
@@ -99,6 +100,7 @@ export class CreateContactDto {
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(MAX_ACKNOWLEDGED_DUPLICATES)
+  @Transform(toLowerCaseUuid)
   @IsUUID('all', { each: true })
   acknowledgedDuplicateIds?: string[];
 }
@@ -156,12 +158,14 @@ export class UpdateContactDto {
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(MAX_ACKNOWLEDGED_DUPLICATES)
+  @Transform(toLowerCaseUuid)
   @IsUUID('all', { each: true })
   acknowledgedDuplicateIds?: string[];
 }
 
 export class SetPrimaryContactDto {
   @ApiProperty({ format: 'uuid', description: 'Contacto activo y no eliminado de este cliente' })
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   contactId!: string;
 }

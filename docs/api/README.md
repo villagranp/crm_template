@@ -314,6 +314,24 @@ Consulta: `mode=WINDOW|HISTORY`, `projectId`, `productId`, `ownerId` (repetibles
 `INVALID_CATALOG_VALUE` admite `reason: "NOT_APPLICABLE"` para un motivo cuyo `appliesTo` no
 incluye el resultado. `RESULT_PERCENT_NOT_ALLOWED` es nuevo respecto de §L.6 (ver "Precisiones" E2b).
 
+**Revisión E5 (03 "Precisiones", Revisión E5):**
+
+- Rutas de campo: el `400 VALIDATION_FAILED` de `PUT /forecast/lines` usa el mismo formato que sus
+  `422` (`lines[i].campo`, p. ej. `lines[0].quantity`); antes era `lines.0.quantity`. Aplica a todo
+  `400` del `ValidationPipe` con listas (API-STANDARDS §8).
+- `PATCH /opportunities/{id}` puede responder `409 RESOURCE_CONFLICT` (`details[0].field =
+  "estimatedAmount"`) si las entradas de la tasa (monto, moneda, fecha o país) cambian de forma
+  concurrente en los 3 intentos; nada se guarda y el cliente reintenta.
+- `PATCH /projects/{id}/products/{ppId}` responde `404` (no `500`) si otra petición quitó la
+  asociación mientras esperaba; solo escribe las columnas que cambian y, sin cambios efectivos, no
+  escribe ni audita.
+- `GET /forecast/rows`: `ForecastRowDto.hasActiveAssociation` (propiedad adicional compatible). Sin
+  asociación activa, ninguna celda de la fila es `editable` (guardarla daría `422
+  PRODUCT_NOT_ASSOCIATED`).
+- Política, estimación, rango de fechas y cambios de las escrituras de proyectos, productos
+  asociados, oportunidades, etapas, resultados y forecast se deciden sobre la fila bloqueada: un
+  `403`, `404` o `422 INVALID_DATE_RANGE` puede deberse a un cambio concurrente.
+
 ## CRM — Piezas transversales del Módulo 3 (sin endpoints propios)
 
 Códigos que emiten `CurrencyConversionService` y `UnitConversionResolver` (03 "Precisiones de

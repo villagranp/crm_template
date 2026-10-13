@@ -6,6 +6,32 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 ## [Unreleased]
 
 ### Fixed
+- Registro de peticiones (`RequestLoggingInterceptor`): anotaba `statusCode: 500` en respuestas
+  `401`/`404`/`422` producidas por errores de aplicación; ahora registra al terminar la respuesta con
+  el status real.
+- **CRM Módulo 3 — revisión de código del backend** (`03-proyectos.md`, "Precisiones", Revisión E5):
+  - Concurrencia: proyectos, productos asociados, oportunidades (edición, etapa, resultado,
+    eliminación) y forecast deciden política, plan de la estimación, rango de fechas y cambios sobre
+    la fila **bloqueada**, no sobre la lectura previa. Un PATCH ya no pisa con valores viejos lo que
+    otra petición guardó (estimación de la oportunidad, cantidad de un producto asociado); un
+    producto quitado mientras se editaba responde `404` y unas fechas cambiadas a la vez `422
+    INVALID_DATE_RANGE` (antes `500`); el antiguo asesor sin `administrar` recibe `403`.
+  - Sin conexiones extra del pool dentro de transacciones con bloqueos: `CustomerReferenceGuard`
+    recibe los alcances resueltos antes (`accessScopes`; con `tx` son obligatorios por tipo) y la
+    unidad de tonelaje se lee antes de la transacción (`UnitConversionResolver.resolve(lookup, tx,
+    tonnageUnit)`).
+  - Forecast: las reglas de una página o de un lote se resuelven en una sola tanda
+    (`UnitConversionResolver.resolveMany`, mismos resultados); las celdas de un producto sin
+    asociación activa ya no son editables (`hasActiveAssociation`).
+  - Reloj del negocio único (`BUSINESS_CLOCK`, alias `FORECAST_CLOCK`) para el forecast, la
+    eliminación del proyecto y la de un producto asociado.
+  - UUID normalizados a minúsculas en los DTO del CRM (`toLowerCaseUuid`) y comparados sin
+    distinguir mayúsculas.
+  - Rutas de campo del `400 VALIDATION_FAILED` con índices entre corchetes (`lines[0].quantity`),
+    como los `422` (**cambio de contrato menor**: antes `lines.0.quantity`).
+  - Duplicar sin `ownerId`: si el asesor del origen no es asignable por el actor, el duplicado
+    queda a nombre del actor (antes `422 INVALID_OWNER`). Se quitó el bloqueo consultivo
+    redundante de los productos asociados (los serializa el `FOR UPDATE` del proyecto).
 - Ficha del cliente: la fecha estimada de decisión de sus proyectos se mostraba un día antes en
   UTC-6; sus tipos siguen ahora el contrato 03 F.1 (`progress` como cadena decimal).
 - **CRM Módulo 2 — revisión de código** (`02-clientes-cuentas.md`, "Precisiones de implementación"):
@@ -27,6 +53,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   - NGINX: una sola cabecera `Cache-Control: no-store` en las respuestas de la API.
 
 ### Added
+- **CRM Módulo 3 — pantallas:** búsqueda, alta, ficha (general, clasificación, fase, productos
+  asociados con totales, oportunidades, resultados, forecast, seguimiento, historial y adjuntos),
+  edición, duplicado, eliminación y vista de equipo de proyectos; pipeline de oportunidades en lista
+  y tablero, ficha de la oportunidad, diálogos de oportunidad, cambio de etapa y resultado; matriz del
+  forecast M+6 con borrador, conflictos y vista móvil. `ProjectPicker`, `OpportunityPicker` y
+  `ForecastMatrix` en sus barriles; `UnsavedChangesGuard` e `invalidateCrmCaches` en `crm/common`.
+- E2E de Proyectos y Forecast (`TESTING.md` §"E2E de Proyectos").
 - **CRM Módulo 3 — backend de Oportunidades y Forecast (E2b, F-17, F-18, F-20):** módulos
   `opportunities` y `forecast`. Endpoints `/opportunities` (pipeline con filtros DEF-A, resultado y
   fecha de decisión; orden por equivalente en USD), `/opportunities/form-options` (monedas admitidas

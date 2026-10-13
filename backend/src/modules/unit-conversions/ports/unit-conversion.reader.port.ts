@@ -46,4 +46,11 @@ export interface UnitConversionReader {
    */
   findRules(fromUnitId: string, toUnitId: string, scopeKeys: readonly string[], tx?: TransactionContext): Promise<ConversionRuleRecord[]>;
   findRuleById(ruleId: string, tx?: TransactionContext): Promise<ConversionRuleRecord | null>;
+  /** Familia de cada producto existente (`productId → familyId`), en una consulta (Revisión E5, m3). */
+  findProductFamilyIds(productIds: readonly string[], tx?: TransactionContext): Promise<Map<string, string>>;
+  /**
+   * Reglas hacia `toUnitId` desde cualquiera de `fromUnitIds` con `scopeKey` en `scopeKeys`,
+   * **activas o no**, en una consulta (lote del forecast; la selección es pura).
+   */
+  findRulesForMany(fromUnitIds: readonly string[], toUnitId: string, scopeKeys: readonly string[], tx?: TransactionContext): Promise<ConversionRuleRecord[]>;
 }

@@ -10,8 +10,8 @@ import { PROJECTS_REPOSITORY, type ProjectsRepository } from '@/modules/projects
 import { ProjectCatalogsService } from '@/modules/projects/project-catalogs.service';
 
 import { OpportunitiesService, type OpportunityDetailView } from './opportunities.service';
-import { canCloseOpportunity, canEditOpportunity, canReopenOpportunity } from './opportunity-access-policy';
-import { type OpportunityActor, OpportunityAccessService, toVisibleOpportunity } from './opportunity-access.service';
+import { canCloseOpportunity, canEditOpportunity, canReopenOpportunity, type OpportunityAccessScopes, type OpportunityPolicySubject } from './opportunity-access-policy';
+import { type OpportunityActor, OpportunityAccessService, toVisibleOpportunity, type VisibleOpportunity } from './opportunity-access.service';
 import {
   OPPORTUNITY_AUDIT_EVENTS,
   OPPORTUNITY_AUDIT_RESOURCE,
@@ -28,7 +28,7 @@ import {
   opportunityNotFound,
 } from './opportunity-errors';
 import { type NormalizedResult, normalizeResult, reasonAppliesTo, type ResultInput, resultIssues, sameResult } from './opportunity-result-rules';
-import { OPPORTUNITIES_REPOSITORY, type OpportunitiesRepository, type OpportunityResultRecord } from './ports/opportunities.repository.port';
+import { type LockedOpportunity, OPPORTUNITIES_REPOSITORY, type OpportunitiesRepository, type OpportunityResultRecord } from './ports/opportunities.repository.port';
 import { planStageChange, type StageChangePlan, type StageChangeRejection, type StageItem } from './stage-transition-policy';
 
 export interface StageChangeRequest {
@@ -41,6 +41,17 @@ interface StageChangeOutcome {
   readonly plan: Exclude<StageChangePlan, { kind: 'REJECT' }>;
   readonly fromStageId: string;
   readonly previousResult: OpportunityResultRecord | null;
+}
+
+/** `PUT /result`: `oportunidades.cerrar` sobre una oportunidad que el actor puede editar (RN-03.52). */
+function assertCanSetResult(actor: OpportunityActor, subject: OpportunityPolicySubject): void {
+  if (canCloseOpportunity(actor, subject)) return;
+  const missing = !canEditOpportunity(actor, subject)
+    ? actor.permissions.has(OPPORTUNITY_PERMISSIONS.edit)
+      ? OPPORTUNITY_PERMISSIONS.administer
+      : OPPORTUNITY_PERMISSIONS.edit
+    : OPPORTUNITY_PERMISSIONS.close;
+  throw new PermissionDeniedError(missing);
 }
 
 function toNormalized(result: OpportunityResultRecord): NormalizedResult {
@@ -57,8 +68,8 @@ function toNormalized(result: OpportunityResultRecord): NormalizedResult {
  * Cambio de etapa y resultado comercial (03 F.2 `stage-changes` y `PUT /result`,
  * RN-03.40–RN-03.53, DM-6, DM-15). Todo en **una** transacción con la fila del proyecto
  * y luego la de la oportunidad tomadas con `FOR UPDATE` (mismo orden que el resto del
- * módulo): la decisión se toma sobre la etapa y el resultado **bloqueados**, no sobre
- * una lectura previa. Catálogos y parámetros se leen antes de abrirla.
+ * módulo): la decisión (también la política: editar, cerrar, reabrir) se toma sobre la
+ * etapa, el resultado y el asesor **bloqueados**, no sobre una lectura previa (E2b, Revisión E5). Catálogos y parámetros se leen antes de abrirla.
  *
  * La etapa nunca toca la fase del proyecto (RN-03.36, RN-03.44): solo
  * `last_activity_at`.
@@ -96,9 +107,9 @@ export class OpportunityStageService {
     const at = new Date();
 
     const outcome = await this.transactions.run(async (tx): Promise<StageChangeOutcome> => {
-      if (!(await this.projects.lockProject(projectId, 'UPDATE', tx))) throw opportunityNotFound(opportunityId);
-      const locked = await this.opportunities.lock(opportunityId, projectId, tx);
-      if (!locked) throw opportunityNotFound(opportunityId);
+      // Visibilidad, edición, `canClose` y `canReopen` sobre la fila bloqueada (Revisión E5, M4).
+      const current = await this.service.lockForWrite(actor, opportunityId, projectId, visible.scopes, tx);
+      const { locked } = current;
       const from = stages.find((stage) => stage.id === locked.stageId);
       if (!from) throw new Error('Current stage missing from the catalog read');
       const plan = planStageChange(
@@ -108,15 +119,15 @@ export class OpportunityStageService {
           hasComment: comment !== null,
           hasResult: result !== null,
           currentResult: locked.hasResult,
-          canClose: canCloseOpportunity(actor, visible.subject),
-          canReopen: canReopenOpportunity(actor, visible.subject),
+          canClose: canCloseOpportunity(actor, current.subject),
+          canReopen: canReopenOpportunity(actor, current.subject),
         },
         stages,
         map,
       );
       if (plan.kind === 'REJECT') throw this.rejection(plan.reason, from, target);
 
-      const previous = locked.hasResult ? ((await this.opportunities.findById(opportunityId, null, tx))?.result ?? null) : null;
+      const previous = locked.hasResult ? current.record.result : null;
       if (plan.kind === 'CLOSE') {
         const closing = result as NormalizedResult;
         await this.assertResult(closing, target, outcomes, reasons, 'result.', null, tx);
@@ -185,14 +196,7 @@ export class OpportunityStageService {
    */
   async updateResult(actor: OpportunityActor, opportunityId: string, input: ResultInput): Promise<OpportunityResultRecord> {
     const visible = await this.access.findVisible(actor, opportunityId);
-    if (!canCloseOpportunity(actor, visible.subject)) {
-      const missing = !canEditOpportunity(actor, visible.subject)
-        ? actor.permissions.has(OPPORTUNITY_PERMISSIONS.edit)
-          ? OPPORTUNITY_PERMISSIONS.administer
-          : OPPORTUNITY_PERMISSIONS.edit
-        : OPPORTUNITY_PERMISSIONS.close;
-      throw new PermissionDeniedError(missing);
-    }
+    assertCanSetResult(actor, visible.subject);
     const actorId = actor.userId as string;
     const [stages, outcomes, reasons] = await Promise.all([
       this.service.stages(),
@@ -204,13 +208,12 @@ export class OpportunityStageService {
     const at = new Date();
 
     const change = await this.transactions.run(async (tx) => {
-      if (!(await this.projects.lockProject(projectId, 'UPDATE', tx))) throw opportunityNotFound(opportunityId);
-      const locked = await this.opportunities.lock(opportunityId, projectId, tx);
-      if (!locked) throw opportunityNotFound(opportunityId);
-      const stage = stages.find((item) => item.id === locked.stageId);
+      // Política sobre la fila bloqueada (Revisión E5, M4): el asesor pudo cambiar entre tanto.
+      const locked = await this.lockedForResult(actor, opportunityId, projectId, visible.scopes, tx);
+      const stage = stages.find((item) => item.id === locked.locked.stageId);
       if (!stage) throw new Error('Current stage missing from the catalog read');
       if (!isClosedStage(stage)) throw opportunityNotClosedError(stage);
-      const current = (await this.opportunities.findById(opportunityId, null, tx))?.result ?? null;
+      const current = locked.record.result;
       await this.assertResult(result, stage, outcomes, reasons, '', current?.reason?.id ?? null, tx);
       if (current && sameResult(toNormalized(current), result)) return { changed: false as const, previous: current };
       await this.opportunities.upsertResult(opportunityId, result, actorId, at, tx);
@@ -233,6 +236,24 @@ export class OpportunityStageService {
     }
     if (!after.result) throw new Error('Opportunity result missing after write');
     return after.result;
+  }
+
+  /** Bloqueos (proyecto y oportunidad) y política de `PUT /result` sobre la fila bloqueada. */
+  private async lockedForResult(
+    actor: OpportunityActor,
+    opportunityId: string,
+    projectId: string,
+    scopes: OpportunityAccessScopes,
+    tx: TransactionContext,
+  ): Promise<VisibleOpportunity & { readonly locked: LockedOpportunity }> {
+    if (!(await this.projects.lockProject(projectId, 'UPDATE', tx))) throw opportunityNotFound(opportunityId);
+    const locked = await this.opportunities.lock(opportunityId, projectId, tx);
+    if (!locked) throw opportunityNotFound(opportunityId);
+    const record = await this.opportunities.findById(opportunityId, scopes.view, tx);
+    if (!record) throw opportunityNotFound(opportunityId);
+    const visible = toVisibleOpportunity(record, scopes);
+    assertCanSetResult(actor, visible.subject);
+    return { ...visible, locked };
   }
 
   /**

@@ -107,6 +107,54 @@ describe('OpportunitiesService', () => {
     expect(f.opportunities.update).toHaveBeenCalledWith('opp-1', { nextAction: 'Visitar' }, 'me', f.tx);
   });
 
+  it('edición: el plan y los cambios salen de la fila bloqueada; un monto concurrente sobrevive a un PATCH ajeno a la estimación (Revisión E5, M2)', async () => {
+    const stale = record({ estimatedAmount: '100.0000', currencyCode: 'USD', exchangeRate: '1.00000000', exchangeRateDate: '2026-10-01', estimatedAmountUsd: '100.0000' });
+    const fresh = { ...stale, estimatedAmount: '900.0000', estimatedAmountUsd: '900.0000', nextAction: 'Otra' };
+    const f = fakes(stale);
+    f.opportunities.findById.mockImplementation(async (...args: unknown[]) => (args[2] === f.tx ? fresh : stale));
+    await services(f).service.update(actorWith(ADVISOR), 'opp-1', { nextAction: 'Visitar' });
+    expect(f.opportunities.update).toHaveBeenCalledWith('opp-1', { nextAction: 'Visitar' }, 'me', f.tx);
+    expect(f.audit.record.mock.calls[0]?.[2]).toMatchObject({ before: expect.objectContaining({ estimatedAmount: '900.0000', nextAction: 'Otra' }) });
+  });
+
+  it('edición: si las entradas de la tasa cambiaron bajo el bloqueo, descarta sin escribir y reintenta con las nuevas (Revisión E5, M2)', async () => {
+    const stale = record({ estimatedAmount: '100.0000', currencyCode: 'USD', exchangeRate: '1.00000000', exchangeRateDate: '2026-10-01', estimatedAmountUsd: '100.0000' });
+    const fresh = { ...stale, estimatedAmount: '7750.0000', estimatedAmountUsd: '7750.0000' };
+    const f = fakes(stale);
+    f.opportunities.findById.mockImplementation(async (...args: unknown[]) => (args[2] === f.tx ? fresh : stale));
+    const view = await services(f).service.update(actorWith(ADVISOR), 'opp-1', { currencyCode: 'gtq' });
+    expect(f.currencies.convertToBase.mock.calls.map((call: unknown[]) => (call[0] as { amount: string }).amount)).toEqual(['100.0000', '7750.0000']);
+    expect(f.calls.filter((call) => call === 'begin')).toHaveLength(2);
+    expect(f.opportunities.update).toHaveBeenCalledTimes(1);
+    expect(f.opportunities.update).toHaveBeenCalledWith('opp-1', expect.objectContaining({ estimatedAmount: '7750.0000', currencyCode: 'GTQ' }), 'me', f.tx);
+    expect(view.warnings).toEqual([expect.objectContaining({ code: 'EXCHANGE_RATE_STALE' })]);
+  });
+
+  it('edición: entradas de la tasa cambiando en cada intento → 409 RESOURCE_CONFLICT tras 3 intentos, sin escribir', async () => {
+    const stale = record({ estimatedAmount: '100.0000', currencyCode: 'USD', exchangeRate: '1.00000000', exchangeRateDate: '2026-10-01', estimatedAmountUsd: '100.0000' });
+    const f = fakes(stale);
+    let amount = 100;
+    f.opportunities.findById.mockImplementation(async (...args: unknown[]) => {
+      if (args[2] !== f.tx) return stale;
+      amount += 1;
+      return { ...stale, estimatedAmount: `${amount}.0000` };
+    });
+    await expect(services(f).service.update(actorWith(ADVISOR), 'opp-1', { currencyCode: 'GTQ' })).rejects.toMatchObject({ code: 'RESOURCE_CONFLICT' });
+    expect(f.calls.filter((call) => call === 'begin')).toHaveLength(3);
+    expect(f.opportunities.update).not.toHaveBeenCalled();
+  });
+
+  it('edición: asesor reasignado entre la lectura y el bloqueo → 403 sin escribir (Revisión E5, M4)', async () => {
+    const f = fakes();
+    f.opportunities.findById.mockImplementation(async (...args: unknown[]) =>
+      args[2] === f.tx ? record({ owner: { id: 'other', displayName: 'Otro' }, project: { id: 'project-1', code: 'P', name: 'P', ownerId: 'other', countryId: 'gt' } }) : record(),
+    );
+    const { service } = services(f);
+    // Sin `administrar` el antiguo dueño ya no edita.
+    await expect(service.update(actorWith(ADVISOR), 'opp-1', { nextAction: 'Visitar' })).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+    expect(f.opportunities.update).not.toHaveBeenCalled();
+  });
+
   it('eliminar una cerrada → 409 OPPORTUNITY_CLOSED (decidido con la fila bloqueada), sin borrar', async () => {
     const f = fakes(record({ stage: STAGES.GANADO }));
     await expect(services(f).service.remove(actorWith(SUPERVISOR), 'opp-1')).rejects.toMatchObject({ code: 'OPPORTUNITY_CLOSED' });
@@ -160,6 +208,18 @@ describe('OpportunityStageService', () => {
     expect(f.opportunities.insertResultHistory).toHaveBeenCalledWith(expect.objectContaining({ action: 'CLEARED', result: null }), f.tx);
     expect(f.opportunities.changeStage).toHaveBeenCalledWith('opp-1', expect.objectContaining({ closedAt: null }), 'me', f.tx);
     expect(f.audit.record.mock.calls.map((call) => call[0])).toEqual(['crm.opportunity.stage_changed', 'crm.opportunity_result.cleared']);
+  });
+
+  it('cierre y resultado: la política (editar, cerrar) se evalúa sobre la fila bloqueada → 403 si el asesor cambió (Revisión E5, M4)', async () => {
+    const other = { owner: { id: 'other', displayName: 'Otro' }, project: { id: 'project-1', code: 'P', name: 'P', ownerId: 'other', countryId: 'gt' } };
+    const f = fakes(record({ stage: STAGES.COTIZANDO }));
+    f.opportunities.findById.mockImplementation(async (...args: unknown[]) => (args[2] === f.tx ? record({ stage: STAGES.COTIZANDO, ...other }) : record({ stage: STAGES.COTIZANDO })));
+    await expect(services(f).stages.changeStage(actorWith(ADVISOR), 'opp-1', { toStageId: STAGES.GANADO.id, result: WON })).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+    const g = fakes(record({ stage: STAGES.GANADO }));
+    g.opportunities.findById.mockImplementation(async (...args: unknown[]) => (args[2] === g.tx ? record({ stage: STAGES.GANADO, ...other }) : record({ stage: STAGES.GANADO })));
+    await expect(services(g).stages.updateResult(actorWith(ADVISOR), 'opp-1', WON)).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+    expect(f.opportunities.changeStage).not.toHaveBeenCalled();
+    expect(g.opportunities.upsertResult).not.toHaveBeenCalled();
   });
 
   it('PUT /result en una abierta → 409 OPPORTUNITY_NOT_CLOSED sin escribir', async () => {

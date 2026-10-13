@@ -74,6 +74,28 @@ export class PrismaUnitConversionsRepository implements UnitConversionReader {
     return rows.map(toRule);
   }
 
+  async findProductFamilyIds(productIds: readonly string[], tx?: TransactionContext): Promise<Map<string, string>> {
+    const ids = [...new Set(productIds.filter((id) => UUID_PATTERN.test(id)))];
+    if (ids.length === 0) return new Map();
+    const rows = await prismaClientFor(this.prisma, tx).product.findMany({ where: { id: { in: ids } }, select: { id: true, familyId: true } });
+    return new Map(rows.map((row) => [row.id, row.familyId]));
+  }
+
+  async findRulesForMany(
+    fromUnitIds: readonly string[],
+    toUnitId: string,
+    scopeKeys: readonly string[],
+    tx?: TransactionContext,
+  ): Promise<ConversionRuleRecord[]> {
+    const from = [...new Set(fromUnitIds.filter((id) => UUID_PATTERN.test(id)))];
+    if (from.length === 0 || scopeKeys.length === 0 || !UUID_PATTERN.test(toUnitId)) return [];
+    const rows = await prismaClientFor(this.prisma, tx).unitConversionRule.findMany({
+      where: { fromUnitId: { in: from }, toUnitId, scopeKey: { in: [...new Set(scopeKeys)] } },
+      select: RULE_SELECT,
+    });
+    return rows.map(toRule);
+  }
+
   async findRuleById(ruleId: string, tx?: TransactionContext): Promise<ConversionRuleRecord | null> {
     if (!UUID_PATTERN.test(ruleId)) return null;
     const row = await prismaClientFor(this.prisma, tx).unitConversionRule.findUnique({ where: { id: ruleId }, select: RULE_SELECT });

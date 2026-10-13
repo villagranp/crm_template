@@ -14,7 +14,13 @@ import type { ProjectActor } from '@/modules/projects/project-access.service';
 import { PROJECT_PARAMETERS } from '@/modules/projects/project-constants';
 import { projectNotFound } from '@/modules/projects/project-errors';
 import { PROJECTS_REPOSITORY, type ProjectsRepository } from '@/modules/projects/ports/projects.repository.port';
-import { type ConversionLookup, type ResolvedConversion, UnitConversionResolver } from '@/modules/unit-conversions/unit-conversion.resolver';
+import {
+  type ConversionLookup,
+  conversionLookupKey,
+  type ResolvedConversion,
+  type TonnageUnit,
+  UnitConversionResolver,
+} from '@/modules/unit-conversions/unit-conversion.resolver';
 
 import {
   assignableLineOwners,
@@ -128,10 +134,6 @@ function unique<T>(values: readonly T[]): T[] {
   return [...new Set(values)];
 }
 
-function lookupKey(lookup: ConversionLookup): string {
-  return `${lookup.fromUnitId}|${lookup.productId ?? ''}|${lookup.projectTypeId ?? ''}`;
-}
-
 function recordAsWrite(line: ForecastLineRecord): ForecastLineWrite {
   return {
     quantity: line.quantity,
@@ -156,10 +158,11 @@ function unitRef(unit: ForecastUnit): ForecastUnit {
  * - Visibilidad con el alcance de `forecast.ver` (DM-13, H.1); edición con la política de
  *   Proyectos `canEditForecast` (RN-03.71) y el alcance de `forecast.administrar`.
  * - Guardado en lote atómico (RN-03.72): validación pura → visibilidad (404) y política
- *   (403) por proyecto → reglas de conversión resueltas antes de la transacción → una
- *   transacción que bloquea los proyectos (`FOR UPDATE`, orden de id) y las líneas
- *   existentes, comprueba asociación, unidad y `expectedUpdatedAt`, hace *upsert* por la
- *   clave única y actualiza `last_activity_at`. La auditoría va después (PLAN-ADMIN §10).
+ *   (403) por proyecto → unidad de tonelaje y reglas resueltas antes de la transacción →
+ *   una transacción que bloquea los proyectos (`FOR UPDATE`, orden de id), **repite** la
+ *   autorización sobre ellos, bloquea las líneas existentes, comprueba asociación, unidad
+ *   y `expectedUpdatedAt`, hace *upsert* por la clave única y actualiza
+ *   `last_activity_at`. Dentro no se abre ninguna conexión del pool (AGENTS §9.12). La auditoría va después (PLAN-ADMIN §10).
  */
 @Injectable()
 export class ForecastService {
@@ -205,14 +208,19 @@ export class ForecastService {
     const items = page.items.map((record) => {
       const canEdit = canEditProjectForecast(actor, { ownerId: record.project.owner.id, countryId: record.project.countryId, visible: record.project.visible }, scopes);
       const conversion =
-        conversions.get(lookupKey({ fromUnitId: record.defaultUnit.id, productId: record.product.id, projectTypeId: record.project.projectTypeId })) ?? null;
+        conversions.get(conversionLookupKey({ fromUnitId: record.defaultUnit.id, productId: record.product.id, projectTypeId: record.project.projectTypeId })) ?? null;
       const cells: ForecastCellView[] = selection.periods.map((period) => {
         const line = linesByCell.get(forecastLineKey({ projectId: record.project.id, productId: record.product.id, year: period.year, month: period.month })) ?? null;
         return {
           ...period,
           line,
           hasConversion: line ? line.tonnage !== null : conversion !== null,
-          editable: isCellEditable({ rowCanEdit: canEdit, mode: selection.mode, inWindow: isEditablePeriod(window, period) }),
+          editable: isCellEditable({
+            rowCanEdit: canEdit,
+            hasActiveAssociation: record.hasActiveAssociation,
+            mode: selection.mode,
+            inWindow: isEditablePeriod(window, period),
+          }),
         };
       });
       const rowLines = cells.map((cell) => cell.line).filter((line): line is ForecastLineRecord => line !== null);
@@ -245,8 +253,10 @@ export class ForecastService {
     const window = await this.window();
     const lines = validateForecastBatch(window, input);
     const scopes = await this.scopes(actor);
-    const projectsById = await this.authorizeProjects(actor, lines, scopes);
-    await this.authorizeOwners(actor, lines, projectsById, scopes);
+    // Autorización temprana (404/403/422 sin abrir la transacción); se repite sobre los
+    // proyectos bloqueados (Revisión E5, M4).
+    const projectsBefore = await this.authorizeProjects(actor, lines, scopes);
+    await this.authorizeOwners(actor, lines, projectsBefore, scopes);
 
     // Lecturas previas (fuera de la transacción): líneas y asociaciones actuales para
     // resolver de antemano las reglas de todas las unidades candidatas.
@@ -255,26 +265,44 @@ export class ForecastService {
     const [existingBefore, associationsBefore] = await Promise.all([this.repository.findLines(keys), this.repository.associationUnits(pairs)]);
     const existingByKey = new Map(existingBefore.map((line) => [forecastLineKey(line), line]));
     const associationByPair = new Map(associationsBefore.map((association) => [forecastPairKey(association), association.unitId]));
+    // La unidad de tonelaje (parámetro, pool) se lee una sola vez y antes de la transacción;
+    // dentro, las reglas que falten se resuelven solo con la conexión de `tx` (Revisión E5, M1).
+    const tonnageUnit = await this.conversions.tonnageUnit();
     const conversions = await this.resolveAll(
       lines.flatMap((line) => {
-        const project = this.mustProject(projectsById, line.projectId);
+        const project = this.mustProject(projectsBefore, line.projectId);
         const candidates = line.unitId
           ? [line.unitId]
           : [existingByKey.get(forecastLineKey(line))?.unit.id, associationByPair.get(forecastPairKey(line))].filter((id): id is string => id !== undefined);
         return unique(candidates).map((unitId) => ({ fromUnitId: unitId, productId: line.productId, projectTypeId: project.projectTypeId }));
       }),
+      tonnageUnit,
     );
 
     const at = new Date();
     const outcome = await this.transactions.run(async (tx) => {
       // Orden ascendente de id: dos lotes con proyectos en común no se interbloquean.
-      for (const projectId of [...projectsById.keys()].sort()) {
+      for (const projectId of [...projectsBefore.keys()].sort()) {
         if (!(await this.projects.lockProject(projectId, 'UPDATE', tx))) throw projectNotFound(projectId);
       }
+      // Visibilidad, política y asesores sobre los proyectos bloqueados (Revisión E5, M4).
+      const projectsById = await this.authorizeProjects(actor, lines, scopes, tx);
+      await this.authorizeOwners(actor, lines, projectsById, scopes, tx);
       const associations = new Map((await this.repository.associationUnits(pairs, tx)).map((association) => [forecastPairKey(association), association.unitId]));
       const locked = new Map((await this.repository.lockLines(keys, tx)).map((line) => [forecastLineKey(line), line]));
       const units = await this.validateReferences(lines, associations, locked, tx);
       this.assertFresh(lines, locked);
+      // Reglas que no se resolvieron de antemano (la unidad o el tipo del proyecto cambiaron
+      // entre la lectura previa y el bloqueo): en lote y con la conexión de la transacción.
+      const missing = lines.flatMap((line) => {
+        const project = this.mustProject(projectsById, line.projectId);
+        const unitId = line.unitId ?? locked.get(forecastLineKey(line))?.unit.id ?? (associations.get(forecastPairKey(line)) as string);
+        const lookup = { fromUnitId: unitId, productId: line.productId, projectTypeId: project.projectTypeId };
+        return conversions.has(conversionLookupKey(lookup)) ? [] : [lookup];
+      });
+      if (missing.length > 0) {
+        for (const [key, value] of await this.conversions.resolveMany(missing, { tx, tonnageUnit })) conversions.set(key, value);
+      }
 
       const results: SavedForecastLine[] = [];
       const changed: ChangedLine[] = [];
@@ -295,8 +323,7 @@ export class ForecastService {
         }
 
         const lookup = { fromUnitId: unitId, productId: line.productId, projectTypeId: project.projectTypeId };
-        // Sin regla resuelta de antemano (la unidad cambió entre la lectura previa y el bloqueo): se resuelve en la transacción.
-        const conversion = conversions.has(lookupKey(lookup)) ? (conversions.get(lookupKey(lookup)) ?? null) : await this.conversions.resolve(lookup, tx);
+        const conversion = conversions.get(conversionLookupKey(lookup)) ?? null;
         const write: ForecastLineWrite = {
           quantity: line.quantity,
           unitId,
@@ -326,7 +353,7 @@ export class ForecastService {
     const created = outcome.changed.filter((line) => line.kind === 'created').length;
     this.logger.info('forecast_lines_saved', {
       correlationId: actor.audit.correlationId,
-      projectIds: [...projectsById.keys()],
+      projectIds: [...projectsBefore.keys()],
       created,
       updated: outcome.changed.length - created,
       unchanged: outcome.unchanged,
@@ -364,17 +391,24 @@ export class ForecastService {
     };
   }
 
-  /** Reglas vigentes de cada búsqueda distinta (`null` = "sin conversión"). Fuera de transacción. */
-  private async resolveAll(lookups: readonly ConversionLookup[]): Promise<Map<string, ResolvedConversion | null>> {
-    const distinct = new Map(lookups.map((lookup) => [lookupKey(lookup), lookup]));
-    const entries = await Promise.all([...distinct.entries()].map(async ([key, lookup]) => [key, await this.conversions.resolve(lookup)] as const));
-    return new Map(entries);
+  /**
+   * Reglas vigentes de cada búsqueda distinta (`null` = "sin conversión"), fuera de
+   * transacción y en lote: una lectura de la unidad de tonelaje, una de familias y una de
+   * reglas, sea cual sea el número de filas (Revisión E5, m3).
+   */
+  private async resolveAll(lookups: readonly ConversionLookup[], tonnageUnit?: TonnageUnit): Promise<Map<string, ResolvedConversion | null>> {
+    return this.conversions.resolveMany(lookups, tonnageUnit ? { tonnageUnit } : {});
   }
 
   /** Visibilidad (404) y política de edición (403) de cada proyecto del lote, en orden de aparición. */
-  private async authorizeProjects(actor: ProjectActor, lines: readonly ValidatedForecastLine[], scopes: ForecastScopes): Promise<Map<string, ForecastProjectRecord>> {
+  private async authorizeProjects(
+    actor: ProjectActor,
+    lines: readonly ValidatedForecastLine[],
+    scopes: ForecastScopes,
+    tx?: TransactionContext,
+  ): Promise<Map<string, ForecastProjectRecord>> {
     const projectIds = unique(lines.map((line) => line.projectId));
-    const visible = new Map((await this.repository.findVisibleProjects(projectIds, scopes.view)).map((project) => [project.id.toLowerCase(), project]));
+    const visible = new Map((await this.repository.findVisibleProjects(projectIds, scopes.view, tx)).map((project) => [project.id.toLowerCase(), project]));
     for (const projectId of projectIds) {
       if (!visible.has(projectId)) throw projectNotFound(projectId);
     }
@@ -397,6 +431,7 @@ export class ForecastService {
     lines: readonly ValidatedForecastLine[],
     projects: ReadonlyMap<string, ForecastProjectRecord>,
     scopes: ForecastScopes,
+    tx?: TransactionContext,
   ): Promise<void> {
     const foreign = lines.filter((line) => line.ownerId !== null && line.ownerId !== this.mustProject(projects, line.projectId).ownerId.toLowerCase());
     const notEditable = foreign.filter((line) => !canSetLineOwner(actor, line.ownerId as string, this.mustProject(projects, line.projectId).ownerId.toLowerCase()));
@@ -411,7 +446,7 @@ export class ForecastService {
     const candidates = unique(foreign.map((line) => line.ownerId as string));
     const eligible = new Set<string>();
     for (const ownerId of candidates) {
-      const found = await this.projects.findEligibleOwner(ownerId, assignable, FORECAST_PERMISSIONS.view);
+      const found = await this.projects.findEligibleOwner(ownerId, assignable, FORECAST_PERMISSIONS.view, tx);
       if (found) eligible.add(found.toLowerCase());
     }
     const issues = foreign.filter((line) => !eligible.has(line.ownerId as string)).map((line) => lineIssue(line.index, 'ownerId', FORECAST_ERROR_CODES.invalidOwner));

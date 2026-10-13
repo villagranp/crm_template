@@ -5,7 +5,7 @@ import type { VisibilityScopeResolver } from '@/modules/access/visibility-scope.
 import type { AuditService } from '@/modules/audit/audit.service';
 import type { ParameterReader } from '@/modules/parameters/parameter-reader';
 import type { ProjectsRepository } from '@/modules/projects/ports/projects.repository.port';
-import type { UnitConversionResolver } from '@/modules/unit-conversions/unit-conversion.resolver';
+import { conversionLookupKey, type UnitConversionResolver } from '@/modules/unit-conversions/unit-conversion.resolver';
 
 import { ForecastService } from './forecast.service';
 import type { ForecastLineRecord, ForecastRepository, ForecastRowRecord } from './ports/forecast.repository.port';
@@ -52,8 +52,21 @@ function existingLine(overrides: Partial<ForecastLineRecord> = {}): ForecastLine
   };
 }
 
+const TON = { id: 'ton', code: 'TON', symbol: 't' };
+
 function setup(options: { permissions?: string[]; view?: VisibilityScope; administer?: VisibilityScope } = {}) {
   const calls: string[] = [];
+  // Revisión E5 (M1): dentro de la transacción nada puede leer por el pool. Los dobles de
+  // las lecturas sin `tx` fallan si se llaman mientras la transacción está abierta.
+  let inTransaction = false;
+  const poolOnly =
+    <A extends unknown[], R>(name: string, read: (...args: A) => R) =>
+    (...args: A): R => {
+      if (inTransaction && !args.includes(TX) && !args.some((arg) => typeof arg === 'object' && arg !== null && (arg as { tx?: unknown }).tx === TX)) {
+        throw new Error(`${name} used the pool inside the transaction`);
+      }
+      return read(...args);
+    };
   const track =
     <T>(name: string, value: T) =>
     (...args: unknown[]) => {
@@ -64,7 +77,7 @@ function setup(options: { permissions?: string[]; view?: VisibilityScope; admini
     listRows: jest.fn(),
     listLines: jest.fn().mockResolvedValue([]),
     totals: jest.fn().mockResolvedValue([]),
-    findVisibleProjects: jest.fn(track('findVisibleProjects', [{ id: P1, ownerId: USER, countryId: 'gt', projectTypeId: 'type-1' }])),
+    findVisibleProjects: jest.fn(poolOnly('findVisibleProjects', track('findVisibleProjects', [{ id: P1, ownerId: USER, countryId: 'gt', projectTypeId: 'type-1' }]))),
     findLines: jest.fn(track('findLines', [])),
     lockLines: jest.fn(track('lockLines', [])),
     associationUnits: jest.fn(track('associationUnits', [{ projectId: P1, productId: PRODUCT, unitId: UNIT_ASSOC }])),
@@ -75,30 +88,46 @@ function setup(options: { permissions?: string[]; view?: VisibilityScope; admini
   const projects = {
     lockProject: jest.fn(track('lockProject', true)),
     touchLastActivity: jest.fn(track('touchLastActivity', undefined)),
-    findEligibleOwner: jest.fn(track('findEligibleOwner', (id: string) => id)),
+    findEligibleOwner: jest.fn(poolOnly('findEligibleOwner', track('findEligibleOwner', (id: string) => id))),
   };
   const transactions: TransactionRunner = {
     run: jest.fn(async <T>(work: (tx: TransactionContext) => Promise<T>) => {
       calls.push('tx:begin');
-      const result = await work(TX);
-      calls.push('tx:commit');
-      return result;
+      inTransaction = true;
+      try {
+        const result = await work(TX);
+        calls.push('tx:commit');
+        return result;
+      } finally {
+        inTransaction = false;
+      }
     }) as TransactionRunner['run'],
   };
   const permissions = new Set(options.permissions ?? ['forecast.ver', 'forecast.editar']);
   const scopeResolver = {
-    resolveMany: jest.fn(async (_userId: string, requested: string[]) => {
+    resolveMany: jest.fn(poolOnly('scopeResolver.resolveMany', async (_userId: string, requested: string[]) => {
       const map = new Map<string, VisibilityScope>();
       if (requested.includes('forecast.ver')) map.set('forecast.ver', options.view ?? OWN_SCOPE);
       if (requested.includes('forecast.administrar') && options.administer) map.set('forecast.administrar', options.administer);
       return map;
-    }),
+    })),
   };
+  const ruleFor = (lookup: { fromUnitId: string }) => (lookup.fromUnitId === UNIT_ASSOC ? RULE : null);
   const conversions = {
-    resolve: jest.fn(track('resolve', (lookup: { fromUnitId: string }) => (lookup.fromUnitId === UNIT_ASSOC ? RULE : null))),
+    resolve: jest.fn(poolOnly('resolve', track('resolve', ruleFor))),
+    tonnageUnit: jest.fn(poolOnly('tonnageUnit', track('tonnageUnit', TON))),
+    resolveMany: jest.fn(
+      poolOnly('resolveMany', (lookups: { fromUnitId: string; productId?: string | null; projectTypeId?: string | null }[], context: { tx?: unknown; tonnageUnit?: unknown } = {}) => {
+        if (context.tonnageUnit === undefined && inTransaction) throw new Error('resolveMany read the tonnage unit inside the transaction');
+        calls.push(`resolveMany${context.tx === TX ? '@tx' : ''}`);
+        return Promise.resolve(new Map(lookups.map((lookup) => [conversionLookupKey(lookup), ruleFor(lookup)])));
+      }),
+    ),
     tonnageFor: jest.fn((quantity: string) => (quantity === '10.0000' ? '5.0000' : '1.0000')),
   };
-  const parameters = { get: jest.fn((key: string) => Promise.resolve(key === 'crm.forecast.horizonte_meses' ? 6 : 'America/Guatemala')) };
+  const parameters = {
+    get: jest.fn(poolOnly('parameters.get', (key: string) => Promise.resolve(key === 'crm.forecast.horizonte_meses' ? 6 : 'America/Guatemala'))),
+  };
   const audit = { record: jest.fn(track('audit', undefined)) };
   const logger = { info: jest.fn() };
   const service = new ForecastService(
@@ -127,9 +156,11 @@ describe('ForecastService.save (03 F.3)', () => {
       'findVisibleProjects',
       'findLines',
       'associationUnits',
-      'resolve',
+      'tonnageUnit',
+      'resolveMany',
       'tx:begin',
       'lockProject@tx',
+      'findVisibleProjects@tx',
       'associationUnits@tx',
       'lockLines@tx',
       'findUnits@tx',
@@ -285,7 +316,7 @@ describe('ForecastService.save (03 F.3)', () => {
       code: 'INVALID_OWNER',
       details: [{ field: 'lines[0].ownerId', code: 'INVALID_OWNER', index: 0 }],
     });
-    expect(projects.findEligibleOwner).toHaveBeenCalledWith('user-9', { kind: 'FILTERED', userIds: [USER, OTHER], countryIds: [] }, 'forecast.ver');
+    expect(projects.findEligibleOwner).toHaveBeenCalledWith('user-9', { kind: 'FILTERED', userIds: [USER, OTHER], countryIds: [] }, 'forecast.ver', undefined);
   });
 
   it('dentro de la transacción: producto no asociado y unidad inactiva, todas las incidencias, nada escrito', async () => {
@@ -338,6 +369,16 @@ describe('ForecastService.save (03 F.3)', () => {
     expect(audit.record).not.toHaveBeenCalled();
   });
 
+  it('proyecto reasignado entre la lectura y el bloqueo: la política se repite sobre el bloqueado → 403 sin escribir (Revisión E5, M4)', async () => {
+    const { service, repository, audit, actor } = setup();
+    repository.findVisibleProjects.mockImplementation(async (...args: unknown[]) =>
+      args[2] === TX ? [{ id: P1, ownerId: OTHER, countryId: 'gt', projectTypeId: 'type-1' }] : [{ id: P1, ownerId: USER, countryId: 'gt', projectTypeId: 'type-1' }],
+    );
+    await expect(service.save(actor, [LINE])).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+    expect(repository.createLine).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
   it('proyecto eliminado entre la lectura y el bloqueo: 404', async () => {
     const { service, projects, actor } = setup();
     projects.lockProject.mockResolvedValue(false);
@@ -348,19 +389,35 @@ describe('ForecastService.save (03 F.3)', () => {
     const { service, repository, conversions, actor } = setup();
     repository.lockLines.mockResolvedValue([existingLine({ unit: unit(UNIT_OTHER) })]);
     await service.save(actor, [{ ...LINE, quantity: '2' }]);
-    expect(conversions.resolve).toHaveBeenLastCalledWith({ fromUnitId: UNIT_OTHER, productId: PRODUCT, projectTypeId: 'type-1' }, TX);
+    expect(conversions.resolveMany).toHaveBeenLastCalledWith([{ fromUnitId: UNIT_OTHER, productId: PRODUCT, projectTypeId: 'type-1' }], { tx: TX, tonnageUnit: TON });
+    expect(conversions.resolve).not.toHaveBeenCalled();
   });
 });
 
 describe('ForecastService.rows / totals', () => {
-  function row(overrides: Partial<ForecastRowRecord['project']> = {}): ForecastRowRecord {
+  function row(overrides: Partial<ForecastRowRecord['project']> = {}, hasActiveAssociation = true): ForecastRowRecord {
     return {
       project: { id: P1, code: 'PRY-1', name: 'Uno', owner: { id: USER, displayName: 'Uno' }, countryId: 'gt', projectTypeId: null, visible: true, ...overrides },
       product: { id: PRODUCT, sku: 'SKU', description: 'Producto', family: { id: 'f', code: 'F', name: 'F' } },
       defaultUnit: { id: UNIT_ASSOC, code: 'VAR', symbol: 'var', dimension: 'COUNT' },
       lastUpdatedAt: null,
+      hasActiveAssociation,
     };
   }
+
+  it('fila sin asociación activa (producto quitado): se ve con sus líneas, pero ninguna celda es editable (Revisión E5, m5)', async () => {
+    const { service, repository, conversions, actor } = setup();
+    repository.listRows.mockResolvedValue({ items: [row({}, false), row()], totalItems: 2, page: 1, pageSize: 20 });
+    repository.listLines.mockResolvedValue([existingLine({ tonnage: '1.0000' })]);
+    const page = await service.rows(actor, { mode: 'WINDOW', projectIds: [], productIds: [], ownerIds: [], page: 1, pageSize: 20, sortBy: 'projectCode', sortOrder: 'asc' });
+    expect(page.items[0]?.canEdit).toBe(true);
+    expect(page.items[0]?.cells.map((cell) => cell.editable)).toEqual([false, false, false, false, false, false]);
+    expect(page.items[0]?.cells[0]?.line).toMatchObject({ id: 'line-1' });
+    expect(page.items[1]?.cells.every((cell) => cell.editable)).toBe(true);
+    // Las reglas de toda la página se resuelven en un lote (m3).
+    expect(conversions.resolveMany).toHaveBeenCalledTimes(1);
+    expect(conversions.resolve).not.toHaveBeenCalled();
+  });
 
   it('filas: una celda por período; canEdit y editable de la misma política; ajeno sin administrar o no visible → solo lectura', async () => {
     const { service, repository, actor } = setup({ view: TEAM_SCOPE });

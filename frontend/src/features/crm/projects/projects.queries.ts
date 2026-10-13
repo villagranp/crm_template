@@ -1,5 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { invalidateCrmCaches } from '@/features/crm/common/crm-cache';
 import { createScopedQueryKeys, type ListQuery } from '@/lib/query-keys';
 
 import {
@@ -134,7 +135,10 @@ export function useConversionPreview(lookup: ConversionLookup | null) {
   });
 }
 
-/** Tras cambiar un proyecto: listas (búsqueda y equipo) y lo que cuelga de él. */
+/**
+ * Tras cambiar un proyecto: listas (búsqueda y equipo), lo que cuelga de él y
+ * los proyectos de la ficha del cliente (AC-03.14).
+ */
 export function useInvalidateProject() {
   const queryClient = useQueryClient();
   return (projectId: string) =>
@@ -142,6 +146,7 @@ export function useInvalidateProject() {
       queryClient.invalidateQueries({ queryKey: projectKeys.lists() }),
       queryClient.invalidateQueries({ queryKey: projectKeys.teamLists() }),
       queryClient.invalidateQueries({ queryKey: projectKeys.of(projectId) }),
+      invalidateCrmCaches(queryClient, ['customerProjects']),
     ]);
 }
 
@@ -153,6 +158,7 @@ export function useCreateProject() {
       Promise.all([
         queryClient.invalidateQueries({ queryKey: projectKeys.lists() }),
         queryClient.invalidateQueries({ queryKey: projectKeys.teamLists() }),
+        invalidateCrmCaches(queryClient, ['customerProjects']),
       ]),
   });
 }
@@ -162,9 +168,10 @@ export function useUpdateProject(projectId: string) {
   const invalidate = useInvalidateProject();
   return useMutation({
     mutationFn: (input: UpdateProjectInput) => updateProject(projectId, input),
+    // Código, nombre y asesor se muestran también en el forecast y en las oportunidades.
     onSuccess: (project) => {
       queryClient.setQueryData(projectKeys.detail(projectId), project);
-      return invalidate(projectId);
+      return Promise.all([invalidate(projectId), invalidateCrmCaches(queryClient, ['forecast', 'opportunities'])]);
     },
   });
 }
@@ -173,13 +180,15 @@ export function useDeleteProject(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => deleteProject(projectId),
-    // Quien elimina vuelve a la búsqueda: la ficha y sus subrecursos salen de la caché.
+    // Quien elimina vuelve a la búsqueda: la ficha y sus subrecursos salen de la caché, y el
+    // proyecto deja de aparecer en el forecast, en las oportunidades y en la ficha del cliente.
     onSuccess: () => {
       queryClient.removeQueries({ queryKey: projectKeys.detail(projectId) });
       queryClient.removeQueries({ queryKey: projectKeys.of(projectId) });
       return Promise.all([
         queryClient.invalidateQueries({ queryKey: projectKeys.lists() }),
         queryClient.invalidateQueries({ queryKey: projectKeys.teamLists() }),
+        invalidateCrmCaches(queryClient, ['forecast', 'opportunities', 'customerProjects']),
       ]);
     },
   });
@@ -191,22 +200,32 @@ export function useDuplicateProject(sourceProjectId: string) {
     mutationFn: (input: DuplicateProjectInput) => duplicateProject(sourceProjectId, input),
     onSuccess: (project) => {
       queryClient.setQueryData(projectKeys.detail(project.id), project);
+      // El duplicado puede copiar productos asociados: aparece en el forecast y en la ficha del cliente.
       return Promise.all([
         queryClient.invalidateQueries({ queryKey: projectKeys.lists() }),
         queryClient.invalidateQueries({ queryKey: projectKeys.teamLists() }),
+        invalidateCrmCaches(queryClient, ['forecast', 'customerProjects']),
       ]);
     },
   });
 }
 
-/** Clasificación y fase cambian la ficha (y `lastActivityAt`): se recarga el detalle. */
+/**
+ * Clasificación y fase cambian la ficha (y `lastActivityAt`): se recarga el
+ * detalle. La clasificación además decide la regla de conversión, así que el
+ * forecast (tonelajes y totales) también se recarga.
+ */
 export function useUpdateClassification(projectId: string) {
   const queryClient = useQueryClient();
   const invalidate = useInvalidateProject();
   return useMutation({
     mutationFn: (input: UpdateClassificationInput) => updateClassification(projectId, input),
     onSuccess: () =>
-      Promise.all([queryClient.invalidateQueries({ queryKey: projectKeys.detail(projectId) }), invalidate(projectId)]),
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: projectKeys.detail(projectId) }),
+        invalidate(projectId),
+        invalidateCrmCaches(queryClient, ['forecast']),
+      ]),
   });
 }
 

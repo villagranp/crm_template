@@ -1,13 +1,14 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { bodyOf, lastQuery, signInWith, signOut, simulateWideScreen } from '@/features/crm/projects/testing/project-fixtures';
 import { callsTo, errorResponse, jsonResponse, mockApi, type RouteHandler } from '@/test/api-mocks';
 import { renderWithProviders } from '@/test/render-with-providers';
+import { bottomNavOffset } from '@/theme/tokens';
 
 import type { ForecastFilters } from '../forecast.api';
-import { cell, KG, row, rowsPage, savedCell, TOTALS } from '../testing/forecast-fixtures';
+import { cell, KG, row, rowsPage, savedCell, TOTALS, VAR } from '../testing/forecast-fixtures';
 
 import { ForecastMatrix } from './ForecastMatrix';
 
@@ -26,6 +27,23 @@ function api(rows: RouteHandler, extra: Record<string, RouteHandler> = {}) {
 /** Campo de una celda por producto y mes ("Cantidad de VAR-3 … en M+1 (ene 2027)"). */
 function cellInput(month: string) {
   return screen.getByRole('textbox', { name: new RegExp(`^Cantidad de VAR-3 .*${month}`) });
+}
+
+/** Pantalla estrecha (< md): tarjetas en lugar de tabla. */
+function simulateNarrowScreen(): void {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((query: string) => ({
+      matches: query.includes('max-width'),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  );
 }
 
 beforeEach(() => {
@@ -152,6 +170,83 @@ describe('ForecastMatrix (PF-03.101, PF-03.107)', () => {
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('region', { name: 'Cambios sin guardar' })).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: /^Cantidad de VAR-3 .*M\+2/ })).toHaveValue('');
+  });
+
+  it('si la consulta falla con un borrador, el borrador sigue protegido y guardable (revisión E5, F1)', async () => {
+    let failing = false;
+    const fetchMock = api(() => (failing ? errorResponse(500, 'INTERNAL_ERROR') : jsonResponse(rowsPage([row()]))), {
+      'PUT /forecast/lines': () => jsonResponse(SAVE_RESULT),
+    });
+    const view = renderWithProviders(<ForecastMatrix filters={FILTERS} />);
+    await userEvent.type(await screen.findByRole('textbox', { name: /M\+2/ }), '7');
+
+    // Cambio de filtro → la nueva consulta falla.
+    failing = true;
+    view.rerender(<ForecastMatrix filters={{ ...FILTERS, productId: 'pr-otro' }} />);
+    expect(await screen.findByText('No se pudo cargar el forecast')).toBeInTheDocument();
+    expect(screen.getByText(/Tus cambios sin guardar se conservan/)).toBeInTheDocument();
+
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+
+    const bar = screen.getByRole('region', { name: 'Cambios sin guardar' });
+    await userEvent.click(within(bar).getByRole('button', { name: 'Guardar cambios (1)' }));
+    await waitFor(() => expect(callsTo(fetchMock, 'PUT', '/forecast/lines')).toHaveLength(1));
+    expect(bodyOf(callsTo(fetchMock, 'PUT', '/forecast/lines')[0])).toEqual({
+      lines: [{ projectId: 'p-1', productId: 'pr-var3', year: 2027, month: 2, quantity: '7' }],
+    });
+  });
+
+  it('la barra de guardado queda por encima de la barra inferior de móvil (revisión E5, F3)', async () => {
+    api(() => jsonResponse(rowsPage([row()])));
+    renderWithProviders(<ForecastMatrix filters={FILTERS} />);
+    await userEvent.type(await screen.findByRole('textbox', { name: /M\+2/ }), '7');
+
+    // jsdom no entiende `env()` en getComputedStyle: se lee la regla que emotion generó para la barra.
+    const bar = screen.getByRole('region', { name: 'Cambios sin guardar' });
+    const css = Array.from(document.querySelectorAll('style'), (style) => style.textContent ?? '').join('\n');
+    const rules = Array.from(bar.classList, (name) => name)
+      .filter((name) => name.startsWith('css-'))
+      .flatMap((name) => css.match(new RegExp(`\\.${name}\\{[^}]*\\}`, 'g')) ?? []);
+    // Base (xs, con la barra inferior de móvil): encima de ella y de la safe area; desde md, abajo del todo.
+    expect(rules.some((rule) => rule.includes('position:sticky'))).toBe(true);
+    expect(rules).toContain(`.${rules[0]?.slice(1, rules[0].indexOf('{'))}{bottom:${bottomNavOffset};}`);
+    expect(rules.filter((rule) => rule.endsWith('{bottom:0;}'))).toHaveLength(2);
+  });
+
+  it('cambiar solo la unidad de una fila sin líneas no deja un borrador que bloquee (revisión E5)', async () => {
+    api(() => jsonResponse(rowsPage([row({ cells: [cell(1), cell(2), cell(3)] })])), {
+      'GET /units-of-measure': () => jsonResponse({ data: [VAR, KG] }),
+    });
+    signInWith(['forecast.ver', 'forecast.editar', 'proyectos.ver']);
+    renderWithProviders(<ForecastMatrix filters={FILTERS} />);
+
+    await userEvent.click(await screen.findByRole('combobox', { name: 'Unidad de VAR-3' }));
+    await userEvent.click(await screen.findByRole('option', { name: /KG/ }));
+    expect(screen.queryByRole('region', { name: 'Cambios sin guardar' })).not.toBeInTheDocument();
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('con varias páginas el subtotal del proyecto se rotula como de la página; la celda de solo lectura tiene rol', async () => {
+    api(() => jsonResponse(rowsPage([row({ cells: [savedCell(1, '120.0000', { editable: false }), cell(2), cell(3)] })], 120)));
+    renderWithProviders(<ForecastMatrix filters={FILTERS} />);
+
+    expect(await screen.findByText('Asesor: Ana Asesora · Subtotal en esta página: 0.40 t')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /M\+1 \(ene 2027\): 120 var\./ })).toBeInTheDocument();
+  });
+
+  it('una sola página: "Subtotal"; en móvil, el total de la fila incluye las cantidades por unidad', async () => {
+    api(() => jsonResponse(rowsPage([row()])));
+    const view = renderWithProviders(<ForecastMatrix filters={FILTERS} />);
+    expect(await screen.findByText('Asesor: Ana Asesora · Subtotal: 0.40 t')).toBeInTheDocument();
+    view.unmount();
+
+    simulateNarrowScreen();
+    renderWithProviders(<ForecastMatrix filters={FILTERS} />);
+    expect(await screen.findByText(/^Total fila: 120 var · 0\.40 t/)).toBeInTheDocument();
   });
 
   it('vacío y error con reintento', async () => {

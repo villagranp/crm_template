@@ -7,6 +7,7 @@ import { TRANSACTION_RUNNER, type TransactionRunner } from '@/infrastructure/dat
 import { AppLogger } from '@/infrastructure/logging/app-logger.service';
 import { isWithinScope } from '@/modules/access/visibility-scope';
 import { AuditService } from '@/modules/audit/audit.service';
+import { BUSINESS_CLOCK, type BusinessClock } from '@/modules/commercial-metrics/business-clock';
 import {
   businessMonth,
   type CommercialStatus,
@@ -142,6 +143,11 @@ export interface CreateProjectRequest {
   readonly code?: string;
 }
 
+/** Igualdad de UUID sin distinguir mayúsculas (Revisión E5, m1); `null` nunca es igual. */
+function sameId(a: string | null, b: string | null): boolean {
+  return a !== null && b !== null && a.toLowerCase() === b.toLowerCase();
+}
+
 function invalidDateRange(field: string): ReturnType<typeof projectIssuesError> {
   return projectIssuesError([projectIssue(field, PROJECT_ERROR_CODES.invalidDateRange)]);
 }
@@ -165,6 +171,7 @@ export class ProjectsService {
     private readonly parameters: ParameterReader,
     private readonly audit: AuditService,
     private readonly logger: AppLogger,
+    @Inject(BUSINESS_CLOCK) private readonly clock: BusinessClock,
   ) {}
 
   // --- Lecturas ---------------------------------------------------------------
@@ -252,7 +259,7 @@ export class ProjectsService {
 
   async create(actor: ProjectActor, request: CreateProjectRequest): Promise<ProjectDetailView> {
     if (!actor.userId) throw new PermissionDeniedError(PROJECT_PERMISSIONS.create);
-    const ownerId = request.ownerId ?? actor.userId;
+    const ownerId = (request.ownerId ?? actor.userId).toLowerCase();
     const code = normalizeProjectCode(request.code);
     const reserved: string[] = [];
     if (request.ownerId !== undefined && !canAssignOwner(actor, ownerId)) reserved.push('ownerId');
@@ -263,8 +270,8 @@ export class ProjectsService {
       actor,
       {
         name: request.name.trim(),
-        customerId: request.customerId,
-        countryId: request.countryId ?? null,
+        customerId: request.customerId.toLowerCase(),
+        countryId: request.countryId?.toLowerCase() ?? null,
         city: trimOptional(request.city) ?? null,
         address: trimOptional(request.address) ?? null,
         description: trimOptional(request.description) ?? null,
@@ -284,43 +291,55 @@ export class ProjectsService {
   // --- Edición ---------------------------------------------------------------
 
   async update(actor: ProjectActor, projectId: string, sent: UpdateProjectRequest): Promise<ProjectDetailView> {
+    // Lectura previa: `404`/`403` tempranos y "sin cambios" sin abrir transacción. La
+    // decisión que cuenta se repite sobre el registro bloqueado (Revisión E5, M4).
     const visible = await this.access.findEditable(actor, projectId);
-    const before = visible.record;
-    const changes = this.changedFields(before, sent);
-    const reserved = (['ownerId', 'code'] as const).filter((field) => changes[field] !== undefined);
-    if (reserved.length > 0 && !canAdministerProject(actor, visible.subject)) {
-      throw fieldNotEditableError(reserved, PROJECT_PERMISSIONS.administer);
-    }
-    if (Object.keys(changes).length === 0) {
+    const preview = this.changedFields(visible.record, sent);
+    this.assertReservedFields(actor, visible, preview);
+    if (Object.keys(preview).length === 0) {
       // Edición sin cambios: no se escribe ni se audita (RN-03.13).
       return this.toDetail(actor, visible);
     }
 
-    const requiredParameter = await this.parameters.get<Record<string, string[] | undefined>>(PROJECT_PARAMETERS.requiredFields);
-    const issues: ProjectIssue[] = missingRequiredFieldIssues(projectRequiredFields(requiredParameter).general, { ...changes }, 'edit');
-    const start = changes.estimatedStartDate !== undefined ? changes.estimatedStartDate : before.estimatedStartDate;
-    const end = changes.estimatedEndDate !== undefined ? changes.estimatedEndDate : before.estimatedEndDate;
-    const dates = dateRangeIssue(start, end);
-    if (dates) issues.push(dates);
-    if (issues.length > 0) throw projectIssuesError(issues);
+    // Todo lo que no depende de la transacción se lee antes (AGENTS §9.4, §9.12): parámetros
+    // y alcances, también los de clientes para `CustomerReferenceGuard`.
+    const [requiredParameter, customerScopes] = await Promise.all([
+      this.parameters.get<Record<string, string[] | undefined>>(PROJECT_PARAMETERS.requiredFields),
+      sent.customerId !== undefined ? this.customerGuard.accessScopes(actor) : Promise.resolve(null),
+    ]);
+    const required = projectRequiredFields(requiredParameter).general;
     const assignable = this.access.assignableOwners(actor, visible.scopes);
     const at = new Date();
 
+    let outcome: { readonly before: ProjectRecord; readonly changes: UpdateProjectInput };
     try {
-      await this.transactions.run(async (tx) => {
-        if (!(await this.projects.lockProject(projectId, 'UPDATE', tx))) throw projectNotFound(projectId);
+      outcome = await this.transactions.run(async (tx) => {
+        // Política, cambios y rango de fechas se deciden sobre el registro bloqueado.
+        const locked = await this.access.lockEditable(actor, projectId, visible.scopes, tx);
+        const before = locked.record;
+        const changes = this.changedFields(before, sent);
+        this.assertReservedFields(actor, locked, changes);
+        if (Object.keys(changes).length === 0) return { before, changes };
+        const issues: ProjectIssue[] = missingRequiredFieldIssues(required, { ...changes }, 'edit');
+        const start = changes.estimatedStartDate !== undefined ? changes.estimatedStartDate : before.estimatedStartDate;
+        const end = changes.estimatedEndDate !== undefined ? changes.estimatedEndDate : before.estimatedEndDate;
+        const dates = dateRangeIssue(start, end);
+        if (dates) issues.push(dates);
+        if (issues.length > 0) throw projectIssuesError(issues);
+
         const txIssues: ProjectIssue[] = [];
         if (changes.customerId !== undefined) {
           // RN-03.10 bajo el bloqueo del proyecto: la FK compuesta lo impediría igualmente.
           const linked = await this.projects.countLinkedInteractions(projectId, tx);
           if (linked.visits + linked.activities > 0) throw projectCustomerLockedError(linked);
-          await this.customerGuard.assertUsableCustomer(changes.customerId, actor, { requireActive: true, tx });
+          if (!customerScopes) throw new Error('Customer scopes must be resolved before the transaction');
+          await this.customerGuard.assertUsableCustomer(changes.customerId, actor, { requireActive: true, tx, scopes: customerScopes });
         }
         if (changes.countryId !== undefined) {
           const country = await this.projects.findCountry(changes.countryId, tx);
           if (!country || !country.isActive) txIssues.push(projectIssue('countryId', PROJECT_ERROR_CODES.unknownReference));
         }
-        if (changes.ownerId !== undefined && changes.ownerId !== actor.userId) {
+        if (changes.ownerId !== undefined && !sameId(changes.ownerId, actor.userId)) {
           const eligible = await this.projects.findEligibleOwner(changes.ownerId, assignable, PROJECT_PERMISSIONS.view, tx);
           if (!eligible) txIssues.push(projectIssue('ownerId', PROJECT_ERROR_CODES.invalidOwner));
         }
@@ -329,12 +348,18 @@ export class ProjectsService {
           throw projectCodeTakenError(changes.code);
         }
         await this.projects.update(projectId, changes, actor.userId, at, tx);
+        return { before, changes };
       });
     } catch (error) {
-      if (error instanceof ProjectCodeConflictError) throw projectCodeTakenError(changes.code ?? '');
+      if (error instanceof ProjectCodeConflictError) throw projectCodeTakenError(normalizeProjectCode(sent.code) ?? '');
       throw error;
     }
 
+    const { before, changes } = outcome;
+    if (Object.keys(changes).length === 0) {
+      // Otra edición dejó ya los mismos valores mientras se esperaba el bloqueo.
+      return this.toDetail(actor, toVisibleProject(before, visible.scopes));
+    }
     const after = await this.projects.findById(projectId, null);
     if (!after) throw new Error('Updated project not found');
     this.logger.info('project_updated', { correlationId: actor.audit.correlationId, projectId, fields: Object.keys(changes) });
@@ -347,6 +372,14 @@ export class ProjectsService {
     });
     // Tras reasignar el asesor, el actor puede dejar de verlo o de editarlo: se recalcula.
     return this.toDetail(actor, toVisibleProject(after, visible.scopes));
+  }
+
+  /** Asesor y código exigen `proyectos.administrar` con el proyecto en su alcance (RN-03.6, DM-17). */
+  private assertReservedFields(actor: ProjectActor, visible: VisibleProject, changes: UpdateProjectInput): void {
+    const reserved = (['ownerId', 'code'] as const).filter((field) => changes[field] !== undefined);
+    if (reserved.length > 0 && !canAdministerProject(actor, visible.subject)) {
+      throw fieldNotEditableError(reserved, PROJECT_PERMISSIONS.administer);
+    }
   }
 
   // --- Eliminación -----------------------------------------------------------
@@ -364,20 +397,25 @@ export class ProjectsService {
       this.catalogs.phaseAndStageSemantics(),
       this.parameters.get<string>(PROJECT_PARAMETERS.timeZone),
     ]);
+    // "Mes en curso" del reloj del negocio, el mismo que la ventana del forecast (Revisión E5, m2).
+    const currentMonth = businessMonth({ now: this.clock.now(), businessTimeZone: timeZone });
     const at = new Date();
-    const currentMonth = businessMonth({ now: at, businessTimeZone: timeZone });
 
-    await this.transactions.run(async (tx) => {
+    const record = await this.transactions.run(async (tx) => {
       if (!(await this.projects.lockProject(projectId, 'UPDATE', tx))) throw projectNotFound(projectId);
+      // La política se vuelve a evaluar sobre el registro bloqueado (Revisión E5, M4).
+      const locked = await this.access.findVisible(actor, projectId, { scopes: visible.scopes, tx });
+      if (!canDeleteProject(actor, locked.subject)) throw new PermissionDeniedError(PROJECT_PERMISSIONS.delete);
       const children = await this.projects.countBlockingChildren(projectId, { openStageIds: semantics.openStageIds, currentMonth }, tx);
       if (Object.values(children).some((count) => count > 0)) throw projectHasActiveChildrenError(children);
       await this.projects.softDelete(projectId, actor.userId, at, tx);
+      return locked.record;
     });
     this.logger.info('project_deleted', { correlationId: actor.audit.correlationId, projectId });
     await this.audit.record(PROJECT_AUDIT_EVENTS.deleted, actor.audit, {
       resourceType: PROJECT_AUDIT_RESOURCE,
       resourceId: projectId,
-      metadata: { code: visible.record.code },
+      metadata: { code: record.code },
     });
   }
 
@@ -435,8 +473,8 @@ export class ProjectsService {
     const changes: { -readonly [K in keyof UpdateProjectInput]: UpdateProjectInput[K] } = {};
     const name = sent.name?.trim();
     if (name !== undefined && name !== record.name) changes.name = name;
-    if (sent.customerId !== undefined && sent.customerId !== record.customer.id) changes.customerId = sent.customerId;
-    if (sent.countryId !== undefined && sent.countryId !== record.country.id) changes.countryId = sent.countryId;
+    if (sent.customerId !== undefined && !sameId(sent.customerId, record.customer.id)) changes.customerId = sent.customerId.toLowerCase();
+    if (sent.countryId !== undefined && !sameId(sent.countryId, record.country.id)) changes.countryId = sent.countryId.toLowerCase();
     for (const field of ['city', 'address', 'description'] as const) {
       const value = trimOptional(sent[field]);
       if (value !== undefined && value !== record[field]) changes[field] = value;
@@ -445,7 +483,7 @@ export class ProjectsService {
       const value = sent[field];
       if (value !== undefined && value !== record[field]) changes[field] = value;
     }
-    if (sent.ownerId !== undefined && sent.ownerId !== record.owner.id) changes.ownerId = sent.ownerId;
+    if (sent.ownerId !== undefined && !sameId(sent.ownerId, record.owner.id)) changes.ownerId = sent.ownerId.toLowerCase();
     const code = normalizeProjectCode(sent.code);
     if (sent.code !== undefined && code !== null && code !== record.code) changes.code = code;
     return changes;

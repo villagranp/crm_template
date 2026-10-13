@@ -21,7 +21,7 @@ import {
 import { type ProjectActor, ProjectAccessService } from './project-access.service';
 import { PHASE_MASKED_FIELDS, PROJECT_AUDIT_EVENTS, PROJECT_AUDIT_RESOURCE } from './project-audit';
 import { PROJECT_CATALOGS, PROJECT_PARAMETERS, PROJECT_PERMISSIONS } from './project-constants';
-import { PROJECT_ERROR_CODES, projectIssuesError, projectNotFound } from './project-errors';
+import { PROJECT_ERROR_CODES, projectIssuesError } from './project-errors';
 import { type PhaseHistoryRecord, type ProjectRecord, PROJECTS_REPOSITORY, type ProjectsRepository } from './ports/projects.repository.port';
 
 export interface PhaseChangeRequest {
@@ -69,9 +69,8 @@ export class ProjectPhaseService {
     const at = new Date();
 
     const change = await this.transactions.run(async (tx) => {
-      if (!(await this.projects.lockProject(projectId, 'UPDATE', tx))) throw projectNotFound(projectId);
-      const current = await this.projects.findById(projectId, null, tx);
-      if (!current) throw projectNotFound(projectId);
+      // Visibilidad y política sobre el proyecto bloqueado (Revisión E5, M4).
+      const current = (await this.access.lockEditable(actor, projectId, visible.scopes, tx)).record;
       // RN-03.11: una fase desactivada se conserva solo si no cambia.
       const phase = await this.catalogValidator.assertItem(PROJECT_CATALOGS.phase, request.phaseId, {
         field: 'phaseId',
@@ -100,7 +99,7 @@ export class ProjectPhaseService {
         { fromPhaseId: current.phase.id, toPhaseId: phase.id, fromProgress, toProgress: progress, comment, changedById: actorId, at },
         tx,
       );
-      return { fromPhaseId: current.phase.id, fromProgress, toPhaseId: phase.id, toProgress: progress };
+      return { fromPhaseId: current.phase.id, fromProgress, fromComment: current.phaseComment, toPhaseId: phase.id, toProgress: progress };
     });
 
     const after = await this.projects.findById(projectId, null);
@@ -109,7 +108,7 @@ export class ProjectPhaseService {
     await this.audit.record(PROJECT_AUDIT_EVENTS.phaseChanged, actor.audit, {
       resourceType: PROJECT_AUDIT_RESOURCE,
       resourceId: projectId,
-      before: { phaseId: change.fromPhaseId, phaseProgress: change.fromProgress, comment: visible.record.phaseComment },
+      before: { phaseId: change.fromPhaseId, phaseProgress: change.fromProgress, comment: change.fromComment },
       after: { phaseId: change.toPhaseId, phaseProgress: change.toProgress, comment },
       maskedFields: PHASE_MASKED_FIELDS,
     });

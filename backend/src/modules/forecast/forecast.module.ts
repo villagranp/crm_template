@@ -7,7 +7,6 @@ import { CustomersModule } from '@/modules/customers/customers.module';
 import { ProjectsModule } from '@/modules/projects/projects.module';
 import { UnitConversionsModule } from '@/modules/unit-conversions/unit-conversions.module';
 
-import { FORECAST_CLOCK, systemForecastClock } from './forecast-clock';
 import { ForecastController } from './forecast.controller';
 import { ForecastService } from './forecast.service';
 import { FORECAST_REPOSITORY } from './ports/forecast.repository.port';
@@ -17,8 +16,9 @@ import { FORECAST_REPOSITORY } from './ports/forecast.repository.port';
  * del proyecto (DM-13) y usa de Proyectos el puerto `PROJECTS_REPOSITORY` para bloquear
  * la fila del proyecto, tocar `last_activity_at` y validar asesores asignables.
  *
- * `FORECAST_CLOCK` es el reloj de la ventana: el del sistema en producción; las pruebas
- * lo sustituyen (`overrideProvider`) para simular el cambio de mes. `AuditModule`,
+ * `FORECAST_CLOCK` (= `BUSINESS_CLOCK`) es el reloj de la ventana; lo provee y exporta
+ * `ProjectsModule` (una sola fuente para DEF-G, Revisión E5 m2): el del sistema en
+ * producción; las pruebas lo sustituyen (`overrideProvider`) para simular el cambio de mes. `AuditModule`,
  * `ParametersCoreModule`, `LoggingModule` y `PrismaModule` son globales.
  */
 @Module({
@@ -26,7 +26,6 @@ import { FORECAST_REPOSITORY } from './ports/forecast.repository.port';
   controllers: [ForecastController],
   providers: [
     ForecastService,
-    { provide: FORECAST_CLOCK, useValue: systemForecastClock },
     { provide: FORECAST_REPOSITORY, useClass: PrismaForecastRepository },
   ],
 })

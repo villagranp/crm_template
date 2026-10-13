@@ -78,8 +78,12 @@ export class ProjectCreationService {
     const actorId = actor.userId;
     if (!actorId) throw new PermissionDeniedError(PROJECT_PERMISSIONS.create);
 
-    const [scopes, requiredParameter, timeZone, phase] = await Promise.all([
+    // Todo lo que no depende de la transacción se lee antes (AGENTS §9.4, §9.12): también
+    // los alcances del actor sobre clientes que necesita `CustomerReferenceGuard`, para que
+    // la guarda no abra otra conexión del pool mientras se sostiene el `FOR SHARE`.
+    const [scopes, customerScopes, requiredParameter, timeZone, phase] = await Promise.all([
       this.access.scopes(actor),
+      this.customerGuard.accessScopes(actor),
       this.parameters.get<Record<string, string[] | undefined>>(PROJECT_PARAMETERS.requiredFields),
       this.parameters.get<string>(PROJECT_PARAMETERS.timeZone),
       this.defaultPhase(),
@@ -100,12 +104,12 @@ export class ProjectCreationService {
     let projectId: string;
     try {
       projectId = await this.transactions.run(async (tx) => {
-        const customer = await this.customerGuard.assertUsableCustomer(draft.customerId, actor, { requireActive: true, tx });
+        const customer = await this.customerGuard.assertUsableCustomer(draft.customerId, actor, { requireActive: true, tx, scopes: customerScopes });
         const countryId = draft.countryId ?? customer.countryId;
         const txIssues: ProjectIssue[] = [];
         const country = await this.projects.findCountry(countryId, tx);
         if (!country || !country.isActive) txIssues.push(projectIssue('countryId', PROJECT_ERROR_CODES.unknownReference));
-        if (draft.ownerId !== actorId) {
+        if (draft.ownerId.toLowerCase() !== actorId.toLowerCase()) {
           const eligible = await this.projects.findEligibleOwner(draft.ownerId, assignable, PROJECT_PERMISSIONS.view, tx);
           if (!eligible) txIssues.push(projectIssue('ownerId', PROJECT_ERROR_CODES.invalidOwner));
         }

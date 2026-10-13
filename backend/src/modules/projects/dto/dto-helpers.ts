@@ -1,6 +1,7 @@
 import { registerDecorator, type ValidationOptions } from 'class-validator';
 
 import { isCalendarDate } from '@/common/calendar-date';
+import { toLowerCaseUuid } from '@/common/dto/uuid-transform';
 
 /** Máximo de valores de un filtro repetible. */
 export const MAX_FILTER_VALUES = 50;
@@ -18,6 +19,11 @@ export function toList({ value }: { value: unknown }): unknown {
   if (value === undefined || value === null) return value;
   const parts = (Array.isArray(value) ? value : [value]).flatMap((item) => (typeof item === 'string' ? item.split(',') : [item]));
   return parts.map((item) => (typeof item === 'string' ? item.trim() : item)).filter((item) => item !== '');
+}
+
+/** `toList` + UUID en minúsculas: filtros repetibles de ids (03 Revisión E5, m1). */
+export function toUuidList({ value }: { value: unknown }): unknown {
+  return toLowerCaseUuid({ value: toList({ value }) } as Parameters<typeof toLowerCaseUuid>[0]);
 }
 
 /** Fecha de calendario `YYYY-MM-DD` real (DM-31). */

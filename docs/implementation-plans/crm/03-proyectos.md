@@ -1910,6 +1910,160 @@ por la API no tocan la fase). Ningún cambio de esquema. `ProjectsModule` export
 **Formas finales de `details`**: las de `docs/api/README.md` §"Códigos de error nuevos (03 §L.6,
 E2b)". El aviso `EXCHANGE_RATE_STALE` conserva su `details` objeto (E1).
 
+### E3a — Pantallas de proyectos (2026-10-12)
+
+- PF-03.116 "sin `forecast.ver`": ningún rol de la demo carece de ese permiso; el E2E usa un
+  usuario con un rol propio que crea `backend/scripts/e2e-stack.ts activate` en el esquema aislado.
+- Sección Seguimiento: estado informativo hasta el Módulo 4; se oculta sin `actividades.ver` ni
+  `visitas.ver`. Oportunidades y Resultados se ocultan sin `oportunidades.ver`; Forecast sin
+  `forecast.ver`.
+- Texto del alcance en la vista de equipo: sale de `GET /me` `dataScope` (el más amplio de los roles
+  del usuario); para `COUNTRY` dice "tu país" (el perfil no trae el nombre del país).
+- `ProjectFilesField`, `pending-uploads` y fixtures copian el patrón de Clientes en lugar de
+  importarlo (la regla de barriles prohíbe importar de otro submódulo); candidatos a `common/`.
+- Vistas previas de tonelaje: `multiplyDecimals` con el factor de `/unit-conversions/resolve`; el
+  valor definitivo lo calcula el backend (AC-03.35).
+- Barra de progreso de la fase: la parte entera del porcentaje solo para el ancho visual; el texto
+  es `formatPercent` sobre la cadena original.
+- Alta con archivos en cola: navega a `?seccion=adjuntos` y `AttachmentsSection` los sube.
+
+### E3b — Pantallas de oportunidades, resultados y forecast (2026-10-12)
+
+1. El comentario del cambio de etapa es obligatorio solo al reabrir (RN-03.42, E.7).
+2. La ficha de la oportunidad muestra el número de `productLines` y enlaza a Productos del proyecto:
+   `GET /projects/{id}/products` no filtra por `opportunityId`.
+3. Matriz: solo la columna Producto es fija; el proyecto es una fila de grupo; paginación interna
+   (50) fuera de la URL; el subtotal por proyecto se rotula "Subtotal en esta página" cuando hay más
+   de una página (Revisión E5).
+4. `UnsavedChangesGuard` bloquea cambios de ruta; en la ficha del proyecto también el cambio de
+   `?seccion=`. Cambiar filtros del forecast no bloquea: el borrador vive por celda.
+5. Controles adicionales ocultos sin su permiso: unidad de fila y filtros de asesor/proyecto
+   (`proyectos.ver`), cliente (`clientes.ver`), producto (`productos.ver`).
+6. El aviso `EXCHANGE_RATE_STALE` se muestra como alerta tras cerrar el diálogo, sin bloquear.
+7. El motivo también aparece, opcional, en Ganado o Parcial cuando hay motivos aplicables;
+   obligatorio solo con `requiresReason`.
+8. El historial de resultados se abre en un diálogo.
+9. Las celdas cambiadas añaden "(cambio sin guardar)" a su nombre accesible (no solo color).
+
+### Revisión E5 — frontend (2026-10-12)
+
+1. **Borrador del forecast en todos los estados (F1).** `ForecastMatrix` pinta el aviso de salida
+   (`UnsavedChangesGuard`) y la barra "Guardar cambios (n)" también con la consulta de filas en
+   carga, vacía o en error. Si las filas fallan con un borrador (p. ej. tras cambiar un filtro), el
+   error dice que los cambios se conservan y el borrador se puede guardar o descartar.
+2. **Caché entre submódulos (F2, AGENTS §9.7).** Las raíces de las claves de otros submódulos se
+   declaran una vez en `features/crm/common/crm-cache.ts` (`CRM_CACHE_ROOTS`,
+   `invalidateCrmCaches`); una prueba comprueba que coinciden con `forecastKeys`, `opportunityKeys`,
+   `customerKeys.projects` y `projectKeys.teamLists`. Matriz de invalidación:
+
+   | Mutación | Además de lo propio, invalida |
+   |---|---|
+   | Alta de proyecto | proyectos de la ficha del cliente |
+   | Edición de proyecto | forecast, oportunidades, proyectos del cliente |
+   | Eliminación de proyecto | forecast, oportunidades, proyectos del cliente (AC-03.14) |
+   | Duplicado | forecast, proyectos del cliente |
+   | Clasificación | forecast (regla de conversión), proyectos del cliente |
+   | Fase | proyectos del cliente |
+   | Producto asociado (alta, edición, baja) | forecast, oportunidades, proyectos del cliente |
+   | Oportunidad (alta, edición, etapa, resultado, baja) | proyectos del cliente |
+   | Guardado del forecast | vista de equipo, proyectos del cliente |
+
+3. **Barra de guardado en móvil (F3).** Se coloca encima de la barra inferior fija con el token
+   `bottomNavOffset` (alto de la barra + safe area) y vuelve a `bottom: 0` desde `md` y cuando la
+   barra inferior se oculta (`bottomNavHiddenQuery`, compartido con `BottomNav`).
+4. **Subtotal por proyecto.** Se calcula con las filas cargadas; con más de una página se rotula
+   "Subtotal en esta página" (un proyecto puede tener filas en otra). Se eligió el rótulo honesto
+   frente a pedir un total por proyecto al backend (sería un cambio de contrato). Los totales del
+   pie siguen siendo los del backend sobre todas las filas filtradas.
+5. **Unidad sin líneas.** Cambiar solo la unidad de una fila **sin líneas guardadas** ya no cuenta
+   como cambio sin guardar (no hay línea que reenviar; el backend guarda la unidad por línea): la
+   elección se conserva para las celdas que se escriban después. Con líneas guardadas el cambio sí
+   es guardable por sí solo (se reenvían con `unitId`, §F.3).
+6. **Filtro de producto.** Vaciar el selector quita el filtro; un producto de la URL aún sin
+   resolver se conserva al aplicar otros filtros y se indica bajo el selector.
+7. **Total de fila en móvil** con las cantidades por unidad y las toneladas, igual que en la tabla.
+8. **Accesibilidad.** La celda de solo lectura enfocable tiene `role="group"` con su nombre; la
+   columna del tablero lleva el conteo en su nombre ("Contactado: 11 oportunidades") y el número
+   visible se oculta al lector. El diálogo de cambio de etapa no repite en la alerta general un
+   error que ya se pinta bajo su campo.
+9. **Tokens (ADR-017).** `zIndex.stickyCell`/`stickyHeaderCell` para las celdas fijas de la matriz y
+   su pie; `layout.boardColumnMaxWidth` para la columna del tablero.
+10. **Decimales.** `decimal.ts` usa separadores fijos de `es-GT` (`.` decimal, `,` miles) en lugar
+    de leerlos de `Intl`: el texto no depende de los datos regionales del navegador o de Node.
+
+### Revisión E5 — backend (2026-10-12)
+
+Correcciones de la revisión de código del backend (AGENTS §9.12). Ningún cambio de esquema, de
+regla de negocio ni de permiso; un cambio de contrato menor (rutas de campo del `400`, punto 7).
+
+1. **Decisiones sobre el estado bloqueado (M2, M3, M4; amplía E2b decisión 3).** Toda escritura
+   lee primero fuera de la transacción (`404`/`403`/`422` tempranos y "sin cambios" sin abrirla) y
+   **repite** la decisión dentro, sobre la fila tomada con `FOR UPDATE`:
+   - Proyectos (`PATCH`, fase, clasificación, eliminación) y productos asociados (alta, edición,
+     baja): `ProjectAccessService.lockEditable(actor, id, scopes, tx)` bloquea el proyecto, lo
+     relee con el alcance de `proyectos.ver` y evalúa la política de edición. Los cambios, los
+     campos reservados (`403 FIELD_NOT_EDITABLE`), los obligatorios y el rango de fechas
+     (`422 INVALID_DATE_RANGE`, nunca el `500` de `ck_projects_estimated_dates`) se calculan con el
+     registro bloqueado; la auditoría parte de él. Eliminar repite `canDeleteProject`.
+   - Producto asociado (`PATCH`): la asociación se relee bajo el bloqueo (`404` si otra petición la
+     quitó, nunca `500`), la petición se combina con ese estado (un campo omitido conserva el valor
+     vigente), la regla se resuelve dentro con el tipo del proyecto bloqueado y solo se escriben las
+     columnas que cambian (`ProjectProductsRepository.update` admite una escritura parcial). Sin
+     cambios efectivos no se escribe, no se toca `lastActivityAt` ni se audita (RN-03.13).
+   - Oportunidades: `OpportunitiesService.lockForWrite` bloquea proyecto y oportunidad (mismo
+     orden), relee la oportunidad con el alcance de `oportunidades.ver` y evalúa la edición. La
+     edición recalcula sobre ella el plan de la estimación y los cambios; el cambio de etapa decide
+     `canClose`/`canReopen` y el `PUT /result` su política con la fila bloqueada; la eliminación
+     repite `canDeleteOpportunity`.
+   - Forecast: tras bloquear los proyectos se repiten visibilidad, política y asesores de las
+     líneas con la conexión de la transacción.
+2. **Tasa de cambio con reintento (M2).** La tasa se sigue resolviendo **fuera** (lee tasas y
+   parámetros por el pool) con las entradas del plan previo. Si bajo el bloqueo el plan cambia de
+   tipo o cambian monto, moneda, fecha de referencia o país del proyecto, la transacción se
+   descarta sin escribir y se reintenta con las entradas nuevas, como mucho 3 veces; después,
+   `409 RESOURCE_CONFLICT` (`details[0].field = "estimatedAmount"`), documentado en el OpenAPI.
+3. **Sin conexiones del pool dentro de transacciones con bloqueos (M1).**
+   `CustomerReferenceGuard.accessScopes(actor)` resuelve los alcances antes de abrir la
+   transacción y `assertUsableCustomer(..., { tx, scopes })` los usa (con `tx`, `scopes` es
+   obligatorio por tipo; sin `tx` sigue siendo opcional para el Módulo 2).
+   `UnitConversionResolver.resolve(lookup, tx, tonnageUnit)` y `resolveMany(lookups, { tx,
+   tonnageUnit })` aceptan la unidad de tonelaje ya leída (`tonnageUnit()` antes de la
+   transacción). Las pruebas unitarias de proyectos, alta, productos asociados y forecast usan
+   dobles de las lecturas por pool que fallan si se llaman con la transacción abierta.
+4. **Forecast en lote (m3).** `UnitConversionResolver.resolveMany` lee la unidad de tonelaje una
+   vez, las familias con `UnitConversionReader.findProductFamilyIds` y las reglas con
+   `findRulesForMany` (una consulta cada una) y selecciona con la misma función pura que `resolve`
+   (resultados idénticos, prueba de equivalencia). Lo usan las filas y el guardado.
+5. **Celdas sin asociación (m5).** Una fila cuyo producto ya no tiene asociación activa se sigue
+   viendo (líneas históricas), pero ninguna celda es `editable`; `ForecastRowDto` añade
+   `hasActiveAssociation` (propiedad adicional compatible).
+6. **Reloj del negocio único (m2).** `BUSINESS_CLOCK` (`commercial-metrics/business-clock.ts`), que
+   provee y exporta `ProjectsModule`; `FORECAST_CLOCK` es un alias del mismo token. Lo usan la
+   ventana del forecast, "forecast futuro" al eliminar un proyecto (RN-03.12) y la ventana al
+   quitar un producto asociado (RN-03.61). Los instantes guardados siguen siendo la hora real.
+7. **Rutas de campo (m4).** El `ValidationPipe` escribe los índices de lista entre corchetes
+   (`lines[0].quantity`), el mismo formato que los `422` (`lines[i].campo`); antes
+   `lines.0.quantity`. El frontend del forecast ya aceptaba ambos formatos (no cambia).
+   Documentado en API-STANDARDS §8 y `docs/api/README.md`.
+8. **UUID normalizados (m1).** `@Transform(toLowerCaseUuid)` (`common/dto/uuid-transform.ts`) en
+   todos los campos UUID de los DTO del CRM (Clientes, Proyectos, Oportunidades, Forecast,
+   Productos) y `toUuidList` en los filtros repetibles de ids. Los servicios comparan además sin
+   distinguir mayúsculas (`canAssignOwner`, asesor del alta de proyectos y oportunidades,
+   `changedFields`), de modo que `USER-1` = `user-1` no es un cambio ni exige `administrar`.
+9. **Duplicado sin `ownerId` (nit).** Con `proyectos.administrar`, el asesor por defecto es el del
+   origen solo si es asignable por el actor (`ProjectAccessService.isAssignableOwner`: en su
+   alcance de administrar, `ACTIVE` y con `proyectos.ver`); si no, el propio actor. Así un
+   administrador con alcance de administrar más estrecho que el de ver duplica sin
+   `422 INVALID_OWNER`.
+10. **Bloqueo consultivo de productos asociados (nit).** Se quitó
+    (`ProjectProductsRepository.lockAssociationKey`): toda escritura de asociaciones toma antes
+    `projects FOR UPDATE`, que ya serializa la comprobación de RN-03.59. La prueba de integración
+    que sostenía el bloqueo consultivo sostiene ahora la fila del proyecto.
+
+Pruebas: unitarias por punto y `backend/test/projects-locked-state.e2e.spec.ts` (concurrencia
+determinista con una transacción que sostiene el bloqueo del proyecto: M2, M3, M4 y m1);
+`forecast.e2e.spec.ts` cubre m4 y m5.
+
 ## Filas para la matriz
 
 Estado de F-10 … F-20: `especificada` (ninguna bloqueada; DM-8 resuelta por ADR-021).

@@ -184,8 +184,14 @@ export function changeCount(draft: ForecastDraft): number {
   return buildSavePayload(draft).lines.length + Object.keys(draftIssues(draft)).length;
 }
 
+/**
+ * Hay algo que guardar (o que corregir). Cambiar solo la unidad de una fila sin
+ * líneas guardadas no cuenta: no hay ninguna línea que reenviar y el backend no
+ * guarda unidades por fila; la elección se conserva para las celdas que se
+ * escriban después, pero no bloquea la navegación ni muestra la barra de guardado.
+ */
 export function isDirty(draft: ForecastDraft): boolean {
-  return Object.keys(draft.cells).length > 0 || Object.keys(draft.units).length > 0;
+  return Object.keys(draft.cells).length > 0 || Object.values(draft.units).some((unit) => unit.lines.length > 0);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

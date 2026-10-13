@@ -1,6 +1,13 @@
+import { formatQuantity, formatTonnage } from '@/features/crm/common/decimal';
 import { formatDateTime } from '@/features/crm/projects';
 
-import type { ForecastCell, YearMonth } from './forecast.api';
+import type { ForecastCell, ForecastRow, YearMonth } from './forecast.api';
+
+/** Total de una fila: cantidades por unidad (nunca mezcladas) y toneladas ("120 var · 0.40 t"). */
+export function rowTotalText(row: Pick<ForecastRow, 'rowTotals'>): string {
+  const quantities = row.rowTotals.quantitiesByUnit.map((item) => formatQuantity(item.quantity, item.unit.symbol));
+  return [...quantities, formatTonnage(row.rowTotals.tonnage)].join(' · ');
+}
 
 /**
  * Etiquetas del Forecast M+6 (03 §E.8). Los meses se construyen con sus partes

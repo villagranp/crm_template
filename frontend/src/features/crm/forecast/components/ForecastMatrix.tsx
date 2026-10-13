@@ -22,11 +22,12 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Location } from 'react-router-dom';
 
 import { EmptyState } from '@/components/data';
-import { formatQuantity, formatTonnage, sumDecimals } from '@/features/crm/common/decimal';
+import { formatTonnage, sumDecimals } from '@/features/crm/common/decimal';
 import { UnsavedChangesGuard } from '@/features/crm/common/UnsavedChangesGuard';
 import { formatDateTime, productLabel, PROJECT_PERMISSIONS, UnitSelect, withReference } from '@/features/crm/projects';
 import { useCan } from '@/hooks/use-permission';
 import { describeApiError } from '@/lib/api-error-view';
+import { bottomNavHiddenQuery, bottomNavOffset, zIndex } from '@/theme/tokens';
 
 import { forecastQuery, MAX_BATCH_LINES, type ForecastCell, type ForecastFilters, type ForecastRow, type YearMonth } from '../forecast.api';
 import {
@@ -49,7 +50,7 @@ import {
   type ForecastDraft,
 } from '../forecast-draft';
 import { FORECAST_ERROR_MESSAGES } from '../forecast.errors';
-import { periodHeader, periodKey } from '../forecast-format';
+import { periodHeader, periodKey, rowTotalText } from '../forecast-format';
 import { forecastKeys, useForecastRows, useForecastTotals, useForecastUnits, useSaveForecastLines } from '../forecast.queries';
 
 import { ForecastCellEditor } from './ForecastCellEditor';
@@ -75,11 +76,6 @@ const LEADING_COLUMNS = 2;
 const TRAILING_COLUMNS = 1;
 
 type Period = YearMonth & { offset: number };
-
-function rowTotalText(row: ForecastRow): string {
-  const quantities = row.rowTotals.quantitiesByUnit.map((item) => formatQuantity(item.quantity, item.unit.symbol));
-  return [...quantities, formatTonnage(row.rowTotals.tonnage)].join(' · ');
-}
 
 function MatrixSkeleton() {
   return (
@@ -285,31 +281,13 @@ export function ForecastMatrix({
     );
   };
 
-  // ---- Estados -------------------------------------------------------------
-
-  if (rows.isPending) {
-    return <MatrixSkeleton />;
-  }
-  if (rows.isError) {
-    return (
-      <EmptyState
-        role="alert"
-        title="No se pudo cargar el forecast"
-        description={withReference(describeApiError(rows.error, FORECAST_ERROR_MESSAGES))}
-        action={
-          <Button variant="outlined" onClick={() => void rows.refetch()}>
-            Reintentar
-          </Button>
-        }
-      />
-    );
-  }
-  if (rows.data.pagination.totalItems === 0 && !dirty) {
-    return <EmptyState icon={<TableChartOutlinedIcon />} title={emptyTitle} description={emptyDescription} />;
-  }
-
   // ---- Tabla (escritorio) ---------------------------------------------------
 
+  const pagination = rows.data?.pagination;
+  // El subtotal se calcula con las filas cargadas: con varias páginas, un proyecto
+  // puede tener filas en otra, así que se rotula como subtotal de la página. Los
+  // totales del pie sí son del backend sobre todas las filas filtradas.
+  const subtotalLabel = pagination && pagination.totalPages > 1 ? 'Subtotal en esta página' : 'Subtotal';
   const groupRows: ReactNode[] = [];
   let previousProject: string | null = null;
   rowItems.forEach((row, rowIndex) => {
@@ -325,7 +303,7 @@ export function ForecastMatrix({
                 {`${row.project.code} · ${row.project.name}`}
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                {`Asesor: ${row.project.owner.displayName} · Subtotal: ${formatTonnage(subtotal)}`}
+                {`Asesor: ${row.project.owner.displayName} · ${subtotalLabel}: ${formatTonnage(subtotal)}`}
               </Typography>
             </Stack>
           </TableCell>
@@ -334,7 +312,7 @@ export function ForecastMatrix({
     }
     groupRows.push(
       <TableRow key={`${row.project.id}|${row.product.id}`} hover>
-        <TableCell component="th" scope="row" sx={{ position: 'sticky', left: 0, zIndex: 1, bgcolor: 'background.paper', minWidth: (theme) => theme.spacing(24) }}>
+        <TableCell component="th" scope="row" sx={{ position: 'sticky', left: 0, zIndex: zIndex.stickyCell, bgcolor: 'background.paper', minWidth: (theme) => theme.spacing(24) }}>
           <Typography variant="body2" sx={{ fontWeight: 'fontWeightMedium', overflowWrap: 'anywhere' }}>
             {productLabel(row.product)}
           </Typography>
@@ -356,7 +334,67 @@ export function ForecastMatrix({
     );
   });
 
-  const pagination = rows.data.pagination;
+  // ---- Estados ---------------------------------------------------------------
+  // El aviso de salida y la barra de guardado se pintan en todos los estados: si
+  // la consulta falla con un borrador (p. ej. tras cambiar un filtro), el
+  // borrador sigue visible, guardable y protegido (revisión E5).
+
+  let content: ReactNode;
+  if (rows.isPending) {
+    content = <MatrixSkeleton />;
+  } else if (rows.isError) {
+    content = (
+      <EmptyState
+        role="alert"
+        title="No se pudo cargar el forecast"
+        description={
+          withReference(describeApiError(rows.error, FORECAST_ERROR_MESSAGES)) +
+          (dirty ? ' Tus cambios sin guardar se conservan: puedes guardarlos o reintentar.' : '')
+        }
+        action={
+          <Button variant="outlined" onClick={() => void rows.refetch()}>
+            Reintentar
+          </Button>
+        }
+      />
+    );
+  } else if (rows.data.pagination.totalItems === 0 && !dirty) {
+    content = <EmptyState icon={<TableChartOutlinedIcon />} title={emptyTitle} description={emptyDescription} />;
+  } else if (isMobile) {
+    content = (
+      <>
+        <ForecastMobileList rows={rowItems} showProject={!hideProject} renderCell={renderCell} renderUnit={renderUnit} />
+        {totals.data ? <ForecastTotalsPanel totals={totals.data} periods={periods} /> : null}
+      </>
+    );
+  } else {
+    content = (
+      <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
+        <Table size="small" aria-label="Matriz del forecast">
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ position: 'sticky', left: 0, zIndex: zIndex.stickyHeaderCell, bgcolor: 'background.subtle' }}>Producto (SKU · descripción)</TableCell>
+              <TableCell sx={{ bgcolor: 'background.subtle' }}>Unidad</TableCell>
+              {periods.map((period) => (
+                <TableCell key={periodKey(period)} align="right" sx={{ bgcolor: 'background.subtle', whiteSpace: 'nowrap' }}>
+                  {periodHeader(period)}
+                </TableCell>
+              ))}
+              <TableCell align="right" sx={{ bgcolor: 'background.subtle' }}>
+                Total fila
+              </TableCell>
+              <TableCell sx={{ bgcolor: 'background.subtle' }}>Actualizado</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>{groupRows}</TableBody>
+          {totals.data ? (
+            <ForecastTotalsFooter totals={totals.data} periods={periods} leadingColumns={LEADING_COLUMNS} trailingColumns={TRAILING_COLUMNS} />
+          ) : null}
+        </Table>
+      </TableContainer>
+    );
+  }
+  const loaded = rows.isSuccess;
 
   return (
     <Box ref={containerRef}>
@@ -386,37 +424,8 @@ export function ForecastMatrix({
         {generalError ? <Alert severity="error">{generalError}</Alert> : null}
         {localError ? <Alert severity="error">{localError}</Alert> : null}
 
-        {isMobile ? (
-          <>
-            <ForecastMobileList rows={rowItems} showProject={!hideProject} renderCell={renderCell} renderUnit={renderUnit} />
-            {totals.data ? <ForecastTotalsPanel totals={totals.data} periods={periods} /> : null}
-          </>
-        ) : (
-          <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
-            <Table size="small" aria-label="Matriz del forecast">
-              <TableHead>
-                <TableRow>
-                  <TableCell sx={{ position: 'sticky', left: 0, zIndex: 2, bgcolor: 'background.subtle' }}>Producto (SKU · descripción)</TableCell>
-                  <TableCell sx={{ bgcolor: 'background.subtle' }}>Unidad</TableCell>
-                  {periods.map((period) => (
-                    <TableCell key={periodKey(period)} align="right" sx={{ bgcolor: 'background.subtle', whiteSpace: 'nowrap' }}>
-                      {periodHeader(period)}
-                    </TableCell>
-                  ))}
-                  <TableCell align="right" sx={{ bgcolor: 'background.subtle' }}>
-                    Total fila
-                  </TableCell>
-                  <TableCell sx={{ bgcolor: 'background.subtle' }}>Actualizado</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>{groupRows}</TableBody>
-              {totals.data ? (
-                <ForecastTotalsFooter totals={totals.data} periods={periods} leadingColumns={LEADING_COLUMNS} trailingColumns={TRAILING_COLUMNS} />
-              ) : null}
-            </Table>
-          </TableContainer>
-        )}
-        {totals.isError ? (
+        {content}
+        {loaded && totals.isError ? (
           <Alert
             severity="error"
             action={
@@ -429,7 +438,7 @@ export function ForecastMatrix({
           </Alert>
         ) : null}
 
-        {pagination.totalItems > MIN_PAGE_SIZE ? (
+        {loaded && pagination && pagination.totalItems > MIN_PAGE_SIZE ? (
           <TablePagination
             component="div"
             count={pagination.totalItems}
@@ -449,7 +458,16 @@ export function ForecastMatrix({
           elevation={3}
           role="region"
           aria-label="Cambios sin guardar"
-          sx={{ position: 'sticky', bottom: 0, zIndex: (theme) => theme.zIndex.appBar, mt: 2, px: 2, py: 1.5 }}
+          sx={{
+            position: 'sticky',
+            // En móvil, encima de la barra inferior fija (y de la safe area de iOS), que si no la tapa.
+            bottom: { xs: bottomNavOffset, md: 0 },
+            [bottomNavHiddenQuery]: { bottom: 0 },
+            zIndex: (theme) => theme.zIndex.appBar,
+            mt: 2,
+            px: 2,
+            py: 1.5,
+          }}
         >
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }} justifyContent="space-between">
             <Typography variant="body2">

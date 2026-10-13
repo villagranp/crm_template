@@ -1,5 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { invalidateCrmCaches } from '@/features/crm/common/crm-cache';
 import type { ListQuery } from '@/lib/query-keys';
 
 import { projectKeys, useInvalidateProject } from '../projects.queries';
@@ -37,13 +38,19 @@ export function useCatalogProducts(search: string, enabled: boolean) {
 
 /**
  * Tras asociar, editar o quitar: la lista y sus totales, la ficha (resumen y
- * `lastActivityAt`), el historial y las listas de proyectos.
+ * `lastActivityAt`), el historial y las listas de proyectos; también las filas
+ * del forecast (son los productos asociados) y las oportunidades (sus
+ * dependencias cuentan los productos activos).
  */
 function useInvalidateProducts(projectId: string) {
   const queryClient = useQueryClient();
   const invalidateProject = useInvalidateProject();
   return () =>
-    Promise.all([queryClient.invalidateQueries({ queryKey: projectKeys.detail(projectId) }), invalidateProject(projectId)]);
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: projectKeys.detail(projectId) }),
+      invalidateProject(projectId),
+      invalidateCrmCaches(queryClient, ['forecast', 'opportunities']),
+    ]);
 }
 
 export function useCreateProjectProduct(projectId: string) {

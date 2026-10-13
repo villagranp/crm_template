@@ -129,5 +129,6 @@ export function projectCapabilities(actor: ProjectPolicyActor, project: ProjectP
  * el propio actor. La elegibilidad (ACTIVE, rol del CRM, alcance) se comprueba aparte.
  */
 export function canAssignOwner(actor: ProjectPolicyActor, ownerId: string): boolean {
-  return actor.permissions.has(PROJECT_PERMISSIONS.administer) || (actor.userId !== null && actor.userId === ownerId);
+  // UUID comparado sin distinguir mayúsculas (Revisión E5, m1).
+  return actor.permissions.has(PROJECT_PERMISSIONS.administer) || (actor.userId !== null && actor.userId.toLowerCase() === ownerId.toLowerCase());
 }

@@ -70,6 +70,7 @@ interface RowHeaderRow {
   unit_symbol: string;
   unit_dimension: string;
   last_updated_at: Date | null;
+  has_association: boolean;
 }
 
 interface TotalsRow {
@@ -219,7 +220,7 @@ export class PrismaForecastRepository implements ForecastRepository {
                p.country_id, p.project_type_id, (${projectVisibilitySql('p', scope)}) AS project_visible,
                pr.sku, pr.description, f.id AS family_id, f.code AS family_code, f.name AS family_name,
                du.id AS unit_id, du.code AS unit_code, du.symbol AS unit_symbol, du.dimension::text AS unit_dimension,
-               lu.last_updated_at
+               lu.last_updated_at, (da.unit_id IS NOT NULL) AS has_association
         FROM pairs x
         JOIN projects p ON p.id = x.project_id
         JOIN users u ON u.id = p.owner_id
@@ -266,6 +267,7 @@ export class PrismaForecastRepository implements ForecastRepository {
       },
       defaultUnit: { id: row.unit_id, code: row.unit_code, symbol: row.unit_symbol, dimension: row.unit_dimension as UnitDimensionCode },
       lastUpdatedAt: row.last_updated_at,
+      hasActiveAssociation: row.has_association,
     }));
     return createPage(items, totals[0]?.total ?? 0, query);
   }
@@ -318,9 +320,9 @@ export class PrismaForecastRepository implements ForecastRepository {
     }));
   }
 
-  async findVisibleProjects(projectIds: readonly string[], scope: VisibilityScope): Promise<ForecastProjectRecord[]> {
+  async findVisibleProjects(projectIds: readonly string[], scope: VisibilityScope, tx?: TransactionContext): Promise<ForecastProjectRecord[]> {
     if (projectIds.length === 0) return [];
-    const rows = await this.prisma.$queryRaw<{ id: string; owner_id: string; country_id: string; project_type_id: string | null }[]>`
+    const rows = await prismaClientFor(this.prisma, tx).$queryRaw<{ id: string; owner_id: string; country_id: string; project_type_id: string | null }[]>`
       SELECT p.id, p.owner_id, p.country_id, p.project_type_id
       FROM projects p
       WHERE ${uuidInSql(Prisma.sql`p.id`, projectIds)} AND p.deleted_at IS NULL AND ${projectVisibilitySql('p', scope)}`;

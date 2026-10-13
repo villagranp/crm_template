@@ -76,6 +76,12 @@ export interface ForecastRowRecord {
   readonly defaultUnit: ForecastUnit;
   /** `updatedAt` más reciente de las líneas visibles del par en `periods`. */
   readonly lastUpdatedAt: Date | null;
+  /**
+   * ¿El producto tiene hoy una asociación activa con el proyecto? Sin ella la fila se ve
+   * (líneas históricas) pero sus celdas no son editables: guardar respondería
+   * `422 PRODUCT_NOT_ASSOCIATED` (RN-03.68; Revisión E5, m5).
+   */
+  readonly hasActiveAssociation: boolean;
 }
 
 export interface ForecastLineRecord extends ForecastLineKey {
@@ -142,7 +148,7 @@ export interface ForecastRepository {
   /** Sumas por período y unidad de todas las líneas visibles de las filas filtradas (no solo una página). */
   totals(criteria: ForecastCriteria, scope: VisibilityScope): Promise<ForecastTotalsGroup[]>;
   /** Proyectos no eliminados y visibles con el alcance; los demás no aparecen. */
-  findVisibleProjects(projectIds: readonly string[], scope: VisibilityScope): Promise<ForecastProjectRecord[]>;
+  findVisibleProjects(projectIds: readonly string[], scope: VisibilityScope, tx?: TransactionContext): Promise<ForecastProjectRecord[]>;
   /** Líneas existentes con esas claves (lectura previa, sin bloqueo). */
   findLines(keys: readonly ForecastLineKey[], tx?: TransactionContext): Promise<ForecastLineRecord[]>;
   /** `SELECT … FOR UPDATE` de las líneas existentes con esas claves (orden de `id`). Requiere `tx`. */

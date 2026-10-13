@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateIf } from 'class-validator';
 
+import { toLowerCaseUuid } from '@/common/dto/uuid-transform';
 import { PaginationMetaDto } from '@/common/dto/paginated-response.dto';
 import { CatalogValueDto, UserRefDto } from '@/modules/customers/dto/customer.dto';
 import { isPresent, trimToNull } from '@/modules/customers/dto/dto-transforms';
@@ -33,6 +34,7 @@ export class CreateOpportunityDto {
     description: 'Etapa inicial **abierta** (`422 INVALID_INITIAL_STAGE` si es cerrada). Por defecto `crm.valores_por_defecto["opportunity.stageId"]`',
   })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   stageId?: string;
 
@@ -43,6 +45,7 @@ export class CreateOpportunityDto {
 
   @ApiPropertyOptional({ format: 'uuid', description: 'Por defecto el usuario. Otro asesor exige `oportunidades.administrar` (`403 FIELD_NOT_EDITABLE`)' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   ownerId?: string;
 
@@ -97,6 +100,7 @@ export class UpdateOpportunityDto {
 
   @ApiPropertyOptional({ format: 'uuid', description: 'Reasignar: `oportunidades.administrar` con la oportunidad en su alcance' })
   @ValidateIf(isPresent)
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   ownerId?: string;
 

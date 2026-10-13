@@ -1,12 +1,12 @@
 import SwapHorizOutlinedIcon from '@mui/icons-material/SwapHorizOutlined';
 import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
 import { Box, Button, Card, CardActions, CardContent, Link, Paper, Skeleton, Stack, Typography } from '@mui/material';
-import { useId } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 
 import { formatCalendarDate, opportunityDetailPath, withReference } from '@/features/crm/projects';
 import { describeApiError } from '@/lib/api-error-view';
 import type { ListQuery } from '@/lib/query-keys';
+import { layout } from '@/theme/tokens';
 
 import type { OpportunityListItem, OpportunityStage } from '../opportunities.api';
 import { OPPORTUNITY_ERROR_MESSAGES } from '../opportunities.errors';
@@ -68,7 +68,6 @@ function OpportunityCard({ opportunity, onChangeStage }: { opportunity: Opportun
 }
 
 function BoardColumn({ stage, count, filters, onChangeStage }: { stage: OpportunityStage; count: number; filters: ListQuery; onChangeStage: OpportunityBoardProps['onChangeStage'] }) {
-  const titleId = useId();
   const column = useBoardColumn({ ...filters, stageId: stage.id });
   const items = column.data?.pages.flatMap((page) => page.data) ?? [];
 
@@ -113,15 +112,16 @@ function BoardColumn({ stage, count, filters, onChangeStage }: { stage: Opportun
   return (
     <Paper
       component="section"
-      aria-labelledby={titleId}
+      // El conteo forma parte del nombre de la columna; el número visible queda oculto al lector.
+      aria-label={`${stage.label}: ${count} ${count === 1 ? 'oportunidad' : 'oportunidades'}`}
       variant="outlined"
-      sx={{ flex: '0 0 auto', width: (theme) => theme.spacing(36), maxWidth: '85vw', p: 1.5, bgcolor: 'background.subtle' }}
+      sx={{ flex: '0 0 auto', width: (theme) => theme.spacing(36), maxWidth: layout.boardColumnMaxWidth, p: 1.5, bgcolor: 'background.subtle' }}
     >
       <Stack direction="row" alignItems="baseline" justifyContent="space-between" spacing={1} sx={{ mb: 1.5 }}>
-        <Typography id={titleId} variant="subtitle1" component="h2">
+        <Typography variant="subtitle1" component="h2">
           {stage.label}
         </Typography>
-        <Typography variant="body2" color="text.secondary" aria-label={`${count} oportunidades`}>
+        <Typography variant="body2" color="text.secondary" aria-hidden>
           {count}
         </Typography>
       </Stack>

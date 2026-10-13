@@ -1,5 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { invalidateCrmCaches } from '@/features/crm/common/crm-cache';
 import { projectKeys } from '@/features/crm/projects';
 import { createScopedQueryKeys, type ListQuery } from '@/lib/query-keys';
 
@@ -51,7 +52,8 @@ export function useForecastUnits(enabled: boolean) {
 
 /**
  * Guardado en lote. Tras guardar se recargan filas y totales, y lo que el
- * proyecto deriva del forecast (`lastActivityAt`, historial).
+ * proyecto deriva del forecast (`lastActivityAt`, historial, totales de la
+ * vista de equipo y proyectos de la ficha del cliente).
  */
 export function useSaveForecastLines() {
   const queryClient = useQueryClient();
@@ -65,6 +67,8 @@ export function useSaveForecastLines() {
           queryClient.invalidateQueries({ queryKey: projectKeys.of(projectId) }),
         ]),
         queryClient.invalidateQueries({ queryKey: projectKeys.lists() }),
+        queryClient.invalidateQueries({ queryKey: projectKeys.teamLists() }),
+        invalidateCrmCaches(queryClient, ['customerProjects']),
       ]),
   });
 }

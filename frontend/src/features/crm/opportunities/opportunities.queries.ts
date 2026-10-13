@@ -1,5 +1,6 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { invalidateCrmCaches } from '@/features/crm/common/crm-cache';
 import { projectKeys } from '@/features/crm/projects';
 import { createScopedQueryKeys, type ListQuery } from '@/lib/query-keys';
 
@@ -107,7 +108,7 @@ export function useOpportunityHistory(opportunityId: string, enabled = true) {
 /**
  * Tras cualquier mutación: todas las listas y detalles de oportunidades, y lo
  * que el proyecto deriva de ellas (estado comercial, resumen, `lastActivityAt`,
- * historial y listas de proyectos).
+ * historial, listas de proyectos y proyectos de la ficha del cliente).
  */
 function useInvalidateOpportunities() {
   const queryClient = useQueryClient();
@@ -118,6 +119,7 @@ function useInvalidateOpportunities() {
       queryClient.invalidateQueries({ queryKey: projectKeys.of(projectId) }),
       queryClient.invalidateQueries({ queryKey: projectKeys.lists() }),
       queryClient.invalidateQueries({ queryKey: projectKeys.teamLists() }),
+      invalidateCrmCaches(queryClient, ['customerProjects']),
     ]);
 }
 

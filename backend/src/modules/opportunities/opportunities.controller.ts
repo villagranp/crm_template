@@ -167,12 +167,17 @@ export class OpportunitiesController {
     description:
       'Omitido = sin cambio; `null` borra. La tasa y el equivalente en USD se recalculan **solo** si cambian `estimatedAmount`, `currencyCode` u `opportunityDate` (RN-03.82); ' +
       '`estimatedAmount` y `currencyCode` a `null` borran los cinco campos. `exchangeRate`, `exchangeRateDate` y `estimatedAmountUsd` no se aceptan (`400`). ' +
-      'Sin cambios: `200` sin escribir ni auditar. Audita `crm.opportunity.updated` y actualiza `lastActivityAt` del proyecto.',
+      'Sin cambios: `200` sin escribir ni auditar. Audita `crm.opportunity.updated` y actualiza `lastActivityAt` del proyecto. ' +
+      'Política, estimación y cambios se deciden sobre la fila bloqueada: un campo omitido conserva el valor vigente, no el de una lectura previa.',
   })
   @ApiOkResponse({ type: OpportunityMutationResponseDto, description: '`warnings` con `EXCHANGE_RATE_STALE` si la tasa aplicada es antigua (RN-03.81)' })
   @ApiBadRequestResponse({ type: ErrorResponseDto, description: UUID_400 })
   @ApiForbiddenResponse({ type: ErrorResponseDto, description: EDIT_403 })
   @ApiNotFoundResponse({ type: ErrorResponseDto, description: OPPORTUNITY_NOT_FOUND })
+  @ApiConflictResponse({
+    type: ErrorResponseDto,
+    description: 'RESOURCE_CONFLICT: la estimación cambió de forma concurrente en cada uno de los 3 intentos; nada se guardó (reintentar)',
+  })
   @ApiUnprocessableEntityResponse({ type: ErrorResponseDto, description: ESTIMATE_422 })
   async update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateOpportunityDto, @Req() request: AppRequest): Promise<OpportunityMutationResponseDto> {
     const actor = await this.actors.fromRequest(request);

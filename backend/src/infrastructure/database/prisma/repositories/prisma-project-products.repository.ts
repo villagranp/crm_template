@@ -20,7 +20,6 @@ import { PrismaService } from '../prisma.service';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const QUANTITY_DECIMALS = 4;
 const FACTOR_DECIMALS = 8;
-const ASSOCIATION_LOCK_PREFIX = 'crm:project-product:';
 
 const PROJECT_PRODUCT_SELECT = {
   id: true,
@@ -74,17 +73,18 @@ function toRecord(row: ProjectProductRow, names: ReadonlyMap<string, string>): P
   };
 }
 
-function writeData(input: ProjectProductWrite): Prisma.ProjectProductUncheckedUpdateInput {
-  return {
-    opportunityId: input.opportunityId,
-    quantity: input.quantity,
-    unitId: input.unitId,
-    conversionRuleId: input.conversionRuleId,
-    conversionFactor: input.conversionFactor,
-    tonnage: input.tonnage,
-    statusId: input.statusId,
-    notes: input.notes,
-  };
+/** Solo las columnas presentes (una edición no reescribe lo que no cambia). */
+function writeData(input: Partial<ProjectProductWrite>): Prisma.ProjectProductUncheckedUpdateManyInput {
+  const data: Prisma.ProjectProductUncheckedUpdateManyInput = {};
+  if (input.opportunityId !== undefined) data.opportunityId = input.opportunityId;
+  if (input.quantity !== undefined) data.quantity = input.quantity;
+  if (input.unitId !== undefined) data.unitId = input.unitId;
+  if (input.conversionRuleId !== undefined) data.conversionRuleId = input.conversionRuleId;
+  if (input.conversionFactor !== undefined) data.conversionFactor = input.conversionFactor;
+  if (input.tonnage !== undefined) data.tonnage = input.tonnage;
+  if (input.statusId !== undefined) data.statusId = input.statusId;
+  if (input.notes !== undefined) data.notes = input.notes;
+  return data;
 }
 
 /**
@@ -147,12 +147,6 @@ export class PrismaProjectProductsRepository implements ProjectProductsRepositor
     return toRecord(row, names);
   }
 
-  async lockAssociationKey(projectId: string, opportunityId: string | null, productId: string, tx: TransactionContext): Promise<void> {
-    const key = `${ASSOCIATION_LOCK_PREFIX}${projectId}:${opportunityId ?? 'none'}:${productId}`;
-    // Clave como parámetro, nunca concatenada en el SQL (ver advisory-lock.ts).
-    await prismaClientFor(this.prisma, tx).$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
-  }
-
   async findActiveDuplicate(
     key: { readonly projectId: string; readonly opportunityId: string | null; readonly productId: string; readonly excludeId: string | null },
     tx: TransactionContext,
@@ -199,10 +193,10 @@ export class PrismaProjectProductsRepository implements ProjectProductsRepositor
     return created.id;
   }
 
-  async update(projectId: string, projectProductId: string, input: ProjectProductWrite, actorId: string | null, tx: TransactionContext): Promise<void> {
+  async update(projectId: string, projectProductId: string, input: Partial<ProjectProductWrite>, actorId: string | null, tx: TransactionContext): Promise<void> {
     await prismaClientFor(this.prisma, tx).projectProduct.updateMany({
       where: { id: projectProductId, projectId, deletedAt: null },
-      data: { ...writeData(input), updatedById: actorId } as Prisma.ProjectProductUncheckedUpdateManyInput,
+      data: { ...writeData(input), updatedById: actorId },
     });
   }
 

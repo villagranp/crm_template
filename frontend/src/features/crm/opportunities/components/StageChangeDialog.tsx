@@ -72,14 +72,17 @@ function StageChangeForm({ opportunity, options, onClose, onChanged }: StageChan
   }, [allowedOutcomes, getValues, setValue]);
 
   const error = mutation.isError ? mutation.error : null;
+  const fieldErrors = useMemo(() => opportunityFieldErrors(error), [error]);
   useEffect(() => {
-    for (const [field, message] of Object.entries(opportunityFieldErrors(error))) {
+    for (const [field, message] of Object.entries(fieldErrors)) {
       if (FORM_FIELDS.has(field)) {
         setError(field as keyof StageChangeFormValues, { type: 'server', message }, { shouldFocus: false });
       }
     }
-  }, [error, setError]);
-  const errorView = error ? describeApiError(error, OPPORTUNITY_ERROR_MESSAGES) : null;
+  }, [fieldErrors, setError]);
+  // Si el error ya se pinta bajo su campo, no se repite en la alerta general.
+  const shownOnField = Object.keys(fieldErrors).some((field) => FORM_FIELDS.has(field));
+  const errorView = error && !shownOnField ? describeApiError(error, OPPORTUNITY_ERROR_MESSAGES) : null;
 
   const onSubmit = (values: StageChangeFormValues) => {
     mutation.mutate(toStageChangeInput(values, context), { onSuccess: (changed) => onChanged(changed) });

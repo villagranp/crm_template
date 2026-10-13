@@ -51,6 +51,8 @@ export function ForecastFilters({ values, mode, windowPeriods, onApply }: Foreca
   const [to, setTo] = useState('');
   const [project, setProject] = useState<ProjectPickerValue | { id: string } | null>(null);
   const [product, setProduct] = useState<Product | null>(null);
+  // Id del producto filtrado: el de la URL aunque aún no se haya resuelto su nombre, o el elegido.
+  const [productId, setProductId] = useState<string | undefined>(undefined);
   const [owner, setOwner] = useState<OwnerOption | null>(null);
   const [rangeError, setRangeError] = useState<string | null>(null);
 
@@ -61,6 +63,7 @@ export function ForecastFilters({ values, mode, windowPeriods, onApply }: Foreca
     setTo(values.to ?? '');
     setProject(values.projectId ? { id: values.projectId } : null);
     setProduct((current) => (current && current.id === values.productId ? current : null));
+    setProductId(values.productId);
     setOwner(values.ownerId ? { id: values.ownerId, displayName: 'Asesor seleccionado', countryId: null, primaryTeam: null } : null);
     setRangeError(null);
   }, [values]);
@@ -78,8 +81,9 @@ export function ForecastFilters({ values, mode, windowPeriods, onApply }: Foreca
     setRangeError(null);
     onApply({
       projectId: project?.id,
-      // Un producto preseleccionado por la URL se conserva aunque no se haya resuelto su nombre.
-      productId: product?.id ?? values.productId,
+      // Un producto preseleccionado por la URL se conserva aunque no se haya resuelto su nombre;
+      // vaciar el selector lo quita.
+      productId,
       ownerId: owner?.id,
       periods: mode === 'WINDOW' && periods.length > 0 ? periods.join(LIST_SEPARATOR) : undefined,
       from: mode === 'HISTORY' ? from || undefined : undefined,
@@ -97,7 +101,15 @@ export function ForecastFilters({ values, mode, windowPeriods, onApply }: Foreca
         ) : null}
         {can(PRODUCT_PERMISSIONS.view) ? (
           <Box sx={{ gridColumn: { sm: 'span 2' } }}>
-            <ProductPicker label={FIELD_LABELS.productId} value={product} onChange={setProduct} />
+            <ProductPicker
+              label={FIELD_LABELS.productId}
+              value={product}
+              onChange={(next) => {
+                setProduct(next);
+                setProductId(next?.id);
+              }}
+              helperText={productId && !product ? 'Hay un producto filtrado; elige otro o quítalo en los filtros activos.' : undefined}
+            />
           </Box>
         ) : null}
         {can(PROJECT_PERMISSIONS.view) ? <OwnerPicker label={FIELD_LABELS.ownerId} purpose="FILTER" value={owner} onChange={setOwner} /> : null}

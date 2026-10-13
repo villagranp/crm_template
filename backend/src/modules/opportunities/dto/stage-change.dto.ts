@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import { IsOptional, IsString, IsUUID, MaxLength, ValidateNested } from 'class-validator';
 
+import { toLowerCaseUuid } from '@/common/dto/uuid-transform';
 import { trimToNull } from '@/modules/customers/dto/dto-transforms';
 
 import { OpportunityResultInputDto } from './opportunity-result.dto';
@@ -9,6 +10,7 @@ import { OpportunityResultInputDto } from './opportunity-result.dto';
 /** 03 F.2 `CreateStageChangeDto`: cambio de etapa (y resultado si la destino es cerrada). */
 export class CreateStageChangeDto {
   @ApiProperty({ format: 'uuid', description: 'Etapa destino activa de `crm.etapa_oportunidad`' })
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   toStageId!: string;
 

@@ -14,7 +14,7 @@ import { QUANTITY_SCALE } from './product-totals';
 import { type ProjectActor, ProjectAccessService } from './project-access.service';
 import { classificationAuditState, PROJECT_AUDIT_EVENTS, PROJECT_AUDIT_RESOURCE } from './project-audit';
 import { PROJECT_CATALOGS, PROJECT_PARAMETERS } from './project-constants';
-import { fieldValidationError, PROJECT_ERROR_CODES, type ProjectIssue, projectIssue, projectIssuesError, projectNotFound } from './project-errors';
+import { fieldValidationError, PROJECT_ERROR_CODES, type ProjectIssue, projectIssue, projectIssuesError } from './project-errors';
 import { missingRequiredFieldIssues, projectRequiredFields } from './project-rules';
 import { type ProjectClassificationInput, type ProjectRecord, PROJECTS_REPOSITORY, type ProjectsRepository } from './ports/projects.repository.port';
 
@@ -62,7 +62,6 @@ export class ProjectClassificationService {
 
   async update(actor: ProjectActor, projectId: string, request: ClassificationRequest): Promise<ProjectRecord> {
     const visible = await this.access.findEditable(actor, projectId);
-    const before = visible.record;
     const mode = request.tonnageMode;
     const values = {
       projectTypeId: request.projectTypeId ?? null,
@@ -111,13 +110,14 @@ export class ProjectClassificationService {
     }
     const at = new Date();
 
-    await this.transactions.run(async (tx) => {
-      if (!(await this.projects.lockProject(projectId, 'UPDATE', tx))) throw projectNotFound(projectId);
+    const before = await this.transactions.run(async (tx) => {
+      // Visibilidad, política y valores actuales sobre el proyecto bloqueado (Revisión E5, M4).
+      const current = (await this.access.lockEditable(actor, projectId, visible.scopes, tx)).record;
       if (values.projectTypeId !== null) {
         await this.catalogValidator.assertItem(PROJECT_CATALOGS.projectType, values.projectTypeId, {
           field: 'projectTypeId',
           requireActive: true,
-          currentId: before.projectType?.id ?? null,
+          currentId: current.projectType?.id ?? null,
           tx,
         });
       }
@@ -125,14 +125,14 @@ export class ProjectClassificationService {
         await this.catalogValidator.assertItem(PROJECT_CATALOGS.sector, values.sectorId, {
           field: 'sectorId',
           requireActive: true,
-          currentId: before.sector?.id ?? null,
+          currentId: current.sector?.id ?? null,
           tx,
         });
       }
       if (values.measureUnitId !== null) {
         const unit = await this.products.findUnit(values.measureUnitId, tx);
         // Una unidad desactivada se conserva solo si no cambia (00 §3.5, aplicado a unidades).
-        if (!unit || (!unit.isActive && unit.id !== before.measureUnit?.id)) {
+        if (!unit || (!unit.isActive && unit.id !== current.measureUnit?.id)) {
           throw projectIssuesError([projectIssue('measureUnitId', PROJECT_ERROR_CODES.unknownReference)]);
         }
       }
@@ -150,6 +150,7 @@ export class ProjectClassificationService {
               : null,
       };
       await this.projects.updateClassification(projectId, input, actor.userId, at, tx);
+      return current;
     });
 
     const after = await this.projects.findById(projectId, null);

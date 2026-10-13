@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   compareDecimals,
@@ -228,5 +228,25 @@ describe('presentación es-GT', () => {
     expect(toEditableDecimal('1234.5000')).toBe('1234.5');
     expect(toEditableDecimal(null)).toBe('');
     expect(toEditableDecimal('12.')).toBe('12.');
+  });
+});
+
+describe('separadores fijos (revisión E5)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it('no dependen de la configuración regional del entorno (Intl con coma decimal)', async () => {
+    const RealNumberFormat = Intl.NumberFormat;
+    // Un entorno cuyo `es-GT` resolviera como `de-DE` (coma decimal, punto de miles).
+    vi.stubGlobal('Intl', { ...Intl, NumberFormat: (_locale?: string, options?: Intl.NumberFormatOptions) => new RealNumberFormat('de-DE', options) });
+    vi.resetModules();
+    const decimal = await import('./decimal');
+
+    expect(decimal.parseDecimal('1,234.5', decimal.DECIMAL_SPECS.quantity)).toEqual({ ok: true, value: '1234.5' });
+    expect(decimal.parseDecimal('1,5', decimal.DECIMAL_SPECS.quantity)).toEqual({ ok: false, issue: 'format' });
+    expect(decimal.formatDecimal('1234567.5')).toBe('1,234,567.5');
+    expect(decimal.formatMoney('1234.5', 'GTQ')).toBe('GTQ 1,234.50');
   });
 });

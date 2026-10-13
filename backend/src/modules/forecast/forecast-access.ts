@@ -60,9 +60,18 @@ export function missingForecastEditPermission(actor: ProjectPolicyActor, project
   return FORECAST_PERMISSIONS.administer;
 }
 
-/** ¿Celda editable? Fila editable, modo ventana y período M+1 … M+N (RN-03.66; D-03.5). */
-export function isCellEditable(input: { readonly rowCanEdit: boolean; readonly mode: ForecastMode; readonly inWindow: boolean }): boolean {
-  return input.rowCanEdit && input.mode === 'WINDOW' && input.inWindow;
+/**
+ * ¿Celda editable? Fila editable, producto con asociación activa (RN-03.68: sin ella el
+ * guardado responde `422 PRODUCT_NOT_ASSOCIATED`; Revisión E5, m5), modo ventana y
+ * período M+1 … M+N (RN-03.66; D-03.5).
+ */
+export function isCellEditable(input: {
+  readonly rowCanEdit: boolean;
+  readonly hasActiveAssociation: boolean;
+  readonly mode: ForecastMode;
+  readonly inWindow: boolean;
+}): boolean {
+  return input.rowCanEdit && input.hasActiveAssociation && input.mode === 'WINDOW' && input.inWindow;
 }
 
 /** ¿Puede fijar ese asesor en la línea? El del proyecto siempre; otro, solo con `forecast.administrar`. */

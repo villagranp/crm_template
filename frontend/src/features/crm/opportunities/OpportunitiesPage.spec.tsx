@@ -123,7 +123,9 @@ describe('OpportunitiesPage (F-17, 03 §E.7)', () => {
     const board = await screen.findByRole('region', { name: 'Tablero de oportunidades' });
     const columns = within(board).getAllByRole('heading', { level: 2 });
     expect(columns.map((heading) => heading.textContent)).toEqual(['Contactado', 'Cotizando', 'Ganado']);
-    expect(within(board).getByLabelText('11 oportunidades')).toBeInTheDocument();
+    // El conteo va en el nombre de la columna (region), no en un aria-label sin rol.
+    expect(within(board).getByRole('region', { name: 'Contactado: 11 oportunidades' })).toBeInTheDocument();
+    expect(within(board).getByRole('region', { name: 'Ganado: 1 oportunidad' })).toBeInTheDocument();
     expect(await within(board).findByText('Sin oportunidades en esta etapa.')).toBeInTheDocument();
 
     await userEvent.click(await within(board).findByRole('button', { name: 'Ver más' }));

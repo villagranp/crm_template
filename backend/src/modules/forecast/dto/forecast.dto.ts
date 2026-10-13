@@ -17,12 +17,13 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+import { toLowerCaseUuid } from '@/common/dto/uuid-transform';
 import { PaginationMetaDto } from '@/common/dto/paginated-response.dto';
 import { PaginationQueryDto } from '@/common/dto/pagination-query.dto';
 import { UserRefDto } from '@/modules/customers/dto/customer.dto';
 import { trimToNull } from '@/modules/customers/dto/dto-transforms';
 import { ProductFamilyRefDto, UnitRefDto } from '@/modules/products/dto/product.dto';
-import { MAX_FILTER_VALUES, QUANTITY_PATTERN, toList } from '@/modules/projects/dto/dto-helpers';
+import { MAX_FILTER_VALUES, QUANTITY_PATTERN, toList, toUuidList } from '@/modules/projects/dto/dto-helpers';
 import { LineConversionDto, QuantityByUnitDto } from '@/modules/projects/dto/project-subresources.dto';
 
 import { MAX_BATCH_LINES, MAX_NOTES_LENGTH } from '../forecast-batch-validator';
@@ -35,7 +36,7 @@ const QUANTITY_NOTE = 'Cadena decimal (hasta 15 enteros y 4 decimales). Negativa
 function uuidList(): PropertyDecorator {
   return (target: object, property: string | symbol) => {
     IsOptional()(target, property);
-    Transform(toList)(target, property);
+    Transform(toUuidList)(target, property);
     IsArray()(target, property);
     ArrayMaxSize(MAX_FILTER_VALUES)(target, property);
     IsUUID('all', { each: true })(target, property);
@@ -153,7 +154,8 @@ export class ForecastCellDto extends YearMonthDto {
   @ApiProperty({ type: UserRefDto, nullable: true, description: 'Asesor de la línea' }) owner!: UserRefDto | null;
   @ApiProperty({ format: 'date-time', nullable: true, type: String, description: 'Valor para `expectedUpdatedAt`' }) updatedAt!: string | null;
   @ApiProperty({ type: UserRefDto, nullable: true }) updatedBy!: UserRefDto | null;
-  @ApiProperty({ description: '`canEdit` de la fila, modo `WINDOW` y período M+1 … M+N' }) editable!: boolean;
+  @ApiProperty({ description: '`canEdit` de la fila, asociación activa del producto (`hasActiveAssociation`), modo `WINDOW` y período M+1 … M+N' })
+  editable!: boolean;
 }
 
 export class ForecastRowTotalsDto {
@@ -173,6 +175,11 @@ export class ForecastRowDto {
   @ApiProperty({ format: 'date-time', nullable: true, type: String, description: '`updatedAt` más reciente de las celdas' }) lastUpdatedAt!: string | null;
   @ApiProperty({ description: 'Política de edición (RN-03.71): `forecast.editar` + proyecto propio, o `forecast.administrar` en su alcance; proyecto visible' })
   canEdit!: boolean;
+  @ApiProperty({
+    description:
+      'El producto tiene hoy una asociación activa con el proyecto (RN-03.68). Sin ella la fila solo muestra líneas históricas y ninguna celda es editable',
+  })
+  hasActiveAssociation!: boolean;
 }
 
 export class PaginatedForecastRowsDto {
@@ -213,10 +220,12 @@ export class ForecastTotalsDto {
 
 export class ForecastLineInputDto {
   @ApiProperty({ format: 'uuid', description: 'Proyecto visible y editable (`404` / `403`)' })
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   projectId!: string;
 
   @ApiProperty({ format: 'uuid', description: 'Producto con asociación activa en el proyecto (`422 PRODUCT_NOT_ASSOCIATED`)' })
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   productId!: string;
 
@@ -242,6 +251,7 @@ export class ForecastLineInputDto {
     description: 'Unidad activa (`422 UNKNOWN_REFERENCE`). Omitida: la de la línea existente; en una línea nueva, la de la asociación activa',
   })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   unitId?: string;
 
@@ -252,6 +262,7 @@ export class ForecastLineInputDto {
       '(`403 FIELD_NOT_EDITABLE`) y un usuario asignable (`422 INVALID_OWNER`)',
   })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   ownerId?: string;
 

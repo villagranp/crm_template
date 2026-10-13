@@ -225,6 +225,7 @@ interface RowBody {
   product: { id: string };
   cells: CellBody[];
   canEdit: boolean;
+  hasActiveAssociation: boolean;
   lastUpdatedAt: string | null;
   rowTotals: { tonnage: string; quantitiesByUnit: { unit: UnitInfo; quantity: string }[] };
   unit: UnitInfo;
@@ -341,16 +342,26 @@ describe('GET /forecast/rows', () => {
     const response = await get(owner.token, `/forecast/rows?projectId=${projectId},${deletedProject}`).expect(200);
     expect(pairs(response)).toEqual([`${projectId}|${associated.id}`, `${projectId}|${onlyLines.id}`].sort());
     expect(response.body.pagination).toEqual({ page: 1, pageSize: 20, totalItems: 2, totalPages: 1 });
+    // Par sin asociación activa: se ve con sus líneas, pero ninguna celda es editable
+    // (guardar respondería 422 PRODUCT_NOT_ASSOCIATED; Revisión E5, m5).
     const row = rowsOf(response).find((item) => item.product.id === onlyLines.id);
     expect(row?.cells.map((item) => [item.offset, item.lineId !== null, item.editable])).toEqual([
-      [1, false, true],
-      [2, true, true],
-      [3, false, true],
-      [4, false, true],
-      [5, false, true],
-      [6, false, true],
+      [1, false, false],
+      [2, true, false],
+      [3, false, false],
+      [4, false, false],
+      [5, false, false],
+      [6, false, false],
     ]);
     expect(row?.canEdit).toBe(true);
+    expect(row?.hasActiveAssociation).toBe(false);
+    const associatedRow = rowsOf(response).find((item) => item.product.id === associated.id);
+    expect(associatedRow?.hasActiveAssociation).toBe(true);
+    expect(associatedRow?.cells.every((item) => item.editable)).toBe(true);
+    // Lo mismo que respondería el guardado de esa celda.
+    const rejected = await put(owner.token, [{ projectId, productId: onlyLines.id, ...period(2), quantity: '1' }]);
+    expect(rejected.status).toBe(422);
+    expect(rejected.body).toMatchObject({ code: 'PRODUCT_NOT_ASSOCIATED', details: [{ field: 'lines[0].productId' }] });
     // El par solo con líneas pasadas aparece en el historial.
     const history = await get(owner.token, `/forecast/rows?projectId=${projectId}&mode=HISTORY&from=${label(period(-1))}&to=${label(period(-1))}`).expect(200);
     expect(pairs(history)).toContain(`${projectId}|${pastOnly.id}`);
@@ -492,7 +503,7 @@ describe('PUT /forecast/lines', () => {
     expect((await put(owner.token, [])).status).toBe(400);
     // Campos del servidor nunca se aceptan del cliente (asignación masiva, H.3).
     const injected = await put(owner.token, [{ projectId, productId: item.id, ...period(1), quantity: '1', tonnage: '9' }]).expect(400);
-    expect(injected.body.details).toEqual([expect.objectContaining({ field: 'lines.0.tonnage' })]);
+    expect(injected.body.details).toEqual([expect.objectContaining({ field: 'lines[0].tonnage' })]);
     expect(await linesOf(projectId)).toHaveLength(0);
   });
 

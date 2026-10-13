@@ -17,7 +17,7 @@ import {
 } from '../ports/projects.repository.port';
 import { PROJECT_PRODUCT_SORT_FIELDS, type ProjectProductSortField } from '../ports/project-products.repository.port';
 
-import { IsCalendarDateString, MAX_FILTER_VALUES, toList } from './dto-helpers';
+import { IsCalendarDateString, MAX_FILTER_VALUES, toList, toUuidList } from './dto-helpers';
 
 const LIST_NOTE = 'Repetible: valores separados por comas (`a,b`) o el parámetro repetido; se combinan con O dentro del filtro';
 const COMMERCIAL_STATUS_VALUE = /^(OPEN_STAGE(:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})?|WON|LOST|NO_OPPORTUNITIES)$/;
@@ -25,7 +25,7 @@ const COMMERCIAL_STATUS_VALUE = /^(OPEN_STAGE(:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-
 function uuidList(): PropertyDecorator {
   return (target: object, property: string | symbol) => {
     IsOptional()(target, property);
-    Transform(toList)(target, property);
+    Transform(toUuidList)(target, property);
     IsArray()(target, property);
     ArrayMaxSize(MAX_FILTER_VALUES)(target, property);
     IsUUID('all', { each: true })(target, property);

@@ -52,6 +52,7 @@ export function toForecastRowDto(view: ForecastRowView): ForecastRowDto {
     },
     lastUpdatedAt: updatedAts.length > 0 ? new Date(Math.max(...updatedAts)).toISOString() : null,
     canEdit: view.canEdit,
+    hasActiveAssociation: record.hasActiveAssociation,
   };
 }
 

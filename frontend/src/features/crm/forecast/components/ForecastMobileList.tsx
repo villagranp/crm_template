@@ -1,11 +1,10 @@
 import { Box, Card, CardContent, Stack, Typography } from '@mui/material';
 import type { ReactNode } from 'react';
 
-import { formatTonnage } from '@/features/crm/common/decimal';
 import { formatDateTime, productLabel } from '@/features/crm/projects';
 
 import type { ForecastCell, ForecastRow } from '../forecast.api';
-import { periodHeader } from '../forecast-format';
+import { periodHeader, rowTotalText } from '../forecast-format';
 
 export interface ForecastMobileListProps {
   rows: readonly ForecastRow[];
@@ -49,7 +48,7 @@ export function ForecastMobileList({ rows, showProject, renderCell, renderUnit }
               ))}
             </Box>
             <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 1.5 }}>
-              {`Total fila: ${formatTonnage(row.rowTotals.tonnage)}${row.lastUpdatedAt ? ` · Actualizado: ${formatDateTime(row.lastUpdatedAt)}` : ''}`}
+              {`Total fila: ${rowTotalText(row)}${row.lastUpdatedAt ? ` · Actualizado: ${formatDateTime(row.lastUpdatedAt)}` : ''}`}
             </Typography>
           </CardContent>
         </Card>

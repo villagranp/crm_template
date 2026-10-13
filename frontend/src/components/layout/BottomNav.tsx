@@ -7,7 +7,7 @@ import { MaterialSymbol } from '@/components/layout/MaterialSymbol';
 import { activeModuleKey, firstNavigablePath } from '@/components/layout/menu-navigation';
 import { useMenu } from '@/hooks/use-menu';
 import { useUiStore } from '@/stores/ui.store';
-import { duration, easing, fontSizes, layout, shadows, zIndex } from '@/theme/tokens';
+import { bottomNavHiddenQuery, duration, easing, fontSizes, layout, shadows, zIndex } from '@/theme/tokens';
 
 /** Huecos para módulos; el último siempre es "Menú". */
 const MAX_MODULE_ITEMS = 3;
@@ -89,7 +89,7 @@ export function BottomNav() {
         borderRadius: 0,
         boxShadow: theme.palette.mode === 'dark' ? shadows.dark.up : shadows.light.up,
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-        '@media (max-height: 480px) and (orientation: landscape)': { display: 'none' },
+        [bottomNavHiddenQuery]: { display: 'none' },
       })}
     >
       {modules.map(({ module, path }) => (

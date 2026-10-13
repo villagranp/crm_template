@@ -11,7 +11,7 @@ import type { ProjectAccessService } from './project-access.service';
 import { toVisibleProject } from './project-access.service';
 import { ProjectClassificationService, quantityIssue, tonnageModeOf } from './project-classification.service';
 import type { ProjectsRepository } from './ports/projects.repository.port';
-import { fakeTransactions, makeActor, makeProject, makeScopes, TX } from './testing/project-fixtures';
+import { fakeLockEditable, fakeTransactions, makeActor, makeProject, makeScopes, TX } from './testing/project-fixtures';
 
 const EDITOR = ['proyectos.ver', 'proyectos.editar'];
 const RULE = { ruleId: 'rule-1', scope: 'PROJECT_TYPE' as const, factor: '0.03500000', fromUnitId: 'unit-m2', toUnit: { id: 'unit-ton', code: 'TON', symbol: 't' } };
@@ -33,7 +33,7 @@ function setup(parameters: Record<string, unknown> = {}) {
   const service = new ProjectClassificationService(
     repository as unknown as ProjectsRepository,
     fakeTransactions(),
-    { findEditable: jest.fn().mockResolvedValue(visible) } as unknown as ProjectAccessService,
+    { findEditable: jest.fn().mockResolvedValue(visible), lockEditable: fakeLockEditable(repository) } as unknown as ProjectAccessService,
     catalog as unknown as CatalogReferenceValidator,
     products as unknown as ProductsService,
     conversions as unknown as UnitConversionResolver,

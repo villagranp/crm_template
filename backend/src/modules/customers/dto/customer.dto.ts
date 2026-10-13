@@ -14,6 +14,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 
+import { toLowerCaseUuid } from '@/common/dto/uuid-transform';
 import { PaginationMetaDto } from '@/common/dto/paginated-response.dto';
 import { PaginationQueryDto } from '@/common/dto/pagination-query.dto';
 
@@ -56,6 +57,7 @@ export class ListCustomersQueryDto extends PaginationQueryDto {
 
   @ApiPropertyOptional({ format: 'uuid' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   countryId?: string;
 
@@ -67,11 +69,13 @@ export class ListCustomersQueryDto extends PaginationQueryDto {
 
   @ApiPropertyOptional({ format: 'uuid', description: 'Elemento de `crm.estado_cliente`' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   statusId?: string;
 
   @ApiPropertyOptional({ format: 'uuid' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   salesOwnerId?: string;
 
@@ -135,6 +139,7 @@ export class CreateCustomerDto {
   taxId?: string | null;
 
   @ApiProperty({ format: 'uuid', description: 'País activo (`form-options.countries`)' })
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   countryId!: string;
 
@@ -166,6 +171,7 @@ export class CreateCustomerDto {
 
   @ApiPropertyOptional({ format: 'uuid', nullable: true, description: 'Elemento activo de `crm.tipo_empresa`' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   companyTypeId?: string | null;
 
@@ -174,11 +180,13 @@ export class CreateCustomerDto {
     description: 'Elemento activo de `crm.estado_cliente`. Omitido: `crm.valores_por_defecto["customer.statusId"]`',
   })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   statusId?: string;
 
   @ApiPropertyOptional({ format: 'uuid', nullable: true, description: 'Elemento activo de `crm.calificacion_cliente`' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   ratingId?: string | null;
 
@@ -187,6 +195,7 @@ export class CreateCustomerDto {
     description: 'Responsable elegible (D-02.2). Omitido: el actor. Otro usuario exige `clientes.administrar` (`403 FIELD_NOT_EDITABLE`).',
   })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   salesOwnerId?: string;
 
@@ -200,6 +209,7 @@ export class CreateCustomerDto {
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(MAX_ACKNOWLEDGED_DUPLICATES)
+  @Transform(toLowerCaseUuid)
   @IsUUID('all', { each: true })
   acknowledgedDuplicateIds?: string[];
 }
@@ -234,6 +244,7 @@ export class UpdateCustomerDto {
 
   @ApiPropertyOptional({ format: 'uuid', description: 'Exige `clientes.administrar` si cambia (D-02.5); revalida formatos, código y avisos con el país nuevo' })
   @ValidateIf(isPresent)
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   countryId?: string;
 
@@ -265,6 +276,7 @@ export class UpdateCustomerDto {
 
   @ApiPropertyOptional({ format: 'uuid', nullable: true })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   companyTypeId?: string | null;
 
@@ -273,16 +285,19 @@ export class UpdateCustomerDto {
     description: 'Desactivar = un estado con `metadata.isActive = false` (RN-02.21). Un valor ya desactivado se conserva si no cambia.',
   })
   @ValidateIf(isPresent)
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   statusId?: string;
 
   @ApiPropertyOptional({ format: 'uuid', nullable: true })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   ratingId?: string | null;
 
   @ApiPropertyOptional({ format: 'uuid', description: 'Reasignar exige `clientes.administrar` (DM-34)' })
   @ValidateIf(isPresent)
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   salesOwnerId?: string;
 
@@ -290,6 +305,7 @@ export class UpdateCustomerDto {
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(MAX_ACKNOWLEDGED_DUPLICATES)
+  @Transform(toLowerCaseUuid)
   @IsUUID('all', { each: true })
   acknowledgedDuplicateIds?: string[];
 }

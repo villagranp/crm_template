@@ -4,7 +4,7 @@ import type { ParameterReader } from '@/modules/parameters/parameter-reader';
 
 import type { ConversionRuleRecord, UnitConversionReader, UnitRecord } from './ports/unit-conversion.reader.port';
 import { TonnageUnitUnavailableError } from './unit-conversion-errors';
-import { UnitConversionResolver } from './unit-conversion.resolver';
+import { conversionLookupKey, UnitConversionResolver } from './unit-conversion.resolver';
 
 const TON = '00000000-0000-4000-8000-000000000001';
 const M2 = '00000000-0000-4000-8000-000000000002';
@@ -40,6 +40,10 @@ function setup(tonnageUnitCode = 'TON') {
       RULES.filter((rule) => rule.fromUnitId === from && rule.toUnitId === to && keys.includes(rule.scopeKey)),
     ),
     findRuleById: jest.fn(async (id: string) => RULES.find((rule) => rule.id === id) ?? null),
+    findProductFamilyIds: jest.fn(async (ids: readonly string[]) => new Map(ids.filter((id) => id === PRODUCT).map((id) => [id, FAMILY] as [string, string]))),
+    findRulesForMany: jest.fn(async (from: readonly string[], to: string, keys: readonly string[]) =>
+      RULES.filter((rule) => from.includes(rule.fromUnitId) && rule.toUnitId === to && keys.includes(rule.scopeKey)),
+    ),
   };
   const parameters = { get: jest.fn(async () => tonnageUnitCode) };
   const resolver = new UnitConversionResolver(reader, parameters as unknown as ParameterReader);
@@ -148,5 +152,49 @@ describe('UnitConversionResolver', () => {
     expect(reader.findRules).toHaveBeenCalledWith(TON, TON, ['GLOBAL'], undefined);
     await expect(resolver.tonnageUnitCandidateIssues('M2')).resolves.toEqual(['UNIT_NOT_MASS', 'IDENTITY_RULE_MISSING']);
     await expect(resolver.tonnageUnitCandidateIssues('NOPE')).resolves.toEqual(['UNIT_NOT_FOUND']);
+  });
+
+  describe('Revisión E5 (M1, m3)', () => {
+    const TON_UNIT = { id: TON, code: 'TON', symbol: 't' };
+
+    it('resolve con la unidad de tonelaje ya leída no consulta el parámetro (sin pool dentro de la transacción)', async () => {
+      const { resolver, parameters, reader } = setup();
+      await expect(resolver.resolve({ fromUnitId: M2, projectTypeId: TYPE }, TX, TON_UNIT)).resolves.toMatchObject({ ruleId: R_M2_TYPE });
+      expect(parameters.get).not.toHaveBeenCalled();
+      expect(reader.findUnitByCode).not.toHaveBeenCalled();
+      expect(reader.findRules).toHaveBeenCalledWith(M2, TON, [TYPE, 'GLOBAL'], TX);
+    });
+
+    it('resolveMany: mismos resultados que resolve uno a uno, con una lectura de parámetro, de familias y de reglas', async () => {
+      const lookups = [
+        { fromUnitId: M2, projectTypeId: TYPE },
+        { fromUnitId: M2 },
+        { fromUnitId: M2, productId: PRODUCT, projectTypeId: TYPE },
+        { fromUnitId: TON, productId: PRODUCT },
+        { fromUnitId: VAR, productId: PRODUCT },
+        { fromUnitId: 'no-es-uuid' },
+        { fromUnitId: M2, projectTypeId: TYPE },
+      ];
+      const one = setup();
+      const expected = await Promise.all(lookups.map((lookup) => one.resolver.resolve(lookup)));
+      const many = setup();
+      const resolved = await many.resolver.resolveMany(lookups, { tx: TX });
+      expect(lookups.map((lookup) => resolved.get(conversionLookupKey(lookup)) ?? null)).toEqual(expected);
+      expect(resolved.size).toBe(6);
+      expect(many.parameters.get).toHaveBeenCalledTimes(1);
+      expect(many.reader.findProductFamilyIds).toHaveBeenCalledTimes(1);
+      expect(many.reader.findProductFamilyIds).toHaveBeenCalledWith([PRODUCT], TX);
+      expect(many.reader.findRulesForMany).toHaveBeenCalledTimes(1);
+      expect(many.reader.findRules).not.toHaveBeenCalled();
+      expect(many.reader.findProductFamilyId).not.toHaveBeenCalled();
+    });
+
+    it('resolveMany con la unidad ya leída y sin búsquedas no lee nada', async () => {
+      const { resolver, parameters, reader } = setup();
+      await expect(resolver.resolveMany([], { tonnageUnit: TON_UNIT })).resolves.toEqual(new Map());
+      await resolver.resolveMany([{ fromUnitId: M2 }], { tonnageUnit: TON_UNIT, tx: TX });
+      expect(parameters.get).not.toHaveBeenCalled();
+      expect(reader.findRulesForMany).toHaveBeenCalledWith([M2], TON, ['GLOBAL'], TX);
+    });
   });
 });

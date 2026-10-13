@@ -83,8 +83,13 @@ export class ProjectDuplicationService {
     if (request.ownerId !== undefined && !canAssignOwner(actor, request.ownerId)) reserved.push('ownerId');
     if (code !== null && !administers) reserved.push('code');
     if (reserved.length > 0) throw fieldNotEditableError(reserved, PROJECT_PERMISSIONS.administer);
-    // Asesor por defecto (RN-03.20): el del origen si el actor puede asignarlo; si no, él mismo.
-    const ownerId = request.ownerId ?? (administers ? source.record.owner.id : actorId);
+    // Asesor por defecto (RN-03.20): el del origen si el actor puede asignarlo (con
+    // `administrar` y el asesor dentro de su alcance, ACTIVE y con rol del CRM); si no, él
+    // mismo. Un administrador con alcance de administrar más estrecho que el de ver
+    // duplica así sin `422 INVALID_OWNER` (Revisión E5, nit).
+    const ownerId =
+      request.ownerId?.toLowerCase() ??
+      (administers && (await this.access.isAssignableOwner(actor, source.record.owner.id, source.scopes)) ? source.record.owner.id : actorId);
 
     const sourceProducts = request.copy.products ? await this.projectProducts.listDuplicable(sourceId) : [];
     const plan = duplicationPlan(sourceOf(source.record, sourceProducts), request.copy, {

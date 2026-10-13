@@ -124,7 +124,19 @@ describe('StageChangeDialog (PF-03.64, AC-03.44, AC-03.51, AC-03.58)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Cerrar oportunidad' }));
 
     expect(await screen.findByText('Indica el motivo.')).toBeInTheDocument();
-    expect(screen.getByText('Indica el motivo del resultado.')).toBeInTheDocument();
+    // El mismo error no se repite en la alerta general (revisión E5).
+    expect(screen.queryByText('Indica el motivo del resultado.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('un error sin campo del formulario se muestra una sola vez, en la alerta general', async () => {
+    api(detail(), () => errorResponse(409, 'OPPORTUNITY_STAGE_CONFLICT'));
+    renderWithProviders(<StageChangeDialog open opportunityId="o-1" onClose={vi.fn()} onChanged={vi.fn()} />);
+
+    await chooseTarget('Contactado');
+    await userEvent.click(screen.getByRole('button', { name: 'Cambiar etapa' }));
+
+    expect(await screen.findAllByRole('alert')).toHaveLength(1);
   });
 
   it('sin destinos permitidos lo explica y no deja enviar', async () => {

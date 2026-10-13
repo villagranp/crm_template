@@ -105,7 +105,9 @@ test.describe.serial('CRM · Proyectos', () => {
     await classification.getByRole('button', { name: 'Guardar clasificación' }).click();
     expect((await classified).ok()).toBe(true);
     await expect(page.getByText('Clasificación guardada.')).toBeVisible();
-    await expect(page.getByText('Por regla')).toBeVisible();
+    // La ficha muestra el método guardado (el diálogo, mientras se cierra, también dice «Por regla»).
+    await expect(classification).toBeHidden();
+    await expect(page.getByRole('definition').filter({ hasText: /^Por regla$/ })).toBeVisible();
 
     // Fase (AC-03.36).
     await openSection(page, 'Fase');
@@ -245,6 +247,7 @@ test.describe.serial('CRM · Proyectos', () => {
     await expect(page.getByRole('link', { name: 'Proyectos', exact: true }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: /Forecast/ })).toHaveCount(0);
     await page.goto('/proyectos/forecast');
-    await expect(page.getByText(/Acceso denegado/i)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sin acceso', level: 1 })).toBeVisible();
+    await expect(page.getByRole('table', { name: 'Matriz del forecast' })).toHaveCount(0);
   });
 });

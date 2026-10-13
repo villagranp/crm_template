@@ -8,7 +8,7 @@ import type { ProjectAccessService } from './project-access.service';
 import { toVisibleProject } from './project-access.service';
 import { ProjectPhaseService } from './project-phase.service';
 import type { ProjectsRepository } from './ports/projects.repository.port';
-import { fakeTransactions, makeActor, makeProject, makeScopes, PHASES, TX } from './testing/project-fixtures';
+import { fakeLockEditable, fakeTransactions, makeActor, makeProject, makeScopes, PHASES, TX } from './testing/project-fixtures';
 
 const EDITOR = ['proyectos.ver', 'proyectos.editar'];
 
@@ -20,7 +20,7 @@ function setup(current = makeProject({ phase: { ...PHASES.diseno }, phaseProgres
     changePhase: jest.fn().mockResolvedValue(undefined),
     listPhaseHistory: jest.fn().mockResolvedValue({ items: [], totalItems: 0, page: 1, pageSize: 20 }),
   };
-  const access = { findVisible: jest.fn().mockResolvedValue(visible), findEditable: jest.fn().mockResolvedValue(visible) };
+  const access = { findVisible: jest.fn().mockResolvedValue(visible), findEditable: jest.fn().mockResolvedValue(visible), lockEditable: fakeLockEditable(repository) };
   const catalog = {
     assertItem: jest.fn((_key: string, id: string) => {
       const phase = Object.values(PHASES).find((item) => item.id === id);
@@ -46,7 +46,8 @@ describe('ProjectPhaseService (F-16)', () => {
     const { service, repository, catalog, audit } = setup();
     await service.change(makeActor(EDITOR), 'project-1', { phaseId: PHASES.cotizacion.id, progress: '30', comment: '  Inicio  ' });
     expect(repository.lockProject).toHaveBeenCalledWith('project-1', 'UPDATE', TX);
-    expect(repository.findById).toHaveBeenCalledWith('project-1', null, TX);
+    // Releída bajo el bloqueo con el alcance de `proyectos.ver` (Revisión E5, M4).
+    expect(repository.findById).toHaveBeenCalledWith('project-1', makeScopes().view, TX);
     expect(catalog.assertItem).toHaveBeenCalledWith('crm.fase_cliente', PHASES.cotizacion.id, {
       field: 'phaseId',
       requireActive: true,

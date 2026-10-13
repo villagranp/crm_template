@@ -153,13 +153,19 @@ El `ValidationPipe` global usa `exceptionFactory`
   "message": "Request validation failed",
   "details": [
     { "field": "key", "issue": "key solo admite minúsculas, dígitos, punto, guion y guion bajo" },
-    { "field": "items.0.code", "issue": "code must be a string" }
+    { "field": "items[0].code", "issue": "code must be a string" }
   ],
   "correlationId": "01HXYZ..."
 }
 ```
 
-- `field` es la ruta con puntos del campo; `issue`, el motivo. Nunca se devuelve el valor recibido.
+- `field` es la ruta del campo: puntos para los objetos y corchetes para los índices de una lista
+  (`lines[0].quantity`, `items[2].unit.id`). Es el **mismo** formato que usan los `422` de reglas de
+  negocio sobre listas (`details[].field = "lines[i].campo"`), para que el cliente pinte el error en
+  su celda o fila con un único analizador. `issue` es el motivo. Nunca se devuelve el valor recibido.
+- Los UUID del cuerpo y de los filtros repetibles se normalizan a minúsculas al entrar
+  (`@Transform(toLowerCaseUuid)`, `backend/src/common/dto/uuid-transform.ts`): `@IsUUID` acepta
+  ambas formas y el servidor compara siempre en minúsculas.
 - Un campo no declarado en el DTO también es `VALIDATION_FAILED` (`forbidNonWhitelisted`).
 - Otros `400` que no salen del `ValidationPipe` (p. ej. `ParseUUIDPipe`) conservan el código por
   defecto `BAD_REQUEST`; el cliente debe tratar cualquier `400` como "revisa los datos".

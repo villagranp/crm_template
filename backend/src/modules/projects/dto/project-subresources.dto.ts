@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, Length, Matches, MaxLength, ValidateIf, ValidateNested } from 'class-validator';
 
+import { toLowerCaseUuid } from '@/common/dto/uuid-transform';
 import { PaginationMetaDto } from '@/common/dto/paginated-response.dto';
 import { ATTACHMENT_DESCRIPTION_MAX_LENGTH } from '@/modules/attachments/attachment-policy';
 import { ATTACHMENT_SORT_FIELDS, type AttachmentSortField } from '@/modules/attachments/ports/attachments.repository.port';
@@ -24,6 +25,7 @@ const QUANTITY_NOTE = 'Cadena decimal (hasta 15 enteros y 4 decimales). Negativa
 
 export class CreatePhaseChangeDto {
   @ApiProperty({ format: 'uuid', description: 'Elemento activo de `crm.fase_cliente` (o la fase actual aunque esté desactivada)' })
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   phaseId!: string;
 
@@ -69,16 +71,19 @@ export class PaginatedPhaseHistoryDto {
 export class UpdateClassificationDto {
   @ApiPropertyOptional({ format: 'uuid', nullable: true, description: 'Elemento activo de `crm.tipo_proyecto`' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   projectTypeId?: string | null;
 
   @ApiPropertyOptional({ format: 'uuid', nullable: true, description: 'Elemento activo de `crm.sector_proyecto`' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   sectorId?: string | null;
 
   @ApiPropertyOptional({ format: 'uuid', nullable: true, description: 'Unidad activa (`/units-of-measure`); obligatoria con `RULE`' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   measureUnitId?: string | null;
 
@@ -105,11 +110,13 @@ export class UpdateClassificationDto {
 
 export class CreateProjectProductDto {
   @ApiProperty({ format: 'uuid', description: 'Producto activo del catálogo (`/products`)' })
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   productId!: string;
 
   @ApiPropertyOptional({ format: 'uuid', nullable: true, description: 'Oportunidad no eliminada del mismo proyecto (`422 OPPORTUNITY_NOT_IN_PROJECT`)' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   opportunityId?: string | null;
 
@@ -120,11 +127,13 @@ export class CreateProjectProductDto {
 
   @ApiPropertyOptional({ format: 'uuid', description: 'Unidad activa. Omitida: la unidad base del producto (D-03.14)' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   unitId?: string;
 
   @ApiPropertyOptional({ format: 'uuid', description: 'Elemento activo de `crm.estado_producto_asociado`. Omitido: el primero activo por orden (`PROPUESTO`)' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   statusId?: string;
 
@@ -140,6 +149,7 @@ export class CreateProjectProductDto {
 export class UpdateProjectProductDto {
   @ApiPropertyOptional({ format: 'uuid', nullable: true, description: '`null` = sin oportunidad' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   opportunityId?: string | null;
 
@@ -151,11 +161,13 @@ export class UpdateProjectProductDto {
 
   @ApiPropertyOptional({ format: 'uuid' })
   @ValidateIf(isPresent)
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   unitId?: string;
 
   @ApiPropertyOptional({ format: 'uuid' })
   @ValidateIf(isPresent)
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   statusId?: string;
 
@@ -257,6 +269,7 @@ export class DuplicateProjectDto {
 
   @ApiPropertyOptional({ format: 'uuid', description: 'Omitido: el del origen. Visible y activo (RN-03.2)' })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   customerId?: string;
 
@@ -265,6 +278,7 @@ export class DuplicateProjectDto {
     description: 'Omitido: el del origen con `proyectos.administrar`; si no, el propio usuario. Otro usuario exige `administrar` (RN-03.6)',
   })
   @IsOptional()
+  @Transform(toLowerCaseUuid)
   @IsUUID()
   ownerId?: string;
 

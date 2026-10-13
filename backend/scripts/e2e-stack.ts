@@ -18,6 +18,9 @@
  *     E2E_MANAGER_PASSWORD. Imprime las variables E2E_* (sin contraseñas), también
  *     las de Proyectos (E2E_ASESOR_CUSTOMER, E2E_MANAGER_TEAM_PROJECT,
  *     E2E_FOREIGN_PROJECT_ID, E2E_PRODUCT_SKU, E2E_RULE_UNIT).
+ *     Si llega E2E_NO_FORECAST_PASSWORD (12+), crea en el esquema un rol propio
+ *     «asesor sin forecast» (el asesor sin `forecast.*`) y un usuario activo con
+ *     él (E2E_NO_FORECAST_EMAIL, por defecto sin.forecast@e2e.invalid), y lo imprime.
  *
  *   pnpm exec ts-node --transpile-only scripts/e2e-stack.ts drop
  *     Borra el esquema.
@@ -29,11 +32,15 @@ import { resolve } from 'node:path';
 
 import { PrismaClient } from '@prisma/client';
 
+import { PasswordService } from '../src/modules/auth/password.service';
+
 const BACKEND_DIR = resolve(__dirname, '..');
 const SCHEMA = process.env.E2E_SCHEMA ?? 'integration_e2e';
 const DEMO_PARAMETER_KEY = 'sistema.permite_datos_demo';
 const DEFAULT_ASESOR_EMAIL = 'asesor1.gt@demo.invalid';
 const DEFAULT_MANAGER_EMAIL = 'manager.gt@demo.invalid';
+const DEFAULT_NO_FORECAST_EMAIL = 'sin.forecast@e2e.invalid';
+const NO_FORECAST_ROLE_CODE = 'e2e_asesor_sin_forecast';
 const MIN_PASSWORD_LENGTH = 12;
 const HTTP_OK = 200;
 const HTTP_NOT_FOUND = 404;
@@ -196,6 +203,82 @@ async function activate(): Promise<void> {
   for (const line of await projectVariables(baseUrl, asesorToken, managerToken)) {
     console.log(line);
   }
+
+  // Usuario sin forecast.ver (PF-03.116): solo si llega su contraseña; si no, esa prueba se salta.
+  const noForecastPassword = process.env.E2E_NO_FORECAST_PASSWORD;
+  if (noForecastPassword) {
+    if (noForecastPassword.length < MIN_PASSWORD_LENGTH) {
+      throw new Error(`E2E_NO_FORECAST_PASSWORD debe tener ${MIN_PASSWORD_LENGTH}+ caracteres.`);
+    }
+    const email = await ensureNoForecastUser(noForecastPassword);
+    const check = await api(baseUrl, '/auth/login', { method: 'POST', body: JSON.stringify({ email, password: noForecastPassword }) });
+    if (check.status !== HTTP_OK) {
+      // 429: el login admite 10 intentos por minuto por IP; espera un minuto y repite `activate`.
+      throw new Error(`El login de ${email} respondió ${check.status}.`);
+    }
+    console.log(`E2E_NO_FORECAST_EMAIL=${email}`);
+  }
+}
+
+/**
+ * Rol propio «asesor sin forecast» (copia del asesor sin `forecast.*` ni las opciones de menú que
+ * los exigen) y un usuario activo con él. Solo en el esquema aislado; idempotente.
+ */
+async function ensureNoForecastUser(password: string): Promise<string> {
+  const email = process.env.E2E_NO_FORECAST_EMAIL ?? DEFAULT_NO_FORECAST_EMAIL;
+  const passwordHash = await new PasswordService().hash(password);
+  await withPrisma(async (prisma) => {
+    const asesor = await prisma.role.findUniqueOrThrow({
+      where: { code: 'asesor' },
+      select: {
+        permissions: { select: { permission: { select: { id: true, code: true } } } },
+        menuOptions: { select: { menuOption: { select: { id: true, requiredPermission: { select: { code: true } } } } } },
+      },
+    });
+    const withoutForecast = (code: string | undefined): boolean => !code?.startsWith('forecast.');
+    const permissionIds = asesor.permissions.filter(({ permission }) => withoutForecast(permission.code)).map(({ permission }) => permission.id);
+    const menuOptionIds = asesor.menuOptions
+      .filter(({ menuOption }) => withoutForecast(menuOption.requiredPermission?.code))
+      .map(({ menuOption }) => menuOption.id);
+
+    await prisma.$transaction(async (tx) => {
+      const role = await tx.role.upsert({
+        where: { code: NO_FORECAST_ROLE_CODE },
+        update: {},
+        create: {
+          code: NO_FORECAST_ROLE_CODE,
+          name: 'E2E asesor sin forecast',
+          description: 'Rol de prueba del stack E2E aislado: asesor sin forecast.*.',
+          dataScope: 'OWN',
+        },
+      });
+      await tx.rolePermission.deleteMany({ where: { roleId: role.id } });
+      await tx.rolePermission.createMany({ data: permissionIds.map((permissionId) => ({ roleId: role.id, permissionId })) });
+      await tx.roleMenuOption.deleteMany({ where: { roleId: role.id } });
+      await tx.roleMenuOption.createMany({ data: menuOptionIds.map((menuOptionId) => ({ roleId: role.id, menuOptionId })) });
+
+      const user = await tx.user.upsert({
+        where: { emailNormalized: email.toLowerCase() },
+        update: { status: 'ACTIVE' },
+        create: {
+          email,
+          emailNormalized: email.toLowerCase(),
+          firstName: 'E2E',
+          lastName: 'Sin forecast',
+          displayName: 'E2E Sin forecast',
+          status: 'ACTIVE',
+        },
+      });
+      await tx.userRole.deleteMany({ where: { userId: user.id } });
+      await tx.userRole.create({ data: { userId: user.id, roleId: role.id } });
+      await tx.userCredential.upsert({
+        where: { userId: user.id },
+        update: { passwordHash, mustChangePassword: false, failedAttempts: 0, lockedUntil: null },
+        create: { userId: user.id, passwordHash, mustChangePassword: false },
+      });
+    });
+  });
+  return email;
 }
 
 interface ApiProject {

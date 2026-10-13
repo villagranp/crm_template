@@ -23,6 +23,30 @@ describe('validationExceptionFactory (DC-6)', () => {
     ]);
   });
 
+  it('los índices de una lista van entre corchetes, como en los 422 (lines[0].quantity)', () => {
+    const nested: ValidationError[] = [
+      {
+        property: 'lines',
+        children: [
+          {
+            property: '0',
+            children: [{ property: 'quantity', constraints: { matches: 'quantity must match' }, children: [] }],
+          },
+          {
+            property: '12',
+            children: [
+              { property: 'unit', children: [{ property: 'id', constraints: { isUuid: 'id must be a UUID' }, children: [] }] },
+            ],
+          },
+        ],
+      },
+    ];
+    expect(flattenValidationErrors(nested)).toEqual([
+      { field: 'lines[0].quantity', issue: 'quantity must match' },
+      { field: 'lines[12].unit.id', issue: 'id must be a UUID' },
+    ]);
+  });
+
   it('el filtro global responde 400 VALIDATION_FAILED con details[]', () => {
     const json = jest.fn();
     const status = jest.fn(() => ({ json }));

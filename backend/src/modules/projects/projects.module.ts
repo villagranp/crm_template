@@ -6,6 +6,7 @@ import { PrismaProjectsRepository } from '@/infrastructure/database/prisma/repos
 import { AccessModule } from '@/modules/access/access.module';
 import { AttachmentsModule } from '@/modules/attachments/attachments.module';
 import { CatalogsModule } from '@/modules/catalogs/catalogs.module';
+import { BUSINESS_CLOCK, systemBusinessClock } from '@/modules/commercial-metrics/business-clock';
 import { CustomersModule } from '@/modules/customers/customers.module';
 import { ProductsModule } from '@/modules/products/products.module';
 import { UnitConversionsModule } from '@/modules/unit-conversions/unit-conversions.module';
@@ -45,7 +46,8 @@ import { ProjectsService } from './projects.service';
  * Oportunidades y Forecast (E2b), que heredan la visibilidad del proyecto (DM-13), y el
  * puerto `PROJECTS_REPOSITORY` para que sus escrituras bloqueen la fila del proyecto
  * (`lockProject(id, 'UPDATE', tx)`), toquen `last_activity_at` y validen asesores
- * asignables con las mismas consultas (03 "Precisiones" E2a).
+ * asignables con las mismas consultas (03 "Precisiones" E2a). Provee y exporta además el
+ * reloj del negocio `BUSINESS_CLOCK` (DEF-G: eliminación, productos asociados y forecast).
  */
 @Module({
   imports: [PrismaModule, AccessModule, CatalogsModule, AttachmentsModule, CustomersModule, ProductsModule, UnitConversionsModule],
@@ -69,9 +71,10 @@ import { ProjectsService } from './projects.service';
     ProjectHistoryService,
     ProjectOptionsService,
     ProjectAttachmentWriteGuard,
+    { provide: BUSINESS_CLOCK, useValue: systemBusinessClock },
     { provide: PROJECTS_REPOSITORY, useClass: PrismaProjectsRepository },
     { provide: PROJECT_PRODUCTS_REPOSITORY, useClass: PrismaProjectProductsRepository },
   ],
-  exports: [ProjectAccessService, ProjectCatalogsService, PROJECTS_REPOSITORY],
+  exports: [ProjectAccessService, ProjectCatalogsService, PROJECTS_REPOSITORY, BUSINESS_CLOCK],
 })
 export class ProjectsModule {}

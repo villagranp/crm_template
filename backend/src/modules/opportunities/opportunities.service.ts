@@ -2,11 +2,11 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import { calendarDateIn } from '@/common/calendar-date';
 import { compareDecimal } from '@/common/decimal';
-import { PermissionDeniedError } from '@/common/errors/application-error';
+import { PermissionDeniedError, ResourceConflictError } from '@/common/errors/application-error';
 import type { ApplicationWarning } from '@/common/warnings';
 import type { Page } from '@/infrastructure/database/ports/pagination';
 import { SEQUENCE_GENERATOR, type SequenceGenerator } from '@/infrastructure/database/ports/sequence-generator.port';
-import { TRANSACTION_RUNNER, type TransactionRunner } from '@/infrastructure/database/ports/transaction.port';
+import { TRANSACTION_RUNNER, type TransactionContext, type TransactionRunner } from '@/infrastructure/database/ports/transaction.port';
 import { AppLogger } from '@/infrastructure/logging/app-logger.service';
 import { AuditService } from '@/modules/audit/audit.service';
 import { CatalogReferenceValidator } from '@/modules/catalogs/catalog-reference.validator';
@@ -23,7 +23,9 @@ import {
   canCloseOpportunity,
   canCreateOpportunityIn,
   canDeleteOpportunity,
+  canEditOpportunity,
   canReopenOpportunity,
+  missingEditPermission,
   type OpportunityAccessScopes,
   type OpportunityCapabilities,
   opportunityCapabilities,
@@ -53,6 +55,7 @@ import {
   OPPORTUNITIES_REPOSITORY,
   type OpportunitiesRepository,
   type OpportunityDateField,
+  type LockedOpportunity,
   type OpportunityFilters,
   type OpportunityRecord,
   type OpportunitySortField,
@@ -137,6 +140,37 @@ export interface OpportunityFormOptions {
 export interface OpportunityHistory {
   readonly stages: readonly StageHistoryRecord[];
   readonly results: readonly ResultHistoryRecord[];
+}
+
+/** Intentos de `update` cuando las entradas de la tasa cambian bajo el bloqueo (Revisión E5, M2). */
+const MAX_ESTIMATE_ATTEMPTS = 3;
+
+/** Lo que `update` decide sobre un estado concreto de la oportunidad. */
+interface PreparedUpdate {
+  readonly plan: EstimatePlan;
+  /** País del proyecto: decide las monedas admitidas de la conversión. */
+  readonly countryId: string;
+  readonly changes: UpdateOpportunityInput;
+}
+
+/** Señal interna: la tasa resuelta fuera no corresponde al estado bloqueado; se reintenta. */
+class StaleEstimateInputs extends Error {
+  constructor(readonly prepared: PreparedUpdate) {
+    super('Opportunity estimate inputs changed under the lock');
+  }
+}
+
+/** ¿La conversión resuelta para `expected` sirve para `actual`? (mismo tipo de plan y, si convierte, mismas entradas). */
+function sameConversionInputs(expected: PreparedUpdate, actual: PreparedUpdate): boolean {
+  const a = expected.plan;
+  const b = actual.plan;
+  if (a.kind !== 'CONVERT' || b.kind !== 'CONVERT') return a.kind !== 'CONVERT' && b.kind !== 'CONVERT';
+  return (
+    compareDecimal(a.amount, b.amount) === 0 &&
+    a.currencyCode === b.currencyCode &&
+    a.referenceDate === b.referenceDate &&
+    expected.countryId === actual.countryId
+  );
 }
 
 const SUMMARY_FIELDS = ['opportunityDate', 'ownerId', 'estimatedTonnage', 'description', 'nextAction', 'nextActionDate'] as const;
@@ -254,8 +288,10 @@ export class OpportunitiesService {
     if (!canCreateOpportunityIn(actor, projectRef, scopes.administer)) {
       throw new PermissionDeniedError(actor.permissions.has(OPPORTUNITY_PERMISSIONS.create) ? OPPORTUNITY_PERMISSIONS.administer : OPPORTUNITY_PERMISSIONS.create);
     }
-    const ownerId = request.ownerId ?? actorId;
-    if (ownerId !== actorId && !actor.permissions.has(OPPORTUNITY_PERMISSIONS.administer)) {
+    // UUID en minúsculas (Revisión E5, m1): indicarse a sí mismo nunca exige `administrar`.
+    const ownerId = (request.ownerId ?? actorId).toLowerCase();
+    const isSelf = ownerId === actorId.toLowerCase();
+    if (!isSelf && !actor.permissions.has(OPPORTUNITY_PERMISSIONS.administer)) {
       throw fieldNotEditableError('ownerId', OPPORTUNITY_PERMISSIONS.administer);
     }
 
@@ -273,7 +309,7 @@ export class OpportunitiesService {
       if (!(await this.projects.lockProject(projectId, 'UPDATE', tx))) throw projectNotFound(projectId);
       // La etapa se revalida dentro (00 §3.5).
       await this.catalogValidator.assertItem(OPPORTUNITY_CATALOGS.stage, stage.id, { field: 'stageId', requireActive: true, tx });
-      if (ownerId !== actorId && !(await this.projects.findEligibleOwner(ownerId, assignable, OPPORTUNITY_PERMISSIONS.view, tx))) {
+      if (!isSelf && !(await this.projects.findEligibleOwner(ownerId, assignable, OPPORTUNITY_PERMISSIONS.view, tx))) {
         throw opportunityIssuesError([opportunityIssue('ownerId', OPPORTUNITY_ERROR_CODES.invalidOwner)]);
       }
       const code = await this.sequences.next(OPPORTUNITY_SEQUENCE_KEY, tx, { at, timeZone });
@@ -317,46 +353,114 @@ export class OpportunitiesService {
   // Edición (RN-03.38, RN-03.82)
   // -------------------------------------------------------------------------
 
+  /**
+   * Edición (RN-03.38, RN-03.82). La decisión se toma sobre la fila **bloqueada**
+   * (Revisión E5, M2/M4): dentro de la transacción se vuelve a leer la oportunidad y, con
+   * ella, se repiten la política (`403`), el plan de la estimación (un campo omitido se
+   * completa con el valor actual, no con el de la lectura previa) y los cambios. La tasa
+   * de cambio se resuelve fuera (lee tasas y parámetros por el pool) con las entradas
+   * del plan previo; si bajo el bloqueo esas entradas cambiaron (monto, moneda, fecha o
+   * país del proyecto), la transacción se descarta sin escribir y se reintenta con las
+   * nuevas (como mucho `MAX_ESTIMATE_ATTEMPTS`; después, `409 RESOURCE_CONFLICT`).
+   */
   async update(actor: OpportunityActor, opportunityId: string, request: UpdateOpportunityRequest): Promise<OpportunityMutationView> {
     const visible = await this.access.findEditable(actor, opportunityId);
-    const before = visible.record;
-    const ownerChanges = request.ownerId !== undefined && request.ownerId !== before.owner.id;
-    if (ownerChanges && !canAssignOpportunityOwner(actor, visible.subject)) {
-      throw fieldNotEditableError('ownerId', OPPORTUNITY_PERMISSIONS.administer);
-    }
-    const opportunityDate = request.opportunityDate ?? before.opportunityDate;
-    const { plan, issues } = planEstimate(before, request, { before: before.opportunityDate, after: opportunityDate });
-    if (issues.length > 0) throw opportunityIssuesError(issues);
-    const conversion = await this.convert(plan, before.project.countryId);
-    const estimate = applyEstimatePlan(before, plan, conversion);
-    const changes = this.changedFields(before, request, estimate);
-    if (Object.keys(changes).length === 0) {
+    const projectId = visible.record.project.id;
+    // Lectura previa: `403`/`422` tempranos y "sin cambios" sin abrir transacción.
+    let preview = this.prepareUpdate(actor, visible, request);
+    if (Object.keys(preview.changes).length === 0) {
       // Edición sin cambios: no se escribe ni se audita (RN-03.13).
       return { ...(await this.detail(actor, visible)), warnings: [] };
     }
     const assignable = this.access.assignableOwners(actor, visible.scopes);
 
-    await this.transactions.run(async (tx) => {
-      if (!(await this.projects.lockProject(before.project.id, 'UPDATE', tx))) throw opportunityNotFound(opportunityId);
-      if (!(await this.opportunities.lock(opportunityId, before.project.id, tx))) throw opportunityNotFound(opportunityId);
-      if (changes.ownerId !== undefined && !(await this.projects.findEligibleOwner(changes.ownerId, assignable, OPPORTUNITY_PERMISSIONS.view, tx))) {
-        throw opportunityIssuesError([opportunityIssue('ownerId', OPPORTUNITY_ERROR_CODES.invalidOwner)]);
+    for (let attempt = 1; ; attempt += 1) {
+      const conversion = await this.convert(preview.plan, preview.countryId);
+      const expected = preview;
+      let outcome: { readonly before: OpportunityRecord; readonly changes: UpdateOpportunityInput } | StaleEstimateInputs;
+      try {
+        outcome = await this.transactions.run(async (tx) => {
+          const locked = await this.lockForWrite(actor, opportunityId, projectId, visible.scopes, tx);
+          const prepared = this.prepareUpdate(actor, locked, request);
+          if (!sameConversionInputs(expected, prepared)) throw new StaleEstimateInputs(prepared);
+          const estimate = applyEstimatePlan(locked.record, prepared.plan, conversion);
+          const changes = this.changedFields(locked.record, request, estimate);
+          if (Object.keys(changes).length === 0) return { before: locked.record, changes };
+          if (changes.ownerId !== undefined && !(await this.projects.findEligibleOwner(changes.ownerId, assignable, OPPORTUNITY_PERMISSIONS.view, tx))) {
+            throw opportunityIssuesError([opportunityIssue('ownerId', OPPORTUNITY_ERROR_CODES.invalidOwner)]);
+          }
+          await this.opportunities.update(opportunityId, changes, actor.userId, tx);
+          await this.projects.touchLastActivity([projectId], new Date(), tx);
+          return { before: locked.record, changes };
+        });
+      } catch (error) {
+        if (!(error instanceof StaleEstimateInputs)) throw error;
+        outcome = error;
       }
-      await this.opportunities.update(opportunityId, changes, actor.userId, tx);
-      await this.projects.touchLastActivity([before.project.id], new Date(), tx);
-    });
+      if (outcome instanceof StaleEstimateInputs) {
+        if (attempt >= MAX_ESTIMATE_ATTEMPTS) {
+          throw new ResourceConflictError('The opportunity estimate changed concurrently; retry the request', [{ field: 'estimatedAmount' }]);
+        }
+        this.logger.info('opportunity_update_retried', { correlationId: actor.audit.correlationId, opportunityId, attempt });
+        preview = outcome.prepared;
+        continue;
+      }
 
-    const after = await this.mustFind(opportunityId);
-    this.logger.info('opportunity_updated', { correlationId: actor.audit.correlationId, opportunityId, fields: Object.keys(changes) });
-    await this.audit.record(OPPORTUNITY_AUDIT_EVENTS.updated, actor.audit, {
-      resourceType: OPPORTUNITY_AUDIT_RESOURCE,
-      resourceId: opportunityId,
-      before: opportunityAuditState(before),
-      after: opportunityAuditState(after),
-      maskedFields: OPPORTUNITY_MASKED_FIELDS,
-      metadata: { projectId: before.project.id },
-    });
-    return { ...(await this.detail(actor, toVisibleOpportunity(after, visible.scopes))), warnings: conversion?.warnings ?? [] };
+      const { before, changes } = outcome;
+      if (Object.keys(changes).length === 0) {
+        // Otra edición dejó ya los mismos valores mientras se esperaba el bloqueo.
+        return { ...(await this.detail(actor, toVisibleOpportunity(before, visible.scopes))), warnings: [] };
+      }
+      const after = await this.mustFind(opportunityId);
+      this.logger.info('opportunity_updated', { correlationId: actor.audit.correlationId, opportunityId, fields: Object.keys(changes) });
+      await this.audit.record(OPPORTUNITY_AUDIT_EVENTS.updated, actor.audit, {
+        resourceType: OPPORTUNITY_AUDIT_RESOURCE,
+        resourceId: opportunityId,
+        before: opportunityAuditState(before),
+        after: opportunityAuditState(after),
+        maskedFields: OPPORTUNITY_MASKED_FIELDS,
+        metadata: { projectId },
+      });
+      return { ...(await this.detail(actor, toVisibleOpportunity(after, visible.scopes))), warnings: conversion?.warnings ?? [] };
+    }
+  }
+
+  /**
+   * Dentro de la transacción de una escritura: proyecto y oportunidad con `FOR UPDATE`
+   * (siempre en ese orden) y la oportunidad **vuelta a leer** con el alcance de
+   * `oportunidades.ver` (`404` si ya no existe o no se ve) y la política de edición
+   * evaluada sobre ella (`403`). Solo usa la conexión de `tx` (AGENTS §9.12).
+   */
+  async lockForWrite(
+    actor: OpportunityActor,
+    opportunityId: string,
+    projectId: string,
+    scopes: OpportunityAccessScopes,
+    tx: TransactionContext,
+  ): Promise<VisibleOpportunity & { readonly locked: LockedOpportunity }> {
+    if (!(await this.projects.lockProject(projectId, 'UPDATE', tx))) throw opportunityNotFound(opportunityId);
+    const locked = await this.opportunities.lock(opportunityId, projectId, tx);
+    if (!locked) throw opportunityNotFound(opportunityId);
+    const record = await this.opportunities.findById(opportunityId, scopes.view, tx);
+    if (!record) throw opportunityNotFound(opportunityId);
+    const visible = toVisibleOpportunity(record, scopes);
+    if (!canEditOpportunity(actor, visible.subject)) throw new PermissionDeniedError(missingEditPermission(actor, visible.subject));
+    return { ...visible, locked };
+  }
+
+  /** Política del asesor, plan de la estimación y cambios sobre un estado concreto de la oportunidad. */
+  private prepareUpdate(actor: OpportunityActor, visible: VisibleOpportunity, request: UpdateOpportunityRequest): PreparedUpdate {
+    const current = visible.record;
+    const ownerChanges = request.ownerId !== undefined && request.ownerId.toLowerCase() !== current.owner.id.toLowerCase();
+    if (ownerChanges && !canAssignOpportunityOwner(actor, visible.subject)) {
+      throw fieldNotEditableError('ownerId', OPPORTUNITY_PERMISSIONS.administer);
+    }
+    const opportunityDate = request.opportunityDate ?? current.opportunityDate;
+    const { plan, issues } = planEstimate(current, request, { before: current.opportunityDate, after: opportunityDate });
+    if (issues.length > 0) throw opportunityIssuesError(issues);
+    // Sin la conversión todavía: un `CONVERT` cuenta como cambio de la foto.
+    const estimate = plan.kind === 'CONVERT' ? { ...current, estimatedAmount: null, currencyCode: null } : applyEstimatePlan(current, plan, null);
+    return { plan, countryId: current.project.countryId, changes: this.changedFields(current, request, estimate) };
   }
 
   // -------------------------------------------------------------------------
@@ -370,10 +474,14 @@ export class OpportunitiesService {
     const projectId = visible.record.project.id;
     const at = new Date();
 
-    await this.transactions.run(async (tx) => {
+    const removed = await this.transactions.run(async (tx) => {
       if (!(await this.projects.lockProject(projectId, 'UPDATE', tx))) throw opportunityNotFound(opportunityId);
       const locked = await this.opportunities.lock(opportunityId, projectId, tx);
       if (!locked) throw opportunityNotFound(opportunityId);
+      // La política se vuelve a evaluar sobre la fila bloqueada (Revisión E5, M4).
+      const fresh = await this.opportunities.findById(opportunityId, visible.scopes.view, tx);
+      if (!fresh) throw opportunityNotFound(opportunityId);
+      if (!canDeleteOpportunity(actor, toVisibleOpportunity(fresh, visible.scopes).subject)) throw new PermissionDeniedError(OPPORTUNITY_PERMISSIONS.delete);
       const stage = stages.find((item) => item.id === locked.stageId);
       if (stage && isClosedStage(stage)) throw opportunityClosedError(stage);
       // Bajo el bloqueo: asociar un producto a la oportunidad también bloquea el proyecto (sin TOCTOU).
@@ -381,13 +489,14 @@ export class OpportunitiesService {
       if (dependencies.activeProducts > 0 || dependencies.openActivities > 0) throw opportunityHasDependenciesError(dependencies);
       await this.opportunities.softDelete(opportunityId, actor.userId, at, tx);
       await this.projects.touchLastActivity([projectId], at, tx);
+      return fresh;
     });
 
     this.logger.info('opportunity_deleted', { correlationId: actor.audit.correlationId, projectId, opportunityId });
     await this.audit.record(OPPORTUNITY_AUDIT_EVENTS.deleted, actor.audit, {
       resourceType: OPPORTUNITY_AUDIT_RESOURCE,
       resourceId: opportunityId,
-      before: opportunityAuditState(visible.record),
+      before: opportunityAuditState(removed),
       after: null,
       maskedFields: OPPORTUNITY_MASKED_FIELDS,
       metadata: { projectId },

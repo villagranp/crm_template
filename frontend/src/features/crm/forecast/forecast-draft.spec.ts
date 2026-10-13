@@ -95,6 +95,21 @@ describe('forecast-draft (03 §E.8, PF-03.101)', () => {
     expect(setRowUnit(draft, ROW, VAR.id).units).toEqual({});
   });
 
+  it('cambiar solo la unidad de una fila sin líneas guardadas no deja un borrador sin guardar (revisión E5)', () => {
+    const empty = row({ cells: [EMPTY_FEB, EMPTY_MAR] });
+    let draft = setRowUnit(EMPTY_DRAFT, empty, KG.id);
+    expect(isDirty(draft)).toBe(false);
+    expect(changeCount(draft)).toBe(0);
+    // La unidad elegida se aplica a lo que se escriba después.
+    draft = editCell(draft, empty, EMPTY_FEB, '5');
+    expect(isDirty(draft)).toBe(true);
+    expect(buildSavePayload(draft).lines).toEqual([{ projectId: 'p-1', productId: 'pr-var3', year: 2027, month: 2, quantity: '5', unitId: KG.id }]);
+    // Con líneas guardadas, el cambio de unidad sí es guardable por sí solo.
+    const withLine = setRowUnit(EMPTY_DRAFT, ROW, KG.id);
+    expect(isDirty(withLine)).toBe(true);
+    expect(changeCount(withLine)).toBe(1);
+  });
+
   it('la vista previa usa el factor del backend y no se calcula si cambia la unidad o falta la regla', () => {
     const draft = editCell(EMPTY_DRAFT, ROW, EMPTY_FEB, '1000');
     expect(previewTonnage('1000', ROW, EMPTY_FEB, draft)).toBe('3.35');
