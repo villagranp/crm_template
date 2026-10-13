@@ -14,7 +14,7 @@ import type { CommercialUsersReader } from './ports/commercial-users.reader.port
 import type { ScheduleCandidateRecord, VisitRecord, VisitRepository } from './ports/visit.repository.port';
 import { makeActor, TX } from './testing/activity-fixtures';
 import { makeVisit, makeVisitScopes, VISIT_CATALOG_ITEMS } from './testing/visit-fixtures';
-import { EVENT_ATTACHMENT_WINDOW_MS, VisitsService } from './visits.service';
+import { canAttachToVisitEvent, EVENT_ATTACHMENT_WINDOW_MS, VisitsService } from './visits.service';
 
 const ASESOR = ['visitas.ver', 'visitas.crear', 'visitas.editar', 'visitas.cerrar', 'contactos.ver'];
 const HOUR = 3_600_000;
@@ -66,6 +66,7 @@ function setup(options: { stored?: VisitRecord | null; mode?: string; candidates
     isEligibleOwner: jest.fn(async () => true),
     listOwnerOptions: jest.fn(),
     findUserStates: jest.fn(async () => []),
+    findTimeZone: jest.fn(async () => null),
   };
   const sequences = { next: jest.fn(async () => 'VIS-2026-00042') };
   const run = jest.fn(async (work: (tx: TransactionContext) => Promise<unknown>) => work(TX));
@@ -115,6 +116,9 @@ describe('VisitsService.create (RN-04.13, RN-04.14)', () => {
 
     expect(fakes.customers.assertUsableCustomer).toHaveBeenCalledWith('customer-1', expect.anything(), { requireActive: true, tx: TX });
     expect(fakes.links.findProject).toHaveBeenCalledWith('project-1', expect.anything(), TX);
+    // RN-04.2: el proyecto se bloquea antes de validarlo (una eliminación concurrente no se cuela).
+    expect(fakes.links.lockProjects).toHaveBeenCalledWith(['project-1'], TX);
+    expect(order(fakes.links.findProject)).toBeGreaterThan(order(fakes.links.lockProjects));
     expect(fakes.visits.lockOwnerSchedules).toHaveBeenCalledWith(['user-1'], TX);
     expect(order(fakes.visits.findScheduleCandidates)).toBeGreaterThan(order(fakes.visits.lockOwnerSchedules));
     expect(order(fakes.sequences.next)).toBeGreaterThan(order(fakes.visits.findScheduleCandidates));
@@ -402,6 +406,32 @@ describe('VisitsService.reschedule / cancel (RN-04.19, RN-04.20)', () => {
 
 describe('VisitsService adjuntos (F.4, D-04.18)', () => {
   const occurredAt = new Date('2026-10-12T15:00:00.000Z');
+
+  it('canAttachFiles del historial: quien ejecutó el evento, con editar o cerrar, dentro de la ventana', async () => {
+    const fakes = setup();
+    const event = {
+      id: 'event-1',
+      eventType: 'PLANNED',
+      fromStatus: null,
+      toStatus: { id: 'status-planned', code: 'PROGRAMADA', label: 'Programada' },
+      previousScheduledStartAt: null,
+      newScheduledStartAt: null,
+      reason: null,
+      reasonText: null,
+      comment: null,
+      performedBy: { id: 'user-1', displayName: 'Asesor' },
+      occurredAt,
+      attachmentCount: 0,
+    };
+    fakes.visits.listEvents.mockResolvedValue([event]);
+    const within = new Date(occurredAt.getTime() + EVENT_ATTACHMENT_WINDOW_MS);
+    const late = new Date(within.getTime() + 1);
+    expect((await fakes.service.listEvents(makeActor(ASESOR), 'visit-1', within)).map((item) => item.canAttachFiles)).toEqual([true]);
+    expect((await fakes.service.listEvents(makeActor(ASESOR), 'visit-1', late)).map((item) => item.canAttachFiles)).toEqual([false]);
+    expect((await fakes.service.listEvents(makeActor(ASESOR, 'user-2'), 'visit-1', within)).map((item) => item.canAttachFiles)).toEqual([false]);
+    expect(canAttachToVisitEvent({ userId: 'user-1', permissions: new Set(['visitas.ver']) }, { performedById: 'user-1', occurredAt }, within)).toBe(false);
+    expect(canAttachToVisitEvent({ userId: 'user-1', permissions: new Set(['visitas.cerrar']) }, { performedById: 'user-1', occurredAt }, within)).toBe(true);
+  });
 
   it('evento: solo quien lo ejecutó y en 15 minutos; de otra visita → 404', async () => {
     const fakes = setup();

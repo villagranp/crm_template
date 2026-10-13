@@ -61,6 +61,7 @@ function setup(stored: ActivityRecord | null = makeActivity(), scopes = makeScop
     isEligibleOwner: jest.fn(async () => true),
     listOwnerOptions: jest.fn(),
     findUserStates: jest.fn(async () => []),
+    findTimeZone: jest.fn(async () => null),
   };
   const sequences = { next: jest.fn(async () => 'ACT-2026-000042') };
   const run = jest.fn(async (work: (tx: TransactionContext) => Promise<unknown>) => work(TX));
@@ -108,6 +109,8 @@ describe('ActivitiesService.create', () => {
     expect(fakes.sequences.next).toHaveBeenCalledWith('crm.actividad', TX, { timeZone: 'America/Guatemala' });
     expect(order(fakes.sequences.next)).toBeGreaterThan(order(fakes.links.lockProjects));
     expect(order(fakes.sequences.next)).toBeGreaterThan(order(fakes.catalogReferences.assertItem));
+    // RN-04.2: el proyecto se bloquea antes de validarlo (una eliminación concurrente no se cuela).
+    expect(order(fakes.links.findProject)).toBeGreaterThan(order(fakes.links.lockProjects));
     expect(fakes.activities.create).toHaveBeenCalledWith(
       expect.objectContaining({
         code: 'ACT-2026-000042',

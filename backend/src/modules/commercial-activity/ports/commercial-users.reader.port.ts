@@ -12,6 +12,8 @@ export type UserScopeSet =
 
 export interface OwnerOptionsSearch extends PageRequest {
   readonly search: string | null;
+  /** Solo estos usuarios (resolver ids a nombres, p. ej. un filtro recargado); vacío = sin filtro. */
+  readonly ids: readonly string[];
   readonly scope: UserScopeSet;
   /** El usuario debe tener **alguno** de estos permisos efectivo. */
   readonly anyOfPermissions: readonly string[];
@@ -40,4 +42,6 @@ export interface CommercialUsersReader {
   listOwnerOptions(search: OwnerOptionsSearch): Promise<Page<UserRefRecord>>;
   /** Estado de los usuarios que existen entre `userIds` (los inexistentes no aparecen). */
   findUserStates(userIds: readonly string[], tx?: TransactionContext): Promise<UserState[]>;
+  /** Zona horaria del perfil (`users.time_zone`, DM-2); `null` si el usuario no existe. */
+  findTimeZone(userId: string): Promise<string | null>;
 }

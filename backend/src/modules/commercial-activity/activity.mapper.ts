@@ -1,3 +1,4 @@
+import type { CommercialFormContextDto } from './dto/commercial-refs.dto';
 import type { ActivityFormOptions, ActivityListItemView, ActivityView } from './activities.service';
 import type { ActivityDueBucket } from './activity-due-status';
 import { typeSpecificFields } from './activity-type-fields';
@@ -141,7 +142,8 @@ export function toPendingActivityDto(view: ActivityListItemView & { readonly due
   };
 }
 
-export function toActivityFormOptionsDto(options: ActivityFormOptions): ActivityFormOptionsDto {
+/** Opciones propias de actividades; el contexto común (zonas y adjuntos) lo añade el controlador. */
+export function toActivityFormOptionsDto(options: ActivityFormOptions): Omit<ActivityFormOptionsDto, keyof CommercialFormContextDto> {
   return {
     types: options.types.map((type) => ({ ...type, fields: [...type.fields] })),
     statuses: options.statuses.map((status) => ({ ...status })),

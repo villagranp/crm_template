@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { PDF_BYTES } from '@/modules/attachments/testing/attachment-fixtures';
 
 import {
@@ -117,6 +119,15 @@ describe('GET /agenda y /agenda/calendar (PF-04.37–PF-04.39, AC-04.1–AC-04.6
     expect(afterCancel.body.data[0]).toMatchObject({ status: { code: 'CANCELADA', group: 'CANCELLED' } });
     const withoutCancelled = await client.get(`/agenda?customerId=${customerId}&statusGroup=PENDING&statusGroup=OVERDUE`).expect(200);
     expect(idsOf(withoutCancelled.body.data)).toEqual([overdueTask, call]);
+  });
+
+  it('agenda, historial, seguimiento y adjuntos no buscan por texto: `search` no se anuncia y responde 400', async () => {
+    const { user } = await ownerWithCustomer();
+    const client = api(context, user.token);
+    for (const path of ['/agenda', '/agenda/calendar', '/interactions', '/follow-ups', `/activities/${randomUUID()}/attachments`]) {
+      const response = await client.get(`${path}${path.includes('?') ? '&' : '?'}search=x`).expect(400);
+      expect(response.body).toMatchObject({ code: 'VALIDATION_FAILED', details: expect.arrayContaining([expect.objectContaining({ field: 'search' })]) });
+    }
   });
 
   it('PF-04.38: calendario de 60 días → 400 RANGE_TOO_WIDE; sin rango → 400; más de 500 eventos → truncated', async () => {
@@ -299,10 +310,13 @@ describe('GET /follow-ups y /follow-ups/trace (PF-04.41, PF-04.42, AC-04.11–AC
         sourceId: done.body.id,
         sourceCode: done.body.code,
         eventId: null,
-        contentPath: `/api/v1/visits/${done.body.id}/attachments/${uploaded.body.id}/content`,
+        contentPath: `/visits/${done.body.id}/attachments/${uploaded.body.id}/content`,
         sourcePath: `/actividad/visitas/${done.body.id}`,
       }),
     ]);
+    // `contentPath` es relativa a la base de la API, como el resto del contrato: se descarga tal cual con el cliente.
+    const content = await client.get(trace.body.attachments[0].contentPath).expect(200);
+    expect(content.headers['content-disposition']).toContain('attachment');
 
     await client.get(`/follow-ups/trace?customerId=${customerId}&projectId=${customerId}`).expect(400);
     await client.get('/follow-ups/trace').expect(400);

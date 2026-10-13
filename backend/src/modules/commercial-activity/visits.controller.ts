@@ -21,6 +21,7 @@ import { PaginatedResponseDto } from '@/common/dto/paginated-response.dto';
 import type { AppRequest } from '@/common/types/request-context';
 
 import { CommercialActorResolver } from './commercial-actor.resolver';
+import { CommercialActivityOptionsService, toCommercialFormContextDto } from './commercial-activity-options.service';
 import {
   CreateVisitDto,
   ListVisitsQueryDto,
@@ -67,6 +68,7 @@ export class VisitsController {
   constructor(
     private readonly visits: VisitsService,
     private readonly actors: CommercialActorResolver,
+    private readonly options: CommercialActivityOptionsService,
   ) {}
 
   @Get()
@@ -90,11 +92,13 @@ export class VisitsController {
   @RequirePermission(VISIT_PERMISSIONS.view)
   @ApiOperation({
     summary: 'Opciones de los formularios de visita (D-04.10)',
-    description: 'Estados, motivos de reprogramación y cancelación y resultados **activos**; modo de conflicto, duración por defecto y obligatorios.',
+    description: 'Estados, motivos de reprogramación y cancelación y resultados **activos**; modo de conflicto, duración por defecto y obligatorios; zonas horarias del usuario y de negocio (RN-04.9) y límites de adjuntos.',
   })
   @ApiOkResponse({ type: VisitFormOptionsDto })
-  async formOptions(): Promise<VisitFormOptionsDto> {
-    return toVisitFormOptionsDto(await this.visits.formOptions());
+  async formOptions(@Req() request: AppRequest): Promise<VisitFormOptionsDto> {
+    const actor = await this.actors.fromRequest(request);
+    const [options, context] = await Promise.all([this.visits.formOptions(), this.options.formContext(actor)]);
+    return { ...toVisitFormOptionsDto(options), ...toCommercialFormContextDto(context) };
   }
 
   @Get('schedule-conflicts')

@@ -2,10 +2,10 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 
-import { PaginationQueryDto } from '@/common/dto/pagination-query.dto';
 import { ATTACHMENT_DESCRIPTION_MAX_LENGTH } from '@/modules/attachments/attachment-policy';
 import { ATTACHMENT_SORT_FIELDS, type AttachmentSortField } from '@/modules/attachments/ports/attachments.repository.port';
 
+import { PaginationWithoutSearchQueryDto } from './pagination-without-search.dto';
 import { trimToNull } from './dto-transforms';
 
 /**
@@ -14,7 +14,7 @@ import { trimToNull } from './dto-transforms';
  * todos los dueños): nunca expone la clave ni la ruta de almacenamiento.
  */
 
-export class ListCommercialAttachmentsQueryDto extends PaginationQueryDto {
+export class ListCommercialAttachmentsQueryDto extends PaginationWithoutSearchQueryDto {
   @ApiPropertyOptional({ enum: ATTACHMENT_SORT_FIELDS, description: 'Por defecto `createdAt` descendente' })
   @IsOptional()
   @IsIn(ATTACHMENT_SORT_FIELDS)

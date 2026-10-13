@@ -1,3 +1,4 @@
+import type { CommercialFormContextDto } from './dto/commercial-refs.dto';
 import type { CommercialCatalogRefDto, CommercialUserRefDto } from './dto/commercial-refs.dto';
 import type { ParticipantDto } from './dto/participant.dto';
 import type {
@@ -9,8 +10,7 @@ import type {
   VisitStatusRefDto,
 } from './dto/visit.dto';
 import type { ParticipantRecord, UserRefRecord } from './ports/activity.repository.port';
-import type { VisitEventRecord } from './ports/visit.repository.port';
-import type { ScheduleConflictView, VisitDerived, VisitFormOptions, VisitListItemView, VisitView } from './visits.service';
+import type { ScheduleConflictView, VisitDerived, VisitEventView, VisitFormOptions, VisitListItemView, VisitView } from './visits.service';
 
 /**
  * Registro → DTO de visitas (04 F.1). Los modelos de base y los registros de los
@@ -138,7 +138,7 @@ export function toVisitListItemDto(view: VisitListItemView): VisitListItemDto {
   };
 }
 
-export function toVisitEventDto(event: VisitEventRecord): VisitEventDto {
+export function toVisitEventDto(event: VisitEventView): VisitEventDto {
   return {
     id: event.id,
     eventType: event.eventType,
@@ -152,10 +152,12 @@ export function toVisitEventDto(event: VisitEventRecord): VisitEventDto {
     performedBy: userRef(event.performedBy),
     occurredAt: event.occurredAt.toISOString(),
     attachmentCount: event.attachmentCount,
+    canAttachFiles: event.canAttachFiles,
   };
 }
 
-export function toVisitFormOptionsDto(options: VisitFormOptions): VisitFormOptionsDto {
+/** Opciones propias de visitas; el contexto común (zonas y adjuntos) lo añade el controlador. */
+export function toVisitFormOptionsDto(options: VisitFormOptions): Omit<VisitFormOptionsDto, keyof CommercialFormContextDto> {
   return {
     statuses: options.statuses.map((status) => ({ ...status })),
     rescheduleReasons: options.rescheduleReasons.map((reason) => ({ ...reason })),

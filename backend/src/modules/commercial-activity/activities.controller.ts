@@ -24,6 +24,7 @@ import { ActivitiesService } from './activities.service';
 import { ACTIVITY_PERMISSIONS } from './activity-access-policy';
 import { toActivityDetailDto, toActivityFormOptionsDto, toActivityListItemDto, toPendingActivityDto } from './activity.mapper';
 import { CommercialActorResolver } from './commercial-actor.resolver';
+import { CommercialActivityOptionsService, toCommercialFormContextDto } from './commercial-activity-options.service';
 import {
   ActivityCancellationDto,
   ActivityCompletionDto,
@@ -65,6 +66,7 @@ export class ActivitiesController {
   constructor(
     private readonly activities: ActivitiesService,
     private readonly actors: CommercialActorResolver,
+    private readonly options: CommercialActivityOptionsService,
   ) {}
 
   @Get()
@@ -112,11 +114,13 @@ export class ActivitiesController {
   @RequirePermission(ACTIVITY_PERMISSIONS.view)
   @ApiOperation({
     summary: 'Opciones del formulario de actividad (D-04.10)',
-    description: 'Tipos (con `fields` e `isInteraction`), estados, prioridades y resultados **activos**; valores por defecto, obligatorios y umbral de "próxima a vencer".',
+    description: 'Tipos (con `fields` e `isInteraction`), estados, prioridades y resultados **activos**; valores por defecto, obligatorios y umbral de "próxima a vencer"; zonas horarias del usuario y de negocio (RN-04.9) y límites de adjuntos.',
   })
   @ApiOkResponse({ type: ActivityFormOptionsDto })
-  async formOptions(): Promise<ActivityFormOptionsDto> {
-    return toActivityFormOptionsDto(await this.activities.formOptions());
+  async formOptions(@Req() request: AppRequest): Promise<ActivityFormOptionsDto> {
+    const actor = await this.actors.fromRequest(request);
+    const [options, context] = await Promise.all([this.activities.formOptions(), this.options.formContext(actor)]);
+    return { ...toActivityFormOptionsDto(options), ...toCommercialFormContextDto(context) };
   }
 
   @Get(':id')

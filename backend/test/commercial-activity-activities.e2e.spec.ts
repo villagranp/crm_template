@@ -272,6 +272,40 @@ describe('Validación de relaciones y campos (PF-04.27, PF-04.28, AC-04.43, AC-0
     expect(ok.body).toMatchObject({ project: { id: otherProjectId, isDeleted: false }, opportunity: { id: opportunityId, isDeleted: false } });
   });
 
+  it('RN-04.2: alta mientras otra transacción elimina el proyecto → espera al bloqueo y responde 422 INACTIVE_REFERENCE', async () => {
+    const { user, customerId } = await ownerWithCustomer();
+    const projectId = await insertProject(context.prisma, { customerId, ownerId: user.id, countryId: m4 });
+    let release: () => void = () => undefined;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let signalLocked: () => void = () => undefined;
+    const locked = new Promise<void>((resolve) => (signalLocked = resolve));
+    // Eliminación lógica del proyecto (Módulo 3) aún sin confirmar: sostiene el bloqueo de la fila.
+    const holder = context.prisma.$transaction(
+      async (tx) => {
+        await (tx as unknown as PrismaClient).project.update({ where: { id: projectId }, data: { deletedAt: new Date() } });
+        signalLocked();
+        await released;
+      },
+      { timeout: 20_000 },
+    );
+    await locked;
+
+    let settled = false;
+    const pending = createCall(api(context, user.token), customerId, { projectId }).then((response) => {
+      settled = true;
+      return response;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(settled).toBe(false);
+    release();
+    await holder;
+
+    const response = await pending;
+    expect(response.status).toBe(422);
+    expect(response.body).toMatchObject({ code: 'INACTIVE_REFERENCE', details: [{ field: 'projectId', code: 'INACTIVE_REFERENCE' }] });
+    expect(await context.prisma.activity.count({ where: { projectId } })).toBe(0);
+  });
+
   it('un elemento de otro catálogo → 422 INVALID_CATALOG_VALUE', async () => {
     const { user, customerId } = await ownerWithCustomer();
     const client = api(context, user.token);
@@ -790,6 +824,24 @@ describe('Opciones del módulo (D-04.10, addendum ADR-008)', () => {
     expect(typeof response.body.dueSoonHours).toBe('number');
   });
 
+  it('form-options de visitas y actividades: zona del perfil, zona de negocio y límites de adjuntos (RN-04.9, D-04.17, D.5)', async () => {
+    const { user } = await ownerWithCustomer();
+    await context.prisma.user.update({ where: { id: user.id }, data: { timeZone: 'America/Mexico_City' } });
+    const allowedTypes = JSON.parse(
+      (await context.prisma.systemParameter.findUniqueOrThrow({ where: { key: 'crm.adjuntos.tipos_permitidos' } })).value,
+    ) as string[];
+    await withParameter(context.prisma, 'crm.adjuntos.max_mb', '7', async () => {
+      for (const path of ['/activities/form-options', '/visits/form-options']) {
+        const response = await api(context, user.token).get(path).expect(200);
+        expect(response.body).toMatchObject({
+          timeZone: 'America/Mexico_City',
+          businessTimeZone: 'America/Guatemala',
+          attachments: { enabled: true, maxMb: 7, allowedTypes },
+        });
+      }
+    });
+  });
+
   it('owner-options: con solo visitas.ver o solo actividades.ver → 200; sin ninguno → 403; un asesor OWN solo se ve a sí mismo', async () => {
     const onlyVisits = await crmUser(context, { roleCodes: ['usuario'], countryId: m4, grant: ['visitas.ver'] });
     const onlyActivities = await crmUser(context, { roleCodes: ['usuario'], countryId: m4, grant: ['actividades.ver'] });
@@ -813,6 +865,14 @@ describe('Opciones del módulo (D-04.10, addendum ADR-008)', () => {
     await insertTeam(context.prisma, { managerId: manager.id, memberIds: [member.id, suspended.id] });
     const options = await api(context, manager.token).get('/commercial-activity/owner-options?search=Opciones').expect(200);
     expect(options.body.data.map((row: { id: string }) => row.id).sort()).toEqual([manager.id, member.id].sort());
+
+    // `id` resuelve nombres de asesores ya elegidos con el mismo filtro: fuera del alcance o inactivo no aparece.
+    const outsider = await crmUser(context, { roleCodes: ['asesor'], countryId: m5 });
+    const byId = await api(context, manager.token)
+      .get(`/commercial-activity/owner-options?id=${member.id}&id=${suspended.id}&id=${outsider.id}`)
+      .expect(200);
+    expect(byId.body.data).toEqual([{ id: member.id, displayName: 'Miembro Opciones' }]);
+    await api(context, manager.token).get('/commercial-activity/owner-options?id=no-es-uuid').expect(400);
   });
 });
 

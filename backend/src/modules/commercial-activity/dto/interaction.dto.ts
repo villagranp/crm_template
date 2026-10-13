@@ -3,8 +3,8 @@ import { Transform } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsISO8601, IsOptional, IsUUID, Matches } from 'class-validator';
 
 import { PaginationMetaDto } from '@/common/dto/paginated-response.dto';
-import { PaginationQueryDto } from '@/common/dto/pagination-query.dto';
 
+import { PaginationWithoutSearchQueryDto } from './pagination-without-search.dto';
 import { AGENDA_KINDS } from '../ports/agenda-read-model.port';
 import {
   FOLLOW_UP_GROUPS,
@@ -28,7 +28,7 @@ import { INSTANT_MESSAGE, ISO_INSTANT, MAX_FILTER_VALUES, toArray, toOptionalBoo
 // Historial de interacciones (F.3, F-24)
 // ---------------------------------------------------------------------------
 
-export class ListInteractionsQueryDto extends PaginationQueryDto {
+export class ListInteractionsQueryDto extends PaginationWithoutSearchQueryDto {
   @ApiPropertyOptional({ enum: ['occurredAt'], description: 'Único orden: `occurredAt` (por defecto descendente, invertible con `sortOrder`)' })
   @IsOptional()
   @IsIn(['occurredAt'])
@@ -112,7 +112,7 @@ export class PaginatedInteractionsDto {
 // Seguimiento comercial (F.3, F-23)
 // ---------------------------------------------------------------------------
 
-export class ListFollowUpsQueryDto extends PaginationQueryDto {
+export class ListFollowUpsQueryDto extends PaginationWithoutSearchQueryDto {
   @ApiPropertyOptional({ enum: FOLLOW_UP_SORT_FIELDS, description: 'Por defecto `lastInteractionAt` descendente' })
   @IsOptional()
   @IsIn(FOLLOW_UP_SORT_FIELDS)
@@ -207,7 +207,7 @@ export class TraceAttachmentDto {
   @ApiProperty({ format: 'uuid', description: 'Visita (también para un adjunto de evento) o actividad' }) sourceId!: string;
   @ApiProperty() sourceCode!: string;
   @ApiProperty({ format: 'uuid', nullable: true, type: String }) eventId!: string | null;
-  @ApiProperty({ description: 'Ruta de descarga por el dueño (F.4)' }) contentPath!: string;
+  @ApiProperty({ description: 'Ruta de descarga por el dueño (F.4), relativa a la base de la API (`/visits/…/content`, como `detailPath` y `sourcePath` son relativas al frontend)' }) contentPath!: string;
   @ApiProperty({ description: 'Ruta del registro de origen en el frontend' }) sourcePath!: string;
 }
 

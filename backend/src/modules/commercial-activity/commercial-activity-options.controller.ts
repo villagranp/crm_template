@@ -39,14 +39,14 @@ export class CommercialActivityOptionsController {
     summary: 'Responsables y asesores asignables o filtrables',
     description:
       'Exige `actividades.ver` **o** `visitas.ver`. Usuarios ACTIVE con alguno de esos permisos efectivo, dentro de la unión de los ' +
-      'alcances de ver del usuario (OWN: solo él). `search`: contenido en el nombre. Sin correo ni teléfono.',
+      'alcances de ver del usuario (OWN: solo él). `search`: contenido en el nombre; `id` (repetible): solo esos usuarios, con el mismo filtro. Sin correo ni teléfono.',
   })
   @ApiOkResponse({ type: PaginatedOwnerOptionsDto })
   @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED' })
   @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'PERMISSION_DENIED: no tiene ninguno de los dos permisos' })
   async ownerOptions(@Query() query: OwnerOptionsQueryDto, @Req() request: AppRequest): Promise<PaginatedResponseDto<CommercialUserRefDto>> {
     const actor = await this.actors.fromRequest(request);
-    const page = await this.options.ownerOptions(actor, { page: query.page, pageSize: query.pageSize, search: query.search });
+    const page = await this.options.ownerOptions(actor, { page: query.page, pageSize: query.pageSize, search: query.search, id: query.id });
     return PaginatedResponseDto.of(
       page.items.map((user) => ({ id: user.id, displayName: user.displayName })),
       page.page,

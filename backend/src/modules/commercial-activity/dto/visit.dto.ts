@@ -29,6 +29,7 @@ import { VISIT_OPERATIONS, type VisitOperation, type VisitStatusGroup } from '..
 import {
   CommercialCatalogRefDto,
   CommercialCustomerRefDto,
+  CommercialFormContextDto,
   CommercialProjectDetailRefDto,
   CommercialProjectRefDto,
   CommercialStatusRefDto,
@@ -463,6 +464,10 @@ export class VisitEventDto {
   @ApiProperty({ type: CommercialUserRefDto }) performedBy!: CommercialUserRefDto;
   @ApiProperty({ format: 'date-time' }) occurredAt!: string;
   @ApiProperty() attachmentCount!: number;
+  @ApiProperty({
+    description: 'D-04.18: el usuario ejecutó el evento, tiene `visitas.editar` o `visitas.cerrar` y no han pasado 15 minutos (`occurredAt`). La subida lo vuelve a decidir',
+  })
+  canAttachFiles!: boolean;
 }
 
 // --- Opciones del formulario (F.3, D-04.10) ---
@@ -477,7 +482,7 @@ export class VisitCatalogOptionDto extends CommercialCatalogRefDto {
   @ApiProperty() sortOrder!: number;
 }
 
-export class VisitFormOptionsDto {
+export class VisitFormOptionsDto extends CommercialFormContextDto {
   @ApiProperty({ type: [VisitStatusOptionDto], description: 'Activos de `crm.estado_visita` (filtros)' }) statuses!: VisitStatusOptionDto[];
   @ApiProperty({ type: [VisitCatalogOptionDto], description: 'Activos de `crm.motivo_reprogramacion`' }) rescheduleReasons!: VisitCatalogOptionDto[];
   @ApiProperty({ type: [VisitCatalogOptionDto], description: 'Activos de `crm.motivo_cancelacion`' }) cancellationReasons!: VisitCatalogOptionDto[];

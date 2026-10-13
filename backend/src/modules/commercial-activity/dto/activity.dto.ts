@@ -30,6 +30,7 @@ import { ACTIVITY_SORT_FIELDS, type ActivitySortField, PENDING_SORT_FIELDS, type
 import {
   CommercialCatalogRefDto,
   CommercialCustomerRefDto,
+  CommercialFormContextDto,
   CommercialOpportunityDetailRefDto,
   CommercialOpportunityRefDto,
   CommercialPriorityRefDto,
@@ -490,7 +491,7 @@ export class ActivityDefaultsDto {
   @ApiProperty({ format: 'uuid', nullable: true, type: String, description: 'Estado abierto inicial (RN-04.8)' }) statusId!: string | null;
 }
 
-export class ActivityFormOptionsDto {
+export class ActivityFormOptionsDto extends CommercialFormContextDto {
   @ApiProperty({ type: [ActivityTypeOptionDto], description: 'Activos de `crm.tipo_actividad`' }) types!: ActivityTypeOptionDto[];
   @ApiProperty({ type: [ActivityStatusOptionDto], description: 'Activos de `crm.estado_actividad`' }) statuses!: ActivityStatusOptionDto[];
   @ApiProperty({ type: [ActivityPriorityOptionDto], description: 'Activos de `crm.prioridad`' }) priorities!: ActivityPriorityOptionDto[];

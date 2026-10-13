@@ -78,7 +78,7 @@ async function largeFilesSince(since: number, minBytes: number): Promise<string[
   }
 }
 
-async function eventsOf(user: CrmUser, visitId: string): Promise<{ id: string; eventType: string; attachmentCount: number }[]> {
+async function eventsOf(user: CrmUser, visitId: string): Promise<{ id: string; eventType: string; attachmentCount: number; canAttachFiles: boolean }[]> {
   return (await api(context, user.token).get(`/visits/${visitId}/events`).expect(200)).body;
 }
 
@@ -250,6 +250,11 @@ describe('Adjuntos de un evento de visita (PF-04.62, AC-04.41)', () => {
         occurredAt: new Date(Date.now() - 16 * MINUTE),
       },
     });
+    // `canAttachFiles` del historial sale de la misma regla: quien lo ejecutó y dentro de la ventana.
+    const flags = new Map((await eventsOf(user, visit.body.id)).map((event) => [event.id, event.canAttachFiles]));
+    expect(flags.get(rescheduled.id)).toBe(true);
+    expect(flags.get(oldEvent.id)).toBe(false);
+    expect((await eventsOf(manager, visit.body.id)).every((event) => event.canAttachFiles === false)).toBe(true);
     const expired = await upload(user, `/visits/${visit.body.id}/events/${oldEvent.id}/attachments`, PDF_BYTES, 'tarde.pdf').expect(409);
     expect(expired.body).toMatchObject({ code: 'RECORD_READ_ONLY', details: [{ reason: 'EVENT_ATTACHMENT_WINDOW_EXPIRED' }] });
 

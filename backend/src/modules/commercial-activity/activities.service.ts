@@ -531,9 +531,10 @@ export class ActivitiesService {
       await this.customers.assertUsableCustomer(final.customerId, actor, { requireActive: true, tx });
       await this.assertCatalogs(final, { statusId: request.statusId ?? null, resultId }, null, tx);
       if (ownerId !== actorId) await this.assertEligibleOwner(ownerId, scopes, tx);
+      // Bloqueo del proyecto ANTES de validarlo: una eliminación concurrente espera o ya se ve (RN-04.2).
+      await this.links.lockProjects(final.projectId ? [final.projectId] : [], tx);
       await this.assertLinks(final, null, scopes, tx);
       const participants = await this.validateParticipants(final.participants, final.customerId, null, tx);
-      await this.links.lockProjects(final.projectId ? [final.projectId] : [], tx);
 
       const code = await this.sequences.next(ACTIVITY_SEQUENCE, tx, { timeZone: settings.timeZone });
       const id = await this.activities.create(
@@ -623,9 +624,10 @@ export class ActivitiesService {
       if (customerChanged) await this.customers.assertUsableCustomer(final.customerId, actor, { requireActive: true, tx });
       await this.assertCatalogs(final, { statusId: statusChanged ? statusId : null, resultId: final.resultId }, current, tx);
       if (final.ownerId !== current.ownerId) await this.assertEligibleOwner(final.ownerId, scopes, tx);
+      // Bloqueo de los proyectos ANTES de validar el vínculo (RN-04.2, AGENTS §9.4).
+      await this.links.lockProjects(projectIds, tx);
       await this.assertLinks(final, current, scopes, tx);
       const participants = participantsChanged || customerChanged ? await this.validateParticipants(final.participants, final.customerId, current, tx) : [];
-      await this.links.lockProjects(projectIds, tx);
 
       if (participantsChanged || customerChanged) await this.activities.deleteParticipants(activityId, tx);
       if (!(await this.activities.update(activityId, before.status.id, { ...patch, updatedById: actor.userId }, tx))) {

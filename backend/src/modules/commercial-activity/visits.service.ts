@@ -258,6 +258,32 @@ const MINUTE_MS = 60_000;
 /** Ventana para adjuntar a un evento ya ocurrido (D-04.18). */
 export const EVENT_ATTACHMENT_WINDOW_MS = 15 * MINUTE_MS;
 
+/** Permisos con los que se ejecutan los eventos: abren la subida a un evento (`@RequireAnyPermission`). */
+export const EVENT_ATTACHMENT_PERMISSIONS = [VISIT_PERMISSIONS.edit, VISIT_PERMISSIONS.close] as const;
+
+/**
+ * D-04.18: ¿el actor puede adjuntar archivos al evento ahora? Quien lo ejecutó, con
+ * uno de los permisos de la subida y dentro de la ventana. La misma regla autoriza la
+ * subida (`assertCanAttachToEvent`) y calcula `canAttachFiles` del historial.
+ */
+export function canAttachToVisitEvent(
+  actor: { readonly userId: string | null; readonly permissions: ReadonlySet<string> },
+  event: { readonly performedById: string; readonly occurredAt: Date },
+  now: Date,
+): boolean {
+  return (
+    actor.userId !== null &&
+    event.performedById === actor.userId &&
+    EVENT_ATTACHMENT_PERMISSIONS.some((permission) => actor.permissions.has(permission)) &&
+    now.getTime() - event.occurredAt.getTime() <= EVENT_ATTACHMENT_WINDOW_MS
+  );
+}
+
+/** Evento del historial con lo que el actor puede hacer con él. */
+export interface VisitEventView extends VisitEventRecord {
+  readonly canAttachFiles: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Normalización (pura)
 // ---------------------------------------------------------------------------
@@ -429,10 +455,14 @@ export class VisitsService {
   }
 
   /** Historial de la visita en orden cronológico (AC-04.20); hereda su visibilidad. */
-  async listEvents(actor: CommercialActor, visitId: string): Promise<VisitEventRecord[]> {
+  async listEvents(actor: CommercialActor, visitId: string, now: Date = new Date()): Promise<VisitEventView[]> {
     const scopes = await this.actors.visitScopes(actor);
     await this.findVisible(visitId, scopes);
-    return this.visits.listEvents(visitId);
+    const events = await this.visits.listEvents(visitId);
+    return events.map((event) => ({
+      ...event,
+      canAttachFiles: canAttachToVisitEvent(actor, { performedById: event.performedBy.id, occurredAt: event.occurredAt }, now),
+    }));
   }
 
   async formOptions(): Promise<VisitFormOptions> {
@@ -519,9 +549,10 @@ export class VisitsService {
     const { visitId, conflicts } = await this.transactions.run(async (tx) => {
       await this.customers.assertUsableCustomer(draft.customerId, actor, { requireActive: true, tx });
       if (ownerId !== actorId) await this.assertEligibleOwner(ownerId, scopes, tx);
+      // Bloqueo del proyecto ANTES de validarlo: una eliminación concurrente espera o ya se ve (RN-04.2).
+      await this.links.lockProjects(draft.projectId ? [draft.projectId] : [], tx);
       await assertProjectLink(this.links, draft, null, scopes.projects, tx);
       const invitees = await this.validateParticipantList(draft.participants, draft.customerId, null, 'INVITED', 'participants', tx);
-      await this.links.lockProjects(draft.projectId ? [draft.projectId] : [], tx);
       const found = await this.guardSchedule(settings, { ownerId, start: draft.scheduledStartAt, end: draft.scheduledEndAt, excludeVisitId: null }, scopes, tx);
 
       const code = await this.sequences.next(VISIT_SEQUENCE, tx, { timeZone: settings.timeZone });
@@ -605,11 +636,12 @@ export class VisitsService {
     const projectIds = [current.projectId, final.projectId].filter((id): id is string => id !== null);
     const conflicts = await this.transactions.run(async (tx) => {
       if (ownerChanged) await this.assertEligibleOwner(final.ownerId, scopes, tx);
+      // Bloqueo de los proyectos ANTES de validar el vínculo (RN-04.2, AGENTS §9.4).
+      await this.links.lockProjects(projectIds, tx);
       await assertProjectLink(this.links, final, current, scopes.projects, tx);
       const invitees = participantsChanged
         ? await this.validateParticipantList(final.participants, final.customerId, current, 'INVITED', 'participants', tx)
         : [];
-      await this.links.lockProjects(projectIds, tx);
       const found = scheduleChanged
         ? await this.guardSchedule(settings, { ownerId: final.ownerId, start: final.scheduledStartAt, end: final.scheduledEndAt, excludeVisitId: visitId }, scopes, tx)
         : [];

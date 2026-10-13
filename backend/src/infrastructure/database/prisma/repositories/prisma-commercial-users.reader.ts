@@ -39,9 +39,12 @@ export class PrismaCommercialUsersReader implements CommercialUsersReader {
   async listOwnerOptions(search: OwnerOptionsSearch): Promise<Page<UserRefRecord>> {
     if (search.anyOfPermissions.length === 0) return createPage([], 0, search);
     const term = search.search?.trim();
+    const ids = search.ids.filter((id) => UUID_PATTERN.test(id));
+    if (search.ids.length > 0 && ids.length === 0) return createPage([], 0, search);
     const where: Prisma.UserWhereInput = {
       ...eligibleUserWhere(search.anyOfPermissions, search.scope, new Date()),
       ...(term ? { displayName: { contains: term, mode: 'insensitive' } } : {}),
+      ...(ids.length > 0 ? { id: { in: ids } } : {}),
     };
     const [rows, totalItems] = await this.prisma.$transaction([
       this.prisma.user.findMany({
@@ -54,6 +57,12 @@ export class PrismaCommercialUsersReader implements CommercialUsersReader {
       this.prisma.user.count({ where }),
     ]);
     return createPage(rows, totalItems, search);
+  }
+
+  async findTimeZone(userId: string): Promise<string | null> {
+    if (!UUID_PATTERN.test(userId)) return null;
+    const row = await this.prisma.user.findUnique({ where: { id: userId }, select: { timeZone: true } });
+    return row?.timeZone ?? null;
   }
 
   async findUserStates(userIds: readonly string[], tx?: TransactionContext): Promise<UserState[]> {

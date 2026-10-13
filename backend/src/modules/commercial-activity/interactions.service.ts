@@ -210,9 +210,9 @@ function toFollowUpView(record: FollowUpRecord): FollowUpView {
 function toTraceAttachmentView(record: TraceAttachmentRecord): TraceAttachmentView {
   const contentPath =
     record.ownerType === 'ACTIVITY'
-      ? `/api/v1/activities/${record.sourceId}/attachments/${record.id}/content`
+      ? `/activities/${record.sourceId}/attachments/${record.id}/content`
       : record.ownerType === 'VISIT_EVENT'
-        ? `/api/v1/visits/${record.sourceId}/events/${record.eventId ?? ''}/attachments/${record.id}/content`
-        : `/api/v1/visits/${record.sourceId}/attachments/${record.id}/content`;
+        ? `/visits/${record.sourceId}/events/${record.eventId ?? ''}/attachments/${record.id}/content`
+        : `/visits/${record.sourceId}/attachments/${record.id}/content`;
   return { ...record, contentPath, sourcePath: commercialDetailPath(record.ownerType === 'ACTIVITY' ? 'ACTIVITY' : 'VISIT', record.sourceId) };
 }

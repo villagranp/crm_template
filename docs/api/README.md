@@ -178,7 +178,7 @@ Los `422` de validación devuelven **todas** las incidencias en `details[]` (`fi
 
 Especificación: [`04-actividad-comercial.md`](../implementation-plans/crm/04-actividad-comercial.md) §F.1–§F.5.
 Etiqueta OpenAPI `commercial-activity`. Backend completo (actividades, visitas, agenda,
-interacciones, seguimiento, adjuntos y opciones); el frontend llega en la etapa siguiente.
+interacciones, seguimiento, adjuntos y opciones) y frontend.
 Todos exigen sesión (`401` sin token). Fuera del alcance o inexistente → `404` idéntico
 (ADR-008). Los ids de ruta usan `ParseUUIDPipe` (`400` si no son UUID).
 
@@ -188,7 +188,7 @@ Todos exigen sesión (`401` sin token). Fuera del alcance o inexistente → `404
 |---|---|---|---|---|
 | GET | `/activities` | `actividades.ver` | `ListActivitiesQueryDto` → `PaginatedActivitiesDto` | `400` (`sortBy` fuera de lista blanca, filtros) |
 | GET | `/activities/pending` | `actividades.ver` | `ListPendingActivitiesQueryDto` (`bucket` repetible) → `PendingActivitiesResponseDto` (`data`, `pagination`, `counts`) | `400` |
-| GET | `/activities/form-options` | `actividades.ver` | → `ActivityFormOptionsDto` | — |
+| GET | `/activities/form-options` | `actividades.ver` | → `ActivityFormOptionsDto` (catálogos, `defaults`, `requiredFields`, `dueSoonHours` y el contexto común `timeZone`, `businessTimeZone`, `attachments`) | — |
 | GET | `/activities/:id` | `actividades.ver` | → `ActivityDetailDto` (con `access` y `allowedActions`) | `400` (UUID), `404` |
 | POST | `/activities` | `actividades.crear` (+ `actividades.cerrar` con `completion`; + `actividades.administrar` con `ownerId` ajeno) | `CreateActivityDto` → `201 ActivityDetailDto` + `Location` | `400`, `403`, `404` (cliente), `422` |
 | PATCH | `/activities/:id` | `actividades.editar` (propia) / + `actividades.administrar` (ajena) | `UpdateActivityDto` → `ActivityDetailDto` | `403`, `404`, `409 RECORD_READ_ONLY` / `INVALID_STATUS_TRANSITION`, `422` |
@@ -203,10 +203,10 @@ No existe `DELETE /visits/:id` (RN-04.20): la ruta no se declara y responde `404
 | Método | Ruta | Permiso | Entrada → salida | Errores |
 |---|---|---|---|---|
 | GET | `/visits` | `visitas.ver` | `ListVisitsQueryDto` (`from`, `to`, `statusId[]`, `statusGroup[]`, `ownerId[]`, `customerId`, `projectId`, `countryId`, `unregistered`, `pendingConfirmation`, `search`) → `PaginatedVisitsDto` | `400` |
-| GET | `/visits/form-options` | `visitas.ver` | → `VisitFormOptionsDto` (`statuses`, `rescheduleReasons`, `cancellationReasons`, `results`, `conflictMode`, `defaultDurationMinutes`, `requiredFields`, `completionRequiredFields`) | — |
+| GET | `/visits/form-options` | `visitas.ver` | → `VisitFormOptionsDto` (`statuses`, `rescheduleReasons`, `cancellationReasons`, `results`, `conflictMode`, `defaultDurationMinutes`, `requiredFields`, `completionRequiredFields` y el contexto común `timeZone`, `businessTimeZone`, `attachments`) | — |
 | GET | `/visits/schedule-conflicts` | `visitas.crear` **o** `visitas.editar` | `ScheduleConflictsQueryDto` (`start`, `end?`, `ownerId?`, `excludeVisitId?`) → `ScheduleConflictsResponseDto` (`mode`, `conflicts[]`) | `400`, `403` (`ownerId` ajeno sin `visitas.administrar`), `422 INVALID_DATE_RANGE` / `OWNER_NOT_ELIGIBLE` |
 | GET | `/visits/:id` | `visitas.ver` | → `VisitDetailDto` (`access`, `allowedActions`, `effectiveEndAt`, `reminderAt`, `isUnregistered`, `completion`, `confirmation`) | `400`, `404` |
-| GET | `/visits/:id/events` | `visitas.ver` | → `VisitEventDto[]` (cronológico, sin paginar) | `400`, `404` |
+| GET | `/visits/:id/events` | `visitas.ver` | → `VisitEventDto[]` (cronológico, sin paginar; `canAttachFiles` = el usuario puede adjuntar al evento ahora, D-04.18) | `400`, `404` |
 | POST | `/visits` | `visitas.crear` (+ `visitas.administrar` con `ownerId` ajeno) | `CreateVisitDto` → `201 VisitDetailDto` + `Location` (+ `scheduleConflicts`) | `400`, `403`, `404` (cliente), `409 SCHEDULE_CONFLICT` (solo `BLOQUEAR`), `422` |
 | PATCH | `/visits/:id` | `visitas.editar` (propia) / + `visitas.administrar` (ajena) | `UpdateVisitDto` → `VisitDetailDto` | `403`, `404`, `409 RECORD_READ_ONLY` / `SCHEDULE_CONFLICT` / `INVALID_STATUS_TRANSITION`, `422 USE_RESCHEDULE` y los de planificación |
 | POST | `/visits/:id/completion` | `visitas.editar` (propia) / + `visitas.administrar` (ajena) | `VisitCompletionDto` → `VisitDetailDto` | `403`, `404`, `409 INVALID_STATUS_TRANSITION`, `422 ACTUAL_DATE_IN_FUTURE` / `INVALID_DATE_RANGE` / `REQUIRED_FIELD_MISSING` |
@@ -219,7 +219,14 @@ No existe `DELETE /visits/:id` (RN-04.20): la ruta no se declara y responde `404
 
 Los de "uno de varios" usan `@RequireAnyPermission` (addendum de ADR-008, se publica en
 OpenAPI como `x-required-permissions-any-of: { permissions, semantics: "ANY_OF" }`); cada
-fuente se filtra por **su** permiso de ver y su alcance.
+fuente se filtra por **su** permiso de ver y su alcance. Agenda, historial, seguimiento y las
+listas de adjuntos del módulo **no** admiten `search` (no buscan por texto): enviarlo responde
+`400 VALIDATION_FAILED`.
+
+Contexto común de los dos `form-options` (aditivo, RN-04.9, D-04.17, D.5): `timeZone` (zona del
+perfil del usuario, `users.time_zone`, para los instantes), `businessTimeZone`
+(`crm.zona_horaria_negocio`, para las fechas sin hora y "hoy") y `attachments`
+(`{ enabled, maxMb, allowedTypes }`, el mismo esquema que `/customers/form-options`).
 
 | Método | Ruta | Permiso | Entrada → salida | Errores |
 |---|---|---|---|---|
@@ -227,8 +234,8 @@ fuente se filtra por **su** permiso de ver y su alcance.
 | GET | `/agenda/calendar` | ídem | `AgendaCalendarQueryDto` (`from` y `to` obligatorios) → `AgendaCalendarDto` (`data` ≤ 500, `truncated`) | `400 VALIDATION_FAILED` / `RANGE_TOO_WIDE` (> 42 días) |
 | GET | `/interactions` | ídem | `ListInteractionsQueryDto` (`from`, `to`, `customerId`, `projectId`, `opportunityId`, `userId[]`, `sourceType[]`, `typeId[]`, `resultId[]`) → `PaginatedInteractionsDto` | `400` |
 | GET | `/follow-ups` | ídem | `ListFollowUpsQueryDto` (`groupBy`, `customerId`, `projectId`, `ownerId[]`, `countryId[]`, `withoutNextAction`, `lastInteractionFrom`, `lastInteractionTo`) → `PaginatedFollowUpsDto` | `400` |
-| GET | `/follow-ups/trace` | ídem | `customerId` **o** `projectId` → `FollowUpTraceDto` (`row`, `interactions` ≤ 50, `upcoming` ≤ 20, `attachments` ≤ 50) | `400`, `404` (sin registros visibles) |
-| GET | `/commercial-activity/owner-options` | ídem | `OwnerOptionsQueryDto` → `PaginatedOwnerOptionsDto` | `400`, `403` sin ninguno |
+| GET | `/follow-ups/trace` | ídem | `customerId` **o** `projectId` → `FollowUpTraceDto` (`row`, `interactions` ≤ 50, `upcoming` ≤ 20, `attachments` ≤ 50 con `contentPath` relativa a la API) | `400`, `404` (sin registros visibles) |
+| GET | `/commercial-activity/owner-options` | ídem | `OwnerOptionsQueryDto` (`search`, `id[]` para resolver nombres con el mismo filtro de alcance) → `PaginatedOwnerOptionsDto` | `400`, `403` sin ninguno |
 
 ### Adjuntos por dueño (F.4, DC-2, ADR-021)
 

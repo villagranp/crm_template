@@ -3,8 +3,8 @@ import { Transform } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsIn, IsISO8601, IsOptional, IsUUID, Matches } from 'class-validator';
 
 import { PaginationMetaDto } from '@/common/dto/paginated-response.dto';
-import { PaginationQueryDto } from '@/common/dto/pagination-query.dto';
 
+import { PaginationWithoutSearchQueryDto } from './pagination-without-search.dto';
 import { AGENDA_STATUS_GROUPS, type AgendaStatusGroup } from '../agenda-status';
 import { AGENDA_KINDS, AGENDA_SORT_FIELDS, type AgendaKind, type AgendaSortField } from '../ports/agenda-read-model.port';
 
@@ -65,7 +65,7 @@ class AgendaFilterFields {
   @ApiPropertyOptional({ format: 'uuid' }) @IsOptional() @IsUUID() projectId?: string;
 }
 
-export class AgendaListQueryDto extends IntersectionType(PaginationQueryDto, AgendaFilterFields) {
+export class AgendaListQueryDto extends IntersectionType(PaginationWithoutSearchQueryDto, AgendaFilterFields) {
   @ApiPropertyOptional({ enum: AGENDA_SORT_FIELDS, description: 'Por defecto `date` ascendente' })
   @IsOptional()
   @IsIn(AGENDA_SORT_FIELDS)
