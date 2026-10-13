@@ -230,6 +230,17 @@ export interface InsertOpportunityOptions {
   /** Resultado vigente (solo para etapas cerradas). `LOST` usa el primer motivo del catálogo. */
   outcome?: 'WON' | 'LOST' | 'PARTIAL' | null;
   deletedAt?: Date | null;
+  /** Fecha de decisión del resultado (`YYYY-MM-DD`); por defecto 2026-10-05. */
+  decisionDate?: string;
+  awardedPercent?: string;
+  estimatedTonnage?: string | null;
+  estimatedAmountUsd?: string | null;
+  /** Monto en moneda local (con `currencyCode` distinto de USD); por defecto, el de USD. */
+  estimatedAmount?: string;
+  currencyCode?: string;
+  exchangeRate?: string;
+  nextAction?: string | null;
+  stageChangedAt?: Date;
 }
 
 /** Oportunidad mínima (con su resultado si se indica), insertada sin la API. */
@@ -242,6 +253,19 @@ export async function insertOpportunity(prisma: PrismaClient, options: InsertOpp
       stageId: await catalogItemId(prisma, 'crm.etapa_oportunidad', options.stageCode ?? 'CONTACTADO'),
       opportunityDate: new Date('2026-10-01T00:00:00.000Z'),
       deletedAt: options.deletedAt ?? null,
+      estimatedTonnage: options.estimatedTonnage ?? null,
+      estimatedAmountUsd: options.estimatedAmountUsd ?? null,
+      // ck_opportunities_amount_set: monto, moneda, tasa y equivalente en USD van juntos.
+      ...(options.estimatedAmountUsd
+        ? {
+            estimatedAmount: options.estimatedAmount ?? options.estimatedAmountUsd,
+            currencyCode: options.currencyCode ?? 'USD',
+            exchangeRate: options.exchangeRate ?? '1',
+            ...((options.currencyCode ?? 'USD') !== 'USD' ? { exchangeRateDate: new Date('2026-10-01T00:00:00.000Z') } : {}),
+          }
+        : {}),
+      nextAction: options.nextAction ?? null,
+      ...(options.stageChangedAt ? { stageChangedAt: options.stageChangedAt } : {}),
     },
   });
   if (options.outcome) {
@@ -254,8 +278,8 @@ export async function insertOpportunity(prisma: PrismaClient, options: InsertOpp
         opportunityId: opportunity.id,
         outcome: options.outcome,
         reasonId: reason?.id ?? null,
-        awardedPercent: options.outcome === 'PARTIAL' ? '60' : null,
-        decisionDate: new Date('2026-10-05T00:00:00.000Z'),
+        awardedPercent: options.outcome === 'PARTIAL' ? (options.awardedPercent ?? '60') : null,
+        decisionDate: new Date(`${options.decisionDate ?? '2026-10-05'}T00:00:00.000Z`),
         recordedById: options.ownerId,
       },
     });
@@ -406,18 +430,34 @@ export function businessMonthOffset(offset: number, now: Date = new Date()): { y
 /** Actividad mínima en un estado del catálogo `crm.estado_actividad` (`PENDIENTE` = abierta). */
 export async function insertActivity(
   prisma: PrismaClient,
-  options: { customerId: string; ownerId: string; statusCode?: string; projectId?: string | null },
+  options: {
+    customerId: string;
+    ownerId: string;
+    statusCode?: string;
+    projectId?: string | null;
+    typeCode?: string;
+    subject?: string;
+    dueAt?: Date | null;
+    /** Con estado `COMPLETADA`: se rellenan quién completó y las notas (ck_activities_completion). */
+    completedAt?: Date | null;
+    createdAt?: Date;
+    deletedAt?: Date | null;
+  },
 ): Promise<string> {
   const activity = await prisma.activity.create({
     data: {
       code: `TEST-ACT-${uniqueSuffix()}`,
       projectId: options.projectId ?? null,
-      typeId: await catalogItemId(prisma, 'crm.tipo_actividad', 'LLAMADA'),
-      subject: 'Actividad de prueba',
+      typeId: await catalogItemId(prisma, 'crm.tipo_actividad', options.typeCode ?? 'LLAMADA'),
+      subject: options.subject ?? 'Actividad de prueba',
       customerId: options.customerId,
       ownerId: options.ownerId,
       statusId: await catalogItemId(prisma, 'crm.estado_actividad', options.statusCode ?? 'PENDIENTE'),
       priorityId: await catalogItemId(prisma, 'crm.prioridad', 'MEDIA'),
+      dueAt: options.dueAt ?? null,
+      ...(options.completedAt ? { completedAt: options.completedAt, completedById: options.ownerId, resultNotes: 'Hecho' } : {}),
+      ...(options.createdAt ? { createdAt: options.createdAt } : {}),
+      deletedAt: options.deletedAt ?? null,
     },
   });
   return activity.id;
@@ -426,9 +466,20 @@ export async function insertActivity(
 /** Visita mínima en un estado de `crm.estado_visita` (`PROGRAMADA` = pendiente). */
 export async function insertVisit(
   prisma: PrismaClient,
-  options: { customerId: string; ownerId: string; statusCode?: string; projectId?: string | null },
+  options: {
+    customerId: string;
+    ownerId: string;
+    statusCode?: string;
+    projectId?: string | null;
+    scheduledStartAt?: Date;
+    actualStartAt?: Date | null;
+    /** Confirmada por su dueño (DM-20) con resumen (ck_visits_confirm_requires). */
+    confirmedAt?: Date | null;
+    reminderMinutesBefore?: number | null;
+    objective?: string;
+  },
 ): Promise<string> {
-  const at = new Date(Date.now() + 86_400_000);
+  const at = options.scheduledStartAt ?? new Date(Date.now() + 86_400_000);
   const visit = await prisma.visit.create({
     data: {
       code: `TEST-VIS-${uniqueSuffix()}`,
@@ -438,10 +489,40 @@ export async function insertVisit(
       statusId: await catalogItemId(prisma, 'crm.estado_visita', options.statusCode ?? 'PROGRAMADA'),
       scheduledStartAt: at,
       originalScheduledAt: at,
-      objective: 'Visita de prueba',
+      objective: options.objective ?? 'Visita de prueba',
+      actualStartAt: options.actualStartAt ?? null,
+      reminderMinutesBefore: options.reminderMinutesBefore ?? null,
+      ...(options.confirmedAt ? { confirmedAt: options.confirmedAt, confirmedById: options.ownerId, confirmationSummary: 'Confirmada' } : {}),
     },
   });
   return visit.id;
+}
+
+/** Meta comercial (DM-9), insertada como la carga por script. */
+export async function insertSalesTarget(
+  prisma: PrismaClient,
+  options: {
+    metric: 'TONNAGE' | 'AMOUNT' | 'WON_OPPORTUNITIES' | 'VISITS' | 'ACTIVITIES';
+    year: number;
+    month?: number | null;
+    userId?: string | null;
+    teamId?: string | null;
+    countryId?: string | null;
+    targetValue: string;
+  },
+): Promise<string> {
+  const target = await prisma.salesTarget.create({
+    data: {
+      metric: options.metric,
+      year: options.year,
+      month: options.month ?? null,
+      userId: options.userId ?? null,
+      teamId: options.teamId ?? null,
+      countryId: options.countryId ?? null,
+      targetValue: options.targetValue,
+    },
+  });
+  return target.id;
 }
 
 export async function insertParticipant(prisma: PrismaClient, options: { activityId: string; customerId: string; contactId: string }): Promise<void> {

@@ -66,3 +66,8 @@ paginación por tipo y ordenación en el cliente.
 
 **Consecuencias.** Pruebas obligatorias por endpoint: con solo uno de los
 permisos se recibe solo esa fuente; con ninguno, `403`; sin token, `401`.
+
+**Implementación (2026-10-13, Módulo 1).** `backend/src/common/decorators/require-any-permission.decorator.ts`
+y su soporte en `PermissionsGuard` (con prueba unitaria): basta uno de los permisos; ninguno → `403`;
+combinarlo con `@RequirePermission` → `403` por error de configuración. Los endpoints lo documentan en
+OpenAPI con la extensión `x-permissions`.

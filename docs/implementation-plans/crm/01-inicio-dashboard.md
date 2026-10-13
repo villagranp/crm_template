@@ -1034,3 +1034,22 @@ especificadas con el valor final indicado.
 | F-04 | `Activity`, `Visit`, `Project`, `Opportunity`, `Customer`, `User`, `CatalogItem` (`crm.prioridad`), `SystemParameter` (`crm.alertas.*`) | Fase 0 (parámetros), Actividad (4), Proyectos (3), Administración (7) para mantener parámetros; DM-7, DM-20 (confirma el dueño), DM-26, D-01.1, D-01.11, D-01.14 (resueltas) | AC-01.27–AC-01.36, AC-01.37, AC-01.38 | PF-01.34–PF-01.43, PF-01.45, PF-01.46 |
 
 Estado propuesto para las cuatro filas: `especificada`. Todas las decisiones del módulo se resolvieron el 2026-10-10.
+
+---
+
+## Precisiones de implementación (2026-10-13)
+
+Huecos técnicos resueltos al implementar (AGENTS §9.3). Ninguno cambia una regla de negocio.
+
+| # | Tema | Decisión |
+|---|---|---|
+| P-1 | Piezas compartidas con los Módulos 4 y 5 | `@RequireAnyPermission` (addendum de ADR-008) y `CommercialMetricsService` (+ `commercial-period.ts`, puerto `COMMERCIAL_METRICS_READ_MODEL` y adaptador) se implementan aquí con las rutas y firmas de 01 F.2 / 05 L, porque los Módulos 4 y 5 se desarrollan en paralelo. Si al integrar ya existen, se conserva una sola implementación con ese mismo contrato (decisión del responsable: se valida en el merge) |
+| P-2 | Visibilidad de visitas y actividades | Predicado exportado `interactionRecordVisibilitySql` (dueño en el alcance, o país del cliente, o proyecto vinculado visible; 00 §4.2 + DM-13) en `prisma-commercial-metrics.repository.ts`, junto a `forecastLineVisibilitySql`, para Inicio, Reportes y Actividad comercial |
+| P-3 | Alcance de cada bloque | Cada indicador, cada tipo de alerta y cada fuente de la actividad reciente usa el alcance de **su** permiso (`proyectos.ver`, `visitas.ver`…), resuelto en cada petición. Con alcance `COUNTRY` sin país se registra un `warn`; el resolvedor de Fase 0 sigue incluyendo los registros propios (00 §4.2, precisiones de 2026-10-11) |
+| P-4 | Metas (KPI-10) | Una meta aplica si su propio período (mes, o año completo) cae dentro del pedido; varias del mismo sujeto y métrica se suman (p. ej. tres mensuales en un trimestre). El "logrado" se atribuye por sujeto: usuario → sus registros; equipo → miembros y responsables del equipo y sus subequipos activos; país → país del proyecto o del cliente; organización → todo. Las metas con `product_family_id` no se muestran: 01 no define su logrado por familia (se registra un `warn`) |
+| P-5 | Fusión etapa + resultado (RN-01.23) | Un cambio de etapa y un registro de resultado de la misma operación comparten `changed_at` (misma transacción): se emite un único `OPORTUNIDAD_CERRADA` con el id de la fila de resultado. `OPORTUNIDAD_ACTUALIZADA` exige `updated_at` más de 1 s posterior al alta y a la última fila de cada historial (Prisma fija `updatedAt` en el cliente) |
+| P-6 | Responsable de los eventos | El dueño del registro de origen (`owner_id`), también en los eventos de historial |
+| P-7 | Resúmenes y descripciones | Textos en español generados en el servidor (D.5, D.6); ≤ 200 caracteres sin partir caracteres; "vencida hoy" cuando han pasado menos de 24 h |
+| P-8 | Errores de período | `from`/`to` incoherentes responden `400 VALIDATION_FAILED` con `details[0] = { field, issue }`, igual que el `ValidationPipe` |
+| P-9 | Prueba de arquitectura (PF-01.24) | Comprueba que solo `metric-definitions.ts` interpreta `isClosed`/`isFinal` (las fórmulas KPI). Las comprobaciones de dependencias de los Módulos 2 y 3 (`isOpen`, `isPending` al borrar) no son fórmulas de indicadores y quedan fuera; el módulo de catálogos (validación de la semántica) también |
+| P-10 | Rendimiento (PF-01.44) | Cada endpoint hace un número fijo de consultas agregadas (sin N+1); no se añadió la prueba con el volumen de la demo ×100 |
