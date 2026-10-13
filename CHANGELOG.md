@@ -111,7 +111,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   `CustomerPicker` reutilizable. Opciones aditivas: `DataTable` `onRowClick`/`getRowLabel`,
   `useTableQueryState({ paramPrefix })`, `AttachmentsSection takeInitialFiles`.
 - **CRM Módulo 2 — Clientes / Cuentas, backend** (`02-clientes-cuentas.md` §K.3 pasos 2–7;
-  F-05, F-06, F-07 y F-09 `completada` con el frontend y el E2E; F-08 `bloqueada` hasta el Módulo 3):
+  F-05…F-09 `completada`; F-08 se completó con el contrato del Módulo 3):
   - Endpoints F1–F8 (`/customers`: búsqueda con filtros combinables y búsqueda libre
     normalizada, `form-options`, `sales-owner-options`, ficha con `access` y `capabilities`,
     alta con `crmCode` de `crm.cliente`, edición con campos reservados, desactivación por
