@@ -20,8 +20,10 @@ export const CONTACT_PERMISSIONS = {
   delete: 'contactos.eliminar',
 } as const;
 
-/** Permisos de otros módulos que condicionan secciones de la ficha (D-02.10). */
+/**
+ * Permisos de otros módulos que condicionan secciones de la ficha (D-02.10). Los
+ * de Actividad comercial los comprueban sus propios puntos de entrada (04 §E.11).
+ */
 export const RELATED_PERMISSIONS = {
   viewProjects: 'proyectos.ver',
-  createActivity: 'actividades.crear',
 } as const;

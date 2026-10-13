@@ -1,4 +1,3 @@
-import AddTaskOutlinedIcon from '@mui/icons-material/AddTaskOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import RestoreIcon from '@mui/icons-material/Restore';
@@ -9,6 +8,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { ConfirmDialog, EmptyState } from '@/components/data';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { CommercialActivitySection, NewActivityButton, PlanVisitButton } from '@/features/crm/commercial-activity/entry-points';
 import { AttachmentsSection } from '@/features/crm/common/AttachmentsSection';
 import { crmBreadcrumbs } from '@/features/crm/common/crm-breadcrumbs';
 import { CRM_MODULE_OPTION_KEYS, useModuleAvailability } from '@/features/crm/common/use-module-availability';
@@ -28,9 +28,6 @@ import { CUSTOMER_ERROR_MESSAGES, describeDependencies, withReference } from './
 import { CONTACT_PERMISSIONS, RELATED_PERMISSIONS } from './customers.permissions';
 import { useCustomer, useCustomerFormOptions, useDeleteCustomer, useRestoreCustomer } from './customers.queries';
 import { takePendingUploads } from './pending-uploads';
-
-/** Alta de actividad con el cliente preseleccionado (ruta del Módulo 4, 02 §F.7). */
-const NEW_ACTIVITY_PATH = '/actividad/actividades/nueva';
 
 function isCreatedState(state: unknown): state is CustomerCreatedState {
   return typeof state === 'object' && state !== null && typeof (state as CustomerCreatedState).createdMessage === 'string';
@@ -108,7 +105,8 @@ export function CustomerDetailPage() {
 
   const data = customer.data;
   const { capabilities } = data;
-  const showNewActivity = !data.isDeleted && activities.isAvailable && can(RELATED_PERMISSIONS.createActivity);
+  // Puntos de entrada del Módulo 4 (04 §E.11): cada uno se oculta sin su permiso.
+  const showCommercialActivity = !data.isDeleted && activities.isAvailable;
   const phonePattern = formOptions.data?.countries.find((country) => country.id === data.country.id)?.phonePattern ?? null;
   const dependencies = describeDependencies(removal.error);
   const deleteError = removal.isError
@@ -120,14 +118,11 @@ export function CustomerDetailPage() {
 
   const actions = (
     <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-      {showNewActivity ? (
-        <Button
-          variant="outlined"
-          startIcon={<AddTaskOutlinedIcon />}
-          onClick={() => navigate(`${NEW_ACTIVITY_PATH}?customerId=${encodeURIComponent(data.id)}`)}
-        >
-          Nueva actividad
-        </Button>
+      {showCommercialActivity ? (
+        <>
+          <NewActivityButton customerId={data.id} />
+          <PlanVisitButton customerId={data.id} />
+        </>
       ) : null}
       {capabilities.canEdit && !data.isDeleted ? (
         <Button startIcon={<EditOutlinedIcon />} onClick={() => setEditing(true)}>
@@ -196,6 +191,8 @@ export function CustomerDetailPage() {
         {can(CONTACT_PERMISSIONS.view) && !data.isDeleted ? <CustomerContactsSection customer={data} phonePattern={phonePattern} /> : null}
 
         {can(RELATED_PERMISSIONS.viewProjects) ? <CustomerProjectsSection customerId={data.id} /> : null}
+
+        {showCommercialActivity ? <CommercialActivitySection customerId={data.id} /> : null}
 
         {!data.isDeleted ? (
           <AttachmentsSection

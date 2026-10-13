@@ -132,6 +132,15 @@ describe('AttachmentsSection', () => {
     expect(screen.getByRole('button', { name: 'Descargar contrato.pdf' })).toBeInTheDocument();
   });
 
+  it('con canDelete=false deja subir pero no eliminar (adjuntos de un evento de visita)', async () => {
+    mockApi({ [`GET ${BASE}`]: () => page([CONTRACT]) });
+    renderSection({ canDelete: false });
+
+    expect(await screen.findByText('contrato.pdf')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Subir archivos' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Eliminar contrato.pdf' })).not.toBeInTheDocument();
+  });
+
   it('sube con progreso y, al terminar, refresca la lista y lo anuncia', async () => {
     const user = userEvent.setup();
     let listed: AttachmentDto[] = [];

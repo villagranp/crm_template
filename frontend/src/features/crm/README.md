@@ -11,7 +11,8 @@ features/crm/
   crm-routes.ts            ruta + permiso + página lazy de cada pantalla del CRM
   common/                  piezas propias del CRM compartidas por varios submódulos
   customers/               Módulo 2 (Clientes): CustomersPage.tsx, customers.api.ts, …, components/, index.ts
-  projects/  activities/   (llegan con los módulos 3 y 4)
+  commercial-activity/     Módulo 4 (Actividad comercial): common/, activities/, pending/, entry-points/ (barril para 02/03)
+  projects/                (llega con el Módulo 3)
 ```
 
 | Pantalla | Carpeta | Ruta | Permiso de la ruta | ¿Opción de menú? |
@@ -19,6 +20,14 @@ features/crm/
 | Búsqueda de clientes | `customers/` | `/clientes` | `clientes.ver` | Sí: `clientes-buscar` |
 | Alta de cliente | `customers/` | `/clientes/nuevo` | `clientes.crear` | No (botón "Nuevo cliente") |
 | Ficha del cliente | `customers/` | `/clientes/:customerId` | `clientes.ver` | No (ruta con parámetro, D-02.12) |
+| Bandeja de pendientes | `commercial-activity/pending/` | `/actividad/pendientes` | `actividades.ver` | Sí: `actividad-pendientes` |
+| Listado de actividades | `commercial-activity/activities/` | `/actividad/actividades` | `actividades.ver` | Sí: `actividad-actividades` |
+| Alta de actividad | `commercial-activity/activities/` | `/actividad/actividades/nueva` | `actividades.crear` | No (preselección `?customerId=&projectId=&opportunityId=&typeId=`) |
+| Detalle y edición de actividad | `commercial-activity/activities/` | `/actividad/actividades/:activityId` | `actividades.ver` | No (ruta con parámetro, D-04.13) |
+
+Las rutas de Actividad comercial viven en `commercial-activity/commercial-activity-routes.ts`
+(agregadas en `crm-routes.ts`); agenda, seguimiento, historial y visitas siguen con el marcador
+provisional `CommercialActivityPendingPage` hasta su tanda.
 
 - La página (`<Pantalla>Page.tsx`) conserva su **export con nombre**: `crm-routes.ts` la carga con
   `React.lazy` por ese nombre.
@@ -63,7 +72,30 @@ features/crm/
 | `AttachmentsSection basePath="/customers/{id}/attachments"` | Lista, subida con progreso, descarga y eliminación de los adjuntos de cualquier dueño (cliente, proyecto, actividad). `canManage` sale de las `capabilities` del dueño y `limits` de su `form-options.attachments` |
 | `crmBreadcrumbs({ label: 'Clientes', to: ROUTE_PATHS.crm.customers }, { label: 'Ficha' })` | Migas: Inicio › … |
 | `AttachmentsSection takeInitialFiles` | Archivos elegidos en un formulario de alta que se suben en la ficha tras el `201` (D-02.15); progreso y errores `413`/`422` por archivo |
+| `AttachmentsSection canDelete={false}` | Subir sin eliminar (adjuntos de un evento de visita, 04 §F.4) |
 | `customers/index.ts` | Barril público para otros módulos: `CustomerPicker` (valor `{ id, crmCode, legalName, countryId }`; acepta `{ id }` preseleccionado) y `customerDetailPath(id)` |
+
+### Piezas comunes de Actividad comercial (`commercial-activity/common/`)
+
+Para las pantallas del Módulo 4 (actividades, visitas, agenda, seguimiento, historial). No se
+importan desde otros submódulos: lo público para 02/03 está en `commercial-activity/entry-points`.
+
+| Pieza | Uso |
+|---|---|
+| `commercial-activity.permissions.ts` | `ACTIVITY_PERMISSIONS`, `VISIT_PERMISSIONS` (`visitas.*`, `actividades.*`) |
+| `commercial-activity.errors.ts` | `COMMERCIAL_ERROR_MESSAGES` (códigos de 04 §F.5), `commercialFieldErrors(error)` (`details[].field` → mensaje, `participants.0.contactId` → `participants`), `withReference`, `isNotFoundError` |
+| `commercial-activity.api.ts` / `.queries.ts` | Tipos de los DTO compartidos (`StatusRef`, `AgendaItem`, `Interaction`, `FollowUpTrace`…), lookups (`owner-options`, cliente, contactos activos, proyectos y oportunidades del contrato de 03) y claves bajo `['crm', 'commercial-activity']` con `invalidateCommercialActivity` |
+| `date-time.ts` | `formatDateTime`/`formatDate`/`formatTime` (zona del usuario, hoy la del navegador), `formatCalendarDate`, `todayInTimeZone`, `describeDue`, `toDateTimeLocalValue`/`fromDateTimeLocalValue`, `startOfDayIso`/`endOfDayIso` |
+| `StatusChip` (`label`, `group`, `isRescheduled?`, `isUnregistered?`) | Estado con color + icono + texto (RN-04.35) |
+| `DueBadge` (`dueAt`, `bucket`, `now?`) | Vencimiento: marca vencida/próxima, relativo y absoluto (RN-04.31) |
+| `CustomerProjectFields` (`value`, `onChange(value, change)`, `withOpportunity?`, `customerReadOnly?`, `customerHelperText?`, `errors?`, `disabled?`) | Cliente → proyecto → oportunidad; cambiar de cliente limpia lo que depende; degrada sin el Módulo 3 |
+| `useCommercialPreselection({ customerId, projectId, opportunityId })` | Resuelve la preselección de la URL: `{ isResolving, value, problems }` |
+| `ParticipantsField` (`customerId`, `value`, `onChange`, `label?`, `required?`, `disabled?`, `error?`, `helperText?`) + `participants.ts` | Contactos (con `contactos.ver`), usuarios y externos; `toParticipantInputs`, `participantValuesFrom(dtos, role?)`, `withoutContacts` |
+| `OwnerPicker` (`label`, `value`, `onChange`, `excludeIds?`…) | Usuarios de `owner-options` (responsable, asesor, participante) |
+| `AttachmentsPanel` (`owner`, `canManage`, `limits?`, `title?`, `emptyMessage?`, `uploadPendingFromCreation?`) + `attachment-owner.ts` | Adjuntos de actividad, visita o evento (`commercialAttachmentsPath`, `stashPendingAttachments`/`takePendingAttachments`) |
+| `FilesField` + `uploadFilesInOrder(basePath, files)` | Elegir archivos en un formulario o diálogo y subirlos en orden, parando en el primer fallo |
+| `InteractionTimeline` (`customerId?`, `projectId?`, `opportunityId?`, `compact?`) / `InteractionTimelineList` (`items`, `hideCustomer?`, `hideProject?`) | Historial de interacciones agrupado por día con enlace al origen |
+| `commercial-paths.ts` | `interactionHistoryPath`, `planVisitPath`, `visitDetailPath` |
 
 Opciones aditivas de `@/components/data` usadas por el CRM: `DataTable` `onRowClick` + `getRowLabel`
 (fila navegable con teclado, `role="link"`) y `useTableQueryState({ paramPrefix })` para varias

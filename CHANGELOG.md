@@ -25,6 +25,15 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   - NGINX: una sola cabecera `Cache-Control: no-store` en las respuestas de la API.
 
 ### Added
+- **CRM Módulo 4 — Actividad comercial, frontend (primera mitad)**
+  (`frontend/src/features/crm/commercial-activity/`, `04-actividad-comercial.md` "Precisiones"):
+  listado de actividades con filtros en la URL, alta con preselección por query string, campos
+  por tipo según `metadata.fields`, "Ya realizada" y archivos, detalle con edición, completar,
+  cancelar y eliminar según `allowedActions`, bandeja de pendientes con pestañas y contadores,
+  piezas comunes (`StatusChip`, `DueBadge`, `CustomerProjectFields`, `ParticipantsField`,
+  `AttachmentsPanel`, `InteractionTimeline`, `date-time.ts`) y puntos de entrada
+  (`NewActivityButton`, `PlanVisitButton`, `CommercialActivitySection`) integrados en la ficha
+  del cliente. Iconos del módulo en `MaterialSymbol`. `AttachmentsSection` gana `canDelete`.
 - **CRM Módulo 2 — Clientes / Cuentas, frontend** (`frontend/src/features/crm/customers/`):
   búsqueda con filtros y estado en la URL, alta con aviso de duplicados y archivos que se suben
   tras crear, ficha con edición según `capabilities`, baja y restauración, contactos con

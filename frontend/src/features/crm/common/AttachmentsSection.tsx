@@ -32,6 +32,11 @@ export interface AttachmentsSectionProps {
    * Ocultar es experiencia de usuario: el backend vuelve a exigir el permiso.
    */
   canManage: boolean;
+  /**
+   * Puede eliminar; por defecto, lo mismo que `canManage`. Los adjuntos de un
+   * evento de visita se suben pero no se eliminan (historia, 04 §F.4): ahí va `false`.
+   */
+  canDelete?: boolean;
   /** `form-options.attachments`: límites para ayudar antes de subir y para el selector de archivos. */
   limits?: AttachmentLimits;
   title?: string;
@@ -101,6 +106,7 @@ function UploadRow({ upload, onDismiss }: { upload: UploadItem; onDismiss: (key:
 export function AttachmentsSection({
   basePath,
   canManage,
+  canDelete = canManage,
   limits,
   title = 'Adjuntos',
   emptyMessage = 'Todavía no hay adjuntos.',
@@ -261,7 +267,7 @@ export function AttachmentsSection({
                 </IconButton>
               </span>
             </Tooltip>
-            {canManage ? (
+            {canDelete ? (
               <Tooltip title="Eliminar">
                 <IconButton aria-label={`Eliminar ${attachment.fileName}`} onClick={() => setToDelete(attachment)}>
                   <DeleteOutlineIcon />

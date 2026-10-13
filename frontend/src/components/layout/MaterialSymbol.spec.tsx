@@ -11,6 +11,21 @@ describe('MaterialSymbol', () => {
     expect(screen.getByTestId('BusinessOutlinedIcon')).toHaveAttribute('aria-hidden', 'true');
   });
 
+  it.each([
+    ['event_note', 'EventNoteOutlinedIcon'],
+    ['calendar_month', 'CalendarMonthOutlinedIcon'],
+    ['pending_actions', 'PendingActionsOutlinedIcon'],
+    ['track_changes', 'TrackChangesOutlinedIcon'],
+    ['history', 'HistoryOutlinedIcon'],
+    ['location_on', 'LocationOnOutlinedIcon'],
+    ['task_alt', 'TaskAltOutlinedIcon'],
+    ['call', 'CallOutlinedIcon'],
+    ['mail', 'MailOutlinedIcon'],
+  ])('resuelve el icono `%s` de Actividad comercial (04 §L.4)', (name, testId) => {
+    renderWithProviders(<MaterialSymbol name={name} />);
+    expect(screen.getByTestId(testId)).toBeInTheDocument();
+  });
+
   it('un nombre desconocido cae en el icono por defecto', () => {
     renderWithProviders(<MaterialSymbol name="no_existe" />);
     expect(screen.getByTestId('ChevronRightIcon')).toBeInTheDocument();
