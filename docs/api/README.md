@@ -174,12 +174,15 @@ del alcance sin poder operar, `403`.
 Los `422` de validación devuelven **todas** las incidencias en `details[]` (`field`, `code`,
 `message`); el `code` de la respuesta es el de la primera. Ningún mensaje repite el valor recibido.
 
-## Endpoints del CRM — Módulo 4 · Actividad comercial (actividades)
+## Endpoints del CRM — Módulo 4 · Actividad comercial
 
-Especificación: [`04-actividad-comercial.md`](../implementation-plans/crm/04-actividad-comercial.md) §F.2, §F.3.
-Etiqueta OpenAPI `commercial-activity`. Primera entrega del backend: actividades, bandeja y
-opciones. Visitas, agenda, interacciones, seguimiento y adjuntos llegan en la siguiente etapa.
-Todos exigen sesión (`401` sin token). Fuera del alcance o inexistente → `404` idéntico.
+Especificación: [`04-actividad-comercial.md`](../implementation-plans/crm/04-actividad-comercial.md) §F.1–§F.5.
+Etiqueta OpenAPI `commercial-activity`. Backend completo (actividades, visitas, agenda,
+interacciones, seguimiento, adjuntos y opciones); el frontend llega en la etapa siguiente.
+Todos exigen sesión (`401` sin token). Fuera del alcance o inexistente → `404` idéntico
+(ADR-008). Los ids de ruta usan `ParseUUIDPipe` (`400` si no son UUID).
+
+### Actividades (F.2)
 
 | Método | Ruta | Permiso | Entrada → salida | Errores |
 |---|---|---|---|---|
@@ -192,25 +195,82 @@ Todos exigen sesión (`401` sin token). Fuera del alcance o inexistente → `404
 | POST | `/activities/:id/completion` | `actividades.cerrar` (propia) / + `actividades.administrar` (ajena) | `ActivityCompletionDto` → `ActivityDetailDto` | `403`, `404`, `409 INVALID_STATUS_TRANSITION`, `422 RESULT_REQUIRED` / `ACTUAL_DATE_IN_FUTURE` |
 | POST | `/activities/:id/cancellation` | `actividades.editar` (propia) / + `actividades.administrar` (ajena) | `ActivityCancellationDto` → `ActivityDetailDto` | `403`, `404`, `409 INVALID_STATUS_TRANSITION` |
 | DELETE | `/activities/:id` | `actividades.eliminar` (en su alcance) | → `204` (lógica) | `403`, `404`, `409 RECORD_READ_ONLY` (completada) |
-| GET | `/commercial-activity/owner-options` | `actividades.ver` **o** `visitas.ver` (`@RequireAnyPermission`) | `OwnerOptionsQueryDto` → `PaginatedOwnerOptionsDto` | `400`, `403` sin ninguno |
 
-`@RequireAnyPermission` (addendum de ADR-008) se publica en OpenAPI con la extensión
-`x-required-permissions-any-of: { permissions, semantics: "ANY_OF" }`.
+### Visitas (F.1)
 
-### Códigos de error nuevos (04 F.5, parte de actividades)
+No existe `DELETE /visits/:id` (RN-04.20): la ruta no se declara y responde `404`.
+
+| Método | Ruta | Permiso | Entrada → salida | Errores |
+|---|---|---|---|---|
+| GET | `/visits` | `visitas.ver` | `ListVisitsQueryDto` (`from`, `to`, `statusId[]`, `statusGroup[]`, `ownerId[]`, `customerId`, `projectId`, `countryId`, `unregistered`, `pendingConfirmation`, `search`) → `PaginatedVisitsDto` | `400` |
+| GET | `/visits/form-options` | `visitas.ver` | → `VisitFormOptionsDto` (`statuses`, `rescheduleReasons`, `cancellationReasons`, `results`, `conflictMode`, `defaultDurationMinutes`, `requiredFields`, `completionRequiredFields`) | — |
+| GET | `/visits/schedule-conflicts` | `visitas.crear` **o** `visitas.editar` | `ScheduleConflictsQueryDto` (`start`, `end?`, `ownerId?`, `excludeVisitId?`) → `ScheduleConflictsResponseDto` (`mode`, `conflicts[]`) | `400`, `403` (`ownerId` ajeno sin `visitas.administrar`), `422 INVALID_DATE_RANGE` / `OWNER_NOT_ELIGIBLE` |
+| GET | `/visits/:id` | `visitas.ver` | → `VisitDetailDto` (`access`, `allowedActions`, `effectiveEndAt`, `reminderAt`, `isUnregistered`, `completion`, `confirmation`) | `400`, `404` |
+| GET | `/visits/:id/events` | `visitas.ver` | → `VisitEventDto[]` (cronológico, sin paginar) | `400`, `404` |
+| POST | `/visits` | `visitas.crear` (+ `visitas.administrar` con `ownerId` ajeno) | `CreateVisitDto` → `201 VisitDetailDto` + `Location` (+ `scheduleConflicts`) | `400`, `403`, `404` (cliente), `409 SCHEDULE_CONFLICT` (solo `BLOQUEAR`), `422` |
+| PATCH | `/visits/:id` | `visitas.editar` (propia) / + `visitas.administrar` (ajena) | `UpdateVisitDto` → `VisitDetailDto` | `403`, `404`, `409 RECORD_READ_ONLY` / `SCHEDULE_CONFLICT` / `INVALID_STATUS_TRANSITION`, `422 USE_RESCHEDULE` y los de planificación |
+| POST | `/visits/:id/completion` | `visitas.editar` (propia) / + `visitas.administrar` (ajena) | `VisitCompletionDto` → `VisitDetailDto` | `403`, `404`, `409 INVALID_STATUS_TRANSITION`, `422 ACTUAL_DATE_IN_FUTURE` / `INVALID_DATE_RANGE` / `REQUIRED_FIELD_MISSING` |
+| PUT | `/visits/:id/completion` | ídem | `VisitCompletionDto` (sustituye) → `VisitDetailDto` | ídem |
+| POST | `/visits/:id/confirmation` | `visitas.cerrar` y **solo el dueño** (DM-20) | `VisitConfirmationDto` → `VisitDetailDto` | `403 PERMISSION_DENIED` / `VISIT_CONFIRMATION_OWNER_ONLY`, `404`, `409`, `422 CONFIRMATION_SUMMARY_REQUIRED` |
+| POST | `/visits/:id/rescheduling` | `visitas.editar` (propia) / + `visitas.administrar` (ajena) | `VisitReschedulingDto` → `VisitDetailDto` (+ `scheduleConflicts`) | `403`, `404`, `409`, `422 RESCHEDULE_SAME_DATE` / `DATE_IN_PAST` / `REASON_REQUIRED` / `INVALID_CATALOG_VALUE` |
+| POST | `/visits/:id/cancellation` | ídem | `VisitCancellationDto` → `VisitDetailDto` | `403`, `404`, `409`, `422 REASON_REQUIRED` / `INVALID_CATALOG_VALUE` |
+
+### Modelos de lectura y opciones (F.3)
+
+Los de "uno de varios" usan `@RequireAnyPermission` (addendum de ADR-008, se publica en
+OpenAPI como `x-required-permissions-any-of: { permissions, semantics: "ANY_OF" }`); cada
+fuente se filtra por **su** permiso de ver y su alcance.
+
+| Método | Ruta | Permiso | Entrada → salida | Errores |
+|---|---|---|---|---|
+| GET | `/agenda` | `actividades.ver` **o** `visitas.ver` | `AgendaListQueryDto` (`from`, `to`, `ownerId[]`, `countryId[]`, `kind[]`, `activityTypeId[]`, `statusGroup[]`, `statusId[]`, `customerId`, `projectId`) → `PaginatedAgendaDto` | `400` |
+| GET | `/agenda/calendar` | ídem | `AgendaCalendarQueryDto` (`from` y `to` obligatorios) → `AgendaCalendarDto` (`data` ≤ 500, `truncated`) | `400 VALIDATION_FAILED` / `RANGE_TOO_WIDE` (> 42 días) |
+| GET | `/interactions` | ídem | `ListInteractionsQueryDto` (`from`, `to`, `customerId`, `projectId`, `opportunityId`, `userId[]`, `sourceType[]`, `typeId[]`, `resultId[]`) → `PaginatedInteractionsDto` | `400` |
+| GET | `/follow-ups` | ídem | `ListFollowUpsQueryDto` (`groupBy`, `customerId`, `projectId`, `ownerId[]`, `countryId[]`, `withoutNextAction`, `lastInteractionFrom`, `lastInteractionTo`) → `PaginatedFollowUpsDto` | `400` |
+| GET | `/follow-ups/trace` | ídem | `customerId` **o** `projectId` → `FollowUpTraceDto` (`row`, `interactions` ≤ 50, `upcoming` ≤ 20, `attachments` ≤ 50) | `400`, `404` (sin registros visibles) |
+| GET | `/commercial-activity/owner-options` | ídem | `OwnerOptionsQueryDto` → `PaginatedOwnerOptionsDto` | `400`, `403` sin ninguno |
+
+### Adjuntos por dueño (F.4, DC-2, ADR-021)
+
+Respuesta `AttachmentResponseDto` (mismo esquema que 02). Descarga siempre `attachment`,
+`X-Content-Type-Options: nosniff`, `Cache-Control: no-store`. Un adjunto de otro dueño en la
+ruta → `404`. Subida: `multipart/form-data` (`file` + `description?` ≤ 300); el guard del
+módulo autoriza **antes** de leer el cuerpo. No hay rutas genéricas `/attachments/:id` ni
+`DELETE` de adjuntos de eventos.
+
+| Método | Ruta | Permiso | Errores |
+|---|---|---|---|
+| GET | `/visits/:id/attachments` · `/visits/:id/events/:eventId/attachments` · `/activities/:id/attachments` | `visitas.ver` · `visitas.ver` · `actividades.ver` | `400`, `404` |
+| POST | `/visits/:id/attachments` · `/activities/:id/attachments` | `visitas.editar` · `actividades.editar` (ajena con `administrar`) | `400`, `403`, `404`, `409 RECORD_READ_ONLY` (visita confirmada/cancelada; actividad completada/cancelada), `413 ATTACHMENT_TOO_LARGE`, `422 ATTACHMENT_TYPE_NOT_ALLOWED` |
+| POST | `/visits/:id/events/:eventId/attachments` | `visitas.editar` **o** `visitas.cerrar`; solo quien ejecutó el evento, 15 min (D-04.18) | `403` (`details[0].reason = NOT_EVENT_PERFORMER`), `404`, `409 RECORD_READ_ONLY` (`EVENT_ATTACHMENT_WINDOW_EXPIRED`), `413`, `422` |
+| GET | `…/attachments/:attachmentId/content` (visita, evento, actividad) | permiso de ver del dueño | `400`, `404` |
+| DELETE | `/visits/:id/attachments/:attachmentId` · `/activities/:id/attachments/:attachmentId` | permiso de editar del dueño | `403`, `404`, `409 RECORD_READ_ONLY` |
+
+### Códigos de error nuevos (04 F.5)
 
 | Status | Código | Cuándo |
 |---|---|---|
-| 409 | `RECORD_READ_ONLY` | Editar una actividad completada o cancelada; eliminar una completada |
-| 409 | `INVALID_STATUS_TRANSITION` | Completar o cancelar fuera de un estado abierto; otro usuario cambió el estado o la eliminó entretanto (`details[0].reason = CONCURRENT_CHANGE`) |
-| 422 | `REQUIRED_FIELD_MISSING` | Base + `crm.campos_obligatorios.activity` (todos en `details[]`) |
-| 422 | `FIELD_NOT_APPLICABLE` | Campo específico que el tipo no admite (`metadata.fields`), todos en `details[]` |
-| 422 | `USE_LIFECYCLE_OPERATION` | `statusId` no abierto en el alta o la edición, o junto a `completion` |
-| 422 | `RESULT_REQUIRED` · `ACTUAL_DATE_IN_FUTURE` | Completar sin resultado · fecha de finalización futura |
-| 422 | `UNKNOWN_REFERENCE` · `INACTIVE_REFERENCE` | Proyecto, oportunidad o usuario participante inexistente o no visible · eliminado / inactivo en un vínculo nuevo |
+| 400 | `RANGE_TOO_WIDE` | Calendario de más de 42 días (`details[0] = { field: "to", maxDays: 42 }`) |
+| 403 | `VISIT_CONFIRMATION_OWNER_ONLY` | Confirmar una visita ajena, aunque se tenga `visitas.administrar` o el comodín del administrador (DM-20) |
+| 409 | `RECORD_READ_ONLY` | Editar una actividad completada/cancelada o una visita no pendiente; eliminar una actividad completada; adjuntos de un dueño de solo lectura; ventana de un evento vencida |
+| 409 | `INVALID_STATUS_TRANSITION` | Operación no permitida desde el estado actual; otro usuario cambió el registro entretanto (`details[0].reason = CONCURRENT_CHANGE`) |
+| 409 | `SCHEDULE_CONFLICT` | Solape con otra visita del responsable con `crm.visitas.validar_conflicto_horario = BLOQUEAR` (`details[]` con los solapes, sin datos de las que el usuario no ve) |
+| 422 | `REQUIRED_FIELD_MISSING` | Base + `crm.campos_obligatorios.activity` / `.visit` / `.visitCompletion` (todos en `details[]`) |
+| 422 | `FIELD_NOT_APPLICABLE` | Campo específico que el tipo de actividad no admite (`metadata.fields`), todos en `details[]` |
+| 422 | `USE_LIFECYCLE_OPERATION` · `USE_RESCHEDULE` | `statusId` no abierto en una actividad · fecha de inicio de una visita por `PATCH` |
+| 422 | `RESULT_REQUIRED` · `ACTUAL_DATE_IN_FUTURE` | Completar sin resultado · fecha real o de finalización futura |
+| 422 | `INVALID_DATE_RANGE` · `DATE_IN_PAST` · `RESCHEDULE_SAME_DATE` | Fin anterior al inicio · reprogramar al pasado · a la misma fecha |
+| 422 | `REASON_REQUIRED` · `CONFIRMATION_SUMMARY_REQUIRED` | Reprogramar o cancelar sin motivo · confirmar sin resumen ni resultado/comentarios previos |
+| 422 | `UNKNOWN_REFERENCE` · `INACTIVE_REFERENCE` | Proyecto, oportunidad o usuario inexistente o no visible · eliminado / inactivo en un vínculo nuevo |
 | 422 | `PROJECT_CUSTOMER_MISMATCH` · `OPPORTUNITY_PROJECT_MISMATCH` · `OPPORTUNITY_REQUIRES_PROJECT` | RN-04.1 |
-| 422 | `OWNER_NOT_ELIGIBLE` | Responsable inactivo, fuera del alcance de `actividades.administrar` o sin `actividades.ver` |
-| 422 | `INVALID_CONTACT` | Además del uso de 02: cambiar el cliente con contactos del anterior como participantes |
+| 422 | `OWNER_NOT_ELIGIBLE` | Responsable inactivo, fuera del alcance de `administrar` o sin el permiso de ver del recurso |
+| 422 | `INVALID_CONTACT` | Además del uso de 02: cambiar el cliente de una actividad con contactos del anterior como participantes |
+
+### Servicios para otros módulos (F.6)
+
+`CommercialActivityModule` exporta el token `COMMERCIAL_ACTIVITY_USAGE_QUERY`
+(`CommercialActivityUsageQuery`: `countOpenByCustomer`, `countOpenByProject`,
+`countByContact`, con `tx` opcional) para los bloqueos de eliminación de 02 y 03.
 
 ## Contract rules
 

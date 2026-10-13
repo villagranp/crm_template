@@ -26,4 +26,17 @@ export const ROUTE_PATHS = {
     /** Ruta con parámetro (D-02.12): se registra, pero no puede ser destino de una opción de menú. */
     customerDetail: '/clientes/:customerId',
   },
+  /** Actividad comercial (04 E.1). Las rutas con parámetro no son destino de menú (D-04.13). */
+  activity: {
+    agenda: '/actividad/agenda',
+    pending: '/actividad/pendientes',
+    followUp: '/actividad/seguimiento',
+    history: '/actividad/historial',
+    visits: '/actividad/visitas',
+    visitNew: '/actividad/visitas/nueva',
+    visitDetail: '/actividad/visitas/:visitId',
+    activities: '/actividad/actividades',
+    activityNew: '/actividad/actividades/nueva',
+    activityDetail: '/actividad/actividades/:activityId',
+  },
 } as const;

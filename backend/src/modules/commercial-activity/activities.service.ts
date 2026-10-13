@@ -45,6 +45,18 @@ import {
   userScopeFrom,
 } from './commercial-actor.resolver';
 import {
+  assertProjectLink,
+  calendarDate,
+  instant,
+  type NormalizedParticipant,
+  normalizeParticipants,
+  type ParticipantInput,
+  sameInstant,
+  sameParticipants,
+  text,
+  validateParticipants,
+} from './commercial-input';
+import {
   activityNotFound,
   COMMERCIAL_ERROR_CODES,
   commercialIssue,
@@ -72,12 +84,6 @@ import type { CommercialAccess } from './ports/commercial-visibility';
 // ---------------------------------------------------------------------------
 // Contratos de entrada (los DTO del controlador encajan por estructura)
 // ---------------------------------------------------------------------------
-
-export interface ParticipantInput {
-  readonly contactId?: string | null;
-  readonly userId?: string | null;
-  readonly externalName?: string | null;
-}
 
 /** Campo omitido = sin cambio (edición) o valor por defecto (alta); `null` = quitar. */
 export interface ActivityFieldsRequest {
@@ -226,12 +232,6 @@ const BASE_REQUIRED = REQUIRED_FIELDS_WHITELIST['activity']?.base ?? ['typeId', 
 // Normalización (pura)
 // ---------------------------------------------------------------------------
 
-interface NormalizedParticipant {
-  readonly contactId: string | null;
-  readonly userId: string | null;
-  readonly externalName: string | null;
-}
-
 /** Estado final de la actividad tras aplicar la petición (alta: sobre vacío; edición: sobre lo guardado). */
 interface ActivityDraft {
   readonly typeId: string;
@@ -251,43 +251,6 @@ interface ActivityDraft {
   readonly nextAction: string | null;
   readonly nextActionDate: Date | null;
   readonly participants: readonly NormalizedParticipant[];
-}
-
-function text(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
-}
-
-function instant(value: string | null | undefined): Date | null {
-  return value ? new Date(value) : null;
-}
-
-/** `YYYY-MM-DD` → medianoche UTC (columna `date`). */
-function calendarDate(value: string | null | undefined): Date | null {
-  return value ? new Date(`${value}T00:00:00.000Z`) : null;
-}
-
-function normalizeParticipants(list: readonly ParticipantInput[]): NormalizedParticipant[] {
-  return list.map((participant) => ({
-    contactId: participant.contactId ?? null,
-    userId: participant.userId ?? null,
-    externalName: text(participant.externalName),
-  }));
-}
-
-function participantKey(participant: NormalizedParticipant): string {
-  if (participant.contactId) return `contact:${participant.contactId}`;
-  if (participant.userId) return `user:${participant.userId}`;
-  return `external:${(participant.externalName ?? '').toLowerCase()}`;
-}
-
-function sameParticipants(a: readonly NormalizedParticipant[], b: readonly NormalizedParticipant[]): boolean {
-  const keys = (list: readonly NormalizedParticipant[]): string => list.map(participantKey).sort().join('|');
-  return keys(a) === keys(b);
-}
-
-function sameInstant(a: Date | null, b: Date | null): boolean {
-  return (a?.getTime() ?? null) === (b?.getTime() ?? null);
 }
 
 function draftFromRecord(record: ActivityRecord): ActivityDraft {
@@ -770,6 +733,29 @@ export class ActivitiesService {
   }
 
   // -------------------------------------------------------------------------
+  // Adjuntos (04 F.4, DC-2): la autorización es del dueño
+  // -------------------------------------------------------------------------
+
+  /** Listar y descargar: la actividad debe ser visible (`404` si no). */
+  async assertCanViewAttachments(actor: CommercialActor, activityId: string): Promise<void> {
+    const scopes = await this.actors.activityScopes(actor);
+    await this.findVisible(activityId, scopes);
+  }
+
+  /**
+   * Subir y eliminar: poder editarla (propia con `actividades.editar`, ajena con
+   * `actividades.administrar`, acceso directo → `403`) y que siga abierta: una
+   * completada o cancelada es de solo lectura (`409 RECORD_READ_ONLY`, RN-04.27, D-04.6).
+   */
+  async assertCanManageAttachments(actor: CommercialActor, activityId: string): Promise<void> {
+    const scopes = await this.actors.activityScopes(actor);
+    const record = await this.findVisible(activityId, scopes);
+    const subject = this.subject(record, scopes);
+    this.assertPermitted(actor, subject, 'EDIT');
+    this.assertState(record, subject, 'EDIT');
+  }
+
+  // -------------------------------------------------------------------------
   // Piezas internas
   // -------------------------------------------------------------------------
 
@@ -987,15 +973,7 @@ export class ActivitiesService {
    * debe seguir siendo coherente con el cliente y el proyecto finales.
    */
   private async assertLinks(draft: ActivityDraft, current: ActivityDraft | null, scopes: ActivityAccessScopes, tx: TransactionContext): Promise<void> {
-    if (draft.projectId) {
-      const isNew = !current || current.projectId !== draft.projectId;
-      if (isNew || draft.customerId !== current?.customerId) {
-        const project = await this.links.findProject(draft.projectId, scopes.projects, tx);
-        if (!project || (isNew && !project.isVisible)) throw issueError('projectId', COMMERCIAL_ERROR_CODES.unknownReference);
-        if (isNew && project.isDeleted) throw issueError('projectId', COMMERCIAL_ERROR_CODES.inactiveReference);
-        if (project.customerId !== draft.customerId) throw issueError('projectId', COMMERCIAL_ERROR_CODES.projectCustomerMismatch);
-      }
-    }
+    await assertProjectLink(this.links, draft, current, scopes.projects, tx);
     if (draft.opportunityId) {
       const isNew = !current || current.opportunityId !== draft.opportunityId;
       if (isNew || draft.projectId !== current?.projectId) {
@@ -1011,40 +989,14 @@ export class ActivitiesService {
     }
   }
 
-  /**
-   * RN-04.6: contacto del mismo cliente (activo al añadirlo; uno que ya figuraba se
-   * conserva aunque se haya desactivado), usuario existente y activo (salvo que ya
-   * figurara), o nombre externo.
-   */
+  /** RN-04.6 (`commercial-input.validateParticipants`): las actividades guardan sus participantes como `INVITED`. */
   private async validateParticipants(
     list: readonly NormalizedParticipant[],
     customerId: string,
     current: ActivityDraft | null,
     tx: TransactionContext,
   ): Promise<ParticipantWrite[]> {
-    const keptContacts = new Set(current?.customerId === customerId ? current.participants.map((item) => item.contactId) : []);
-    const keptUsers = new Set(current?.participants.map((item) => item.userId) ?? []);
-    for (const [index, participant] of list.entries()) {
-      if (participant.contactId) {
-        await this.customers.assertContactOfCustomer(participant.contactId, customerId, {
-          requireActive: !keptContacts.has(participant.contactId),
-          field: `participants.${index}.contactId`,
-          tx,
-        });
-      }
-    }
-    const userIds = list.map((item) => item.userId).filter((id): id is string => id !== null);
-    if (userIds.length > 0) {
-      const states = new Map((await this.users.findUserStates(userIds, tx)).map((state) => [state.id, state.isActive]));
-      for (const [index, participant] of list.entries()) {
-        if (!participant.userId) continue;
-        const field = `participants.${index}.userId`;
-        const active = states.get(participant.userId);
-        if (active === undefined) throw issueError(field, COMMERCIAL_ERROR_CODES.unknownReference);
-        if (!active && !keptUsers.has(participant.userId)) throw issueError(field, COMMERCIAL_ERROR_CODES.inactiveReference);
-      }
-    }
-    return list.map((participant) => ({ ...participant, role: 'INVITED' }));
+    return validateParticipants({ customers: this.customers, users: this.users }, list, customerId, current, 'INVITED', 'participants', tx);
   }
 
   private fieldsOf(draft: ActivityDraft, statusId: string, priorityId: string): Omit<ActivityFields, 'resultId' | 'resultNotes' | 'completedAt' | 'completedById' | 'completionComment'> {

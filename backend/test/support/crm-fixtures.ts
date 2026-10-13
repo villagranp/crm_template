@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 
+import { withParameterLock } from './parameter-lock';
 import { accessTokenFor, createTestUser, type TestContext, type TestUser, uniqueIp } from './test-app';
 
 /**
@@ -251,21 +252,50 @@ export async function insertOpportunity(
   return opportunity.id;
 }
 
-/** Visita mínima en un estado de `crm.estado_visita` (`PROGRAMADA` = pendiente). */
+/**
+ * Visita mínima en un estado de `crm.estado_visita` (`PROGRAMADA` = pendiente). Por
+ * defecto, mañana; los campos de realización y confirmación se informan cuando el
+ * estado los exige (`ck_visits_confirm_requires`).
+ */
 export async function insertVisit(
   prisma: PrismaClient,
-  options: { customerId: string; ownerId: string; statusCode?: string },
+  options: {
+    customerId: string;
+    ownerId: string;
+    statusCode?: string;
+    projectId?: string | null;
+    scheduledStartAt?: Date;
+    scheduledEndAt?: Date | null;
+    actualStartAt?: Date | null;
+    resultSummary?: string | null;
+    comments?: string | null;
+    objective?: string;
+    nextAction?: string | null;
+    nextActionDate?: Date | null;
+    confirmedAt?: Date | null;
+    reminderMinutesBefore?: number | null;
+  },
 ): Promise<string> {
-  const at = new Date(Date.now() + 86_400_000);
+  const at = options.scheduledStartAt ?? new Date(Date.now() + 86_400_000);
   const visit = await prisma.visit.create({
     data: {
       code: `TEST-VIS-${uniqueSuffix()}`,
       customerId: options.customerId,
+      projectId: options.projectId ?? null,
       ownerId: options.ownerId,
       statusId: await catalogItemId(prisma, 'crm.estado_visita', options.statusCode ?? 'PROGRAMADA'),
       scheduledStartAt: at,
+      scheduledEndAt: options.scheduledEndAt ?? null,
       originalScheduledAt: at,
-      objective: 'Visita de prueba',
+      objective: options.objective ?? 'Visita de prueba',
+      actualStartAt: options.actualStartAt ?? null,
+      resultSummary: options.resultSummary ?? null,
+      comments: options.comments ?? null,
+      nextAction: options.nextAction ?? null,
+      nextActionDate: options.nextActionDate ?? null,
+      reminderMinutesBefore: options.reminderMinutesBefore ?? null,
+      confirmedAt: options.confirmedAt ?? null,
+      confirmedById: options.confirmedAt ? options.ownerId : null,
     },
   });
   return visit.id;
@@ -303,12 +333,24 @@ export async function setParameter(prisma: PrismaClient, key: string, value: str
   };
 }
 
-/** Ejecuta `work` con el parámetro fijado y lo restaura siempre. */
-export async function withParameter<T>(prisma: PrismaClient, key: string, value: string, work: () => Promise<T>): Promise<T> {
-  const restore = await setParameter(prisma, key, value);
-  try {
-    return await work();
-  } finally {
-    await restore();
-  }
+/**
+ * Ejecuta `work` con el parámetro fijado y lo restaura siempre. `value` puede derivarse
+ * del valor vigente (p. ej. ampliar un JSON): se calcula dentro del bloqueo que
+ * serializa los cambios del mismo parámetro entre suites (`parameter-lock.ts`).
+ */
+export async function withParameter<T>(
+  prisma: PrismaClient,
+  key: string,
+  value: string | ((current: string) => string),
+  work: () => Promise<T>,
+): Promise<T> {
+  return withParameterLock(key, async () => {
+    const current = (await prisma.systemParameter.findUniqueOrThrow({ where: { key } })).value;
+    const restore = await setParameter(prisma, key, typeof value === 'function' ? value(current) : value);
+    try {
+      return await work();
+    } finally {
+      await restore();
+    }
+  });
 }

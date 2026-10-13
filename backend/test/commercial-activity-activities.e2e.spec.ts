@@ -301,9 +301,10 @@ describe('Validación de relaciones y campos (PF-04.27, PF-04.28, AC-04.43, AC-0
 
   it('RN-04.7: crm.campos_obligatorios.activity añade obligatorios → 422 REQUIRED_FIELD_MISSING', async () => {
     const { user, customerId } = await ownerWithCustomer();
-    const stored = await context.prisma.systemParameter.findUniqueOrThrow({ where: { key: 'crm.campos_obligatorios' } });
-    const value = JSON.parse(stored.value) as Record<string, string[]>;
-    const widened = JSON.stringify({ ...value, activity: [...(value['activity'] ?? []), 'description', 'dueAt', 'durationMinutes'] });
+    const widened = (current: string): string => {
+      const value = JSON.parse(current) as Record<string, string[]>;
+      return JSON.stringify({ ...value, activity: [...(value['activity'] ?? []), 'description', 'dueAt', 'durationMinutes'] });
+    };
     await withParameter(context.prisma, 'crm.campos_obligatorios', widened, async () => {
       const client = api(context, user.token);
       const missing = await createCall(client, customerId).expect(422);

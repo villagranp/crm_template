@@ -10,6 +10,8 @@ import { AppModule } from '@/app.module';
 import { createValidationPipe } from '@/common/filters/validation-exception.factory';
 import { PasswordService } from '@/modules/auth/password.service';
 
+import { disconnectParameterLock } from './parameter-lock';
+
 /**
  * Utilidades de las pruebas de integración (PostgreSQL real, esquema
  * `integration_test`). Cada archivo de pruebas crea su app y sus usuarios con
@@ -42,6 +44,7 @@ export async function createTestContext(): Promise<TestContext> {
 export async function closeTestContext(context: TestContext | undefined): Promise<void> {
   await context?.app.close();
   await context?.prisma.$disconnect();
+  await disconnectParameterLock();
 }
 
 let ipCounter = 0;

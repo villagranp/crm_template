@@ -14,6 +14,7 @@ import type { UserScopeSet } from './ports/commercial-users.reader.port';
 export const PROJECT_VIEW_PERMISSION = 'proyectos.ver';
 export const OPPORTUNITY_VIEW_PERMISSION = 'oportunidades.ver';
 export const VISIT_VIEW_PERMISSION = 'visitas.ver';
+export const VISIT_ADMINISTER_PERMISSION = 'visitas.administrar';
 
 /**
  * Quién opera: usuario local (resuelto en la base, nunca el token), permisos
@@ -34,6 +35,21 @@ export interface ActivityAccessScopes {
   readonly projects: VisibilityScope;
   /** `oportunidades.ver`: qué oportunidades puede vincular. */
   readonly opportunities: VisibilityScope;
+}
+
+/** Alcances que deciden qué ve y qué puede hacer el actor sobre visitas (04 H.2, H.3). */
+export interface VisitAccessScopes {
+  /** `visitas.ver` (directo) + `proyectos.ver` (herencia, DM-13). */
+  readonly visibility: CommercialVisibility;
+  readonly administer: VisibilityScope;
+  /** `proyectos.ver`: qué proyectos puede vincular (RN-04.1). */
+  readonly projects: VisibilityScope;
+}
+
+/** Visibilidad por fuente de los modelos de lectura; `null` = sin el permiso de ver de esa fuente. */
+export interface ReadModelScopes {
+  readonly visits: CommercialVisibility | null;
+  readonly activities: CommercialVisibility | null;
 }
 
 /** Dueño y país del cliente de un registro, para evaluar alcances en memoria. */
@@ -100,6 +116,40 @@ export class CommercialActorResolver {
       delete: scopeOf(ACTIVITY_PERMISSIONS.delete),
       projects: scopeOf(PROJECT_VIEW_PERMISSION),
       opportunities: scopeOf(OPPORTUNITY_VIEW_PERMISSION),
+    };
+  }
+
+  /** Alcances de visitas (04 H.2, H.3) con una lectura del perfil de acceso. */
+  async visitScopes(actor: CommercialActor): Promise<VisitAccessScopes> {
+    const operational = actor.permissions.has(VISIT_ADMINISTER_PERMISSION) ? [VISIT_ADMINISTER_PERMISSION] : [];
+    const resolved = await this.scopes.resolveMany(actor.userId, [VISIT_VIEW_PERMISSION, PROJECT_VIEW_PERMISSION, ...operational]);
+    const scopeOf = (permission: string): VisibilityScope => resolved.get(permission) ?? noVisibility(actor.userId);
+    return {
+      visibility: { direct: scopeOf(VISIT_VIEW_PERMISSION), inherited: scopeOf(PROJECT_VIEW_PERMISSION) },
+      administer: scopeOf(VISIT_ADMINISTER_PERMISSION),
+      projects: scopeOf(PROJECT_VIEW_PERMISSION),
+    };
+  }
+
+  /**
+   * Visibilidad de cada fuente para los modelos de lectura (agenda, interacciones,
+   * seguimiento, 04 F.3): `null` si el actor no tiene el permiso de ver de esa fuente
+   * (la agenda sin `visitas.ver` no incluye visitas, AC-04.5).
+   */
+  async readScopes(actor: CommercialActor): Promise<ReadModelScopes> {
+    const canSeeVisits = actor.permissions.has(VISIT_VIEW_PERMISSION);
+    const canSeeActivities = actor.permissions.has(ACTIVITY_PERMISSIONS.view);
+    if (!canSeeVisits && !canSeeActivities) return { visits: null, activities: null };
+    const resolved = await this.scopes.resolveMany(actor.userId, [
+      ...(canSeeVisits ? [VISIT_VIEW_PERMISSION] : []),
+      ...(canSeeActivities ? [ACTIVITY_PERMISSIONS.view] : []),
+      PROJECT_VIEW_PERMISSION,
+    ]);
+    const scopeOf = (permission: string): VisibilityScope => resolved.get(permission) ?? noVisibility(actor.userId);
+    const inherited = scopeOf(PROJECT_VIEW_PERMISSION);
+    return {
+      visits: canSeeVisits ? { direct: scopeOf(VISIT_VIEW_PERMISSION), inherited } : null,
+      activities: canSeeActivities ? { direct: scopeOf(ACTIVITY_PERMISSIONS.view), inherited } : null,
     };
   }
 

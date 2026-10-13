@@ -2,6 +2,10 @@ import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
 
 import { ROUTE_PATHS } from '@/routes/route-paths';
 
+const CommercialActivityPendingPage = lazy(() =>
+  import('./commercial-activity/CommercialActivityPendingPage').then((module) => ({ default: module.CommercialActivityPendingPage })),
+);
+
 /**
  * Pantallas del CRM comercial: ruta, permiso y página (cargada bajo demanda).
  *
@@ -44,4 +48,20 @@ export const CRM_ROUTES: readonly CrmRoute[] = [
       import('./customers/CustomerDetailPage').then((module) => ({ default: module.CustomerDetailPage })),
     ),
   },
+  // Actividad comercial (04 E.1). PROVISIONAL: todas las rutas muestran
+  // `CommercialActivityPendingPage` hasta que la etapa de frontend entregue sus pantallas.
+  ...(
+    [
+      [ROUTE_PATHS.activity.agenda, 'actividades.ver'],
+      [ROUTE_PATHS.activity.pending, 'actividades.ver'],
+      [ROUTE_PATHS.activity.followUp, 'actividades.ver'],
+      [ROUTE_PATHS.activity.history, 'actividades.ver'],
+      [ROUTE_PATHS.activity.visits, 'visitas.ver'],
+      [ROUTE_PATHS.activity.visitNew, 'visitas.crear'],
+      [ROUTE_PATHS.activity.visitDetail, 'visitas.ver'],
+      [ROUTE_PATHS.activity.activities, 'actividades.ver'],
+      [ROUTE_PATHS.activity.activityNew, 'actividades.crear'],
+      [ROUTE_PATHS.activity.activityDetail, 'actividades.ver'],
+    ] as const
+  ).map(([path, permission]) => ({ path, permission, Page: CommercialActivityPendingPage })),
 ];

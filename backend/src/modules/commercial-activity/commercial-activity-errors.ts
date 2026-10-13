@@ -1,5 +1,6 @@
 import {
   AccessDeniedError,
+  ApplicationError,
   BusinessRuleViolationError,
   ResourceConflictError,
   ResourceNotFoundError,
@@ -40,6 +41,11 @@ export const COMMERCIAL_ERROR_CODES = {
 } as const;
 
 export const ACTIVITY_RESOURCE = 'Activity';
+export const VISIT_RESOURCE = 'Visit';
+export const VISIT_EVENT_RESOURCE = 'VisitEvent';
+
+/** Máximo de días del calendario (D-04.12). */
+export const CALENDAR_MAX_DAYS = 42;
 
 /** Mensajes fijos por código: nunca repiten el valor recibido (SECURITY.md). */
 const MESSAGES: Readonly<Record<string, string>> = {
@@ -55,6 +61,12 @@ const MESSAGES: Readonly<Record<string, string>> = {
   [COMMERCIAL_ERROR_CODES.fieldNotApplicable]: 'The field does not apply to the activity type',
   [COMMERCIAL_ERROR_CODES.useLifecycleOperation]: 'Use the completion or cancellation operation to change to this status',
   [COMMERCIAL_ERROR_CODES.invalidContact]: 'The contact participants belong to the previous customer',
+  [COMMERCIAL_ERROR_CODES.invalidDateRange]: 'The end must not be earlier than the start',
+  [COMMERCIAL_ERROR_CODES.dateInPast]: 'The date cannot be in the past',
+  [COMMERCIAL_ERROR_CODES.rescheduleSameDate]: 'The new date must differ from the current one',
+  [COMMERCIAL_ERROR_CODES.reasonRequired]: 'A reason (catalog value or text) is required',
+  [COMMERCIAL_ERROR_CODES.confirmationSummaryRequired]: 'A confirmation summary is required when the visit has no result summary or comments',
+  [COMMERCIAL_ERROR_CODES.useReschedule]: 'The start date changes only by rescheduling the visit',
 };
 
 export function commercialIssue(field: string, code: string, extra: Record<string, unknown> = {}): FieldIssue & Record<string, unknown> {
@@ -101,4 +113,35 @@ export function concurrentChangeConflict(): ResourceConflictError {
 /** `403 VISIT_CONFIRMATION_OWNER_ONLY` (RN-04.18, DM-20): para los casos de uso de visitas. */
 export function visitConfirmationOwnerOnlyError(): AccessDeniedError {
   return new AccessDeniedError(COMMERCIAL_ERROR_CODES.visitConfirmationOwnerOnly, 'Only the visit owner can confirm it');
+}
+
+export function visitNotFound(visitId: string): ResourceNotFoundError {
+  return new ResourceNotFoundError(VISIT_RESOURCE, visitId);
+}
+
+export function visitEventNotFound(eventId: string): ResourceNotFoundError {
+  return new ResourceNotFoundError(VISIT_EVENT_RESOURCE, eventId);
+}
+
+/** `409 RECORD_READ_ONLY` sin estado (ventana de adjuntos de un evento vencida, D-04.18). */
+export function readOnlyConflict(reason: string): ResourceConflictError {
+  return new ResourceConflictError('The record is read-only', [{ reason }], COMMERCIAL_ERROR_CODES.recordReadOnly);
+}
+
+/** `409 SCHEDULE_CONFLICT` (RN-04.14, solo con `BLOQUEAR`): `details` con los solapes (sin datos fuera del alcance). */
+export function scheduleConflictError(conflicts: readonly Record<string, unknown>[]): ResourceConflictError {
+  return new ResourceConflictError(
+    'The visit overlaps other visits of the same owner',
+    conflicts.map((conflict) => ({ field: 'scheduledStartAt', ...conflict })),
+    COMMERCIAL_ERROR_CODES.scheduleConflict,
+  );
+}
+
+/** `400 RANGE_TOO_WIDE` (D-04.12): rango del calendario mayor que `CALENDAR_MAX_DAYS`. */
+export class RangeTooWideError extends ApplicationError {
+  readonly code = COMMERCIAL_ERROR_CODES.rangeTooWide;
+
+  constructor(maxDays: number) {
+    super(`The date range cannot exceed ${maxDays} days`, [{ field: 'to', maxDays }]);
+  }
 }

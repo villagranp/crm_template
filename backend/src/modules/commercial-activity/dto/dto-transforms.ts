@@ -31,3 +31,10 @@ export function isPresent(_object: object, value: unknown): boolean {
 
 /** Máximo de valores por filtro repetible. */
 export const MAX_FILTER_VALUES = 50;
+
+/** Texto recortado; vacío → `null` (campos de texto del `multipart`). */
+export function trimToNull({ value }: { value: unknown }): unknown {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}

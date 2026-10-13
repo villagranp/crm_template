@@ -188,8 +188,25 @@ describe('semilla esencial (00 §8.2)', () => {
     const administrator = await prisma.role.findUniqueOrThrow({ where: { code: 'administrador' }, select: { _count: { select: { permissions: true } } } });
     expect(administrator._count.permissions).toBe(afterFirstRun.permissions);
 
-    // DM-32: ninguna opción del CRM sin pantalla registrada.
-    expect(await prisma.menuOption.count({ where: { key: { in: ['actividad-agenda', 'admin-tipos-cambio'] } } })).toBe(0);
+    // DM-32: ninguna opción del CRM sin pantalla registrada (Proyectos, Reportes y tipos de cambio aún no).
+    expect(await prisma.menuOption.count({ where: { key: { in: ['proyectos-buscar', 'reportes-visitas', 'admin-tipos-cambio'] } } })).toBe(0);
+    // Módulo 4 registró sus rutas (04 E.1): sus seis opciones existen con su permiso y llegan a los roles del CRM.
+    const activityOptions = await prisma.menuOption.findMany({
+      where: { key: { startsWith: 'actividad-' } },
+      orderBy: { sortOrder: 'asc' },
+      select: { key: true, path: true, requiredPermission: { select: { code: true } }, roles: { select: { role: { select: { code: true } } } } },
+    });
+    expect(activityOptions.map((option) => [option.key, option.path, option.requiredPermission?.code])).toEqual([
+      ['actividad-agenda', '/actividad/agenda', 'actividades.ver'],
+      ['actividad-pendientes', '/actividad/pendientes', 'actividades.ver'],
+      ['actividad-seguimiento', '/actividad/seguimiento', 'actividades.ver'],
+      ['actividad-historial', '/actividad/historial', 'actividades.ver'],
+      ['actividad-visitas', '/actividad/visitas', 'visitas.ver'],
+      ['actividad-actividades', '/actividad/actividades', 'actividades.ver'],
+    ]);
+    for (const option of activityOptions) {
+      expect(option.roles.map((r) => r.role.code)).toEqual(expect.arrayContaining(['asesor', 'manager', 'responsable-pais']));
+    }
     // Módulo 2 registró /clientes: su opción existe y llega a los roles del CRM.
     const customersOption = await prisma.menuOption.findUnique({
       where: { key: 'clientes-buscar' },

@@ -361,7 +361,11 @@ exactos (códigos, `details`, objetos completos), no solo que algo "se llamó".
   - no se listan carpetas compartidas esperando un estado exacto;
   - no se reutilizan países de prueba de otra suite (cada suite usa códigos propios con
     `testCountry`);
-  - todo parámetro cambiado se restaura (`withParameter`).
+  - todo parámetro cambiado se restaura (`withParameter`, que serializa entre suites los
+    cambios del mismo parámetro con un bloqueo consultivo; si el valor nuevo se deriva del
+    vigente, se pasa como función para calcularlo dentro del bloqueo). Si basta con un dato
+    que no dependa de un parámetro compartido (p. ej. un archivo mayor que el máximo
+    sembrado), mejor no cambiarlo.
 
 #### 9.8.3 Reglas de frontend
 

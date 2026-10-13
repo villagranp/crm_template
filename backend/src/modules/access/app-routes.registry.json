@@ -12,6 +12,16 @@
     { "path": "/administracion/auditoria", "label": "Auditoría" },
     { "path": "/clientes", "label": "Clientes" },
     { "path": "/clientes/nuevo", "label": "Nuevo cliente" },
-    { "path": "/clientes/:customerId", "label": "Ficha de cliente" }
+    { "path": "/clientes/:customerId", "label": "Ficha de cliente" },
+    { "path": "/actividad/agenda", "label": "Agenda" },
+    { "path": "/actividad/pendientes", "label": "Actividades pendientes" },
+    { "path": "/actividad/seguimiento", "label": "Seguimiento comercial" },
+    { "path": "/actividad/historial", "label": "Historial de interacciones" },
+    { "path": "/actividad/visitas", "label": "Visitas" },
+    { "path": "/actividad/visitas/nueva", "label": "Planificar visita" },
+    { "path": "/actividad/visitas/:visitId", "label": "Detalle de visita" },
+    { "path": "/actividad/actividades", "label": "Actividades" },
+    { "path": "/actividad/actividades/nueva", "label": "Nueva actividad" },
+    { "path": "/actividad/actividades/:activityId", "label": "Detalle de actividad" }
   ]
 }
