@@ -298,7 +298,22 @@ Estilo del prototipo con **datos reales únicamente**: tarjeta de saludo con la
 fecha ("Buenos días, Javier." según la hora local) y cuántas opciones y módulos
 concede el menú; cuatro tarjetas de indicador (roles, permisos efectivos,
 alcance de datos y equipos, de `GET /me`) y **accesos rápidos** a cada opción del
-menú. Sin KPIs de negocio, gráficas ni botones de acción inventados.
+menú. Sin gráficas ni botones de acción inventados.
+
+Desde el Módulo 1 del CRM (`features/dashboard`, 01 §E) el panel muestra además, solo con
+el permiso de cada fuente y con cifras calculadas en el servidor:
+
+- **Indicadores K1–K9** con `KpiCard` (evolución de la `StatCard`: mismos tonos, reflejo y
+  movimiento con `prefers-reduced-motion`), estados de carga, error con reintento y
+  "no calculable", y enlace al listado del módulo dueño solo si su ruta existe.
+- **Alertas y pendientes**: chips de resumen por tipo y lista paginada. El color de la
+  prioridad sale del token `priorityTones` (`tokens.ts`): por el **peso** del catálogo
+  `crm.prioridad` (≥ 3 `error`, ≥ 2 `warning`, resto `info`), nunca por el código ni la
+  etiqueta, y siempre acompañado de texto.
+- **Actividad**: próximas visitas (chip "Recordatorio") y línea de tiempo de la actividad
+  reciente con "Cargar más".
+- En `xs` todo va en una columna (Hero, alertas, indicadores, actividad, accesos, mi acceso);
+  dos columnas desde `lg`. Un bloque sin permiso no deja hueco.
 
 ### 8b. Pantallas de acceso
 

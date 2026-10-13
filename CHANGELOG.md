@@ -5,6 +5,18 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 
 ## [Unreleased]
 
+### Added
+- **CRM Módulo 1 — Inicio / Panel de control (F-01…F-04)** (`01-inicio-dashboard.md`):
+  - API `GET /dashboard/*`: indicadores K1–K9 (proyectos activos, oportunidades abiertas,
+    ganadas y perdidas, forecast M+6, visitas, actividades pendientes y vencidas, metas),
+    próximas visitas, actividad reciente, alertas AL-1…AL-4 y su resumen. Cada bloque con el
+    permiso y el alcance de su fuente; alertas calculadas con `crm.alertas.*` en cada consulta.
+  - `CommercialMetricsModule` / `CommercialMetricsService`: fuente única de las fórmulas
+    KPI-01…KPI-10 y DEF-A…G, contrato compartido con Reportes (Módulo 5); `commercial-period.ts`.
+  - `@RequireAnyPermission` (addendum de ADR-008) con soporte en `PermissionsGuard`.
+  - Panel `/` con tarjetas de indicadores, bandeja de alertas, próximas visitas, actividad
+    reciente y accesos rápidos; token `priorityTones` (color por peso de `crm.prioridad`).
+
 ### Fixed
 - Registro de peticiones (`RequestLoggingInterceptor`): anotaba `statusCode: 500` en respuestas
   `401`/`404`/`422` producidas por errores de aplicación; ahora registra al terminar la respuesta con

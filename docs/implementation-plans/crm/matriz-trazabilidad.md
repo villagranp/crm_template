@@ -14,17 +14,18 @@ cada especificación (numeración continua, sin huecos ni duplicados).
 
 | Módulo | Especificación | Funcionalidades | Reglas (RN) | Criterios (AC) | Pruebas (PF) | `especificada` | `implementada (backend)` | `bloqueada` | `completada` |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 Inicio | [01](01-inicio-dashboard.md) | 4 (F-01…F-04) | 32 | 41 | 50 | 4 | 0 | 0 | 0 |
+| 1 Inicio | [01](01-inicio-dashboard.md) | 4 (F-01…F-04) | 32 | 41 | 50 | 0 | 0 | 0 | 4 |
 | 2 Clientes | [02](02-clientes-cuentas.md) | 5 (F-05…F-09) | 32 | 55 | 62 | 0 | 0 | 0 | 5 |
 | 3 Proyectos | [03](03-proyectos.md) | 11 (F-10…F-20) | 83 | 95 | 133 | 0 | 0 | 0 | 11 |
 | 4 Actividad comercial | [04](04-actividad-comercial.md) | 13 (F-21…F-33) | 36 | 64 | 68 | 13 | 0 | 0 | 0 |
 | 5 Reportes | [05](05-reportes.md) | 8 (F-34…F-41) | 59 | 47 | 47 | 8 | 0 | 0 | 0 |
 | 6 Integraciones | [06](06-integraciones.md) | 1 (F-42) | 31 | 34 | 54 | 1 | 0 | 0 | 0 |
 | 7 Administración | [07](07-administracion.md) | 5 (F-43…F-47) | 46 | 42 | 51 | 5 | 0 | 0 | 0 |
-| **Total** | | **47** | **319** | **378** | **465** | **31** | **0** | **0** | **16** |
+| **Total** | | **47** | **319** | **378** | **465** | **27** | **0** | **0** | **20** |
 
-- `pendiente`: 0 · `especificada`: 31 · `implementada (backend)`: 0 · `bloqueada`: 0 · `en desarrollo`: 0 ·
-  `completada`: 16 (Módulo 2: F-05…F-09, 2026-10-11/12; Módulo 3: F-10…F-20, 2026-10-12).
+- `pendiente`: 0 · `especificada`: 27 · `implementada (backend)`: 0 · `bloqueada`: 0 · `en desarrollo`: 0 ·
+  `completada`: 20 (Módulo 2: F-05…F-09, 2026-10-11/12; Módulo 3: F-10…F-20, 2026-10-12;
+  Módulo 1: F-01…F-04, 2026-10-13).
 
 ## Cómo se cuentan las 47
 
@@ -55,10 +56,10 @@ de cada especificación (`AC-<módulo>.<n>`, `PF-<módulo>.<n>`). La columna *De
 
 | ID | Módulo | Funcionalidad | Alcance | Especificación | Entidades | Dependencias | Criterios | Pruebas | Estado | Decisiones (resueltas) |
 |---|---|---|---|---|---|---|---|---|---|---|
-| F-01 | 1 Inicio | Dashboard general | §3.1 | [01](01-inicio-dashboard.md) | `users`, `roles`, `user_roles`, `team_members`, `teams`, `menu_options`, `app_modules` (vía `GET /me`, `GET /me/menu`) | Núcleo de acceso (existente) | AC-01.1–AC-01.6, AC-01.37, AC-01.39 | PF-01.1–PF-01.7, PF-01.45, PF-01.47, PF-01.48 | especificada | DM-10, DM-32, D-01.12, DC-7 |
-| F-02 | 1 Inicio | Indicadores clave | §3.2 | [01](01-inicio-dashboard.md) | `projects`, `opportunities`, `opportunity_results`, `forecast_lines`, `units_of_measure`, `visits`, `activities`, `customers`, `sales_targets`, `catalog_items`, `system_parameters` | Fase 0; Módulos 3 y 4; `VisibilityScopeResolver`; `CommercialMetricsService` (lo consume Reportes) | AC-01.7–AC-01.20, AC-01.37, AC-01.39–AC-01.41 | PF-01.8–PF-01.27, PF-01.44, PF-01.45, PF-01.47–PF-01.50 | especificada | DM-9, DM-15, DM-16, DM-36, D-01.2–D-01.8, D-01.13 |
-| F-03 | 1 Inicio | Resumen de actividad | §3.3 | [01](01-inicio-dashboard.md) | Vista `crm_interactions_v`, `activities`, `visits`, `opportunity_stage_history`, `opportunity_result_history`, `opportunities`, `projects`, `project_phase_history`, `customers`, `users` | Fase 0 (vista); Módulos 2, 3 y 4 (enlaces) | AC-01.21–AC-01.26, AC-01.37, AC-01.38 | PF-01.28–PF-01.33, PF-01.45, PF-01.46 | especificada | DM-22, DM-27, D-01.1, D-01.9, D-01.10 |
-| F-04 | 1 Inicio | Alertas y pendientes | §3.4 | [01](01-inicio-dashboard.md) | `activities`, `visits`, `projects`, `opportunities`, `customers`, `users`, `catalog_items` (`crm.prioridad`), `system_parameters` (`crm.alertas.*`) | Fase 0 (parámetros); Módulos 3 y 4; Módulo 7 (mantenimiento de parámetros) | AC-01.27–AC-01.36, AC-01.37, AC-01.38 | PF-01.34–PF-01.43, PF-01.45, PF-01.46 | especificada | DM-7, DM-20 (confirma el asesor dueño), DM-26, D-01.1, D-01.11, D-01.14 |
+| F-01 | 1 Inicio | Dashboard general | §3.1 | [01](01-inicio-dashboard.md) | `users`, `roles`, `user_roles`, `team_members`, `teams`, `menu_options`, `app_modules` (vía `GET /me`, `GET /me/menu`) | Núcleo de acceso (existente) | AC-01.1–AC-01.6, AC-01.37, AC-01.39 | PF-01.1–PF-01.7, PF-01.45, PF-01.47, PF-01.48 | completada (2026-10-13; enlaces a fichas del Módulo 4 al integrarlo, P-14) | DM-10, DM-32, D-01.12, DC-7 |
+| F-02 | 1 Inicio | Indicadores clave | §3.2 | [01](01-inicio-dashboard.md) | `projects`, `opportunities`, `opportunity_results`, `forecast_lines`, `units_of_measure`, `visits`, `activities`, `customers`, `sales_targets`, `catalog_items`, `system_parameters` | Fase 0; Módulos 3 y 4; `VisibilityScopeResolver`; `CommercialMetricsService` (lo consume Reportes) | AC-01.7–AC-01.20, AC-01.37, AC-01.39–AC-01.41 | PF-01.8–PF-01.27, PF-01.44, PF-01.45, PF-01.47–PF-01.50 | completada (2026-10-13; enlaces a fichas del Módulo 4 al integrarlo, P-14) | DM-9, DM-15, DM-16, DM-36, D-01.2–D-01.8, D-01.13 |
+| F-03 | 1 Inicio | Resumen de actividad | §3.3 | [01](01-inicio-dashboard.md) | Vista `crm_interactions_v`, `activities`, `visits`, `opportunity_stage_history`, `opportunity_result_history`, `opportunities`, `projects`, `project_phase_history`, `customers`, `users` | Fase 0 (vista); Módulos 2, 3 y 4 (enlaces) | AC-01.21–AC-01.26, AC-01.37, AC-01.38 | PF-01.28–PF-01.33, PF-01.45, PF-01.46 | completada (2026-10-13; enlaces a fichas del Módulo 4 al integrarlo, P-14) | DM-22, DM-27, D-01.1, D-01.9, D-01.10 |
+| F-04 | 1 Inicio | Alertas y pendientes | §3.4 | [01](01-inicio-dashboard.md) | `activities`, `visits`, `projects`, `opportunities`, `customers`, `users`, `catalog_items` (`crm.prioridad`), `system_parameters` (`crm.alertas.*`) | Fase 0 (parámetros); Módulos 3 y 4; Módulo 7 (mantenimiento de parámetros) | AC-01.27–AC-01.36, AC-01.37, AC-01.38 | PF-01.34–PF-01.43, PF-01.45, PF-01.46 | completada (2026-10-13; enlaces a fichas del Módulo 4 al integrarlo, P-14) | DM-7, DM-20 (confirma el asesor dueño), DM-26, D-01.1, D-01.11, D-01.14 |
 | F-05 | 2 Clientes | Búsqueda de clientes | §4.1 | [02](02-clientes-cuentas.md) | `customers`, `countries`, `catalog_items` (`crm.estado_cliente`), `users`, `team_members`, `projects` (herencia) | Fase 0 (modelo, semilla, `VisibilityScopeResolver`) | AC-02.1–AC-02.11, AC-02.50, AC-02.51, AC-02.55 | PF-02.1–PF-02.11, PF-02.50–PF-02.52, PF-02.54, PF-02.57, PF-02.61 | completada | DM-10, DM-12, DM-13, DM-14, D-02.8, D-02.11, D-02.14 |
 | F-06 | 2 Clientes | Creación de clientes | §4.2 | [02](02-clientes-cuentas.md) | `customers`, `sequences`, `countries`, `catalog_items` (`crm.tipo_empresa`, `crm.estado_cliente`, `crm.calificacion_cliente`), `users`, `system_parameters`, `attachments`, `stored_files`, `audit_logs` | `SequenceGenerator`, `CatalogReferenceValidator`, `ParameterReader`, `AttachmentsService` sobre `FileStorage` (ADR-021) | AC-02.12–AC-02.25, AC-02.50, AC-02.53, AC-02.55 | PF-02.12–PF-02.25, PF-02.50, PF-02.52, PF-02.55, PF-02.56, PF-02.59, PF-02.61 | completada | DM-2, DM-3, DM-4, DM-8, DM-18, D-02.1–D-02.4, D-02.15, D-02.17, D-06.11, DC-4, DC-6 |
 | F-07 | 2 Clientes | Ficha del cliente | §4.3 | [02](02-clientes-cuentas.md) | `customers`, `contacts`, `attachments`, `stored_files`, `audit_logs`, `projects`/`activities`/`visits` (conteos) | `FileStorage` (ADR-021); Módulo 4 (botón de actividad, disponibilidad por menú) | AC-02.26–AC-02.35, AC-02.49, AC-02.50, AC-02.52–AC-02.54 | PF-02.26–PF-02.35, PF-02.49, PF-02.50, PF-02.52–PF-02.54, PF-02.58–PF-02.60, PF-02.62 | completada | DM-4, DM-8, DM-29, DM-33, DM-34, D-02.5, D-02.6, D-02.9, D-02.10, D-02.13, D-02.16, D-06.11, DC-2, DC-4 |
