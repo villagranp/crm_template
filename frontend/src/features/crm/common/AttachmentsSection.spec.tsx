@@ -92,7 +92,12 @@ describe('AttachmentsSection', () => {
 
     await user.click(screen.getByRole('button', { name: 'Descargar contrato.pdf' }));
 
-    await waitFor(() => expect(saveFile).toHaveBeenCalledWith(expect.any(Blob), 'contrato firmado.pdf'));
+    await waitFor(() => expect(saveFile).toHaveBeenCalledWith(expect.anything(), 'contrato firmado.pdf'));
+    // Se comprueba el contenido y no `expect.any(Blob)`: la respuesta trae el `Blob`
+    // nativo de Node y el global de jsdom es otra clase, así que `instanceof` falla.
+    const [blob] = vi.mocked(saveFile).mock.calls[0] as [Blob, string];
+    expect(blob.type).toBe('application/pdf');
+    expect(await blob.text()).toBe('%PDF');
     expect(callsTo(fetchMock, 'GET', `${BASE}/att-1/content`)).toHaveLength(1);
   });
 
