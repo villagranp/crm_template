@@ -13,9 +13,15 @@ import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CatalogsModule } from './modules/catalogs/catalogs.module';
 import { CustomersModule } from './modules/customers/customers.module';
+import { ExchangeRatesModule } from './modules/exchange-rates/exchange-rates.module';
+import { ForecastModule } from './modules/forecast/forecast.module';
+import { OpportunitiesModule } from './modules/opportunities/opportunities.module';
 import { ParametersCoreModule } from './modules/parameters/parameters-core.module';
 import { ParametersModule } from './modules/parameters/parameters.module';
+import { ProductsModule } from './modules/products/products.module';
+import { ProjectsModule } from './modules/projects/projects.module';
 import { TeamsModule } from './modules/teams/teams.module';
+import { UnitConversionsModule } from './modules/unit-conversions/unit-conversions.module';
 import { HealthModule } from './modules/health/health.module';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -53,8 +59,16 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     ApprovalsModule,
     // Sin rutas propias; se registra aquí para que la ruta de adjuntos se valide al arrancar (ADR-021).
     AttachmentsModule,
+    // CRM · piezas transversales de solo lectura (00 §11): tipos de cambio (ADR-024) y conversión a toneladas.
+    ExchangeRatesModule,
+    UnitConversionsModule,
     // CRM · Módulo 2: clientes, contactos y sus adjuntos (02).
     CustomersModule,
+    // CRM · Módulo 3: maestro de productos (solo lectura), proyectos (03, E2a), oportunidades y forecast (E2b).
+    ProductsModule,
+    ProjectsModule,
+    OpportunitiesModule,
+    ForecastModule,
     HealthModule,
   ],
   providers: [

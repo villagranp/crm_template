@@ -230,7 +230,17 @@ export const layout = {
   /** Área táctil mínima; baja a 40 px en escritorio. */
   tap: 44,
   contentMaxWidth: 1800,
+  /** Ancho máximo de una columna del tablero de oportunidades: siempre asoma la siguiente en móvil. */
+  boardColumnMaxWidth: '85vw',
 } as const;
+
+/**
+ * Barra inferior de móvil (`BottomNav`): se oculta en horizontal con poca altura.
+ * `bottomNavOffset` es lo que ocupa (alto + safe area de iOS); una barra pegajosa
+ * inferior (p. ej. "Guardar cambios" del forecast) se coloca encima con él.
+ */
+export const bottomNavHiddenQuery = '@media (max-height: 480px) and (orientation: landscape)';
+export const bottomNavOffset = `calc(${layout.bottomNavHeight}px + env(safe-area-inset-bottom, 0px))`;
 
 /**
  * Pantallas de acceso (inicio de sesión y cambio de contraseña): panel de marca
@@ -295,6 +305,10 @@ export const breakpoints = { xs: 0, sm: 576, md: 768, lg: 992, xl: 1200, xxl: 14
 
 /** Orden de apilamiento. Se declara una vez para evitar la guerra de z-index. */
 export const zIndex = {
+  /** Celdas fijas (`position: sticky`) de una tabla con desplazamiento horizontal. */
+  stickyCell: 1,
+  /** Celda fija de la cabecera: por encima de las fijas del cuerpo. */
+  stickyHeaderCell: 2,
   sidebar: 30,
   topbar: 40,
   bottomNav: 45,

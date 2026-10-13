@@ -1,13 +1,17 @@
 import { type CallHandler, type ExecutionContext, Injectable, type NestInterceptor } from '@nestjs/common';
 import type { Response } from 'express';
 import type { Observable } from 'rxjs';
-import { tap } from 'rxjs/operators';
 import { AppLogger } from '@/infrastructure/logging/app-logger.service';
 import type { AppRequest } from '@/common/types/request-context';
 
 /**
  * Registra un evento estructurado por request: metodo, ruta, status y duracion.
  * No registra body ni headers: pueden contener datos sensibles (SECURITY.md).
+ *
+ * El registro se hace al terminar la respuesta (`finish`) con el status que de
+ * verdad se envio: los errores de aplicacion no traen status HTTP (lo decide
+ * `AllExceptionsFilter` despues de este interceptor), asi que deducirlo del
+ * error registraba `500` para respuestas `401`/`404`/`422`.
  */
 @Injectable()
 export class RequestLoggingInterceptor implements NestInterceptor {
@@ -19,18 +23,9 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     const response = http.getResponse<Response>();
     const startedAt = process.hrtime.bigint();
 
-    return next.handle().pipe(
-      tap({
-        next: () => this.log(request, response.statusCode, startedAt),
-        error: (error: unknown) => {
-          const statusCode =
-            typeof error === 'object' && error !== null && 'status' in error
-              ? Number((error as { status: unknown }).status) || 500
-              : 500;
-          this.log(request, statusCode, startedAt);
-        },
-      }),
-    );
+    response.once('finish', () => this.log(request, response.statusCode, startedAt));
+
+    return next.handle();
   }
 
   private log(request: AppRequest, statusCode: number, startedAt: bigint): void {

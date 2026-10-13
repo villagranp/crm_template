@@ -9,6 +9,8 @@ import type { PermissionResolver } from '@/infrastructure/authentication/ports/p
 import type { AccessService } from '@/modules/access/access.service';
 import type { AuditContext, AuditService } from '@/modules/audit/audit.service';
 import type { CatalogLookupService } from '@/modules/catalogs/catalog-lookup.service';
+import type { TonnageUnitIssue } from '@/modules/unit-conversions/conversion-precedence';
+import type { UnitConversionResolver } from '@/modules/unit-conversions/unit-conversion.resolver';
 
 import { ParametersService } from './parameters.service';
 import type { ParametersRepository, SystemParameterRecord } from './ports/parameters.repository.port';
@@ -41,6 +43,13 @@ const CATALOG_STATES: Record<string, Record<string, boolean>> = {
   'crm.etapa_oportunidad': { CONTACTADO: true, COTIZANDO: true, GANADO: true, PERDIDO: true },
 };
 
+/** Incidencias RN-07.33 por código de unidad (las demás unidades son válidas). */
+const TONNAGE_UNIT_ISSUES: Record<string, TonnageUnitIssue[]> = {
+  KG: ['IDENTITY_RULE_MISSING'],
+  M2: ['UNIT_NOT_MASS', 'IDENTITY_RULE_MISSING'],
+  NOPE: ['UNIT_NOT_FOUND'],
+};
+
 function setup(existing: SystemParameterRecord | null, permissions: string[]) {
   const repository: jest.Mocked<ParametersRepository> = {
     listAll: jest.fn(async () => (existing ? [existing] : [])),
@@ -58,14 +67,18 @@ function setup(existing: SystemParameterRecord | null, permissions: string[]) {
       return states ? new Map(Object.entries(states)) : null;
     }),
   };
+  const unitConversions = {
+    tonnageUnitCandidateIssues: jest.fn(async (code: string) => TONNAGE_UNIT_ISSUES[code] ?? []),
+  };
   const service = new ParametersService(
     repository,
     resolver,
     accessService as unknown as AccessService,
     auditService as unknown as AuditService,
     catalogLookup as unknown as CatalogLookupService,
+    unitConversions as unknown as UnitConversionResolver,
   );
-  return { service, repository, auditService, catalogLookup };
+  return { service, repository, auditService, catalogLookup, unitConversions };
 }
 
 describe('ParametersService.updateValue', () => {
@@ -141,6 +154,41 @@ describe('ParametersService.updateValue con el registro de reglas (D-07.7)', () 
     await expect(service.updateValue('crm.forecast.unidad_tonelaje', 'KG', PRINCIPAL, CONTEXT)).rejects.toBeInstanceOf(
       PermissionDeniedError,
     );
+  });
+
+  it('RN-07.33: la unidad de tonelaje debe ser activa, de masa y con identidad; si no, 422 con cada motivo', async () => {
+    const existing = parameter({ key: 'crm.forecast.unidad_tonelaje', type: 'STRING', group: 'crm', value: 'TON' });
+    const { service, repository, unitConversions } = setup(existing, ['parametros.editar', 'parametros.configurar']);
+
+    const error = await service.updateValue('crm.forecast.unidad_tonelaje', 'M2', PRINCIPAL, CONTEXT).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(BusinessRuleViolationError);
+    expect(error).toMatchObject({
+      code: 'INVALID_PARAMETER_VALUE',
+      details: [
+        { field: 'value', issue: 'La unidad no es de dimensión MASS', reason: 'UNIT_NOT_MASS', unitCode: 'M2', key: 'crm.forecast.unidad_tonelaje' },
+        {
+          field: 'value',
+          issue: 'La unidad no tiene una regla identidad GLOBAL activa',
+          reason: 'IDENTITY_RULE_MISSING',
+          unitCode: 'M2',
+          key: 'crm.forecast.unidad_tonelaje',
+        },
+      ],
+    });
+    expect(unitConversions.tonnageUnitCandidateIssues).toHaveBeenCalledWith('M2');
+    expect(repository.updateValue).not.toHaveBeenCalled();
+
+    await expect(service.updateValue('crm.forecast.unidad_tonelaje', 'NOPE', PRINCIPAL, CONTEXT)).rejects.toMatchObject({
+      details: [expect.objectContaining({ reason: 'UNIT_NOT_FOUND' })],
+    });
+    await expect(service.updateValue('crm.forecast.unidad_tonelaje', 'TON', PRINCIPAL, CONTEXT)).resolves.toMatchObject({ value: 'TON' });
+  });
+
+  it('RN-07.33 solo se evalúa para la unidad de tonelaje', async () => {
+    const { service, unitConversions } = setup(parameter(), ['parametros.editar', 'parametros.configurar']);
+    await service.updateValue('seguridad.minutos_bloqueo', '30', PRINCIPAL, CONTEXT);
+    expect(unitConversions.tonnageUnitCandidateIssues).not.toHaveBeenCalled();
   });
 
   it('nit = BLOQUEAR es 422 con el campo; nit = NO se guarda compactado', async () => {

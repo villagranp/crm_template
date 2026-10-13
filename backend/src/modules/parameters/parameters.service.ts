@@ -14,6 +14,8 @@ import {
 import { AccessService } from '@/modules/access/access.service';
 import { type AuditContext, AuditService } from '@/modules/audit/audit.service';
 import { CatalogLookupService } from '@/modules/catalogs/catalog-lookup.service';
+import type { TonnageUnitIssue } from '@/modules/unit-conversions/conversion-precedence';
+import { TONNAGE_UNIT_PARAMETER, UnitConversionResolver } from '@/modules/unit-conversions/unit-conversion.resolver';
 
 import { applyRule, type CatalogReference, catalogReferencesOf, type ParameterRule, ruleFor } from './parameter-rules.registry';
 import { INVALID_PARAMETER_VALUE, normalizeParameterValue } from './parameter-value';
@@ -24,6 +26,14 @@ export const SECURITY_PARAMETER_GROUP = 'seguridad';
 /** Permiso adicional que exige editar un parámetro estructural o del grupo `seguridad` (D10, RN-07.32). */
 export const CONFIGURE_PARAMETERS_PERMISSION = 'parametros.configurar';
 export const SYSTEM_RESOURCE_READ_ONLY = 'SYSTEM_RESOURCE_READ_ONLY';
+
+/** Mensaje de cada incidencia de RN-07.33 (`details[].issue`). */
+const TONNAGE_UNIT_MESSAGES: Record<TonnageUnitIssue, string> = {
+  UNIT_NOT_FOUND: 'La unidad no existe en units_of_measure',
+  UNIT_INACTIVE: 'La unidad está inactiva',
+  UNIT_NOT_MASS: 'La unidad no es de dimensión MASS',
+  IDENTITY_RULE_MISSING: 'La unidad no tiene una regla identidad GLOBAL activa',
+};
 
 export interface ParameterGroup {
   group: string;
@@ -64,6 +74,7 @@ export class ParametersService {
     private readonly accessService: AccessService,
     private readonly auditService: AuditService,
     private readonly catalogLookup: CatalogLookupService,
+    private readonly unitConversions: UnitConversionResolver,
   ) {}
 
   async listGrouped(): Promise<ParameterGroup[]> {
@@ -130,7 +141,21 @@ export class ParametersService {
       throw invalidValue(rule.key, result.issues);
     }
     await this.assertReferences(rule.key, catalogReferencesOf(rule, result.value));
+    if (rule.key === TONNAGE_UNIT_PARAMETER) {
+      await this.assertTonnageUnit(rule.key, result.value as string);
+    }
     return result.stored;
+  }
+
+  /** RN-07.33: unidad activa de dimensión `MASS` con regla identidad `GLOBAL` activa. */
+  private async assertTonnageUnit(key: string, unitCode: string): Promise<void> {
+    const issues = await this.unitConversions.tonnageUnitCandidateIssues(unitCode);
+    if (issues.length > 0) {
+      throw invalidValue(
+        key,
+        issues.map((reason) => ({ field: 'value', issue: TONNAGE_UNIT_MESSAGES[reason], reason, unitCode })),
+      );
+    }
   }
 
   /** Cada código referenciado existe y está activo en su catálogo (RN-07.30). */

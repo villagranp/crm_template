@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { type INestApplication, VersioningType } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { Test } from '@nestjs/testing';
+import { Test, type TestingModuleBuilder } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 
@@ -24,9 +24,18 @@ export interface TestContext {
   prisma: PrismaClient;
 }
 
-export async function createTestContext(): Promise<TestContext> {
+export interface TestContextOptions {
+  /**
+   * Ajusta el módulo antes de compilar (p. ej. `overrideProvider(FORECAST_CLOCK)` para un
+   * reloj simulado). Sin él, la app es exactamente la de producción.
+   */
+  readonly configure?: (builder: TestingModuleBuilder) => TestingModuleBuilder;
+}
+
+export async function createTestContext(options: TestContextOptions = {}): Promise<TestContext> {
   const prisma = new PrismaClient();
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+  const builder = Test.createTestingModule({ imports: [AppModule] });
+  const moduleRef = await (options.configure ? options.configure(builder) : builder).compile();
 
   const app = moduleRef.createNestApplication<NestExpressApplication>();
   // Mismo arranque que main.ts en lo que afecta a las pruebas.
