@@ -350,6 +350,57 @@ documentan con el backend del módulo.
 thresholdDays }` cuando la tasa aplicada es anterior a la fecha de referencia en más de
 `crm.tipos_cambio.dias_aviso_antiguedad` días (RN-03.81).
 
+## Endpoints del CRM — Módulo 6 · Carga masiva de clientes
+
+Contrato completo: [`06-integraciones.md`](../implementation-plans/crm/06-integraciones.md) §F y
+"Precisiones de implementación (2026-10-13)". Todos bajo `/api/v1`, con `@RequirePermission` en
+cada handler (se exigen **todos** los listados). Una carga es visible para quien la inició y, con
+alcance `ORGANIZATION` de `importaciones.ver`, para todos; fuera de eso, `404` igual que
+inexistente (06 H.4). Confirmar y cancelar exigen además ser el autor o tener alcance
+`ORGANIZATION` de `importaciones.crear` (`403`, RN-06.19). Subir, confirmar y cancelar responden
+`409 IMPORTS_DISABLED` mientras `crm.importaciones.habilitada = false` (RN-06.1).
+
+| # | Método | Ruta | Permiso | Request → respuesta | Errores propios |
+|---|---|---|---|---|---|
+| 1 | GET | `/customer-imports/settings` | `importaciones.ver` | → `CustomerImportSettingsResponseDto` (habilitación, límites efectivos, columnas) | — |
+| 2 | GET | `/customer-imports/template?format=CSV\|XLSX` | `importaciones.crear` | → archivo `plantilla-clientes-v1.<ext>` (`no-store`) | `400` |
+| 3 | POST | `/customer-imports` | `importaciones.crear` + `clientes.crear` | `multipart/form-data` (`file`) → `201 CustomerImportResponseDto` (`VALIDATED`) + `Location` | `400`, `409 IMPORTS_DISABLED` / `IMPORT_IN_PROGRESS`, `413 FILE_TOO_LARGE`, `415 UNSUPPORTED_FILE_TYPE`, `422 INVALID_IMPORT_FILE`, `429` |
+| 4 | GET | `/customer-imports` | `importaciones.ver` | `CustomerImportQueryDto` → `PaginatedCustomerImportsDto` | `400` |
+| 5 | GET | `/customer-imports/:id` | `importaciones.ver` | → `CustomerImportResponseDto` (con `canConfirm`, `canCancel`, `hasErrorFile`) | `400`, `404` |
+| 6 | GET | `/customer-imports/:id/rows` | `importaciones.ver` | `CustomerImportRowQueryDto` → `PaginatedCustomerImportRowsDto` | `400`, `404` |
+| 7 | POST | `/customer-imports/:id/confirmation` | `importaciones.crear` + `clientes.crear` | `ConfirmCustomerImportDto` → `202 CustomerImportResponseDto` (`IMPORTING`) + `Location` | `403`, `404`, `409 IMPORTS_DISABLED` / `INVALID_IMPORT_STATUS` / `IMPORT_CHANGED` / `IMPORT_DATA_PURGED`, `422 NO_VALID_ROWS`, `429` |
+| 8 | POST | `/customer-imports/:id/cancellation` | `importaciones.crear` | → `200 CustomerImportResponseDto` (`CANCELLED`) | `403`, `404`, `409 IMPORTS_DISABLED` / `INVALID_IMPORT_STATUS` |
+| 9 | GET | `/customer-imports/:id/error-file` | `importaciones.ver` | → archivo `errores-<código>.<ext>` (`no-store`; la descarga se audita) | `404` (sin filas no importadas), `409 IMPORT_DATA_PURGED`, `429` |
+
+### Códigos de error nuevos (06 F.1)
+
+| Status | Código | Cuándo | `details` |
+|---|---|---|---|
+| 409 | `IMPORTS_DISABLED` | `crm.importaciones.habilitada = false` | — |
+| 409 | `IMPORT_IN_PROGRESS` | El usuario ya tiene una carga validándose o importándose (RN-06.30) | — |
+| 409 | `INVALID_IMPORT_STATUS` | La carga no está `VALIDATED` (o perdió la transición condicional) | `[{ field: "status", status }]` |
+| 409 | `IMPORT_CHANGED` | `expectedValidRows` no coincide con las filas válidas actuales | `[{ field: "expectedValidRows", validRows }]` |
+| 409 | `IMPORT_DATA_PURGED` | Los datos de las filas se purgaron por retención (RN-06.29) | — |
+| 413 | `FILE_TOO_LARGE` | Supera `crm.importaciones.max_mb` (≤ 10 MB) | `[{ field: "file", maxBytes }]` |
+| 415 | `UNSUPPORTED_FILE_TYPE` | Extensión distinta de `.csv`/`.xlsx`, tipo real incoherente, `.xls`, XLSX cifrada o con macros | `[{ field: "file", allowedFormats }]` |
+| 422 | `INVALID_IMPORT_FILE` | Estructura o columnas inválidas; la carga queda `FAILED` en el historial | `[{ field: "file" \| "columns" \| "rows", issue, column? }]` |
+| 422 | `NO_VALID_ROWS` | Confirmar una carga sin filas válidas | — |
+
+`issue` de `INVALID_IMPORT_FILE`: `MISSING_COLUMN`, `UNKNOWN_COLUMN`, `DUPLICATE_COLUMN`,
+`TOO_MANY_COLUMNS`, `EMPTY_FILE`, `NO_DATA_ROWS`, `TOO_MANY_ROWS`, `INVALID_ENCODING`,
+`MALFORMED_CSV`, `SHEET_NOT_FOUND`, `ARCHIVE_LIMITS_EXCEEDED`, `UNSAFE_CONTENT`,
+`UNREADABLE_FILE`, `PARSE_TIMEOUT`.
+
+**Incidencias de fila** (no son errores HTTP; viajan en `issues[]` de `/rows` y en el archivo de
+errores, con `severity` `ERROR` o `WARNING` y mensaje en español que nunca repite el valor):
+propias del archivo `MAX_LENGTH`, `INVALID_CELL_TYPE`, `FORMULA_NOT_ALLOWED`, `DUPLICATE_IN_FILE`,
+`POSSIBLE_DUPLICATE_IN_FILE` (aviso), `DUPLICATE_TAX_ID` (aviso; error si se rechaza al
+confirmar), `IMPORT_INTERRUPTED`, `CREATE_FAILED`; y las del Módulo 2 sin cambio de código
+(`REQUIRED_FIELD_MISSING`, `INVALID_CATALOG_VALUE`, `INVALID_COUNTRY`, `INVALID_SALES_OWNER`,
+`INVALID_PHONE_FORMAT`, `INVALID_TAX_ID_FORMAT`, `VALIDATION_FAILED`, `CUSTOMER_CODE_TAKEN`,
+`DUPLICATE_BLOCKED`, `POSSIBLE_DUPLICATE`). `field` es la clave de la columna de la plantilla
+(`legalName`, `country`, `salesOwner`…) o `row`.
+
 ## Contract rules
 
 1. Breaking a published contract requires a new URI version (`/api/v2/...`)

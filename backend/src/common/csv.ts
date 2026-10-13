@@ -16,13 +16,22 @@ export interface CsvColumn<TRow> {
 
 const FORMULA_PREFIX = /^[=+\-@\t\r]/;
 
+/**
+ * Neutraliza un texto que una hoja de cálculo ejecutaría como fórmula
+ * (apóstrofo delante). La reutiliza el escritor XLSX (`xlsx.ts`, ADR-022): CSV y
+ * XLSX aplican la misma regla.
+ */
+export function neutralizeFormula(text: string): string {
+  return FORMULA_PREFIX.test(text) ? `'${text}` : text;
+}
+
 function cell(raw: string | number | boolean | Date | null | undefined): string {
   if (raw === null || raw === undefined) {
     return '';
   }
   let text = raw instanceof Date ? raw.toISOString() : String(raw);
-  if (typeof raw === 'string' && FORMULA_PREFIX.test(text)) {
-    text = `'${text}`;
+  if (typeof raw === 'string') {
+    text = neutralizeFormula(text);
   }
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }

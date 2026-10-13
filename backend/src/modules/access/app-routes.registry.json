@@ -19,6 +19,8 @@
     { "path": "/proyectos/equipo", "label": "Proyectos del equipo" },
     { "path": "/proyectos/oportunidades", "label": "Oportunidades" },
     { "path": "/proyectos/oportunidades/:opportunityId", "label": "Detalle de oportunidad" },
-    { "path": "/proyectos/forecast", "label": "Forecast M+6" }
+    { "path": "/proyectos/forecast", "label": "Forecast M+6" },
+    { "path": "/integraciones/clientes", "label": "Carga masiva de clientes" },
+    { "path": "/integraciones/clientes/:importId", "label": "Detalle de carga de clientes" }
   ]
 }

@@ -214,6 +214,15 @@ describe('semilla esencial (00 §8.2)', () => {
     for (const option of projectOptions) {
       expect(option.roles.map((r) => r.role.code)).toEqual(expect.arrayContaining(['asesor', 'manager', 'responsable-pais']));
     }
+    // Módulo 6 registró /integraciones/clientes (06 §E, DM-32): la opción existe y ningún rol comercial la tiene (DM-11).
+    const importsOption = await prisma.menuOption.findUnique({
+      where: { key: 'integraciones-clientes' },
+      include: { requiredPermission: { select: { code: true } }, roles: { include: { role: { select: { code: true } } } } },
+    });
+    expect(importsOption).toMatchObject({ path: '/integraciones/clientes', requiredPermission: { code: 'importaciones.ver' } });
+    expect(importsOption?.roles.map((r) => r.role.code)).toEqual(expect.arrayContaining(['administrador']));
+    expect(importsOption?.roles.map((r) => r.role.code)).not.toEqual(expect.arrayContaining(['asesor']));
+    expect(importsOption?.roles.map((r) => r.role.code)).not.toEqual(expect.arrayContaining(['manager']));
 
     const parameters = await prisma.systemParameter.findMany({
       where: { key: { in: ['crm.moneda_base', 'crm.importaciones.habilitada', 'sistema.permite_datos_demo', 'crm.clientes.reglas_duplicidad'] } },

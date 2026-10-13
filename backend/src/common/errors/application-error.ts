@@ -101,3 +101,16 @@ export class PayloadTooLargeError extends ApplicationError {
     this.code = code;
   }
 }
+
+/**
+ * 415: el tipo real del archivo no se admite o no coincide con su extensión
+ * (API-STANDARDS §3, 06 D-06.13 y DC-4: `UNSUPPORTED_FILE_TYPE` de la carga masiva).
+ */
+export class UnsupportedMediaTypeError extends ApplicationError {
+  readonly code: string;
+
+  constructor(code: string, message: string, details: ReadonlyArray<Record<string, unknown>> = []) {
+    super(message, details);
+    this.code = code;
+  }
+}

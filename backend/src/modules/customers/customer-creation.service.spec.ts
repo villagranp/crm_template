@@ -215,6 +215,30 @@ describe('CustomerCreationService', () => {
         expect.objectContaining({ metadata: { source: 'IMPORT', crmCode: 'CLI-000123', sourceImportId: 'import-1' } }),
       );
     });
+
+    it('ejecuta withinTransaction con el cliente creado y la misma transacción, y añade auditMetadata (06 RN-06.21, H.6)', async () => {
+      const withinTransaction = jest.fn().mockResolvedValue(undefined);
+
+      await service.create(
+        DRAFT,
+        uiContext({ mode: 'BY_NATURAL_KEY', source: 'IMPORT', sourceImportId: 'import-1', withinTransaction, auditMetadata: { rowNumber: 3 } }),
+      );
+
+      expect(withinTransaction).toHaveBeenCalledWith('customer-new', TX);
+      expect(repository.create.mock.invocationCallOrder[0]).toBeLessThan(withinTransaction.mock.invocationCallOrder[0] ?? 0);
+      expect(audit.record).toHaveBeenCalledWith(
+        'crm.customer.created',
+        AUDIT,
+        expect.objectContaining({ metadata: { rowNumber: 3, source: 'IMPORT', crmCode: 'CLI-000123', sourceImportId: 'import-1' } }),
+      );
+    });
+
+    it('si withinTransaction lanza, el error se propaga y no se audita el alta', async () => {
+      const failure = new Error('row already processed');
+
+      await expect(service.create(DRAFT, uiContext({ withinTransaction: jest.fn().mockRejectedValue(failure) }))).rejects.toBe(failure);
+      expect(audit.record).not.toHaveBeenCalled();
+    });
   });
 
   describe('resultado de la validación', () => {
