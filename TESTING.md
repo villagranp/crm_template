@@ -175,6 +175,67 @@ Notas:
 - `e2e-stack.ts` se niega a trabajar sobre un esquema que no empiece por
   `integration_` o que sea `integration_test` (`E2E_SCHEMA` cambia el nombre).
 
+### E2E de Actividad comercial
+
+`frontend/tests/e2e/crm-commercial-activity.e2e.spec.ts` (PF-04.58 a PF-04.61 del
+plan `docs/implementation-plans/crm/04-actividad-comercial.md`) usa el mismo
+stack aislado que «E2E de Clientes» (`integration_e2e`, semilla esencial y demo,
+carpeta temporal de adjuntos, backend en 3100 desde el código fuente, Vite en
+5180). Crea visitas y actividades con asuntos y fechas propias, así que se puede
+repetir sin volver a preparar el esquema.
+
+Variables, además de las de «E2E de Clientes» (todas salvo la contraseña las
+imprime `e2e-stack.ts activate`):
+
+| Variable | Valor |
+|---|---|
+| `E2E_RESTRICTED_PASSWORD` | `<12+>`: con ella `activate` crea (o repone) los dos usuarios recortados de PF-04.60 con contraseña personal |
+| `E2E_VISIT_VIEWER_EMAIL` | `lector.visitas@e2e.invalid`: rol `e2e-visitas-lectura` (`ORGANIZATION`, solo `visitas.ver` y la opción `actividad-visitas`) |
+| `E2E_NO_ACTIVITY_EMAIL` | `sin.actividad@e2e.invalid`: rol `e2e-sin-actividad` (solo `clientes.ver` y `clientes-buscar`) |
+| `E2E_PROJECT_ID`, `E2E_PROJECT_CODE`, `E2E_PROJECT_NAME` | proyecto demo del asesor |
+| `E2E_PROJECT_CUSTOMER_ID`, `E2E_PROJECT_CUSTOMER_NAME` | su cliente (activo, del asesor): cliente de las visitas y actividades del recorrido |
+| `E2E_CALL_TYPE_ID` | tipo de actividad «Llamada» |
+| `E2E_DONE_VISIT_ID` | una visita demo `REALIZADA` |
+
+Pasos: los 1 a 4 de «E2E de Clientes» con `E2E_RESTRICTED_PASSWORD` exportada en
+el paso 4; después
+`E2E_BASE_URL=http://localhost:5180 pnpm --filter @app/frontend test:e2e crm-commercial-activity`
+con las variables impresas y las contraseñas. Limpieza: el paso 6.
+
+Notas:
+
+- **PF-04.58 sin el Módulo 3.** Esta rama no tiene ficha de proyecto ni API
+  `/projects`. El recorrido parte de la URL que abre «Nueva actividad» en la
+  ficha del proyecto (`/actividad/actividades/nueva?customerId&projectId&typeId`,
+  E.11) y, solo en esa prueba, el navegador simula el Módulo 3 con
+  `page.route`: añade la opción `proyectos-buscar` a la respuesta real de
+  `GET /me/menu` y responde `GET /projects` con el proyecto demo real. El alta,
+  el historial y el seguimiento son los del backend real, que valida el vínculo
+  contra la tabla `projects`. Cuando el Módulo 3 se integre, se quita la
+  simulación y se parte de su ficha.
+- El recorrido inicia sesión una vez por usuario (4 accesos) y reutiliza la
+  sesión en las cuatro pruebas. El login admite 10 intentos por minuto por IP:
+  `activate` hace hasta 4 y la batería completa más de 10, así que para correr
+  **todos** los E2E se separan en dos tandas con más de un minuto entre ellas:
+  (1) `auth-local smoke crm-customers` con la contraseña inicial del
+  administrador y (2) `admin-access crm-commercial-activity` con la ya cambiada
+  (`E2E_ADMIN_PASSWORD = E2E_ADMIN_NEW_PASSWORD`). `auth-local` exige volver al
+  paso 1 antes de repetirlo.
+- Con varios navegadores en paralelo la SPA puede pasar de 120 peticiones por
+  minuto desde la misma IP: en el stack aislado se arranca el backend con
+  `RATE_LIMIT_MAX_REQUESTS=5000` (solo ese proceso; no cambia el login).
+- Las fechas se escriben y se comprueban en la zona horaria del sistema, que es
+  la del navegador de Playwright.
+- Al arrancar una tanda, varios Chromium y Vite compiten por la CPU con el
+  backend y PostgreSQL: un login (Argon2id y varias escrituras) llegó a tardar
+  6,6 s, más que los 5 s de `expect`. Tras pulsar «Iniciar sesión» o «Guardar
+  contraseña» las pruebas esperan la respuesta real (`POST /auth/login`,
+  `POST /auth/password/change`, `GET /me/menu`) y comprueban su status antes de
+  mirar la pantalla; no se suben los timeouts de `expect`.
+- En `<etiqueta>-backend.log`, cada `http_request` lleva el status que recibió
+  el cliente (los `POST /auth/refresh` sin cookie son `401`). Un `500` siempre
+  va acompañado de `unhandled_exception` con el mismo `correlationId`.
+
 ## 9. En el pipeline
 
 `lint → typecheck → unit → integration → build → security checks`.

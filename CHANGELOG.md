@@ -12,6 +12,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   recibía el status correcto y no había `unhandled_exception`, así que el log mostraba 500
   inexistentes (p. ej. cada `POST /auth/refresh` sin cookie). Ahora el interceptor y
   `AllExceptionsFilter` comparten la misma regla (`httpStatusOf`), con su prueba de regresión.
+- **E2E — esperas tras el login** (`auth-local`, `crm-customers`): las pruebas esperan la
+  respuesta real del login, del cambio de contraseña y de `GET /me/menu` antes de mirar la
+  pantalla; con varios navegadores arrancando, el login superaba los 5 s de `expect`.
 - **CRM Módulo 2 — revisión de código** (`02-clientes-cuentas.md`, "Precisiones de implementación"):
   - Seguridad: cada operación sobre un cliente usa el alcance de **su** permiso (editar ajenos,
     campos reservados y contactos → `clientes.administrar`; eliminar/restaurar →
@@ -31,6 +34,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   - NGINX: una sola cabecera `Cache-Control: no-store` en las respuestas de la API.
 
 ### Added
+- **CRM Módulo 4 — Actividad comercial, E2E** (`frontend/tests/e2e/crm-commercial-activity.e2e.spec.ts`,
+  PF-04.58–61; TESTING.md «E2E de Actividad comercial»): llamada «ya realizada» desde el proyecto
+  (Módulo 3 simulado en el navegador), visita con aviso de conflicto, reprogramación, registro y
+  confirmación, permisos recortados y bandeja. `e2e-stack.ts activate` imprime los datos demo del
+  recorrido y crea los dos usuarios recortados de PF-04.60.
 - **CRM Módulo 4 — Actividad comercial, frontend (primera mitad)**
   (`frontend/src/features/crm/commercial-activity/`, `04-actividad-comercial.md` "Precisiones"):
   listado de actividades con filtros en la URL, alta con preselección por query string, campos
