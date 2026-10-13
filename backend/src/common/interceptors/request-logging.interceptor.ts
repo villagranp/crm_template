@@ -2,6 +2,7 @@ import { type CallHandler, type ExecutionContext, Injectable, type NestIntercept
 import type { Response } from 'express';
 import type { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
+import { httpStatusOf } from '@/common/filters/all-exceptions.filter';
 import { AppLogger } from '@/infrastructure/logging/app-logger.service';
 import type { AppRequest } from '@/common/types/request-context';
 
@@ -22,13 +23,9 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     return next.handle().pipe(
       tap({
         next: () => this.log(request, response.statusCode, startedAt),
-        error: (error: unknown) => {
-          const statusCode =
-            typeof error === 'object' && error !== null && 'status' in error
-              ? Number((error as { status: unknown }).status) || 500
-              : 500;
-          this.log(request, statusCode, startedAt);
-        },
+        // El filtro global responde despues de este punto: se registra el
+        // mismo status que el va a enviar, no uno deducido aqui por separado.
+        error: (error: unknown) => this.log(request, httpStatusOf(error), startedAt),
       }),
     );
   }

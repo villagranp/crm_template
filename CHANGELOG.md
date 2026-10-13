@@ -6,6 +6,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 ## [Unreleased]
 
 ### Fixed
+- **Observabilidad — status de `http_request`** (`RequestLoggingInterceptor`): un
+  `ApplicationError` (401, 403, 404, 409, 422…) se registraba con `statusCode: 500` porque el
+  interceptor lo deducía de una propiedad `status` que esas excepciones no tienen; el cliente
+  recibía el status correcto y no había `unhandled_exception`, así que el log mostraba 500
+  inexistentes (p. ej. cada `POST /auth/refresh` sin cookie). Ahora el interceptor y
+  `AllExceptionsFilter` comparten la misma regla (`httpStatusOf`), con su prueba de regresión.
 - **CRM Módulo 2 — revisión de código** (`02-clientes-cuentas.md`, "Precisiones de implementación"):
   - Seguridad: cada operación sobre un cliente usa el alcance de **su** permiso (editar ajenos,
     campos reservados y contactos → `clientes.administrar`; eliminar/restaurar →
