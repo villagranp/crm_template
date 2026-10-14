@@ -69,6 +69,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   - E2E PF-04.58 sin simulación del Módulo 3: parte de la ficha real del proyecto.
 
 ### Fixed
+- **CRM Módulo 5 — revisión E5 de Reportes** (`05-reportes.md`, P-05.35): la exportación XLSX
+  ya no puede responder un error JSON con las cabeceras del archivo (`Content-Type` XLSX y
+  `Content-Disposition: attachment`) cuando falla con el libro empezado pero antes de enviar
+  cabeceras: el archivo se escribe en un flujo intermedio que se desconecta, se retiran sus
+  cabeceras y el error llega con el formato estándar (`report-download.spec.ts`). La hoja
+  "Filtros" muestra los enumerados en español (RN-05.48) y nunca el nombre de un id que no esté
+  entre las opciones autorizadas (prueba unitaria e integración).
 - **CRM Módulo 4 — revisión de código** (`04-actividad-comercial.md`, "Precisiones de implementación"):
   - Concurrencia (RN-04.2): alta y edición de visitas y actividades bloquean el proyecto vinculado
     **antes** de validarlo; antes, una eliminación concurrente del proyecto podía dejar un registro

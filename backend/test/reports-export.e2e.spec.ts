@@ -179,7 +179,7 @@ describe('Contenido del archivo = pantalla sin paginar (PF-05.24, AC-05.23, AC-0
     expect(projectFilters.get('Zona horaria')).toBe('America/Guatemala');
     expect(projectFilters.get('Alcance')).toBe('Propios');
     expect(projectFilters.get('Filas')).toBe(2);
-    expect(projectFilters.get('Ordenar por')).toBe('code');
+    expect(projectFilters.get('Ordenar por')).toBe('Código');
 
     // F-35 Oportunidades.
     const opportunities = await client.get('/reports/opportunities?pageSize=100').expect(200);
@@ -281,7 +281,7 @@ describe('Forecast con consolidación (F.1: hoja "Consolidado")', () => {
     expect(groups).toHaveLength(2);
     expect(groups.reduce((sum, row) => sum + Number(row[total - 1]?.value), 0)).toBe(1.5);
     expect(dataRows(consolidated).length).toBe(4);
-    expect(keyValues(sheet(file.workbook, 'Filtros')).get('Agrupar por')).toBe('PROJECT');
+    expect(keyValues(sheet(file.workbook, 'Filtros')).get('Agrupar por')).toBe('Proyecto');
   });
 });
 
@@ -298,6 +298,8 @@ describe('Visibilidad en la exportación (AC-05.25, PF-05.22)', () => {
     const foreign = await download(mine.token, `/reports/projects/export?ownerId=${other.id}`);
     expect(foreign.headers['x-export-rows']).toBe('0');
     expect(dataRows(sheet(foreign.workbook, 'Datos'))).toEqual([]);
+    // La hoja "Filtros" no resuelve el nombre de un asesor fuera del alcance: muestra su id.
+    expect(keyValues(sheet(foreign.workbook, 'Filtros')).get('Asesor')).toBe(other.id);
     const all = await download(admin.token, `/reports/projects/export?countryId=${x1}&ownerId=${mine.id}&ownerId=${other.id}`);
     expect(all.headers['x-export-rows']).toBe('4');
     expect(keyValues(sheet(all.workbook, 'Filtros')).get('Alcance')).toBe('Organización');

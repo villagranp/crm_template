@@ -1450,6 +1450,48 @@ de producto.
 
 ---
 
+## Precisiones de implementación — revisión E5 (2026-10-14)
+
+Revisión de código y de seguridad (AGENTS §9.12) de todo el módulo. Sin cambios de contrato,
+esquema, permisos ni dependencias.
+
+### P-05.35 Correcciones de la revisión
+
+- **Fallo de la exportación con el libro empezado (P-05.12).** El escritor en *streaming* podía
+  tener el libro abierto sin haber enviado aún las cabeceras; un error en ese intervalo (p. ej.
+  `503 REPORT_TIMEOUT` durante el volcado o un fallo de auditoría) llegaba al filtro global con
+  `Content-Type` XLSX y `Content-Disposition: attachment` ya fijados, y el ZIP podía seguir
+  escribiendo en la respuesta. Ahora el archivo va por un flujo intermedio
+  (`streamReportExport`): antes de enviar cabeceras se desconecta, se retiran las cabeceras del
+  archivo y el error sale en JSON estándar; con las cabeceras enviadas se corta la conexión como
+  antes (`report_export_aborted`). Prueba: `report-download.spec.ts`.
+- **Hoja "Filtros" legible (RN-05.48).** Los enumerados (`dateBasis`, `status`,
+  `statusCategory`, `situation`, `commercialStatus`, `groupBy`/`thenBy`, `sortBy`, `sortOrder`) se
+  escriben con etiquetas en español; `OPEN_STAGE:<id>` nombra la etapa si es una opción
+  autorizada. Se mantiene la decisión restrictiva de P-05.12: un id que no está entre las
+  opciones autorizadas (cliente, proyecto, producto o asesor fuera del alcance) se muestra por
+  su id, nunca por su nombre (prueba unitaria y aserción de integración con un asesor ajeno). La
+  auditoría conserva los códigos (máquina).
+- **Decisiones restrictivas verificadas y vigentes:** no se exportan `resultSummary` ni
+  `resultNotes` (P-05.12, RN-05.50); "Filtros" con ids para clientes, proyectos y productos
+  (P-05.12); el límite de 5 exportaciones por minuto cuenta también las rechazadas por
+  validación (P-05.13, guard antes de los *pipes*).
+- **Verificado sin cambios:** permiso y alcance de `reportes.ver` en las 19 rutas (los `/export`
+  exigen además `reportes.exportar`, ambos obligatorios); alcance como predicado SQL en filas,
+  conteos, distribuciones, dashboard, embudo, opciones de filtro y exportación (mismo
+  `FROM … WHERE`); SQL de plantilla parametrizado (solo `ASC`/`DESC`, `<`/`>` y el tipo de la
+  clave *keyset* van como texto, de listas fijas; `sortBy` por lista blanca en el DTO); búsqueda
+  ≤ 100 caracteres escapada para `LIKE`; neutralización de fórmulas en todo texto del XLSX;
+  `statement_timeout` en toda lectura y ninguna consulta extra del pool dentro de la transacción
+  del volcado; firmas de `CommercialMetricsService` iguales a 01 F.2 y `metric-definitions.ts`
+  solo ampliado (el Módulo 3 no cambia); frontend con gráficas solo en carga diferida, colores de
+  `chartColors`, "Ver como tabla", cuatro estados y exportación con los mismos filtros y orden
+  que la lista.
+- **Deuda conocida (sin cambios):** avisos previos de `pnpm audit` (P-05.11) y chip de producto
+  «Seleccionado» tras recargar (P-05.28, requiere contrato del Módulo 3).
+
+---
+
 ## Filas para la matriz
 
 | ID | Módulo | Funcionalidad | Alcance | Especificación | Entidades | Dependencias | Criterios | Pruebas | Estado | Decisiones (resueltas 2026-10-10) |

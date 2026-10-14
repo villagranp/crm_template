@@ -550,9 +550,15 @@ de 10 s en pantallas y 60 s en exportación; acotar los filtros).
   cuentan también las rechazadas por validación): `429 RATE_LIMIT_EXCEEDED` con `Retry-After`.
 - Cada exportación correcta deja `crm.report.exported` en `audit_logs` (`resourceType =
   crm.report`, `resourceId` = reporte, `metadata` = reporte, formato, filtros en JSON, alcance,
-  filas y duración; nunca los datos) y un log `report_exported` sin PII. Un fallo con el archivo
-  ya empezado corta la conexión (nunca un archivo truncado que parezca válido) y se registra
-  como `report_export_aborted`.
+  filas y duración; nunca los datos) y un log `report_exported` sin PII. Un fallo antes de que
+  salgan las cabeceras (aunque el libro ya se haya empezado en el servidor) responde el error
+  estándar en JSON, sin las cabeceras del archivo; un fallo con las cabeceras ya enviadas corta
+  la conexión (nunca un archivo truncado que parezca válido) y se registra como
+  `report_export_aborted`.
+- La hoja "Filtros" describe los filtros en español (bases de fecha, estados, situación,
+  agrupación, orden): asesores, países, catálogos y familias por su nombre **solo** si están
+  entre las opciones autorizadas del usuario; clientes, proyectos, productos y cualquier id
+  fuera del alcance, por su id.
 
 ### Códigos de error nuevos (05 F.5)
 

@@ -118,6 +118,78 @@ const FILTER_LABELS: Readonly<Record<string, string>> = {
   sortOrder: 'Sentido del orden',
 };
 
+/**
+ * Valores enumerados de los filtros en texto legible (RN-05.48), por parámetro: el mismo
+ * código significa cosas distintas según el filtro (`COMPLETED` como base de fecha o como
+ * categoría). Un valor sin etiqueta se muestra tal cual.
+ */
+const FILTER_VALUE_LABELS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  dateBasis: {
+    DECISION_ESTIMATED: 'Fecha estimada de decisión',
+    UPDATED: 'Fecha de actualización',
+    CREATED: 'Fecha de creación',
+    IDENTIFIED: 'Fecha de identificación',
+    DECIDED: 'Fecha de decisión',
+    SCHEDULED: 'Fecha planificada',
+    ACTUAL: 'Fecha real',
+    CONFIRMED: 'Fecha de confirmación',
+    ACTIVITY_DATE: 'Fecha de la actividad',
+    DUE: 'Fecha de vencimiento',
+    COMPLETED: 'Fecha de realización',
+  },
+  situation: { ACTIVE: 'Activos', FINISHED: 'Finalizados', ALL: 'Todos' },
+  status: {
+    OPEN: 'Abiertas',
+    CLOSED: 'Cerradas',
+    WON: 'Ganadas',
+    PARTIAL: 'Parciales',
+    LOST: 'Perdidas',
+    CLOSED_NO_RESULT: 'Cerradas sin resultado',
+  },
+  commercialStatus: { OPEN_STAGE: 'Con oportunidades abiertas', WON: 'Ganado', LOST: 'Perdido', NO_OPPORTUNITIES: 'Sin oportunidades' },
+  groupBy: { MONTH: 'Mes', PRODUCT: 'Producto', FAMILY: 'Familia', PROJECT: 'Proyecto', CUSTOMER: 'Cliente', OWNER: 'Asesor' },
+  thenBy: { MONTH: 'Mes', PRODUCT: 'Producto', FAMILY: 'Familia', PROJECT: 'Proyecto', CUSTOMER: 'Cliente', OWNER: 'Asesor' },
+  sortOrder: { asc: 'Ascendente', desc: 'Descendente' },
+  sortBy: {
+    code: 'Código',
+    name: 'Nombre',
+    customerName: 'Cliente',
+    countryName: 'País',
+    ownerName: 'Asesor',
+    phaseOrder: 'Fase',
+    phaseProgress: '% avance',
+    estimatedDecisionDate: 'Fecha estimada de decisión',
+    lastActivityAt: 'Última actualización',
+    projectName: 'Proyecto',
+    stageOrder: 'Etapa',
+    estimatedAmountUsd: 'Monto estimado (USD)',
+    decisionDate: 'Fecha de decisión',
+    updatedAt: 'Fecha de actualización',
+    period: 'Año y mes',
+    productSku: 'SKU',
+    familyName: 'Familia',
+    tonnage: 'Tonelaje',
+    scheduledStartAt: 'Fecha planificada',
+    actualStartAt: 'Fecha real',
+    confirmedAt: 'Fecha de confirmación',
+    statusOrder: 'Estado',
+    activityDate: 'Fecha',
+    dueAt: 'Vencimiento',
+    priorityWeight: 'Prioridad',
+    typeName: 'Tipo',
+  },
+};
+
+/** Categorías de estado de visitas y actividades (`COMPLETED` y `CANCELLED` se rotulan igual en ambas). */
+const STATUS_CATEGORY_LABELS: Readonly<Record<string, string>> = {
+  SCHEDULED: 'Programadas',
+  COMPLETED: 'Realizadas',
+  CONFIRMED: 'Confirmadas',
+  CANCELLED: 'Canceladas',
+  PENDING: 'Pendientes',
+  OVERDUE: 'Vencidas',
+};
+
 /** Hojas del libro (RN-05.48). */
 export const EXPORT_SHEETS = { data: 'Datos', consolidated: 'Consolidado', summary: 'Resumen', filters: 'Filtros' } as const;
 
@@ -427,9 +499,21 @@ export class ReportExportService {
       const label = FILTER_LABELS[name];
       const values = valuesOf(value);
       if (!label || values.length === 0) continue;
-      described.push([label, values.map((entry) => labels.get(String(entry)) ?? String(entry)).join(', ')]);
+      described.push([label, values.map((entry) => this.describeValue(name, String(entry), labels)).join(', ')]);
     }
     return described;
+  }
+
+  /** Un valor de filtro: enumerado → etiqueta; id autorizado → su nombre; si no, tal cual (ids fuera del alcance nunca se resuelven). */
+  private describeValue(name: string, value: string, labels: ReadonlyMap<string, string>): string {
+    if (name === 'statusCategory') return STATUS_CATEGORY_LABELS[value] ?? value;
+    if (name === 'commercialStatus' && value.startsWith('OPEN_STAGE:')) {
+      const stageId = value.slice('OPEN_STAGE:'.length);
+      return `Etapa abierta líder: ${labels.get(stageId) ?? stageId}`;
+    }
+    const enumerated = FILTER_VALUE_LABELS[name]?.[value];
+    if (enumerated !== undefined) return enumerated;
+    return labels.get(value) ?? value;
   }
 
   /** RN-05.43: ids, fechas y enumerados; la búsqueda libre ya llega acotada a 100 caracteres por el DTO. */

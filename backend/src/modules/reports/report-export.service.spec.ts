@@ -108,7 +108,32 @@ describe('ReportExportService (F-39)', () => {
     expect(data?.getRow(2).getCell(9).value).toBe(0.45);
     const filters = workbook.getWorksheet('Filtros');
     const described = Object.fromEntries((filters?.getSheetValues() ?? []).slice(2).map((row) => [(row as unknown[])[1], (row as unknown[])[2]]));
-    expect(described).toMatchObject({ Reporte: 'Reporte de proyectos', Alcance: 'Propios', Filas: 2, Asesor: 'Ana', 'Ordenar por': 'code' });
+    expect(described).toMatchObject({ Reporte: 'Reporte de proyectos', Alcance: 'Propios', Filas: 2, Asesor: 'Ana', 'Ordenar por': 'Código', 'Sentido del orden': 'Ascendente' });
+  });
+
+  it('hoja "Filtros" legible: enumerados en español y nunca el nombre de un id fuera de las opciones autorizadas (RN-05.48, RN-05.4)', async () => {
+    const { service, download, chunks } = setup([], 5);
+
+    await service.exportProjects(
+      REPORT_CONTEXT,
+      { ownerId: ['user-1', 'user-9'], customerId: ['c1'], situation: 'ACTIVE', commercialStatus: ['NO_OPPORTUNITIES'], from: '2026-01-01', to: '2026-03-31', dateBasis: 'CREATED' },
+      download,
+    );
+
+    const workbook = new Workbook();
+    await workbook.xlsx.load(Buffer.concat(chunks) as unknown as ArrayBuffer);
+    const filters = workbook.getWorksheet('Filtros');
+    const described = Object.fromEntries((filters?.getSheetValues() ?? []).slice(2).map((row) => [(row as unknown[])[1], (row as unknown[])[2]]));
+    expect(described).toMatchObject({
+      // `user-9` no está entre los asesores autorizados: se muestra su id, no su nombre.
+      Asesor: 'Ana, user-9',
+      Cliente: 'c1',
+      Situación: 'Activos',
+      'Estado comercial': 'Sin oportunidades',
+      'Base de fecha': 'Fecha de creación',
+      'Ordenar por': 'Última actualización',
+      'Sentido del orden': 'Descendente',
+    });
   });
 
   it('por encima del tope: 422 EXPORT_TOO_LARGE con filas y tope, sin abrir la descarga ni auditar (RN-05.45)', async () => {

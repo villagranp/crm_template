@@ -379,7 +379,6 @@ export class ActivityReportQueryDto extends ActivityReportFilterDto {
   sortOrder?: 'asc' | 'desc';
 }
 
-
 // ---------------------------------------------------------------------------
 // F-39 Exportación: los filtros del reporte, el orden de la pantalla y `format`; SIN
 // paginación (enviar `page` o `pageSize` → 400 por `forbidNonWhitelisted`, F.5).
