@@ -276,7 +276,8 @@ Notas:
   `activate`): (1) `auth-local smoke crm-customers` con la contraseña inicial
   del administrador, (2) `admin-access crm-commercial-activity` con la ya
   cambiada (`E2E_ADMIN_PASSWORD = E2E_ADMIN_NEW_PASSWORD`) y (3) `projects
-  forecast` («E2E de Proyectos», con `E2E_NO_FORECAST_PASSWORD`).
+  forecast` («E2E de Proyectos», con `E2E_NO_FORECAST_PASSWORD`); Reportes, Inicio
+  e Integraciones añaden dos tandas más (ver «Todas las suites E2E en un mismo stack»).
   `auth-local` exige volver al paso 1 antes de repetirlo.
 - Con varios navegadores en paralelo la SPA puede pasar de 120 peticiones por
   minuto desde la misma IP: en el stack aislado se arranca el backend con
@@ -292,6 +293,61 @@ Notas:
 - En `<etiqueta>-backend.log`, cada `http_request` lleva el status que recibió
   el cliente (los `POST /auth/refresh` sin cookie son `401`). Un `500` siempre
   va acompañado de `unhandled_exception` con el mismo `correlationId`.
+
+### E2E de Inicio
+
+`frontend/tests/e2e/dashboard.e2e.spec.ts` (PF-01.23, PF-01.41 y PF-01.48 del plan
+`docs/implementation-plans/crm/01-inicio-dashboard.md`) usa el **mismo stack aislado**
+que «E2E de Clientes» (pasos 1–3 y 6) y solo lee: se repite sin volver a `prepare`.
+
+| Recorrido | Qué cubre |
+|---|---|
+| PF-01.48 (asesor) | Hero con el saludo y el nombre de `GET /me`; K1–K8 sin error y con la cifra exacta de cada `GET /dashboard/indicators/*`; bandeja de alertas, próximas visitas y actividad reciente |
+| PF-01.48 (sin permisos comerciales) | Usuario con el rol `usuario`: Hero, «Mi acceso», accesos y el aviso «Todavía no tienes indicadores comerciales asignados»; ninguna tarjeta ni bloque comercial y **ninguna** petición a `/dashboard/*` (AC-01.5) |
+| PF-01.23 | K2 → `/proyectos/oportunidades?status=OPEN` y K1 → `/proyectos?active=true` con el mismo total que la tarjeta (API y «Mostrando … de N»); K6–K8 enlazan a `/actividad/visitas?statusGroup=PENDING` y `/actividad/pendientes` con su `bucket` (AC-01.17) |
+| PF-01.41 | Manager (TEAM): el resumen `ACTIVIDAD_VENCIDA`, la bandeja filtrada, K8 y `GET /activities/pending?bucket=OVERDUE` (tras pulsar K8) cuentan lo mismo; «Abrir» de una actividad vencida lleva a `/actividad/actividades/:id` y el de proyecto u oportunidad, a su ficha (AC-01.31) |
+
+PF-01.41 no recorre «completar la actividad y la alerta desaparece»: gastaría los datos demo y
+los recorridos deben poder repetirse sin `prepare` (lo cubre la prueba de integración de
+PF-01.41). Usa el manager porque el asesor de la demo (`asesor1.gt`) no tiene actividades
+vencidas y su equipo sí.
+
+Variables, además de las de «E2E de Clientes» (los valores entre `<>` son de ejemplo):
+
+| Variable | Valor |
+|---|---|
+| `E2E_NO_COMMERCIAL_PASSWORD` | `<12+>`: si se define **antes** de `activate`, el script crea en el esquema aislado un usuario activo con el rol esencial `usuario` (sin permisos; ningún usuario de la demo lo tiene) |
+| `E2E_NO_COMMERCIAL_EMAIL` | `sin.comercial@e2e.invalid` (por defecto del script; lo imprime `activate`) |
+
+Pasos (Git Bash, desde la raíz):
+
+1. Pasos 1–3 de «E2E de Clientes» (`prepare`, backend, Vite). Si otra sesión usa ya
+   `integration_e2e`, 3100 o 5180, elige otro esquema (`E2E_SCHEMA=integration_e2e_<sufijo>`)
+   y otros puertos, y ajusta `API_PORT`, `CORS_ALLOWED_ORIGINS`, `DEV_API_PROXY_TARGET`,
+   `E2E_API_URL` y `E2E_BASE_URL`.
+2. Con `E2E_NO_COMMERCIAL_PASSWORD` ya exportada,
+   `cd backend && E2E_API_URL=http://localhost:3100 pnpm exec ts-node --transpile-only scripts/e2e-stack.ts activate`
+   y exporta las líneas `E2E_*` que imprime. Es idempotente: repone el rol y la contraseña
+   del usuario sin permisos comerciales.
+3. `E2E_BASE_URL=http://localhost:5180 pnpm --filter @app/frontend test:e2e dashboard`
+   con esas variables y `E2E_ASESOR_PASSWORD`, `E2E_MANAGER_PASSWORD` y
+   `E2E_NO_COMMERCIAL_PASSWORD`.
+4. Limpieza: paso 6 de «E2E de Clientes» (detén solo tu backend y tu Vite,
+   `e2e-stack.ts drop` con el mismo `E2E_SCHEMA`, borra la carpeta temporal de adjuntos y
+   `frontend/test-results`).
+
+Notas:
+
+- **Límite de login:** cada ejecución hace 3 inicios de sesión (el asesor comparte una
+  sesión entre sus dos recorridos) y `activate` hasta 6; deja pasar un minuto entre
+  `activate` y la ejecución.
+- Las aserciones comparan la cifra de cada tarjeta con la respuesta de la API. Antes de
+  registrar las esperas de respuesta, el recorrido espera a que termine la carga anterior
+  (`networkidle`): una respuesta capturada justo antes de `page.goto` pierde su cuerpo.
+- Sin `E2E_NO_COMMERCIAL_PASSWORD` el recorrido del rol `usuario` se salta.
+- Si la demo dejara de tener oportunidades abiertas o proyectos activos del asesor, o
+  actividades vencidas y alertas de proyecto u oportunidad en el equipo del manager, el
+  recorrido falla con un mensaje de precondición: depende de los datos demo.
 
 ### E2E de Reportes
 
@@ -323,14 +379,88 @@ paso 6 (y los `frontend/test-results`, donde queda el `.xlsx` descargado).
 Notas:
 
 - El recorrido inicia sesión una vez por usuario (2 accesos) y reutiliza la sesión. Para
-  correr **todos** los E2E se añade una cuarta tanda, `crm-reports`, más de un minuto
-  después de la tercera («E2E de Actividad comercial»).
+  correr **todos** los E2E es la cuarta tanda (ver «Todas las suites E2E en un mismo stack»).
 - `exceljs` es dependencia del backend (ADR-022): la prueba la resuelve desde
   `backend/package.json` con `createRequire`, sin añadir dependencias al frontend.
 - Las comparaciones son contra la respuesta real del servidor (conteos de `/summary`,
   `pagination.totalItems`, `X-Export-Rows`), no contra cifras fijas de la demo.
 - La primera ejecución contra un Vite recién arrancado puede fallar mientras compila las
   páginas diferidas y el *chunk* de `@mui/x-charts`; con Vite ya caliente no vuelve a pasar.
+
+### E2E de Integraciones
+
+`frontend/tests/e2e/customer-imports.e2e.spec.ts` (PF-06.49 y PF-06.50 del plan
+`docs/implementation-plans/crm/06-integraciones.md`) usa el **mismo stack aislado** que
+«E2E de Clientes»: `prepare` siembra la demo, que deja `crm.importaciones.habilitada = true`
+**en ese esquema** (nunca en `public`).
+
+| Recorrido | Qué cubre |
+|---|---|
+| PF-06.49 | Administrador: abre «Carga masiva de clientes» desde el menú → descarga la plantilla CSV (BOM + encabezados) → sube un CSV generado en la prueba con las columnas de esa plantilla (3 filas válidas, 1 sin razón social, 1 con el código de un cliente existente de `GT`) → vista previa (contadores y filtros Con errores / Duplicadas existentes / Válidas) → confirma → «Completada con errores» → archivo de errores con las 2 filas no importadas (fila de Excel, estado e incidencia) → abre un cliente importado en su ficha |
+| PF-06.50 | Asesor demo (sin `importaciones.ver`): `GET /me/menu` no trae la opción ni aparece el grupo «Integraciones»; la ruta directa `/integraciones/clientes` muestra «Sin acceso» |
+
+Variables, además de las de «E2E de Clientes» (los valores entre `<>` son de ejemplo):
+
+| Variable | Valor |
+|---|---|
+| `SEED_ADMIN_EMAIL` | `admin@e2e.invalid`: exportada **antes** de `prepare`, el esquema aislado tiene un administrador de prueba (la semilla no pisa una variable ya definida con la del `.env`) |
+| `SEED_ADMIN_PASSWORD` | `<12+>`: su contraseña inicial (cambio obligatorio); exportada antes de `prepare` y de `activate` |
+| `E2E_ADMIN_PASSWORD` | `<12+>`: si se define antes de `activate`, el script cambia por la API la contraseña inicial del administrador a esta e imprime `E2E_ADMIN_EMAIL` y `E2E_IMPORT_EXISTING_CODE` |
+| `E2E_ADMIN_EMAIL` | lo imprime `activate` (`E2E_ADMIN_EMAIL`, o `SEED_ADMIN_EMAIL`, o `admin@example.com`) |
+| `E2E_IMPORT_EXISTING_CODE` | código de cliente de un cliente existente de `GT` que el administrador ve (`DEMO-GT-001` con la demo; lo imprime `activate`) |
+
+Pasos (Git Bash, desde la raíz). El esquema y los puertos son parametrizables para no
+chocar con otras sesiones: aquí, `E2E_SCHEMA=integration_e2e_m6`, backend en **3106** y
+Vite en **5186** (en lugar de 3100/5180 de «E2E de Clientes»):
+
+1. Exporta `E2E_SCHEMA`, `DATABASE_URL` (la de `.env` con `?schema=<E2E_SCHEMA>`),
+   `ATTACHMENTS_STORAGE_PATH` (carpeta temporal), `SEED_DEMO_PASSWORD`, `SEED_ADMIN_EMAIL`,
+   `SEED_ADMIN_PASSWORD`, `JWT_ACCESS_TOKEN_SECRET` y `AUTH_DEFAULT_PASSWORD`, y ejecuta
+   `cd backend && pnpm exec ts-node --transpile-only scripts/e2e-stack.ts prepare`.
+2. Backend desde `backend/`: `API_PORT=3106 NODE_ENV=development AUTH_PROVIDER=local
+   CORS_ALLOWED_ORIGINS=http://localhost:5186 TS_NODE_PROJECT=tsconfig.json pnpm exec ts-node -r tsconfig-paths/register src/main.ts`.
+3. Frontend desde `frontend/`: `DEV_API_PROXY_TARGET=http://localhost:3106 pnpm exec vite --port 5186 --strictPort`.
+4. Con `E2E_ASESOR_PASSWORD`, `E2E_MANAGER_PASSWORD` y `E2E_ADMIN_PASSWORD` exportadas,
+   `E2E_API_URL=http://localhost:3106 pnpm exec ts-node --transpile-only scripts/e2e-stack.ts activate`
+   y exporta las líneas `E2E_*` que imprime (sin contraseñas).
+5. `E2E_BASE_URL=http://localhost:5186 pnpm --filter @app/frontend test:e2e customer-imports`.
+6. Limpieza: detén solo el backend (3106) y el Vite (5186) de los pasos 2 y 3,
+   `E2E_SCHEMA=integration_e2e_m6 pnpm exec ts-node --transpile-only scripts/e2e-stack.ts drop`,
+   y borra la carpeta temporal de adjuntos y `frontend/test-results`.
+
+Notas:
+
+- **Límite de login:** la primera vez `activate` hace hasta 6 intentos (asesor, manager y
+  administrador: la contraseña personal y, si falla, la inicial) y cada ejecución del
+  recorrido hace 2. Con 10 por minuto por IP, una ejecución justo después de `activate`
+  cabe; si añades otros archivos, deja pasar un minuto.
+- Sin `E2E_ADMIN_PASSWORD` (o sin `E2E_IMPORT_EXISTING_CODE`) PF-06.49 se salta; sin
+  las variables del asesor, PF-06.50.
+- Cada ejecución crea una carga nueva y 3 clientes con sufijo único (`E2E Carga … <sufijo>`);
+  la fila duplicada reutiliza el código existente y nunca lo modifica (RN-06.16). Es
+  repetible sin volver a `prepare`; con el stack ya compilado tarda unos 13 s.
+- La plantilla y el archivo de errores se comprueban leyendo la descarga real de
+  Playwright (`download.path()`); el nombre llega en `Content-Disposition`.
+
+### Todas las suites E2E en un mismo stack
+
+Con los módulos 1 a 6 integrados, las diez suites de `frontend/tests/e2e/` corren sobre
+**un** stack aislado («E2E de Clientes», pasos 1–3) en cinco tandas, con más de un minuto
+entre tandas y tras cada `activate` (10 inicios de sesión por minuto por IP):
+
+1. `activate` con `E2E_ASESOR_PASSWORD`, `E2E_MANAGER_PASSWORD`, `E2E_RESTRICTED_PASSWORD`,
+   `E2E_NO_FORECAST_PASSWORD` y `E2E_NO_COMMERCIAL_PASSWORD`, **sin** `E2E_ADMIN_PASSWORD`:
+   el administrador debe conservar su contraseña inicial para `auth-local`.
+2. Tanda 1: `auth-local smoke crm-customers` (`E2E_ADMIN_PASSWORD = SEED_ADMIN_PASSWORD`).
+3. Tanda 2: `admin-access crm-commercial-activity` (`E2E_ADMIN_PASSWORD = E2E_ADMIN_NEW_PASSWORD`).
+4. Tanda 3: `projects forecast`.
+5. Tanda 4: `crm-reports`.
+6. `activate` otra vez, ahora con `E2E_ADMIN_PASSWORD = E2E_ADMIN_NEW_PASSWORD`: el
+   administrador ya tiene esa contraseña, así que solo inicia sesión e imprime
+   `E2E_ADMIN_EMAIL` y `E2E_IMPORT_EXISTING_CODE` (el resto es idempotente).
+7. Tanda 5: `dashboard customer-imports` (`E2E_ADMIN_PASSWORD = E2E_ADMIN_NEW_PASSWORD`).
+
+Para repetir la batería completa se vuelve a `prepare` (por `auth-local`).
 
 ## 9. En el pipeline
 

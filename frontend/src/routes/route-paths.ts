@@ -35,6 +35,11 @@ export const ROUTE_PATHS = {
       opportunityDetail: '/proyectos/oportunidades/:opportunityId',
       forecast: '/proyectos/forecast',
     },
+    /** Módulo 6 (06 §E): carga masiva de clientes. El detalle es ruta hija, no opción de menú. */
+    customerImports: {
+      list: '/integraciones/clientes',
+      detail: '/integraciones/clientes/:importId',
+    },
   },
   /** Actividad comercial (04 E.1). Las rutas con parámetro no son destino de menú (D-04.13). */
   activity: {

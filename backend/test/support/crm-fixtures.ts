@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import type { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 
 import { withParameterLock } from './parameter-lock';
@@ -233,13 +233,21 @@ export interface InsertOpportunityOptions {
   deletedAt?: Date | null;
   /** `YYYY-MM-DD`; por defecto `2026-10-01`. */
   opportunityDate?: string;
-  /** `YYYY-MM-DD` del resultado; por defecto `2026-10-05`. */
+  /** Fecha de decisión del resultado (`YYYY-MM-DD`); por defecto `2026-10-05`. */
   decisionDate?: string;
   /** % adjudicado de un `PARTIAL`; por defecto `60`. */
   awardedPercent?: string;
-  /** Estimación ya convertida (foto, ADR-024): los cuatro campos juntos o ninguno (`ck_opportunities_amount_set`). */
+  /** Estimación ya convertida (foto, ADR-024): los cuatro campos juntos o ninguno (`ck_opportunities_amount_set`). Prevalece sobre `estimatedAmountUsd`. */
   estimate?: { amount: string; currencyCode: string; exchangeRate: string; exchangeRateDate: string | null; amountUsd: string };
   estimatedTonnage?: string | null;
+  /** Equivalente en USD; con él se rellenan monto, moneda (USD por defecto) y tasa. */
+  estimatedAmountUsd?: string | null;
+  /** Monto en moneda local (con `currencyCode` distinto de USD); por defecto, el de USD. */
+  estimatedAmount?: string;
+  currencyCode?: string;
+  exchangeRate?: string;
+  nextAction?: string | null;
+  stageChangedAt?: Date;
   updatedAt?: Date;
 }
 
@@ -261,8 +269,19 @@ export async function insertOpportunity(prisma: PrismaClient, options: InsertOpp
             exchangeRateDate: options.estimate.exchangeRateDate ? new Date(`${options.estimate.exchangeRateDate}T00:00:00.000Z`) : null,
             estimatedAmountUsd: options.estimate.amountUsd,
           }
-        : {}),
+        : options.estimatedAmountUsd
+          ? {
+              // ck_opportunities_amount_set: monto, moneda, tasa y equivalente en USD van juntos.
+              estimatedAmountUsd: options.estimatedAmountUsd,
+              estimatedAmount: options.estimatedAmount ?? options.estimatedAmountUsd,
+              currencyCode: options.currencyCode ?? 'USD',
+              exchangeRate: options.exchangeRate ?? '1',
+              ...((options.currencyCode ?? 'USD') !== 'USD' ? { exchangeRateDate: new Date('2026-10-01T00:00:00.000Z') } : {}),
+            }
+          : {}),
       estimatedTonnage: options.estimatedTonnage ?? null,
+      nextAction: options.nextAction ?? null,
+      ...(options.stageChangedAt ? { stageChangedAt: options.stageChangedAt } : {}),
       ...(options.updatedAt ? { updatedAt: options.updatedAt } : {}),
     },
   });
@@ -451,6 +470,7 @@ export async function insertActivity(
     dueAt?: Date | null;
     scheduledAt?: Date | null;
     subject?: string;
+    createdAt?: Date;
     deletedAt?: Date | null;
     /** Con `completedAt` se informan también quién completó (el dueño) y unas notas de resultado (`ck_activities_completion`). */
     completedAt?: Date | null;
@@ -468,6 +488,7 @@ export async function insertActivity(
       priorityId: await catalogItemId(prisma, 'crm.prioridad', options.priorityCode ?? 'MEDIA'),
       dueAt: options.dueAt ?? null,
       scheduledAt: options.scheduledAt ?? null,
+      ...(options.createdAt ? { createdAt: options.createdAt } : {}),
       deletedAt: options.deletedAt ?? null,
       ...(options.completedAt ? { completedAt: options.completedAt, completedById: options.ownerId, resultNotes: 'Resultado de prueba' } : {}),
     },
@@ -495,6 +516,7 @@ export async function insertVisit(
     objective?: string;
     nextAction?: string | null;
     nextActionDate?: Date | null;
+    /** Confirmada por su dueño (DM-20); sin resumen ni comentarios se rellena `confirmationSummary` (ck_visits_confirm_requires). */
     confirmedAt?: Date | null;
     reminderMinutesBefore?: number | null;
     /** Fecha planificada original (por defecto la vigente) y número de reprogramaciones. */
@@ -523,9 +545,37 @@ export async function insertVisit(
       reminderMinutesBefore: options.reminderMinutesBefore ?? null,
       confirmedAt: options.confirmedAt ?? null,
       confirmedById: options.confirmedAt ? options.ownerId : null,
+      confirmationSummary: options.confirmedAt && !options.resultSummary && !options.comments ? 'Confirmada' : null,
     },
   });
   return visit.id;
+}
+
+/** Meta comercial (DM-9), insertada como la carga por script. */
+export async function insertSalesTarget(
+  prisma: PrismaClient,
+  options: {
+    metric: 'TONNAGE' | 'AMOUNT' | 'WON_OPPORTUNITIES' | 'VISITS' | 'ACTIVITIES';
+    year: number;
+    month?: number | null;
+    userId?: string | null;
+    teamId?: string | null;
+    countryId?: string | null;
+    targetValue: string;
+  },
+): Promise<string> {
+  const target = await prisma.salesTarget.create({
+    data: {
+      metric: options.metric,
+      year: options.year,
+      month: options.month ?? null,
+      userId: options.userId ?? null,
+      teamId: options.teamId ?? null,
+      countryId: options.countryId ?? null,
+      targetValue: options.targetValue,
+    },
+  });
+  return target.id;
 }
 
 export async function insertParticipant(prisma: PrismaClient, options: { activityId: string; customerId: string; contactId: string }): Promise<void> {
@@ -585,4 +635,31 @@ export async function withParameter<T>(
       await restore();
     }
   });
+}
+
+/**
+ * Candado exclusivo entre archivos de pruebas que cambian temporalmente los mismos
+ * parámetros globales (las suites corren en paralelo sobre el mismo esquema: un
+ * `withParameter` de una cambiaría el resultado de la otra). Es un candado
+ * consultivo de PostgreSQL de sesión, con su propia conexión, y su clave incluye el
+ * esquema: dos ejecuciones con `INTEGRATION_SCHEMA` distinto no se bloquean.
+ *
+ * ```ts
+ * let releaseParameters: () => Promise<void>;
+ * beforeAll(async () => { releaseParameters = await exclusiveParameters('crm-customer-parameters'); }, EXCLUSIVE_TIMEOUT_MS);
+ * afterAll(async () => releaseParameters?.());
+ * ```
+ */
+export const EXCLUSIVE_TIMEOUT_MS = 10 * 60_000;
+
+export async function exclusiveParameters(name: string): Promise<() => Promise<void>> {
+  const url = new URL(process.env.DATABASE_URL ?? '');
+  url.searchParams.set('connection_limit', '1');
+  const client = new PrismaClient({ datasourceUrl: url.toString() });
+  const key = `${url.searchParams.get('schema') ?? 'public'}:${name}`;
+  await client.$queryRaw`SELECT pg_advisory_lock(hashtext(${key}))::text AS locked`;
+  return async () => {
+    await client.$queryRaw`SELECT pg_advisory_unlock(hashtext(${key}))::text AS unlocked`;
+    await client.$disconnect();
+  };
 }

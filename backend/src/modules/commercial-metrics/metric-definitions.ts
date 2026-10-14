@@ -363,11 +363,6 @@ export function visitCategory(status: SemanticCatalogItem): VisitCategory {
   return VISIT_CATEGORY_BY_GROUP[visitStatusGroup(visitStatusSemantics(status.metadata))];
 }
 
-/** DEF-E: visita realizada sin confirmar = categoría `COMPLETED`. */
-export function isDoneUnconfirmedVisit(status: SemanticCatalogItem): boolean {
-  return visitCategory(status) === 'COMPLETED';
-}
-
 /** Ids de estados de visita por categoría, para `status_id = ANY(…)` (el SQL nunca lee la `metadata`). */
 export function visitStatusIdsByCategory(statuses: readonly SemanticCatalogItem[]): Readonly<Record<VisitCategory, readonly string[]>> {
   const result: Record<VisitCategory, string[]> = { SCHEDULED: [], COMPLETED: [], CONFIRMED: [], CANCELLED: [] };
@@ -429,4 +424,98 @@ export function activityStatusIdsByGroup(
     (group === 'OPEN' ? open : group === 'COMPLETED' ? completed : cancelled).push(status.id);
   }
   return { open, completed, cancelled };
+}
+
+// ---------------------------------------------------------------------------
+// Semántica de visitas y actividades (00 §3.3, RN-01.12) — Módulo 1
+// ---------------------------------------------------------------------------
+
+function flag(item: SemanticCatalogItem, key: string): boolean {
+  return item.metadata?.[key] === true;
+}
+
+function idsWith(items: readonly SemanticCatalogItem[], key: string): string[] {
+  return items.filter((item) => flag(item, key)).map((item) => item.id);
+}
+
+/** Estados de visita (`crm.estado_visita`) pendientes: `isPending = true` (KPI-06/07). */
+export function pendingVisitStatusIds(statuses: readonly SemanticCatalogItem[]): string[] {
+  return idsWith(statuses, 'isPending');
+}
+
+/** Estados de visita realizada (`isDone`). */
+export function doneVisitStatusIds(statuses: readonly SemanticCatalogItem[]): string[] {
+  return idsWith(statuses, 'isDone');
+}
+
+/** Estados de visita confirmada (`isConfirmed`). */
+export function confirmedVisitStatusIds(statuses: readonly SemanticCatalogItem[]): string[] {
+  return idsWith(statuses, 'isConfirmed');
+}
+
+/** Estados de actividad abierta (`crm.estado_actividad`, `isOpen = true`). */
+export function openActivityStatusIds(statuses: readonly SemanticCatalogItem[]): string[] {
+  return idsWith(statuses, 'isOpen');
+}
+
+/** Estados de actividad completada (`isCompleted = true`). */
+export function completedActivityStatusIds(statuses: readonly SemanticCatalogItem[]): string[] {
+  return idsWith(statuses, 'isCompleted');
+}
+
+/** Tipos de actividad que son interacción (`crm.tipo_actividad`, `isInteraction = true`, DM-22). */
+export function interactionActivityTypeIds(types: readonly SemanticCatalogItem[]): string[] {
+  return idsWith(types, 'isInteraction');
+}
+
+// ---------------------------------------------------------------------------
+// DEF-D — Actividad vencida / por vencer (00 C8: nunca un estado del catálogo)
+// ---------------------------------------------------------------------------
+
+export interface ActivityDueState {
+  /** Estado con `isOpen = true`. */
+  readonly isOpen: boolean;
+  readonly dueAt: Date | null;
+}
+
+/** DEF-D: abierta y `due_at < ahora`. */
+export function isOverdueActivity(activity: ActivityDueState, now: Date): boolean {
+  return activity.isOpen && activity.dueAt !== null && activity.dueAt.getTime() < now.getTime();
+}
+
+/** DEF-D: abierta y `due_at ∈ [ahora, ahora + horas]`. */
+export function isDueSoonActivity(activity: ActivityDueState, now: Date, dueSoonHours: number): boolean {
+  if (!activity.isOpen || activity.dueAt === null) return false;
+  const due = activity.dueAt.getTime();
+  return due >= now.getTime() && due <= now.getTime() + dueSoonHours * 3_600_000;
+}
+
+/** KPI-08 (RN-01.17, D-01.6): pendiente = abierta y no vencida (disjunta de KPI-09). */
+export function isPendingActivity(activity: ActivityDueState, now: Date): boolean {
+  return activity.isOpen && !isOverdueActivity(activity, now);
+}
+
+// ---------------------------------------------------------------------------
+// DEF-E — Visita realizada sin confirmar
+// ---------------------------------------------------------------------------
+
+/** DEF-E: estado con `isDone = true` y `confirmed_at IS NULL`. */
+export function isDoneUnconfirmedVisit(visit: { readonly isDone: boolean; readonly confirmedAt: Date | null }): boolean {
+  return visit.isDone && visit.confirmedAt === null;
+}
+
+// ---------------------------------------------------------------------------
+// DEF-F — Interacción (DM-22)
+// ---------------------------------------------------------------------------
+
+export type InteractionCandidate =
+  | { readonly sourceType: 'VISIT'; readonly statusIsDone: boolean; readonly statusIsConfirmed: boolean }
+  | { readonly sourceType: 'ACTIVITY'; readonly statusIsCompleted: boolean; readonly typeIsInteraction: boolean };
+
+/**
+ * DEF-F: fila de `crm_interactions_v` cuyo origen es una visita realizada o
+ * confirmada, o una actividad completada de un tipo con `isInteraction = true`.
+ */
+export function isInteraction(row: InteractionCandidate): boolean {
+  return row.sourceType === 'VISIT' ? row.statusIsDone || row.statusIsConfirmed : row.statusIsCompleted && row.typeIsInteraction;
 }

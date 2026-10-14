@@ -117,7 +117,11 @@ describe('metric-definitions · visitas (RN-05.38, DEF-E) y actividades (RN-05.4
     for (const status of VISIT_STATUSES) {
       expect(visitCategory(status)).toBe(fromModule4[visitStatusGroup(visitStatusSemantics(status.metadata))]);
     }
-    expect([REALIZADA, CONFIRMADA].map(isDoneUnconfirmedVisit)).toEqual([true, false]);
+    // DEF-E (firma de 01): estado `isDone` sin `confirmed_at` = la categoría `COMPLETED` de Reportes.
+    const doneUnconfirmed = (status: SemanticCatalogItem): boolean =>
+      isDoneUnconfirmedVisit({ isDone: status.metadata?.['isDone'] === true, confirmedAt: null });
+    expect(VISIT_STATUSES.map(doneUnconfirmed)).toEqual(VISIT_STATUSES.map((status) => visitCategory(status) === 'COMPLETED'));
+    expect(isDoneUnconfirmedVisit({ isDone: true, confirmedAt: new Date() })).toBe(false);
     expect(visitStatusIdsByCategory(VISIT_STATUSES)).toEqual({
       SCHEDULED: ['id-PROGRAMADA', 'id-REPROGRAMADA'],
       COMPLETED: ['id-REALIZADA'],

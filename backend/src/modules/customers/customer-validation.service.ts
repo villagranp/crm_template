@@ -4,7 +4,12 @@ import { isEmail } from 'class-validator';
 import type { FieldIssue } from '@/common/errors/field-issue';
 import type { TransactionContext } from '@/infrastructure/database/ports/transaction.port';
 import { AppLogger } from '@/infrastructure/logging/app-logger.service';
-import { CatalogReferenceValidator, type CatalogReferenceIssue } from '@/modules/catalogs/catalog-reference.validator';
+import {
+  type CatalogReferenceCheck,
+  type CatalogReferenceOptions,
+  CatalogReferenceValidator,
+  type CatalogReferenceIssue,
+} from '@/modules/catalogs/catalog-reference.validator';
 import { ParameterReader } from '@/modules/parameters/parameter-reader';
 import { REQUIRED_FIELDS_WHITELIST } from '@/modules/parameters/parameter-rules.registry';
 
@@ -147,6 +152,32 @@ export interface CustomerValidationOptions {
    * él, se leen bajo demanda.
    */
   readonly context?: CustomerValidationContext;
+  /**
+   * Memoria de búsquedas de referencia (país, catálogo, responsable) para validar
+   * muchas entradas seguidas **sin** transacción: la vista previa de una carga
+   * masiva (06 G.1, PF-06.44). Se ignora con `tx`: el alta definitiva siempre
+   * vuelve a leer dentro de su transacción.
+   */
+  readonly referenceCache?: CustomerReferenceCache;
+}
+
+/**
+ * Lecturas de referencias ya hechas, por clave de búsqueda. Una instancia por
+ * lote (p. ej. por archivo de importación); nunca se comparte entre peticiones.
+ */
+export class CustomerReferenceCache {
+  private readonly entries = new Map<string, Promise<unknown>>();
+
+  remember<T>(key: string, read: () => Promise<T>): Promise<T> {
+    let entry = this.entries.get(key) as Promise<T> | undefined;
+    if (!entry) {
+      entry = read();
+      this.entries.set(key, entry);
+      // Un fallo (p. ej. transitorio de la base) no se memoriza: la siguiente fila vuelve a leer.
+      entry.catch(() => this.entries.delete(key));
+    }
+    return entry;
+  }
 }
 
 type DuplicateRuleActions = Readonly<Record<CustomerDuplicateRuleKey, 'NO' | 'AVISAR' | 'BLOQUEAR'>>;
@@ -176,6 +207,8 @@ export interface CustomerDuplicateKeys {
   readonly customerCode: string | null;
   /** Aviso: NIT en el mismo país, solo si la regla `nit` vale `AVISAR` (`GT|123456K`). */
   readonly taxId: string | null;
+  /** Aviso: razón social normalizada en el mismo país, si la regla `razonSocialNormalizada` no vale `NO` (06 RN-06.14). */
+  readonly legalName: string | null;
 }
 
 type DraftField = keyof CustomerDraft;
@@ -323,7 +356,8 @@ export class CustomerValidationService {
     }
 
     // Valores por defecto antes de los obligatorios (RN-02.4). Solo en el alta.
-    const defaults = isEdit ? {} : await this.defaultCatalogValues(mode, tx, context?.defaultValues);
+    const cache = tx ? undefined : options.referenceCache;
+    const defaults = isEdit ? {} : await this.defaultCatalogValues(mode, tx, context?.defaultValues, cache);
     const salesOwnerInput = value('salesOwner') ?? (isEdit ? undefined : actor.userId);
     const resolvedInput: Partial<Record<DraftField, string | null | undefined>> = {
       ...Object.fromEntries((Object.keys(FIELD_NAMES) as DraftField[]).map((field) => [field, value(field)])),
@@ -341,7 +375,7 @@ export class CustomerValidationService {
     }
 
     // País (RN-02.8): activo para un alta o para cambiarlo; el ya asociado se conserva aunque se desactive.
-    const country = await this.resolveCountry(resolvedInput.country, mode, existing, issues, tx);
+    const country = await this.resolveCountry(resolvedInput.country, mode, existing, issues, tx, cache);
     const countryChanged = isEdit && country !== null && country.id !== existing.country.id;
 
     // Teléfono y NIT con el país resultante (también al cambiar de país, D-02.5).
@@ -367,7 +401,9 @@ export class CustomerValidationService {
     const ratingId = await this.resolveCatalog('rating', CUSTOMER_CATALOGS.rating, resolvedInput.rating, existing?.rating?.id ?? null, options, issues);
 
     // Responsable (RN-02.10, D-02.2).
-    const salesOwnerId = await this.resolveSalesOwner(resolvedInput.salesOwner, mode, actor, existing, issues, tx, context);
+    // Sin responsable en el alta se asigna el actor: es un id aunque la entrada venga por clave natural (importación, 06 RN-06.12).
+    const ownerMode: CustomerRefMode = !isEdit && (value('salesOwner') ?? null) === null ? 'BY_ID' : mode;
+    const salesOwnerId = await this.resolveSalesOwner(resolvedInput.salesOwner, ownerMode, actor, existing, issues, tx, context, cache);
 
     if (issues.length > 0) {
       return { errors: [...issues].sort(bySeverity), duplicates: [], blockingDuplicates: [], codeConflict: null, normalized: null };
@@ -410,15 +446,25 @@ export class CustomerValidationService {
     return { errors: [], duplicates, blockingDuplicates, codeConflict, normalized };
   }
 
-  /** Claves normalizadas para detectar duplicados dentro de un archivo (F.6.1, Módulo 6). */
-  async duplicateKeys(draft: CustomerDraft): Promise<CustomerDuplicateKeys> {
+  /**
+   * Claves normalizadas para detectar duplicados dentro de un archivo (F.6.1, Módulo 6).
+   * `context` (de `prepare()`) evita releer los parámetros en cada fila de una carga.
+   */
+  async duplicateKeys(
+    draft: CustomerDraft,
+    context?: Pick<CustomerValidationContext, 'codeUniqueness' | 'duplicateRules'>,
+  ): Promise<CustomerDuplicateKeys> {
     const country = trimToNull(draft.country)?.toUpperCase() ?? null;
     const code = normalizeCustomerCode(trimToNull(draft.customerCode));
     const taxId = normalizeTaxId(trimToNull(draft.taxId));
-    const [uniqueness, rules] = await Promise.all([this.codeUniqueness(), this.duplicateRules()]);
+    const legalName = normalizeName(trimToNull(draft.legalName));
+    const [uniqueness, rules] = context
+      ? [context.codeUniqueness, context.duplicateRules]
+      : await Promise.all([this.codeUniqueness(), this.duplicateRules()]);
     return {
       customerCode: code ? (uniqueness === 'GLOBAL' ? code : `${country ?? ''}|${code}`) : null,
       taxId: taxId && rules.nit === 'AVISAR' ? `${country ?? ''}|${taxId}` : null,
+      legalName: legalName && rules.razonSocialNormalizada !== 'NO' ? `${country ?? ''}|${legalName}` : null,
     };
   }
 
@@ -465,6 +511,7 @@ export class CustomerValidationService {
     mode: CustomerRefMode,
     tx?: TransactionContext,
     parameterValue?: Readonly<Record<string, string | undefined>>,
+    cache?: CustomerReferenceCache,
   ): Promise<Partial<Record<'status' | 'companyType' | 'rating', string>>> {
     // El parámetro puede llegar leído de antemano (`prepare`); los catálogos se comprueban con el `tx`.
     const value = parameterValue ?? (await this.parameters.get<Record<string, string | undefined>>(CUSTOMER_PARAMETERS.defaultValues));
@@ -477,7 +524,7 @@ export class CustomerValidationService {
     for (const [field, key, catalogKey] of entries) {
       const code = value[key];
       if (!code) continue;
-      const check = await this.catalogs.check(catalogKey, code, { field: FIELD_NAMES[field], by: 'code', requireActive: true, tx });
+      const check = await this.checkCatalog(catalogKey, code, { field: FIELD_NAMES[field], by: 'code', requireActive: true, tx }, cache);
       if (check.ok) {
         defaults[field] = mode === 'BY_ID' ? check.item.id : check.item.code;
       } else {
@@ -493,11 +540,15 @@ export class CustomerValidationService {
     existing: CustomerRecord | undefined,
     issues: Issue[],
     tx?: TransactionContext,
+    cache?: CustomerReferenceCache,
   ): Promise<CountryRecord | null> {
     if (input === undefined || input === null) {
       return existing?.country ?? null;
     }
-    const country = await this.customers.findCountry({ by: mode === 'BY_ID' ? 'id' : 'isoCode', value: input }, tx);
+    const lookup = { by: mode === 'BY_ID' ? ('id' as const) : ('isoCode' as const), value: input };
+    const country = cache
+      ? await cache.remember(`country|${lookup.by}|${lookup.value}`, () => this.customers.findCountry(lookup))
+      : await this.customers.findCountry(lookup, tx);
     if (country && existing && country.id === existing.country.id) {
       return country;
     }
@@ -519,13 +570,12 @@ export class CustomerValidationService {
     if (input === undefined) return undefined;
     if (input === null) return null;
     if (options.mode === 'BY_ID' && currentId !== null && input === currentId) return currentId;
-    const check = await this.catalogs.check(catalogKey, input, {
-      field: FIELD_NAMES[field],
-      by: options.mode === 'BY_ID' ? 'id' : 'code',
-      requireActive: true,
-      currentId,
-      tx: options.tx,
-    });
+    const check = await this.checkCatalog(
+      catalogKey,
+      input,
+      { field: FIELD_NAMES[field], by: options.mode === 'BY_ID' ? 'id' : 'code', requireActive: true, currentId, tx: options.tx },
+      options.tx ? undefined : options.referenceCache,
+    );
     if (!check.ok) {
       issues.push(catalogIssue(check.issue));
       return undefined;
@@ -541,12 +591,15 @@ export class CustomerValidationService {
     issues: Issue[],
     tx?: TransactionContext,
     context?: CustomerValidationContext,
+    cache?: CustomerReferenceCache,
   ): Promise<string | null | undefined> {
     if (input === undefined || input === null) return undefined;
     if (existing && mode === 'BY_ID' && input === existing.salesOwner.id) return input;
     const assignable: SalesOwnerAssignableSet = context?.assignable ?? (await this.actors.assignableSalesOwners(actor));
     const lookup = mode === 'BY_ID' ? ({ by: 'id', value: input } as const) : ({ by: 'naturalKey', value: input } as const);
-    const salesOwnerId = await this.customers.findEligibleSalesOwner(lookup, assignable, CUSTOMER_PERMISSIONS.view, tx);
+    const salesOwnerId = cache
+      ? await cache.remember(`owner|${lookup.by}|${lookup.value}`, () => this.customers.findEligibleSalesOwner(lookup, assignable, CUSTOMER_PERMISSIONS.view))
+      : await this.customers.findEligibleSalesOwner(lookup, assignable, CUSTOMER_PERMISSIONS.view, tx);
     if (!salesOwnerId) {
       issues.push(fieldIssue('salesOwnerId', CUSTOMER_ERROR_CODES.invalidSalesOwner));
       return undefined;
@@ -640,6 +693,18 @@ export class CustomerValidationService {
       candidate: match.candidate,
     });
     return { duplicates: evaluation.warnings.map(toCandidate), blockingDuplicates: evaluation.blocking.map(toCandidate) };
+  }
+
+  /** `CatalogReferenceValidator.check`, memorizado por la clave completa de la búsqueda si hay memoria. */
+  private checkCatalog(
+    catalogKey: string,
+    value: string,
+    options: CatalogReferenceOptions,
+    cache: CustomerReferenceCache | undefined,
+  ): Promise<CatalogReferenceCheck> {
+    if (!cache) return this.catalogs.check(catalogKey, value, options);
+    const key = `catalog|${catalogKey}|${options.by ?? 'id'}|${value}|${options.requireActive ?? true}|${options.currentId ?? ''}|${options.field}`;
+    return cache.remember(key, () => this.catalogs.check(catalogKey, value, { ...options, tx: undefined }));
   }
 
   private warnBrokenPattern(country: CountryRecord, column: 'phonePattern' | 'taxIdPattern'): void {

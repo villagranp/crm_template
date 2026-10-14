@@ -1,284 +1,209 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative } from 'node:path';
+
+import type { AppLogger } from '@/infrastructure/logging/app-logger.service';
+import type { VisibilityScope } from '@/modules/access/visibility-scope';
 import type { CatalogLookupService } from '@/modules/catalogs/catalog-lookup.service';
-import type { CatalogDetailRecord } from '@/modules/catalogs/ports/catalogs.repository.port';
 
-import { CommercialMetricsService, METRIC_CATALOGS } from './commercial-metrics.service';
-import type {
-  CommercialMetricsReadModel,
-  ForecastCellRecord,
-  ForecastGroupCellRecord,
-  MetricContext,
-  OpportunityCriteria,
-} from './ports/commercial-metrics-read-model.port';
+import { CommercialMetricsService, type MetricContext, targetInPeriod } from './commercial-metrics.service';
+import type { SemanticCatalogItem } from './metric-definitions';
+import type { CommercialMetricsReadModel, SalesTargetRecord } from './ports/commercial-metrics-read-model.port';
 
-type Item = { code: string; metadata: Record<string, unknown> | null; isActive?: boolean; sortOrder?: number };
+const item = (id: string, code: string, metadata: Record<string, unknown>, label = code): SemanticCatalogItem => ({ id, code, label, metadata });
 
-function catalog(key: string, items: Item[]): CatalogDetailRecord {
-  const now = new Date();
+const CATALOGS: Record<string, SemanticCatalogItem[]> = {
+  'crm.fase_cliente': [item('ph1', 'DISENO', { isFinal: false }), item('ph2', 'FINALIZADO', { isFinal: true })],
+  'crm.etapa_oportunidad': [
+    item('st2', 'COTIZANDO', { isClosed: false, order: 2 }, 'Cotizando'),
+    item('st1', 'CONTACTADO', { isClosed: false, order: 1 }, 'Contactado'),
+    item('st3', 'GANADO', { isClosed: true, order: 3 }),
+  ],
+  'crm.estado_visita': [item('v1', 'PROGRAMADA', { isPending: true }), item('v2', 'REALIZADA', { isDone: true }), item('v3', 'CONFIRMADA', { isConfirmed: true })],
+  'crm.estado_actividad': [item('a1', 'PENDIENTE', { isOpen: true }), item('a2', 'COMPLETADA', { isCompleted: true })],
+};
+
+function scope(dataScope: VisibilityScope['dataScope'], overrides: Partial<{ ownerIds: string[]; countryIds: string[] }> = {}): VisibilityScope {
+  if (dataScope === 'ORGANIZATION') return { kind: 'ALL', userId: 'me', dataScope };
+  return { kind: 'FILTERED', userId: 'me', dataScope, ownerIds: overrides.ownerIds ?? ['me'], teamIds: [], countryIds: overrides.countryIds ?? [] };
+}
+
+function target(overrides: Partial<SalesTargetRecord>): SalesTargetRecord {
   return {
-    id: `catalog-${key}`,
-    key,
-    name: key,
-    description: null,
-    isSystem: true,
-    itemCount: items.length,
-    activeItemCount: items.filter((entry) => entry.isActive !== false).length,
-    createdAt: now,
-    updatedAt: now,
-    items: items.map((entry, index) => ({
-      id: `id-${entry.code}`,
-      catalogId: `catalog-${key}`,
-      code: entry.code,
-      label: entry.code.charAt(0) + entry.code.slice(1).toLowerCase(),
-      metadata: entry.metadata as CatalogDetailRecord['items'][number]['metadata'],
-      sortOrder: entry.sortOrder ?? index,
-      isActive: entry.isActive ?? true,
-      createdAt: now,
-      updatedAt: now,
-    })),
+    id: 't1', metric: 'WON_OPPORTUNITIES', year: 2026, month: 10, userId: 'me', teamId: null, countryId: null, productFamilyId: null,
+    targetValue: '4.0000', subjectLabel: 'Ana', ...overrides,
   };
 }
 
-const visit = (flag: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
-  isPending: false,
-  isDone: false,
-  isConfirmed: false,
-  isCancelled: false,
-  [flag]: true,
-  ...extra,
-});
-const activity = (flag: string): Record<string, unknown> => ({ isOpen: false, isCompleted: false, isCancelled: false, [flag]: true });
-
-function seededCatalogs(overrides: Partial<Record<string, Item[]>> = {}): Map<string, CatalogDetailRecord> {
-  const items: Record<string, Item[]> = {
-    [METRIC_CATALOGS.stage]: [
-      { code: 'PERDIDO', metadata: { order: 4, isClosed: true, outcome: 'LOST', inFunnel: false } },
-      { code: 'CONTACTADO', metadata: { order: 1, isClosed: false, outcome: null, inFunnel: true } },
-      { code: 'GANADO', metadata: { order: 3, isClosed: true, outcome: 'WON', inFunnel: true } },
-      { code: 'COTIZANDO', metadata: { order: 2, isClosed: false, outcome: null, inFunnel: true } },
-      { code: 'VIEJA', metadata: { order: 5, isClosed: false, outcome: null, inFunnel: false }, isActive: false },
-    ],
-    [METRIC_CATALOGS.phase]: [
-      { code: 'DISENO', metadata: { order: 1, isFinal: false } },
-      { code: 'FINALIZADO', metadata: { order: 4, isFinal: true, defaultProgress: 100 } },
-    ],
-    [METRIC_CATALOGS.visitStatus]: [
-      { code: 'PROGRAMADA', metadata: visit('isPending', { isRescheduled: false }) },
-      { code: 'REPROGRAMADA', metadata: visit('isPending', { isRescheduled: true }) },
-      { code: 'REALIZADA', metadata: visit('isDone') },
-      { code: 'CONFIRMADA', metadata: visit('isConfirmed') },
-      { code: 'CANCELADA', metadata: visit('isCancelled') },
-    ],
-    [METRIC_CATALOGS.activityStatus]: [
-      { code: 'PENDIENTE', metadata: activity('isOpen') },
-      { code: 'COMPLETADA', metadata: activity('isCompleted') },
-      { code: 'CANCELADA', metadata: activity('isCancelled') },
-    ],
-    ...overrides,
-  };
-  return new Map(Object.entries(items).map(([key, entries]) => [key, catalog(key, entries ?? [])]));
-}
-
-function fakeReadModel(overrides: Partial<CommercialMetricsReadModel> = {}): jest.Mocked<CommercialMetricsReadModel> {
-  return {
-    opportunityTotals: jest.fn().mockResolvedValue({ total: 0, open: 0, won: 0, wonFull: 0, partial: 0, lost: 0, closedWithoutResult: 0, amountUsd: '0.0000', tonnage: '0.0000' }),
-    opportunityStageCounts: jest.fn().mockResolvedValue([]),
-    opportunityOwnerCounts: jest.fn().mockResolvedValue([]),
-    projectCounts: jest.fn().mockResolvedValue({ total: 0, active: 0, finished: 0 }),
-    forecastTotals: jest.fn().mockResolvedValue({ cells: [], lastUpdatedAt: null, lineCount: 0 }),
-    forecastGroups: jest.fn().mockResolvedValue({ keys: { items: [], totalItems: 0, page: 1, pageSize: 20 }, cells: [] }),
-    visitCounts: jest.fn().mockResolvedValue({ total: 0, scheduled: 0, completed: 0, confirmed: 0, cancelled: 0, rescheduledVisits: 0, rescheduleEvents: 0, overduePending: 0, upcoming: 0 }),
-    activityCounts: jest.fn().mockResolvedValue({ total: 0, pending: 0, overdue: 0, completed: 0, cancelled: 0, dueSoon: 0 }),
-    ...overrides,
-  } as jest.Mocked<CommercialMetricsReadModel>;
-}
-
-function service(readModel = fakeReadModel(), catalogs = seededCatalogs()): CommercialMetricsService {
-  const lookup = { findByKey: jest.fn((key: string) => Promise.resolve(catalogs.get(key) ?? null)) } as unknown as CatalogLookupService;
-  return new CommercialMetricsService(readModel, lookup);
-}
-
-const SCOPE = { kind: 'FILTERED', userId: 'u1', dataScope: 'OWN', ownerIds: ['u1'], teamIds: [], countryIds: [] } as const;
-const CTX: MetricContext = { scope: SCOPE, now: new Date('2026-10-13T18:00:00Z'), businessTimeZone: 'America/Guatemala' };
-
-const KG = { id: 'kg', code: 'KG', symbol: 'kg' };
-const VAR = { id: 'var', code: 'VAR', symbol: 'var' };
-
-function cell(year: number, month: number, unit: typeof KG, quantity: string, tonnage: string, lineCount: number, withoutConversion = 0): ForecastCellRecord {
-  return { year, month, unit, quantity, tonnage, lineCount, linesWithoutConversion: withoutConversion };
-}
-
-describe('CommercialMetricsService', () => {
-  describe('semántica de catálogos (RN-05.6, 05 G.4)', () => {
-    it('resuelve conjuntos de ids ordenados por metadata.order, incluidas las etapas inactivas', async () => {
-      const semantics = await service().semantics();
-      expect(semantics.stages.map((stage) => stage.code)).toEqual(['CONTACTADO', 'COTIZANDO', 'GANADO', 'PERDIDO', 'VIEJA']);
-      expect(semantics.openStageIds).toEqual(['id-CONTACTADO', 'id-COTIZANDO', 'id-VIEJA']);
-      expect(semantics.closedStageIds).toEqual(['id-GANADO', 'id-PERDIDO']);
-      expect(semantics.openStageRanking).toEqual(['id-VIEJA', 'id-COTIZANDO', 'id-CONTACTADO']);
-      expect(semantics.nonFinalPhaseIds).toEqual(['id-DISENO']);
-      expect(semantics.finalPhaseIds).toEqual(['id-FINALIZADO']);
-      expect(semantics.visitStatusSets).toEqual({
-        SCHEDULED: ['id-PROGRAMADA', 'id-REPROGRAMADA'],
-        COMPLETED: ['id-REALIZADA'],
-        CONFIRMED: ['id-CONFIRMADA'],
-        CANCELLED: ['id-CANCELADA'],
-      });
-      expect(semantics.activityStatusSets).toEqual({ open: ['id-PENDIENTE'], completed: ['id-COMPLETADA'], cancelled: ['id-CANCELADA'] });
-    });
-
-    it('422 INVALID_CATALOG_SEMANTICS con el catálogo y el elemento afectados (etapa sin order, visita con dos indicadores)', async () => {
-      const catalogs = seededCatalogs({
-        [METRIC_CATALOGS.stage]: [{ code: 'SIN_ORDEN', metadata: { isClosed: false, outcome: null, inFunnel: true } }],
-        [METRIC_CATALOGS.visitStatus]: [{ code: 'DOBLE', metadata: visit('isPending', { isDone: true }) }],
-      });
-      await expect(service(fakeReadModel(), catalogs).semantics()).rejects.toMatchObject({
-        code: 'INVALID_CATALOG_SEMANTICS',
-        details: [
-          { field: 'crm.etapa_oportunidad', code: 'INVALID_CATALOG_SEMANTICS', itemCode: 'SIN_ORDEN', message: expect.stringContaining('metadata.order') },
-          { field: 'crm.estado_visita', code: 'INVALID_CATALOG_SEMANTICS', itemCode: 'DOBLE', message: expect.stringContaining('Exactamente uno') },
-        ],
-      });
-    });
-
-    it('un catálogo que falta también es INVALID_CATALOG_SEMANTICS (no se calculan cifras sin semántica)', async () => {
-      const catalogs = seededCatalogs();
-      catalogs.delete(METRIC_CATALOGS.activityStatus);
-      await expect(service(fakeReadModel(), catalogs).semantics()).rejects.toMatchObject({
-        code: 'INVALID_CATALOG_SEMANTICS',
-        details: [{ field: 'crm.estado_actividad', itemCode: null, message: 'Catalog not found' }],
-      });
-    });
+describe('CommercialMetricsService (01 F.2, KPI-01…KPI-10)', () => {
+  let readModel: jest.Mocked<CommercialMetricsReadModel>;
+  let service: CommercialMetricsService;
+  const ctx = (dataScope: VisibilityScope['dataScope'] = 'OWN', extra: Partial<{ countryIds: string[] }> = {}): MetricContext => ({
+    scope: scope(dataScope, extra),
+    now: new Date('2026-10-10T15:00:00Z'),
+    businessTimeZone: 'America/Guatemala',
   });
 
-  it('RN-05.30: distribución por etapa con las activas en orden (también con 0) y las inactivas solo si tienen oportunidades', async () => {
-    const readModel = fakeReadModel({ opportunityStageCounts: jest.fn().mockResolvedValue([{ stageId: 'id-GANADO', count: 2 }]) });
-    const metrics = service(readModel);
-    const semantics = await metrics.semantics();
-    const criteria = metrics.opportunityCriteria(CTX, semantics);
-    expect((await metrics.stageDistribution(criteria, semantics)).map((stage) => [stage.code, stage.count, stage.order, stage.isClosed])).toEqual([
-      ['CONTACTADO', 0, 1, false],
-      ['COTIZANDO', 0, 2, false],
-      ['GANADO', 2, 3, true],
-      ['PERDIDO', 0, 4, true],
-    ]);
-    readModel.opportunityStageCounts.mockResolvedValue([{ stageId: 'id-VIEJA', count: 1 }]);
-    expect((await metrics.stageDistribution(criteria, semantics)).map((stage) => stage.code)).toContain('VIEJA');
+  beforeEach(() => {
+    readModel = {
+      catalogItems: jest.fn(async (key: string) => CATALOGS[key] ?? []),
+      unitByCode: jest.fn(async (code: string) => ({ id: 'u-ton', code, symbol: 't' })),
+      countProjects: jest.fn().mockResolvedValue(2),
+      countOpportunitiesByStage: jest.fn().mockResolvedValue([
+        { stageId: 'st2', count: 2 },
+        { stageId: 'st1', count: 1 },
+      ]),
+      countOpportunitiesByOutcome: jest.fn().mockResolvedValue([
+        { outcome: 'WON', count: 1 },
+        { outcome: 'PARTIAL', count: 1 },
+        { outcome: 'LOST', count: 3 },
+      ]),
+      forecastWindow: jest.fn().mockResolvedValue({ months: [], unconvertedLines: 0, quantitiesByUnit: [] }),
+      countVisits: jest.fn().mockResolvedValue({ pending: 3, overdue: 1, upcoming: 1 }),
+      countActivities: jest.fn().mockResolvedValue({ pending: 3, dueSoon: 1, overdue: 1 }),
+      listTargets: jest.fn().mockResolvedValue([]),
+      teamsLedOrPrimary: jest.fn().mockResolvedValue(['team-1']),
+      teamOwnerIds: jest.fn().mockResolvedValue(['me', 'other']),
+      achieved: jest.fn().mockResolvedValue('2.0000'),
+    } as unknown as jest.Mocked<CommercialMetricsReadModel>;
+    service = new CommercialMetricsService(readModel, { warn: jest.fn() } as unknown as AppLogger, {} as CatalogLookupService);
   });
 
-  it('RN-05.34/35: un total por cada mes del rango, acumulados por tonelada y por unidad, sin mezclar unidades', async () => {
-    const readModel = fakeReadModel({
-      forecastTotals: jest.fn().mockResolvedValue({
-        cells: [cell(2026, 11, KG, '1000.0000', '1.0000', 1), cell(2026, 11, VAR, '7.0000', '0.0000', 1, 1), cell(2027, 1, KG, '500.0000', '0.5000', 1)],
-        lastUpdatedAt: new Date('2026-10-01T00:00:00Z'),
-        lineCount: 3,
-      }),
-    });
-    const metrics = service(readModel);
-    const totals = await metrics.forecastTotals(metrics.forecastCriteria(CTX, { year: 2026, month: 11 }, { year: 2027, month: 1 }));
-    expect(totals.months.map((month) => [month.month, month.tonnage, month.cumulativeTonnage, month.lineCount, month.linesWithoutConversion])).toEqual([
-      [11, '1.0000', '1.0000', 2, 1],
-      [12, '0.0000', '1.0000', 0, 0],
-      [1, '0.5000', '1.5000', 1, 0],
-    ]);
-    expect(totals.months[2]?.quantities).toEqual([
-      { unit: KG, quantity: '500.0000', cumulative: '1500.0000' },
-      { unit: VAR, quantity: '0.0000', cumulative: '7.0000' },
-    ]);
-    expect(totals.totals).toEqual({
-      tonnage: '1.5000',
-      quantities: [
-        { unit: KG, quantity: '1500.0000' },
-        { unit: VAR, quantity: '7.0000' },
+  it('KPI-01 pasa solo las fases no finales del catálogo', async () => {
+    await expect(service.countActiveProjects(ctx())).resolves.toBe(2);
+    expect(readModel.countProjects).toHaveBeenCalledWith(ctx().scope, ['ph1']);
+  });
+
+  it('KPI-02 filtra etapas abiertas y ordena el desglose por metadata.order', async () => {
+    const result = await service.countOpenOpportunities(ctx());
+    expect(readModel.countOpportunitiesByStage).toHaveBeenCalledWith(expect.anything(), ['st2', 'st1']);
+    expect(result).toEqual({
+      total: 3,
+      byStage: [
+        { stageId: 'st1', code: 'CONTACTADO', label: 'Contactado', order: 1, count: 1 },
+        { stageId: 'st2', code: 'COTIZANDO', label: 'Cotizando', order: 2, count: 2 },
       ],
-      lineCount: 3,
-      linesWithoutConversion: 1,
     });
-    expect(totals.lastUpdatedAt).toEqual(new Date('2026-10-01T00:00:00Z'));
   });
 
-  it('RN-05.36: la consolidación arma grupos y subgrupos con cada mes del rango y totales que cuadran', async () => {
-    const key = (id: string): ForecastGroupCellRecord['key'] => ({ type: 'PROJECT', id, label: `Proyecto ${id}` });
-    const sub = (id: string): ForecastGroupCellRecord['subKey'] => ({ type: 'MONTH', id: null, label: id });
-    const readModel = fakeReadModel({
-      forecastGroups: jest.fn().mockResolvedValue({
-        keys: { items: [key('p1'), key('p2')], totalItems: 2, page: 1, pageSize: 20 },
-        cells: [
-          { ...cell(2026, 11, KG, '1000.0000', '1.0000', 1), key: key('p1'), subKey: sub('2026-11') },
-          { ...cell(2026, 12, KG, '10.0000', '0.0100', 1), key: key('p1'), subKey: sub('2026-12') },
-          { ...cell(2026, 12, VAR, '3.0000', '0.0000', 1, 1), key: key('p2'), subKey: sub('2026-12') },
-        ],
-      }),
+  it('KPI-03/04: ganadas = WON + PARTIAL; perdidas = LOST; countOutcomes las lee una sola vez', async () => {
+    const period = { from: '2026-10-01', to: '2026-10-31' };
+    await expect(service.countWonOpportunities(ctx(), period)).resolves.toEqual({ total: 2, won: 1, partial: 1 });
+    await expect(service.countLostOpportunities(ctx(), period)).resolves.toBe(3);
+    readModel.countOpportunitiesByOutcome.mockClear();
+    await expect(service.countOutcomes(ctx(), period)).resolves.toEqual({ won: { total: 2, won: 1, partial: 1 }, lost: 3 });
+    expect(readModel.countOpportunitiesByOutcome).toHaveBeenCalledTimes(1);
+  });
+
+  it('KPI-05: ventana de 6 meses, total null sin toneladas, meses vacíos en 0', async () => {
+    const empty = await service.forecastWindow(ctx(), 6, 'TON');
+    expect(empty).toMatchObject({ totalTonnage: null, window: { from: { year: 2026, month: 11 }, to: { year: 2027, month: 4 } } });
+    expect(empty.months).toHaveLength(6);
+    expect(empty.months.every((month) => month.tonnage === '0.0000')).toBe(true);
+
+    readModel.forecastWindow.mockResolvedValue({
+      months: [
+        { year: 2026, month: 11, tonnage: '20.0000', lineCount: 1 },
+        { year: 2027, month: 4, tonnage: '5.0000', lineCount: 2 },
+        { year: 2026, month: 12, tonnage: null, lineCount: 1 },
+      ],
+      unconvertedLines: 1,
+      quantitiesByUnit: [{ unit: { id: 'kg', code: 'KG', symbol: 'kg' }, quantity: '1200.0000' }],
     });
-    const metrics = service(readModel);
-    const page = await metrics.forecastConsolidation(
-      metrics.forecastCriteria(CTX, { year: 2026, month: 11 }, { year: 2026, month: 12 }),
-      { groupBy: 'PROJECT', thenBy: 'MONTH' },
-      { page: 1, pageSize: 20 },
+    const result = await service.forecastWindow(ctx(), 6, 'TON');
+    expect(result).toMatchObject({ totalTonnage: '25.0000', unconvertedLines: 1, quantitiesByUnit: [{ unitCode: 'KG', unitSymbol: 'kg', quantity: '1200.0000' }] });
+  });
+
+  it('KPI-06/07 y KPI-08/09 pasan los estados del catálogo y los límites de tiempo', async () => {
+    await expect(service.countVisits(ctx(), 7)).resolves.toEqual({ pending: 3, overdue: 1, upcoming: 1, upcomingDays: 7 });
+    expect(readModel.countVisits).toHaveBeenCalledWith(expect.anything(), ['v1'], new Date('2026-10-10T15:00:00Z'), new Date('2026-10-17T15:00:00Z'));
+    await expect(service.countActivities(ctx(), 48)).resolves.toEqual({ pending: 3, dueSoon: 1, overdue: 1, dueSoonHours: 48 });
+    expect(readModel.countActivities).toHaveBeenCalledWith(expect.anything(), ['a1'], new Date('2026-10-10T15:00:00Z'), new Date('2026-10-12T15:00:00Z'));
+  });
+
+  it('KPI-06…09 usan la visibilidad del Módulo 4: directa + herencia por proyecto (04 H.3, DM-13)', async () => {
+    const projects = scope('TEAM', { ownerIds: ['me', 'mate'] });
+    await service.countVisits({ ...ctx(), inheritedProjectScope: projects }, 7);
+    expect(readModel.countVisits).toHaveBeenCalledWith({ direct: ctx().scope, inherited: projects }, expect.anything(), expect.anything(), expect.anything());
+    // Sin el alcance de proyectos no hay herencia (nunca se usa el alcance directo como herencia).
+    await service.countActivities(ctx(), 48);
+    expect(readModel.countActivities).toHaveBeenCalledWith(
+      { direct: ctx().scope, inherited: expect.objectContaining({ kind: 'FILTERED', ownerIds: [], countryIds: [] }) },
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
     );
-    expect(page.totalItems).toBe(2);
-    const [p1, p2] = page.items;
-    expect(p1?.total).toMatchObject({ tonnage: '1.0100', lineCount: 2, linesWithoutConversion: 0 });
-    expect(p1?.months.map((month) => month.tonnage)).toEqual(['1.0000', '0.0100']);
-    expect(p1?.subgroups?.map((group) => [group.key.label, group.total.tonnage])).toEqual([
-      ['2026-11', '1.0000'],
-      ['2026-12', '0.0100'],
-    ]);
-    expect(p2?.total).toMatchObject({ tonnage: '0.0000', quantities: [{ unit: VAR, quantity: '3.0000' }], linesWithoutConversion: 1 });
   });
 
-  describe('indicadores de Inicio con la firma de 01 F.2', () => {
-    it('KPI-02: abiertas con desglose solo de etapas abiertas, con el filtro OPEN', async () => {
-      const readModel = fakeReadModel({
-        opportunityTotals: jest.fn().mockResolvedValue({ total: 3, open: 3, won: 0, wonFull: 0, partial: 0, lost: 0, closedWithoutResult: 0, amountUsd: '0.0000', tonnage: '0.0000' }),
-        opportunityStageCounts: jest.fn().mockResolvedValue([
-          { stageId: 'id-CONTACTADO', count: 1 },
-          { stageId: 'id-COTIZANDO', count: 2 },
-        ]),
-      });
-      const result = await service(readModel).countOpenOpportunities(CTX);
-      expect(result.total).toBe(3);
-      expect(result.byStage.map((stage) => [stage.code, stage.count])).toEqual([
-        ['CONTACTADO', 1],
-        ['COTIZANDO', 2],
-      ]);
-      const criteria = readModel.opportunityTotals.mock.calls[0]?.[0] as OpportunityCriteria;
-      expect(criteria).toMatchObject({ scope: SCOPE, statuses: ['OPEN'], period: null, ownerIds: [], countryIds: [] });
+  describe('KPI-10 (D-01.8)', () => {
+    const october = { from: '2026-10-01', to: '2026-10-31' };
+
+    it('OWN: metas del usuario; cumplimiento con dos decimales; objetivo 0 → null', async () => {
+      readModel.listTargets.mockResolvedValue([target({}), target({ id: 't2', metric: 'VISITS', targetValue: '0.0000' })]);
+      const items = await service.targetCompliance(ctx('OWN'), october);
+      expect(readModel.listTargets).toHaveBeenCalledWith({ userIds: ['me'], teamIds: [], countryIds: [], allCountries: false }, [2026]);
+      expect(items[0]).toMatchObject({ targetId: 't1', achievedValue: '2.0000', compliancePercent: '50.00', subject: { type: 'USER', id: 'me' }, currencyCode: null });
+      expect(readModel.unitByCode).toHaveBeenCalledWith('TON');
+      await service.targetCompliance(ctx('OWN'), october, 'T');
+      expect(readModel.unitByCode).toHaveBeenLastCalledWith('T');
+      expect(items[1]?.compliancePercent).toBeNull();
+      expect(readModel.achieved).toHaveBeenCalledWith(expect.objectContaining({ metric: 'WON_OPPORTUNITIES', subject: { kind: 'OWNERS', ownerIds: ['me'] }, period: october }));
     });
 
-    it('KPI-03/04: ganadas (WON + PARTIAL) y perdidas por `decision_date` en el período, como el reporte con DECIDED', async () => {
-      const readModel = fakeReadModel({
-        opportunityTotals: jest.fn().mockResolvedValue({ total: 4, open: 0, won: 3, wonFull: 2, partial: 1, lost: 1, closedWithoutResult: 0, amountUsd: '0.0000', tonnage: '0.0000' }),
-      });
-      const metrics = service(readModel);
-      const period = metrics.resolvePeriod('MONTH', CTX);
-      expect(period).toEqual({ from: '2026-10-01', to: '2026-10-31' });
-      await expect(metrics.countWonOpportunities(CTX, period)).resolves.toEqual({ total: 3, won: 2, partial: 1 });
-      await expect(metrics.countLostOpportunities(CTX, period)).resolves.toBe(1);
-      expect(readModel.opportunityTotals.mock.calls[0]?.[0].period).toEqual({
-        basis: 'DECIDED',
-        window: { from: '2026-10-01', to: '2026-10-31', fromInstant: new Date('2026-10-01T06:00:00Z'), toExclusive: new Date('2026-11-01T06:00:00Z') },
-      });
+    it('TEAM: metas de los equipos que lidera o de su equipo principal; logrado con sus miembros (leídos una vez por equipo)', async () => {
+      readModel.listTargets.mockResolvedValue([
+        target({ userId: null, teamId: 'team-1', subjectLabel: 'Equipo' }),
+        target({ id: 't2', userId: null, teamId: 'team-1', subjectLabel: 'Equipo', metric: 'VISITS' }),
+      ]);
+      const items = await service.targetCompliance(ctx('TEAM'), october);
+      expect(readModel.listTargets).toHaveBeenCalledWith({ userIds: [], teamIds: ['team-1'], countryIds: [], allCountries: false }, [2026]);
+      expect(readModel.achieved).toHaveBeenCalledWith(expect.objectContaining({ subject: { kind: 'OWNERS', ownerIds: ['me', 'other'] } }));
+      expect(items[0]?.subject).toEqual({ type: 'TEAM', id: 'team-1', label: 'Equipo' });
+      expect(readModel.teamOwnerIds).toHaveBeenCalledTimes(1);
     });
 
-    it('KPI-01, KPI-05 (sin líneas → null), KPI-06/07 y KPI-08/09 con sus umbrales', async () => {
-      const readModel = fakeReadModel({
-        projectCounts: jest.fn().mockResolvedValue({ total: 5, active: 4, finished: 1 }),
-        visitCounts: jest.fn().mockResolvedValue({ total: 9, scheduled: 4, completed: 2, confirmed: 2, cancelled: 1, rescheduledVisits: 1, rescheduleEvents: 2, overduePending: 1, upcoming: 2 }),
-        activityCounts: jest.fn().mockResolvedValue({ total: 7, pending: 3, overdue: 2, completed: 1, cancelled: 1, dueSoon: 1 }),
-      });
-      const metrics = service(readModel);
-      await expect(metrics.countActiveProjects(CTX)).resolves.toBe(4);
-      const window = await metrics.forecastWindow(CTX, 6);
-      expect(window).toMatchObject({ window: { from: { year: 2026, month: 11 }, to: { year: 2027, month: 4 } }, totalTonnage: null, unconvertedLines: 0, quantitiesByUnit: [] });
-      expect(window.months).toHaveLength(6);
-      await expect(metrics.countVisits(CTX, 7)).resolves.toEqual({ pending: 4, overdue: 1, upcoming: 2 });
-      expect(readModel.visitCounts).toHaveBeenCalledWith(expect.objectContaining({ period: null, categories: [] }), CTX.now, new Date('2026-10-20T18:00:00Z'));
-      await expect(metrics.countActivities(CTX, 48)).resolves.toEqual({ pending: 3, dueSoon: 1, overdue: 2 });
-      expect(readModel.activityCounts).toHaveBeenCalledWith(expect.objectContaining({ now: CTX.now, period: null }), new Date('2026-10-15T18:00:00Z'));
-      expect(metrics.forecastWindowMonths(CTX, 2)).toEqual([
-        { year: 2026, month: 11 },
-        { year: 2026, month: 12 },
+    it('COUNTRY: metas de su país; ORGANIZATION: suma de metas de país por métrica', async () => {
+      readModel.listTargets.mockResolvedValue([target({ userId: null, countryId: 'gt' })]);
+      await service.targetCompliance(ctx('COUNTRY', { countryIds: ['gt'] }), october);
+      expect(readModel.listTargets).toHaveBeenLastCalledWith({ userIds: [], teamIds: [], countryIds: ['gt'], allCountries: false }, [2026]);
+      expect(readModel.achieved).toHaveBeenLastCalledWith(expect.objectContaining({ subject: { kind: 'COUNTRY', countryId: 'gt' } }));
+
+      readModel.listTargets.mockResolvedValue([
+        target({ userId: null, countryId: 'gt', metric: 'AMOUNT', targetValue: '100.0000' }),
+        target({ id: 't2', userId: null, countryId: 'sv', metric: 'AMOUNT', targetValue: '50.0000' }),
       ]);
+      const items = await service.targetCompliance(ctx('ORGANIZATION'), october);
+      expect(items).toEqual([expect.objectContaining({ targetId: null, metric: 'AMOUNT', targetValue: '150.0000', subject: { type: 'ORGANIZATION', id: null, label: 'Organización' }, currencyCode: 'USD' })]);
     });
+
+    it('metas de otro mes y metas por familia de producto no aplican', async () => {
+      readModel.listTargets.mockResolvedValue([target({ month: 9 }), target({ id: 't3', productFamilyId: 'fam' })]);
+      await expect(service.targetCompliance(ctx(), october)).resolves.toEqual([]);
+    });
+  });
+
+  it('targetInPeriod: anual solo en el año completo; mensual dentro del rango', () => {
+    expect(targetInPeriod({ year: 2026, month: 10 }, { from: '2026-10-01', to: '2026-10-31' })).toBe(true);
+    expect(targetInPeriod({ year: 2026, month: null }, { from: '2026-10-01', to: '2026-12-31' })).toBe(false);
+    expect(targetInPeriod({ year: 2026, month: null }, { from: '2026-01-01', to: '2026-12-31' })).toBe(true);
+  });
+});
+
+describe('fuente única de las fórmulas (PF-01.24)', () => {
+  function sources(directory: string): string[] {
+    return readdirSync(directory).flatMap((name) => {
+      const path = join(directory, name);
+      if (statSync(path).isDirectory()) return sources(path);
+      return path.endsWith('.ts') && !path.endsWith('.spec.ts') ? [path] : [];
+    });
+  }
+
+  it('ningún archivo fuera de metric-definitions.ts consulta isClosed o isFinal del catálogo', () => {
+    const root = join(__dirname, '..', '..');
+    const offenders = sources(root)
+      // El módulo de catálogos valida la semántica al administrarla (no calcula indicadores).
+      .filter((path) => !path.endsWith('metric-definitions.ts') && !path.includes(join('modules', 'catalogs')))
+      .filter((path) => /['"]is(Closed|Final)['"]/.test(readFileSync(path, 'utf8')))
+      .map((path) => relative(root, path));
+    expect(offenders).toEqual([]);
   });
 });

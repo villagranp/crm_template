@@ -117,6 +117,23 @@ export function resolvePeriod(kind: PeriodKind, clock: MetricClock): DateRange {
   }
 }
 
+/** Rango máximo admitido por la API de Inicio (RN-01.15). */
+export const MAX_PERIOD_DAYS = 366;
+
+/** Días de calendario del rango, ambos incluidos (01 RN-01.15). */
+export function periodDays(range: DateRange): number {
+  return Math.round((fromCalendarDate(range.to).getTime() - fromCalendarDate(range.from).getTime()) / DAY_MS) + 1;
+}
+
+/**
+ * `[inicio del primer día, inicio del día siguiente al último)` en la zona, para columnas
+ * `timestamptz` (01 KPI-10). Mismos instantes que `toBusinessWindow` (RN-05.8).
+ */
+export function periodInstants(range: DateRange, timeZone: string): { readonly start: Date; readonly endExclusive: Date } {
+  const window = toBusinessWindow(range, timeZone);
+  return { start: window.fromInstant, endExclusive: window.toExclusive };
+}
+
 /** RN-05.8: `[from 00:00, to+1 00:00)` en la zona del negocio. */
 export function toBusinessWindow(range: DateRange, timeZone: string): BusinessDateWindow {
   return {

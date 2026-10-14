@@ -30,7 +30,8 @@ import { CUSTOMERS_REPOSITORY } from './ports/customers.repository.port';
  * `PrismaModule` (transacciones y secuencias) son globales.
  *
  * Exporta lo que reutilizan otros módulos (02 F.6): `CustomerValidationService` y
- * `CustomerCreationService` (Módulo 6), `CustomerReferenceGuard` (Módulos 3 y 4)
+ * `CustomerCreationService` (Módulo 6), `CustomersService.formOptions` (plantilla del Módulo 6),
+ * `CustomerReferenceGuard` (Módulos 3 y 4)
  * y `CustomerActorResolver` para construir el actor que reciben.
  */
 @Module({
@@ -48,6 +49,6 @@ import { CUSTOMERS_REPOSITORY } from './ports/customers.repository.port';
     { provide: CUSTOMERS_REPOSITORY, useClass: PrismaCustomersRepository },
     { provide: CONTACTS_REPOSITORY, useClass: PrismaContactsRepository },
   ],
-  exports: [CustomerValidationService, CustomerCreationService, CustomerReferenceGuard, CustomerActorResolver],
+  exports: [CustomerValidationService, CustomerCreationService, CustomerReferenceGuard, CustomerActorResolver, CustomersService],
 })
 export class CustomersModule {}

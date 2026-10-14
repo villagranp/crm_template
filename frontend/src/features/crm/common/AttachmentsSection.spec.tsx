@@ -36,6 +36,20 @@ const LIMITS: AttachmentLimits = {
   allowedTypes: ['application/pdf', 'image/png'],
 };
 
+/**
+ * Contenido del Blob entregado a `saveFile`, sea el Blob nativo de Node (con `text()`) o
+ * el de jsdom (sin `text()` según la versión de Node): solo `FileReader` lee este último.
+ */
+function blobText(blob: Blob): Promise<string> {
+  if (typeof blob.text === 'function') return blob.text();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(blob);
+  });
+}
+
 function page(items: AttachmentDto[]) {
   return jsonResponse({
     data: items,
@@ -97,7 +111,7 @@ describe('AttachmentsSection', () => {
     // nativo de Node y el global de jsdom es otra clase, así que `instanceof` falla.
     const [blob] = vi.mocked(saveFile).mock.calls[0] as [Blob, string];
     expect(blob.type).toBe('application/pdf');
-    expect(await blob.text()).toBe('%PDF');
+    expect(await blobText(blob)).toBe('%PDF');
     expect(callsTo(fetchMock, 'GET', `${BASE}/att-1/content`)).toHaveLength(1);
   });
 

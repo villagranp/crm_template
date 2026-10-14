@@ -1390,14 +1390,29 @@ async function seedImport(ctx: Context, customers: Map<string, CreatedCustomer>)
   const owners = ['DEMO-E005', 'DEMO-E006', 'DEMO-E007'];
   for (let row = 1; row <= 10; row += 1) {
     const legalName = `Cliente Importado Demo ${row}, S.A.`;
-    const rawData = { legalName, taxId: `90000${row}-K`, countryCode: row === 8 ? 'XX' : 'GT', city: 'Quetzaltenango', status: 'PROSPECTO' };
+    // Misma forma que escribe la carga real (06 D.1): las 13 columnas de la plantilla como texto.
+    const rawData = {
+      customerCode: row === 9 ? 'DEMO-IMP-C04' : row === 10 ? 'DEMO-GT-001' : `DEMO-IMP-C${String(row + 1).padStart(2, '0')}`,
+      legalName,
+      tradeName: `Importado Demo ${row}`,
+      country: row === 8 ? 'NI' : 'GT',
+      city: 'Quetzaltenango',
+      address: null,
+      phone: null,
+      email: null,
+      companyType: 'FERRETERIA',
+      status: 'PROSPECTO',
+      rating: 'C',
+      salesOwner: null,
+      taxId: `90000${row}-K`,
+    };
     let customerId: string | null = null;
     if (row <= 7) {
       const customer = await ctx.tx.customer.create({
         data: customerRow(
           ctx,
           {
-            legalName, tradeName: `Importado Demo ${row}`, country: 'GT', customerCode: null, taxId: rawData.taxId, city: rawData.city,
+            legalName, tradeName: rawData.tradeName, country: 'GT', customerCode: rawData.customerCode, taxId: rawData.taxId, city: rawData.city,
             companyType: 'FERRETERIA', status: 'PROSPECTO', rating: 'C', owner: owners[row % owners.length] ?? 'DEMO-E005',
           },
           `DEMO-CLI-${String(100 + row).padStart(4, '0')}`,
@@ -1417,14 +1432,15 @@ async function seedImport(ctx: Context, customers: Map<string, CreatedCustomer>)
         rawData,
         status,
         customerId,
+        // Códigos y campos de 06 F.3 (los mismos que produce la validación real).
         errors:
           status === 'INVALID'
-            ? [{ field: 'countryCode', code: 'INVALID_COUNTRY', message: 'País no reconocido.', severity: 'ERROR' }]
+            ? [{ field: 'country', code: 'INVALID_COUNTRY', message: 'El país no existe o no está activo.', severity: 'ERROR' }]
             : status === 'DUPLICATE_IN_FILE'
-              ? [{ field: 'taxId', code: 'DUPLICATE_IN_FILE', message: 'Repite la fila 3.', severity: 'ERROR' }]
+              ? [{ field: 'customerCode', code: 'DUPLICATE_IN_FILE', message: 'El código de cliente se repite en la fila 4 del archivo.', severity: 'ERROR' }]
               : status === 'DUPLICATE_EXISTING'
-                ? [{ field: 'legalName', code: 'DUPLICATE_EXISTING', message: 'Ya existe un cliente con esa razón social.', severity: 'ERROR' }]
-                : Prisma.JsonNull,
+                ? [{ field: 'customerCode', code: 'CUSTOMER_CODE_TAKEN', message: 'Ya existe un cliente con este código de cliente.', severity: 'ERROR' }]
+                : [],
         duplicateOfRowNumber: status === 'DUPLICATE_IN_FILE' ? 3 : null,
         duplicateOfCustomerId: status === 'DUPLICATE_EXISTING' ? need(customers, 'C1', 'cliente').id : null,
       },

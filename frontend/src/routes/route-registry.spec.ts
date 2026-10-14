@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import { getShellNavigablePaths } from './app-routes';
 import { collectNavigablePaths } from './route-tree';
+import { getShellNavigablePathsWithoutPages } from './shell-paths';
 
 /**
  * PLAN-ADMIN D6: una opción de menú sólo puede apuntar a una ruta registrada
@@ -46,6 +47,10 @@ describe('registro de rutas (PLAN-ADMIN D6)', () => {
     ].filter((problem): problem is string => problem !== null);
 
     expect(problems, problems.join('\n')).toEqual([]);
+  });
+
+  it('las rutas calculadas sin páginas (shell-paths) son exactamente las del router', () => {
+    expect(getShellNavigablePathsWithoutPages()).toEqual(getShellNavigablePaths());
   });
 
   it('el router no declara la misma ruta dos veces', () => {

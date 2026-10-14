@@ -12,7 +12,7 @@ import {
   type PhaseCount,
   periodMonths,
   seriesOf,
-  type StageCount,
+  type ReportStageCount,
 } from '@/modules/commercial-metrics/commercial-metrics.service';
 import { type DateRange, monthRange, toBusinessWindow } from '@/modules/commercial-metrics/commercial-period';
 import { addMonths, businessMonth, compareYearMonth, forecastWindowMonths, type YearMonth } from '@/modules/commercial-metrics/metric-definitions';
@@ -59,7 +59,7 @@ export interface DashboardOwnerRow {
 export interface CommercialDashboard {
   readonly period: DateRange;
   readonly activeProjects: { readonly count: number; readonly byPhase: readonly PhaseCount[] };
-  readonly opportunitiesByStage: readonly StageCount[];
+  readonly opportunitiesByStage: readonly ReportStageCount[];
   readonly wonLostByMonth: readonly Pick<MonthlyCounts, 'year' | 'month' | 'won' | 'wonFull' | 'partial' | 'lost'>[];
   readonly forecastRange: { readonly from: YearMonth; readonly to: YearMonth };
   readonly forecastByMonth: readonly DashboardForecastMonth[];

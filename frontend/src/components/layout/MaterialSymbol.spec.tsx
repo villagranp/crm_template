@@ -37,7 +37,21 @@ describe('MaterialSymbol', () => {
   });
 
   it.each([
+    ['event_note', 'EventNoteOutlinedIcon'],
+    ['pending_actions', 'PendingActionsOutlinedIcon'],
+    ['location_on', 'LocationOnOutlinedIcon'],
+    ['task_alt', 'TaskAltOutlinedIcon'],
     ['bar_chart', 'BarChartOutlinedIcon'],
+    ['upload_file', 'UploadFileOutlinedIcon'],
+  ])(
+    'resuelve el icono `%s` de las opciones del CRM que muestra el Panel de control',
+    (name, testId) => {
+      renderWithProviders(<MaterialSymbol name={name} />);
+      expect(screen.getByTestId(testId)).toHaveAttribute('aria-hidden', 'true');
+    },
+  );
+
+  it.each([
     ['insights', 'InsightsOutlinedIcon'],
     ['filter_alt', 'FilterAltOutlinedIcon'],
   ])('resuelve el icono `%s` del módulo Reportes (05 H.3)', (name, testId) => {

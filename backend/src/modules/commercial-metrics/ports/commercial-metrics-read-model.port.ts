@@ -1,14 +1,16 @@
 import type { DecimalString } from '@/common/decimal';
 import type { Page } from '@/infrastructure/database/ports/pagination';
 import type { VisibilityScope } from '@/modules/access/visibility-scope';
+import type { CommercialVisibility } from '@/modules/commercial-activity/ports/commercial-visibility';
 import type { CommercialStatusFilter } from '@/modules/projects/project-commercial-status';
 
-import type { BusinessDateWindow } from '../commercial-period';
+import type { BusinessDateWindow, DateRange } from '../commercial-period';
 import type {
   ActivityCategory,
   MetricClock,
   OpportunityCounts,
   OpportunityStatusFilter,
+  SemanticCatalogItem,
   VisitCategory,
   YearMonth,
 } from '../metric-definitions';
@@ -40,6 +42,13 @@ export const COMMERCIAL_METRICS_READ_MODEL = Symbol('COMMERCIAL_METRICS_READ_MOD
 export interface MetricContext extends MetricClock {
   /** Resuelto por `VisibilityScopeResolver` con el permiso de quien consulta (`reportes.ver`, `oportunidades.ver`…). */
   readonly scope: VisibilityScope;
+  /**
+   * Alcance de `proyectos.ver` para la herencia de visitas y actividades en Inicio (04 H.3,
+   * DM-13, 01 P-2): un registro vinculado a un proyecto visible cuenta aunque su dueño quede
+   * fuera de `scope`. Solo lo usan KPI-06…09; sin él no hay herencia. Reportes no lo usa:
+   * aplica `reportes.ver` a lo directo y a lo heredado (05 P-05.3).
+   */
+  readonly inheritedProjectScope?: VisibilityScope;
 }
 
 /** Período sobre la columna elegida (`dateBasis`, C.2): fechas para `date`, instantes para `timestamptz`. */
@@ -337,7 +346,119 @@ export interface FunnelReachRecord {
   readonly count: number;
 }
 
+// ---------------------------------------------------------------------------
+// Indicadores de Inicio (01 F.2, KPI-01…KPI-10)
+// ---------------------------------------------------------------------------
+
+export interface StageCountRow {
+  readonly stageId: string;
+  readonly count: number;
+}
+
+export interface OutcomeCountRow {
+  readonly outcome: 'WON' | 'LOST' | 'PARTIAL';
+  readonly count: number;
+}
+
+export interface ForecastMonthRow extends YearMonth {
+  /** Decimal en texto (4 decimales); `null` si el mes no tiene toneladas. */
+  readonly tonnage: string | null;
+  readonly lineCount: number;
+}
+
+export interface ForecastWindowRows {
+  readonly months: readonly ForecastMonthRow[];
+  readonly unconvertedLines: number;
+  readonly quantitiesByUnit: readonly { readonly unit: UnitRef; readonly quantity: string }[];
+}
+
+export interface VisitCountRows {
+  readonly pending: number;
+  readonly overdue: number;
+  readonly upcoming: number;
+}
+
+export interface ActivityCountRows {
+  readonly pending: number;
+  readonly dueSoon: number;
+  readonly overdue: number;
+}
+
+export type TargetMetric = 'TONNAGE' | 'WON_OPPORTUNITIES' | 'VISITS' | 'ACTIVITIES' | 'AMOUNT';
+
+export interface SalesTargetRecord {
+  readonly id: string;
+  readonly metric: TargetMetric;
+  readonly year: number;
+  readonly month: number | null;
+  readonly userId: string | null;
+  readonly teamId: string | null;
+  readonly countryId: string | null;
+  readonly productFamilyId: string | null;
+  readonly targetValue: string;
+  readonly subjectLabel: string;
+}
+
+/** Sujeto cuyos registros cuentan para el "logrado" de una meta (D-01.8). */
+export type AchievementSubject =
+  | { readonly kind: 'OWNERS'; readonly ownerIds: readonly string[] }
+  | { readonly kind: 'COUNTRY'; readonly countryId: string }
+  | { readonly kind: 'ALL' };
+
+export interface AchievementQuery {
+  readonly metric: TargetMetric;
+  readonly subject: AchievementSubject;
+  readonly period: DateRange;
+  /** Para métricas con `timestamptz` (visitas, actividades). */
+  readonly periodStart: Date;
+  readonly periodEndExclusive: Date;
+  readonly doneVisitStatusIds: readonly string[];
+  readonly completedActivityStatusIds: readonly string[];
+}
+
+export interface TargetSubjectFilter {
+  readonly userIds: readonly string[];
+  readonly teamIds: readonly string[];
+  readonly countryIds: readonly string[];
+  /** Metas de país de todas las organizaciones (ORGANIZATION). */
+  readonly allCountries: boolean;
+}
+
+/**
+ * Un solo puerto para Inicio (01 F.2) y Reportes (05 G.3). Las consultas de Inicio
+ * reciben el alcance y los ids ya resueltos; las de Reportes, un criterio por entidad.
+ * Ambas familias aplican los mismos predicados de visibilidad y vigencia y las mismas
+ * definiciones (`metric-definitions.ts`); PF-05.30 comprueba que cuadran.
+ */
 export interface CommercialMetricsReadModel {
+  // --- Inicio (01 F.2) ---
+
+  /** Elementos de un catálogo (activos e inactivos: un registro puede apuntar a uno desactivado). */
+  catalogItems(catalogKey: string): Promise<SemanticCatalogItem[]>;
+  unitByCode(code: string): Promise<UnitRef | null>;
+  /** KPI-01: proyectos vigentes visibles con fase en `phaseIds`. */
+  countProjects(scope: VisibilityScope, phaseIds: readonly string[]): Promise<number>;
+  /** KPI-02: oportunidades vigentes visibles por etapa (solo las etapas pedidas). */
+  countOpportunitiesByStage(scope: VisibilityScope, stageIds: readonly string[]): Promise<StageCountRow[]>;
+  /** KPI-03/04: oportunidades vigentes visibles con resultado decidido en el período (una fila por oportunidad). */
+  countOpportunitiesByOutcome(scope: VisibilityScope, period: DateRange): Promise<OutcomeCountRow[]>;
+  /** KPI-05: líneas de forecast de proyectos vigentes visibles en los meses dados. */
+  forecastWindow(scope: VisibilityScope, months: readonly YearMonth[]): Promise<ForecastWindowRows>;
+  /** KPI-06/07: visitas de clientes y proyectos vigentes, visibles, con estado pendiente. */
+  countVisits(visibility: CommercialVisibility, pendingStatusIds: readonly string[], now: Date, upcomingUntil: Date): Promise<VisitCountRows>;
+  /** KPI-08/09: actividades vigentes visibles abiertas. */
+  countActivities(visibility: CommercialVisibility, openStatusIds: readonly string[], now: Date, dueSoonUntil: Date): Promise<ActivityCountRows>;
+  /** KPI-10: metas no eliminadas de los sujetos, de los meses o años indicados. */
+  listTargets(subjects: TargetSubjectFilter, years: readonly number[]): Promise<SalesTargetRecord[]>;
+  /** Equipos donde el usuario es responsable o miembro principal (D-01.8, TEAM). */
+  teamsLedOrPrimary(userId: string): Promise<string[]>;
+  /** Miembros (y responsable) de un equipo y sus subequipos activos. */
+  teamOwnerIds(teamId: string): Promise<string[]>;
+  /** "Logrado" de una métrica en un período (decimal en texto, 4 decimales). */
+  achieved(query: AchievementQuery): Promise<string>;
+
+  // --- Reportes (05 G.3) ---
+
   opportunityTotals(criteria: OpportunityCriteria): Promise<OpportunityTotalsRecord>;
   /** Conteo por etapa vigente; solo etapas con al menos una oportunidad. */
   opportunityStageCounts(criteria: OpportunityCriteria): Promise<StageCountRecord[]>;

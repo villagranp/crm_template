@@ -1,4 +1,4 @@
-import type { ForecastAggregate, ForecastGroup, SalesFunnel, StageCount } from '@/modules/commercial-metrics/commercial-metrics.service';
+import type { ForecastAggregate, ForecastGroup, ReportStageCount, SalesFunnel } from '@/modules/commercial-metrics/commercial-metrics.service';
 
 import type { ActivityReportSummary, ActivityReportView } from './activity-report.service';
 import type { CommercialDashboard, CommercialTrends } from './dashboard.service';
@@ -76,7 +76,7 @@ export function toOpportunityReportRowDto(view: OpportunityReportView): Opportun
   };
 }
 
-function toStageCountDto(stage: StageCount): ReportStageCountDto {
+function toStageCountDto(stage: ReportStageCount): ReportStageCountDto {
   return {
     stage: { id: stage.stageId, code: stage.code, label: stage.label, order: stage.order, isClosed: stage.isClosed, isActive: stage.isActive },
     count: stage.count,

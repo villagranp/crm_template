@@ -36,6 +36,8 @@
     { "path": "/reportes/visitas", "label": "Reporte de visitas" },
     { "path": "/reportes/actividades", "label": "Reporte de actividades" },
     { "path": "/reportes/dashboard", "label": "Dashboard comercial" },
-    { "path": "/reportes/embudo", "label": "Embudo comercial" }
+    { "path": "/reportes/embudo", "label": "Embudo comercial" },
+    { "path": "/integraciones/clientes", "label": "Carga masiva de clientes" },
+    { "path": "/integraciones/clientes/:importId", "label": "Detalle de carga de clientes" }
   ]
 }

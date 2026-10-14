@@ -118,6 +118,32 @@ Durante la lectura (los tamaños declarados pueden mentir):
 - Exportar exige `reportes.exportar` y respeta el alcance del usuario: la
   librería no cambia ninguna decisión de autorización.
 
+## Addendum — 2026-10-13 (implementación de la carga masiva, Módulo 6)
+
+- **Versión:** `exceljs` **4.4.0**, fijada exacta. `pnpm audit --prod`: la única advertencia nueva
+  es **moderada** en la dependencia transitiva `uuid@8.3.2` (`<11.1.1`, comprobación de límites
+  al escribir en un búfer que pasa el llamador; `exceljs` no usa esa variante). Ninguna alta ni
+  crítica: el gate de incorporación se cumple.
+- **Lectura sin streaming:** `stream.xlsx.WorkbookReader` escribe cada hoja en un archivo
+  temporal en disco cuando `xl/sharedStrings.xml` aparece después de las hojas dentro del ZIP,
+  que es el orden habitual de Excel. Eso contradice la regla "nunca disco temporal" (06 H.2).
+  Se usa `workbook.xlsx.load(buffer)` en memoria, **después** de la guardia ZIP, que ahora
+  además descomprime cada entrada con `maxOutputLength` (si el tamaño declarado miente, se
+  rechaza), rechaza XML con DTD/entidades sin parsearlo y cuenta filas con valores y celdas por
+  hoja. Revisión E5: el recuento es un presupuesto **global** de todas las hojas (elementos
+  `<row>`, celdas y textos compartidos); la carga pasa `ignoreNodes` para no expandir los nodos de
+  rango (`mergeCells`, `dataValidations`, `conditionalFormatting`, `hyperlinks`…: un
+  `A1:XFD1048576` de pocos bytes creaba millones de objetos), se recorren solo las filas
+  existentes (`eachRow`) y se lee un XLSX a la vez por proceso. Así la memoria de la librería
+  queda acotada por los topes de filas y columnas, no por lo que declare el archivo. Tiempo
+  máximo de lectura: 20 s (`PARSE_TIMEOUT`; no interrumpe la parte síncrona de la carga, que
+  queda acotada por esos topes).
+- **Escritura:** `stream.xlsx.WorkbookWriter` (plantilla y archivo de errores), celdas con
+  `numFmt '@'` y valores neutralizados con `neutralizeFormula` de `common/csv.ts`.
+- `common/xlsx.ts` lo crea el Módulo 6 (`readSheetRows`, `writeTextWorkbook`); el Módulo 5
+  añade allí su escritor de exportaciones. Las pruebas generan los archivos con `exceljs`
+  directamente desde `modules/customer-imports/testing/` (código de prueba, fuera del build).
+
 ## Addendum 2026-10-14 — Versión incorporada y resultado del gate
 
 - **Versión:** `exceljs` **4.4.0** (última estable publicada; la línea 4.x es la aceptada),
@@ -132,7 +158,12 @@ Durante la lectura (los tamaños declarados pueden mentir):
 - **Uso implementado (Reportes, F-39):** solo escritura en *streaming* desde
   `backend/src/common/xlsx.ts` (`XlsxStreamWriter`); ninguna otra pieza de producción importa la
   librería. Las pruebas la usan para **leer** los archivos generados. La lectura de archivos no
-  confiables (carga masiva, 06) sigue pendiente con las guardas de este ADR.
+  confiables es la del Módulo 6 (addendum anterior).
 - **Prueba de memoria:** exportar 100 000 filas (5,8 MB) tarda ~27 s con un pico de ~180 MB
   sobre el reposo del proceso (05 P-05.17).
+- **Integración con el Módulo 6 (2026-10-14):** las dos ramas incorporaron la misma versión
+  (`4.4.0`, exacta), así que queda **una** entrada en `backend/package.json` y en
+  `pnpm-lock.yaml`. `common/xlsx.ts` es un único envoltorio: lectura y escritura de texto de la
+  carga masiva (`readSheetRows`, `writeTextWorkbook`) y escritura tipada en *streaming* de la
+  exportación (`XlsxStreamWriter`), con la misma neutralización de fórmulas de `common/csv.ts`.
 

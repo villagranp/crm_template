@@ -3,8 +3,9 @@ import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
 import { ROUTE_PATHS } from '@/routes/route-paths';
 
 import { COMMERCIAL_ACTIVITY_ROUTES } from './commercial-activity/commercial-activity-routes';
-import { REPORT_ROUTES } from './reports/reports-routes';
+import { CUSTOMER_IMPORT_PERMISSIONS } from './customer-imports/customer-imports.permissions';
 import { FORECAST_PERMISSIONS, OPPORTUNITY_PERMISSIONS, PROJECT_PERMISSIONS } from './projects/projects.permissions';
+import { REPORT_ROUTES } from './reports/reports-routes';
 
 /**
  * Pantallas del CRM comercial: ruta, permiso y página (cargada bajo demanda).
@@ -101,4 +102,21 @@ export const CRM_ROUTES: readonly CrmRoute[] = [
   ...COMMERCIAL_ACTIVITY_ROUTES,
   // Reportes (05 E.1): `reports/reports-routes.ts`.
   ...REPORT_ROUTES,
+  // Módulo 6 (06 §E): historial y detalle de cargas masivas de clientes.
+  {
+    path: ROUTE_PATHS.crm.customerImports.list,
+    permission: CUSTOMER_IMPORT_PERMISSIONS.view,
+    Page: lazy(() =>
+      import('./customer-imports/CustomerImportsPage').then((module) => ({ default: module.CustomerImportsPage })),
+    ),
+  },
+  {
+    path: ROUTE_PATHS.crm.customerImports.detail,
+    permission: CUSTOMER_IMPORT_PERMISSIONS.view,
+    Page: lazy(() =>
+      import('./customer-imports/CustomerImportDetailPage').then((module) => ({
+        default: module.CustomerImportDetailPage,
+      })),
+    ),
+  },
 ];

@@ -5,7 +5,9 @@ import BarChartOutlinedIcon from '@mui/icons-material/BarChartOutlined';
 import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined';
 import CalendarMonthOutlinedIcon from '@mui/icons-material/CalendarMonthOutlined';
 import CallOutlinedIcon from '@mui/icons-material/CallOutlined';
+import CategoryOutlinedIcon from '@mui/icons-material/CategoryOutlined';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import CurrencyExchangeOutlinedIcon from '@mui/icons-material/CurrencyExchangeOutlined';
 import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
 import EventBusyOutlinedIcon from '@mui/icons-material/EventBusyOutlined';
 import EventNoteOutlinedIcon from '@mui/icons-material/EventNoteOutlined';
@@ -23,10 +25,12 @@ import MailOutlinedIcon from '@mui/icons-material/MailOutlined';
 import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
 import PendingActionsOutlinedIcon from '@mui/icons-material/PendingActionsOutlined';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
+import SwapHorizOutlinedIcon from '@mui/icons-material/SwapHorizOutlined';
 import TaskAltOutlinedIcon from '@mui/icons-material/TaskAltOutlined';
 import TrackChangesOutlinedIcon from '@mui/icons-material/TrackChangesOutlined';
 import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
+import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import ViewListOutlinedIcon from '@mui/icons-material/ViewListOutlined';
 import type { SvgIconComponent } from '@mui/icons-material';
 
@@ -73,6 +77,16 @@ const ICON_REGISTRY: Record<string, SvgIconComponent> = {
   apartment: ApartmentOutlinedIcon,
   handshake: HandshakeOutlinedIcon,
   trending_up: TrendingUpOutlinedIcon,
+  // CRM: Reportes (módulo `reportes` y opciones `reportes-dashboard` / `reportes-embudo`, 05 H.3),
+  // Integraciones (`upload_file`: carga masiva, 06 §E) y catálogos del CRM
+  // (crm-access.ts), que el Panel de control muestra en sus accesos (01 §E.6). Los de Actividad comercial, más abajo.
+  bar_chart: BarChartOutlinedIcon,
+  insights: InsightsOutlinedIcon,
+  filter_alt: FilterAltOutlinedIcon,
+  upload_file: UploadFileOutlinedIcon,
+  currency_exchange: CurrencyExchangeOutlinedIcon,
+  category: CategoryOutlinedIcon,
+  swap_horiz: SwapHorizOutlinedIcon,
   chevron_right: ChevronRightIcon,
   // Actividad comercial: módulo `actividad-comercial` y opciones `actividad-*`
   // (backend/prisma/seed/crm-access.ts; `history` ya estaba) e iconos por tipo (04 §L.4).
@@ -88,11 +102,6 @@ const ICON_REGISTRY: Record<string, SvgIconComponent> = {
   event_busy: EventBusyOutlinedIcon,
   attach_file: AttachFileOutlinedIcon,
   view_list: ViewListOutlinedIcon,
-  // Reportes: módulo `reportes` y opciones `reportes-dashboard` / `reportes-embudo` (05 H.3;
-  // el resto de opciones reutiliza iconos ya registrados).
-  bar_chart: BarChartOutlinedIcon,
-  insights: InsightsOutlinedIcon,
-  filter_alt: FilterAltOutlinedIcon,
 };
 
 export function MaterialSymbol({ name, size = 22 }: MaterialSymbolProps) {

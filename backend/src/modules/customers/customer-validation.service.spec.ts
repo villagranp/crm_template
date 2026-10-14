@@ -8,6 +8,7 @@ import type { ParameterReader } from '@/modules/parameters/parameter-reader';
 
 import type { CustomerActorResolver } from './customer-actor.resolver';
 import {
+  CustomerReferenceCache,
   CUSTOMER_PARAMETERS,
   type CustomerDraft,
   type CustomerValidationOptions,
@@ -467,6 +468,14 @@ describe('CustomerValidationService', () => {
       expect(outcome.normalized?.salesOwnerId).toBe('user-1');
     });
 
+    it('en importación sin responsable asigna al actor buscándolo por id, no por clave natural (06 RN-06.12)', async () => {
+      const outcome = await service.validate({ ...VALID_BY_KEY, salesOwner: '  ' }, byKey());
+
+      expect(repository.findEligibleSalesOwner).toHaveBeenCalledWith({ by: 'id', value: 'user-1' }, expect.anything(), 'clientes.ver', undefined);
+      expect(outcome.errors).toEqual([]);
+      expect(outcome.normalized?.salesOwnerId).toBe('user-1');
+    });
+
     it('en la edición no revalida el responsable actual', async () => {
       const outcome = await service.validate({ salesOwner: 'user-1' }, byId({ existing: makeCustomer() }));
 
@@ -725,11 +734,29 @@ describe('CustomerValidationService', () => {
     });
   });
 
+  describe('memoria de referencias (importación, 06 PF-06.44)', () => {
+    it('lee cada país, catálogo y responsable una vez por lote; con tx la ignora', async () => {
+      const referenceCache = new CustomerReferenceCache();
+      await service.validate(VALID_BY_KEY, byKey({ referenceCache }));
+      await service.validate({ ...VALID_BY_KEY, legalName: 'Otra S.A.' }, byKey({ referenceCache }));
+
+      expect(repository.findCountry).toHaveBeenCalledTimes(1);
+      expect(repository.findEligibleSalesOwner).toHaveBeenCalledTimes(1);
+      const catalogCalls = catalogs.check.mock.calls.length;
+
+      await service.validate(VALID_BY_KEY, byKey({ referenceCache, tx: TX }));
+      expect(repository.findCountry).toHaveBeenCalledTimes(2);
+      expect(repository.findCountry).toHaveBeenLastCalledWith(expect.anything(), TX);
+      expect(catalogs.check.mock.calls.length).toBeGreaterThan(catalogCalls);
+    });
+  });
+
   describe('duplicateKeys (importación)', () => {
     it('con PAIS compone país y código, y omite el NIT si la regla no avisa', async () => {
       await expect(service.duplicateKeys({ country: ' gt ', customerCode: 'ab-12', taxId: '1234567' })).resolves.toEqual({
         customerCode: 'GT|AB12',
         taxId: null,
+        legalName: null,
       });
     });
 
@@ -740,11 +767,27 @@ describe('CustomerValidationService', () => {
       await expect(service.duplicateKeys({ country: 'GT', customerCode: 'AB 12', taxId: '12.345-6 k' })).resolves.toEqual({
         customerCode: 'AB12',
         taxId: 'GT|123456K',
+        legalName: null,
       });
     });
 
+    it('incluye la razón social normalizada por país si su regla no vale NO, y acepta el contexto de prepare()', async () => {
+      params[CUSTOMER_PARAMETERS.duplicateRules] = { razonSocialNormalizada: 'AVISAR' };
+      await expect(service.duplicateKeys({ country: 'GT', legalName: ' Ácme,  S.A. ' })).resolves.toEqual({
+        customerCode: null,
+        taxId: null,
+        legalName: 'GT|acme, s.a.',
+      });
+
+      const keys = await service.duplicateKeys(
+        { country: 'SV', customerCode: 'x1', taxId: '99', legalName: 'Acme' },
+        { codeUniqueness: 'GLOBAL', duplicateRules: { razonSocialNormalizada: 'NO', nombreComercialNormalizado: 'NO', correo: 'NO', telefono: 'NO', nit: 'AVISAR' } },
+      );
+      expect(keys).toEqual({ customerCode: 'X1', taxId: 'SV|99', legalName: null });
+    });
+
     it('devuelve null en las claves sin valor', async () => {
-      await expect(service.duplicateKeys({ country: 'GT', customerCode: '  ' })).resolves.toEqual({ customerCode: null, taxId: null });
+      await expect(service.duplicateKeys({ country: 'GT', customerCode: '  ' })).resolves.toEqual({ customerCode: null, taxId: null, legalName: null });
     });
   });
 });

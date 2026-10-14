@@ -1,3 +1,4 @@
+import type { AppLogger } from '@/infrastructure/logging/app-logger.service';
 import type { CatalogLookupService } from '@/modules/catalogs/catalog-lookup.service';
 
 import {
@@ -47,7 +48,7 @@ const SCOPE = { kind: 'FILTERED', userId: 'u1', dataScope: 'OWN', ownerIds: ['u1
 const CRITERIA = { scope: SCOPE, stageIds: [] } as unknown as OpportunityCriteria;
 
 function service(readModel: Partial<CommercialMetricsReadModel>): CommercialMetricsService {
-  return new CommercialMetricsService(readModel as CommercialMetricsReadModel, {} as CatalogLookupService);
+  return new CommercialMetricsService(readModel as CommercialMetricsReadModel, {} as AppLogger, {} as CatalogLookupService);
 }
 
 function reach(rows: [number | null, boolean, number][]): FunnelReachRecord[] {

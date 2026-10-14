@@ -17,6 +17,7 @@ import {
   ResourceConflictError,
   ResourceNotFoundError,
   ServiceUnavailableError,
+  UnsupportedMediaTypeError,
 } from '@/common/errors/application-error';
 import { AppLogger } from '@/infrastructure/logging/app-logger.service';
 import type { AppRequest } from '@/common/types/request-context';
@@ -39,6 +40,7 @@ export function httpStatusOf(exception: unknown): number {
     if (exception instanceof RequestValidationError) return HttpStatus.BAD_REQUEST;
     if (exception instanceof PayloadTooLargeError) return HttpStatus.PAYLOAD_TOO_LARGE;
     if (exception instanceof ServiceUnavailableError) return HttpStatus.SERVICE_UNAVAILABLE;
+    if (exception instanceof UnsupportedMediaTypeError) return HttpStatus.UNSUPPORTED_MEDIA_TYPE;
     return HttpStatus.BAD_REQUEST;
   }
   if (exception instanceof HttpException) {
@@ -151,6 +153,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       [HttpStatus.NOT_FOUND]: 'RESOURCE_NOT_FOUND',
       [HttpStatus.CONFLICT]: 'RESOURCE_CONFLICT',
       [HttpStatus.PAYLOAD_TOO_LARGE]: 'PAYLOAD_TOO_LARGE',
+      [HttpStatus.UNSUPPORTED_MEDIA_TYPE]: 'UNSUPPORTED_MEDIA_TYPE',
       [HttpStatus.UNPROCESSABLE_ENTITY]: 'BUSINESS_RULE_VIOLATION',
       [HttpStatus.TOO_MANY_REQUESTS]: 'RATE_LIMIT_EXCEEDED',
     };

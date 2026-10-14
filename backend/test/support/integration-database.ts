@@ -31,5 +31,10 @@ export function integrationDatabaseUrl(): string {
 
   const url = new URL(base);
   url.searchParams.set('schema', INTEGRATION_SCHEMA);
+  // Las suites corren en paralelo (un worker por CPU) y cada una abre su pool: con el límite por
+  // defecto de Prisma (2 × CPU + 1) se agotaba `max_connections` (100) del PostgreSQL local.
+  if (!url.searchParams.has('connection_limit')) {
+    url.searchParams.set('connection_limit', process.env.INTEGRATION_CONNECTION_LIMIT ?? '4');
+  }
   return url.toString();
 }

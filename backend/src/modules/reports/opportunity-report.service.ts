@@ -3,7 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { CalendarDate } from '@/common/calendar-date';
 import type { DecimalString } from '@/common/decimal';
 import type { Page } from '@/infrastructure/database/ports/pagination';
-import { CommercialMetricsService, type MetricCatalogItem, type StageCount } from '@/modules/commercial-metrics/commercial-metrics.service';
+import { CommercialMetricsService, type MetricCatalogItem, type ReportStageCount } from '@/modules/commercial-metrics/commercial-metrics.service';
 import { isClosedStage, type OpportunityCounts } from '@/modules/commercial-metrics/metric-definitions';
 import type { OwnerOpportunityCountsRecord } from '@/modules/commercial-metrics/ports/commercial-metrics-read-model.port';
 import { CurrencyConversionService } from '@/modules/exchange-rates/currency-conversion.service';
@@ -32,7 +32,7 @@ export interface OpportunityReportView extends Omit<OpportunityReportRecord, 'st
 }
 
 export interface OpportunityReportSummary extends OpportunityCounts {
-  readonly byStage: readonly StageCount[];
+  readonly byStage: readonly ReportStageCount[];
   readonly byOwner: readonly OwnerOpportunityCountsRecord[];
   readonly estimateTotals: {
     readonly amountUsd: DecimalString;
