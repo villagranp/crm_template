@@ -6,6 +6,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 ## [Unreleased]
 
 ### Added
+- **CRM Módulo 5 — Reportes, completado** (F-34…F-41, `matriz-trazabilidad.md`): backend,
+  frontend, E2E y revisión E5 en verde. Pendiente: al integrar la rama del Módulo 1 (Inicio),
+  unificar `commercial-metrics` (creado aquí con los nombres de la spec 01; se esperan
+  conflictos add/add); deuda previa de `pnpm audit` (avisos de vite, vitest, jest y prisma, no
+  aportados por `exceljs` ni `@mui/x-charts`); chip de producto «Seleccionado» tras recargar
+  (requiere `GET /products/:id` del Módulo 3).
 - **CRM Módulo 5 — E2E de Reportes** (`05-reportes.md`, P-05.33, P-05.34):
   `frontend/tests/e2e/crm-reports.e2e.spec.ts` con PF-05.39 (manager: reporte de oportunidades
   filtrado con su resumen y exportación `.xlsx` abierta con `exceljs`; dashboard con filtro de
