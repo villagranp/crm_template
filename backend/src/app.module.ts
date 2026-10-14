@@ -12,6 +12,7 @@ import { AttachmentsModule } from './modules/attachments/attachments.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CatalogsModule } from './modules/catalogs/catalogs.module';
+import { CommercialActivityModule } from './modules/commercial-activity/commercial-activity.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { ExchangeRatesModule } from './modules/exchange-rates/exchange-rates.module';
 import { ForecastModule } from './modules/forecast/forecast.module';
@@ -69,6 +70,8 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     ProjectsModule,
     OpportunitiesModule,
     ForecastModule,
+    // CRM · Módulo 4: actividad comercial (04).
+    CommercialActivityModule,
     HealthModule,
   ],
   providers: [

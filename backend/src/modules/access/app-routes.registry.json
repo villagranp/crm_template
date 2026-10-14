@@ -19,6 +19,16 @@
     { "path": "/proyectos/equipo", "label": "Proyectos del equipo" },
     { "path": "/proyectos/oportunidades", "label": "Oportunidades" },
     { "path": "/proyectos/oportunidades/:opportunityId", "label": "Detalle de oportunidad" },
-    { "path": "/proyectos/forecast", "label": "Forecast M+6" }
+    { "path": "/proyectos/forecast", "label": "Forecast M+6" },
+    { "path": "/actividad/agenda", "label": "Agenda" },
+    { "path": "/actividad/pendientes", "label": "Actividades pendientes" },
+    { "path": "/actividad/seguimiento", "label": "Seguimiento comercial" },
+    { "path": "/actividad/historial", "label": "Historial de interacciones" },
+    { "path": "/actividad/visitas", "label": "Visitas" },
+    { "path": "/actividad/visitas/nueva", "label": "Planificar visita" },
+    { "path": "/actividad/visitas/:visitId", "label": "Detalle de visita" },
+    { "path": "/actividad/actividades", "label": "Actividades" },
+    { "path": "/actividad/actividades/nueva", "label": "Nueva actividad" },
+    { "path": "/actividad/actividades/:activityId", "label": "Detalle de actividad" }
   ]
 }

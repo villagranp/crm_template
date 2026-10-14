@@ -28,11 +28,15 @@ export function useAttachments(basePath: string, query: AttachmentListQuery) {
   });
 }
 
-export function useDeleteAttachment(basePath: string) {
+/** `onChanged` (opcional) se llama tras eliminar, p. ej. para refrescar los contadores del módulo dueño. */
+export function useDeleteAttachment(basePath: string, onChanged?: () => void) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (attachment: AttachmentDto) => deleteAttachment(basePath, attachment.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: attachmentKeys.owner(basePath) }),
+    onSuccess: () => {
+      onChanged?.();
+      return queryClient.invalidateQueries({ queryKey: attachmentKeys.owner(basePath) });
+    },
   });
 }
 

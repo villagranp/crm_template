@@ -104,7 +104,7 @@ function renderSection(key: SectionKey, { project, options, takeInitialFiles }: 
     case 'forecast':
       return <ProjectForecastSection project={project} />;
     case 'seguimiento':
-      return <ProjectFollowUpSection />;
+      return <ProjectFollowUpSection project={project} />;
     case 'adjuntos':
       return (
         <AttachmentsSection

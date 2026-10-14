@@ -111,6 +111,33 @@ describe('CustomerDetailPage (F-07)', () => {
     expect(await screen.findByText('En /actividad/actividades/nueva?customerId=c-1')).toBeInTheDocument();
   });
 
+  it('con Actividad comercial disponible muestra su sección y "Planificar visita" con el cliente preseleccionado (04 §E.11)', async () => {
+    signInWith(['clientes.ver', 'actividades.ver', 'visitas.crear']);
+    const fetchMock = detailApi(
+      CUSTOMER,
+      { 'GET /follow-ups/trace': () => errorResponse(404, 'RESOURCE_NOT_FOUND') },
+      ['clientes-buscar', 'actividad-actividades'],
+    );
+
+    renderPage();
+    expect(await screen.findByText('Aún no hay actividad comercial registrada')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Nueva actividad' })).not.toBeInTheDocument();
+    expect(callsTo(fetchMock, 'GET', '/follow-ups/trace?customerId=c-1')).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Planificar visita' }));
+    expect(await screen.findByText('En /actividad/visitas/nueva?customerId=c-1')).toBeInTheDocument();
+  });
+
+  it('sin el módulo de Actividad comercial en el menú no hay sección ni botones aunque haya permisos', async () => {
+    signInWith(['clientes.ver', 'actividades.ver', 'actividades.crear', 'visitas.crear']);
+    const fetchMock = detailApi(CUSTOMER);
+
+    renderPage();
+    expect(await screen.findByRole('heading', { name: 'Adjuntos' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Actividad comercial' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Planificar visita' })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/follow-ups'))).toBe(false);
+  });
+
   it('un error en contactos no rompe la ficha y se puede reintentar (AC-02.35)', async () => {
     let calls = 0;
     detailApi(CUSTOMER, {

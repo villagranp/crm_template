@@ -2,6 +2,7 @@ import { BadRequestException, type CanActivate, type ExecutionContext, Injectabl
 
 import type { AppRequest } from '@/common/types/request-context';
 import { isUuid } from '@/modules/attachments/attachment-policy';
+import { discardRequestBody } from '@/modules/attachments/discard-request-body';
 
 import { CustomerActorResolver } from './customer-actor.resolver';
 import { CustomersService } from './customers.service';
@@ -39,28 +40,9 @@ export class CustomerAttachmentWriteGuard implements CanActivate {
       const actor = await this.actors.fromRequest(request);
       await this.customers.assertCanManageAttachments(actor, customerId);
     } catch (error) {
-      await discardBody(request);
+      await discardRequestBody(request);
       throw error;
     }
     return true;
   }
-}
-
-/**
- * Descarta, sin almacenarlo, el cuerpo que el cliente siga enviando y espera a
- * su final antes de responder el error (como hace multer con los suyos): si se
- * responde a mitad de subida, el servidor cierra la conexión y el cliente ve un
- * corte (`ECONNRESET`/`EPIPE`) en lugar del `404`/`403`. La memoria no crece (los
- * trozos se tiran según llegan) y NGINX acota el tamaño del cuerpo.
- */
-function discardBody(request: AppRequest): Promise<void> {
-  if (request.readableEnded || request.destroyed) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => {
-    request.once('end', resolve);
-    request.once('close', resolve);
-    request.once('error', () => resolve());
-    request.resume();
-  });
 }

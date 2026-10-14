@@ -1915,7 +1915,8 @@ E2b)". El aviso `EXCHANGE_RATE_STALE` conserva su `details` objeto (E1).
 - PF-03.116 "sin `forecast.ver`": ningún rol de la demo carece de ese permiso; el E2E usa un
   usuario con un rol propio que crea `backend/scripts/e2e-stack.ts activate` en el esquema aislado.
 - Sección Seguimiento: estado informativo hasta el Módulo 4; se oculta sin `actividades.ver` ni
-  `visitas.ver`. Oportunidades y Resultados se ocultan sin `oportunidades.ver`; Forecast sin
+  `visitas.ver`. Integrado el 2026-10-13: monta `CommercialActivitySection` y los botones del
+  Módulo 4 (ver 04, «Precisiones de implementación (2026-10-13)»). Oportunidades y Resultados se ocultan sin `oportunidades.ver`; Forecast sin
   `forecast.ver`.
 - Texto del alcance en la vista de equipo: sale de `GET /me` `dataScope` (el más amplio de los roles
   del usuario); para `COUNTRY` dice "tu país" (el perfil no trae el nombre del país).

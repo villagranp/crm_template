@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page, type Response } from '@playwright/test';
 
 /**
  * Recorrido completo del acceso local (PLAN-AUTH-LOCAL §7, E2E).
@@ -25,6 +25,15 @@ const adminNewPassword = process.env.E2E_ADMIN_NEW_PASSWORD ?? '';
 
 const hasCredentials = Boolean(adminEmail && adminPassword && adminNewPassword);
 
+const HTTP_OK = 200;
+
+/** Respuesta de `method` sobre `/api/v1<path>` (ruta exacta). */
+function waitForApi(page: Page, method: string, path: string): Promise<Response> {
+  return page.waitForResponse(
+    (response) => response.request().method() === method && new URL(response.url()).pathname === `/api/v1${path}`,
+  );
+}
+
 test.describe('acceso local del administrador', () => {
   test.skip(
     !hasCredentials,
@@ -36,7 +45,11 @@ test.describe('acceso local del administrador', () => {
       await page.goto('/acceso');
       await page.getByLabel(/correo electrónico/i).fill(adminEmail);
       await page.getByLabel(/^contraseña/i).fill(adminPassword);
+      const login = waitForApi(page, 'POST', '/auth/login');
       await page.getByRole('button', { name: /iniciar sesión/i }).click();
+      // Argon2id y varias escrituras: con los demás workers arrancando, el
+      // login puede pasar de los 5 s de `expect`. Se espera su respuesta real.
+      expect((await login).status()).toBe(HTTP_OK);
     });
 
     await test.step('la aplicación exige cambiar la contraseña antes de nada', async () => {
@@ -55,14 +68,13 @@ test.describe('acceso local del administrador', () => {
       await page.getByLabel(/^nueva contraseña/i).fill(adminNewPassword);
       await page.getByLabel(/^repite la nueva contraseña/i).fill(adminNewPassword);
 
-      const menuResponse = page.waitForResponse(
-        (response) =>
-          response.url().endsWith('/api/v1/me/menu') && response.request().method() === 'GET',
-      );
+      const passwordChange = waitForApi(page, 'POST', '/auth/password/change');
+      const menuResponse = waitForApi(page, 'GET', '/me/menu');
       await page.getByRole('button', { name: /guardar contraseña/i }).click();
 
+      expect((await passwordChange).status()).toBe(HTTP_OK);
+      expect((await menuResponse).status()).toBe(HTTP_OK);
       await expect(page).not.toHaveURL(/\/cambiar-contrasena$/);
-      expect((await menuResponse).status()).toBe(200);
     });
 
     await test.step('ve el menú que la base de datos le concede', async () => {

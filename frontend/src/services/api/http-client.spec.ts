@@ -60,6 +60,16 @@ describe('httpClient', () => {
     expect(url).not.toContain('status=');
   });
 
+  it('serialises a list as a repeatable query parameter', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ data: [], pagination: {} }));
+
+    await httpClient.get('/items', { query: { id: ['a', 'b'], page: 1, empty: [] } });
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(new URL(url, 'http://localhost').searchParams.getAll('id')).toEqual(['a', 'b']);
+    expect(url).not.toContain('empty=');
+  });
+
   it('maps a backend error payload to ApiError', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse(

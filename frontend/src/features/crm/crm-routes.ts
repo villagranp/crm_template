@@ -2,6 +2,7 @@ import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
 
 import { ROUTE_PATHS } from '@/routes/route-paths';
 
+import { COMMERCIAL_ACTIVITY_ROUTES } from './commercial-activity/commercial-activity-routes';
 import { FORECAST_PERMISSIONS, OPPORTUNITY_PERMISSIONS, PROJECT_PERMISSIONS } from './projects/projects.permissions';
 
 /**
@@ -95,4 +96,6 @@ export const CRM_ROUTES: readonly CrmRoute[] = [
     permission: FORECAST_PERMISSIONS.view,
     Page: lazy(() => import('./forecast/ForecastPage').then((module) => ({ default: module.ForecastPage }))),
   },
+  // Actividad comercial (04 E.1): `commercial-activity/commercial-activity-routes.ts`.
+  ...COMMERCIAL_ACTIVITY_ROUTES,
 ];

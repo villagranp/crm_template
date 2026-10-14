@@ -43,8 +43,11 @@ export function configureHttpClient(options: {
   }
 }
 
+/** Valor de un parámetro de consulta; una lista se envía como parámetro repetible (`id=a&id=b`). */
+export type QueryValue = string | number | boolean | undefined | null | readonly (string | number)[];
+
 export interface RequestOptions {
-  query?: Record<string, string | number | boolean | undefined | null>;
+  query?: Record<string, QueryValue>;
   body?: unknown;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -64,10 +67,13 @@ function buildUrl(path: string, query: RequestOptions['query']): string {
   const search = new URLSearchParams();
 
   for (const [key, value] of Object.entries(query ?? {})) {
-    if (value === undefined || value === null || value === '') {
-      continue;
+    const values = Array.isArray(value) ? value : [value];
+    for (const item of values) {
+      if (item === undefined || item === null || item === '') {
+        continue;
+      }
+      search.append(key, String(item));
     }
-    search.append(key, String(value));
   }
 
   const queryString = search.toString();

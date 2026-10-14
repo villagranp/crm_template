@@ -9,8 +9,10 @@ import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
 
 import { ConfirmDialog, DetailList, EmptyState } from '@/components/data';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { NewActivityButton } from '@/features/crm/commercial-activity/entry-points';
 import { crmBreadcrumbs } from '@/features/crm/common/crm-breadcrumbs';
 import { formatMoney, formatPercent } from '@/features/crm/common/decimal';
+import { CRM_MODULE_OPTION_KEYS, useModuleAvailability } from '@/features/crm/common/use-module-availability';
 import { formatCalendarDate, formatDateTime, orDash, projectDetailPath, withReference } from '@/features/crm/projects';
 import { describeApiError } from '@/lib/api-error-view';
 import { ROUTE_PATHS } from '@/routes/route-paths';
@@ -60,6 +62,9 @@ function OpportunityDetailContent({ opportunity }: { opportunity: OpportunityDet
   const [deleting, setDeleting] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const { capabilities } = opportunity;
+  // Punto de entrada del Módulo 4 (03 §E.4, 04 §E.11): actividad con cliente, proyecto y
+  // oportunidad preseleccionados; solo para oportunidades abiertas (el alta solo las ofrece).
+  const activities = useModuleAvailability(CRM_MODULE_OPTION_KEYS.activities);
   const projectLink = `${projectDetailPath(opportunity.project.id)}?seccion=oportunidades`;
   const estimate = estimateTexts(opportunity);
   const outcomes = options.data?.outcomes;
@@ -73,6 +78,9 @@ function OpportunityDetailContent({ opportunity }: { opportunity: OpportunityDet
 
   const actions = (
     <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+      {activities.isAvailable && !opportunity.stage.isClosed ? (
+        <NewActivityButton customerId={opportunity.customer.id} projectId={opportunity.project.id} opportunityId={opportunity.id} />
+      ) : null}
       {capabilities.canEdit ? (
         <Button startIcon={<EditOutlinedIcon />} onClick={() => setEditing(true)}>
           Editar

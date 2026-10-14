@@ -5,10 +5,55 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 
 ## [Unreleased]
 
+### Changed
+- **CRM — integración de los Módulos 3 y 4** (`04-actividad-comercial.md`, «Precisiones de
+  implementación (2026-10-13)»; sin cambios de contrato):
+  - Backend: el bloqueo del proyecto vinculado y `projects.last_activity_at` de visitas y
+    actividades usan el repositorio de proyectos del Módulo 3 (`LinkedProjectsService` sobre
+    `PROJECTS_REPOSITORY`: `lockProject(id, 'UPDATE')` antes de validar, `touchLastActivity`);
+    ya no hay una segunda escritura de `last_activity_at`. `CommercialLinkReader` se conserva
+    solo para validar proyecto y oportunidad (03 no publica una guardia que distinga referencia
+    desconocida de eliminada). La guarda de cliente recibe los alcances resueltos antes de la
+    transacción.
+  - Frontend: la ficha del proyecto monta en «Seguimiento comercial» la sección del Módulo 4
+    con «Nueva actividad» y «Planificar visita»; el detalle de una oportunidad abierta ofrece
+    «Nueva actividad» con cliente, proyecto y oportunidad. Los formularios usan `ProjectPicker`
+    y `OpportunityPicker` de 03 y la preselección se resuelve con `GET /projects/{id}` y
+    `GET /opportunities/{id}`. Seguimiento, historial y visitas ofrecen el filtro «Proyecto»
+    (y el historial, «Oportunidad»).
+  - E2E PF-04.58 sin simulación del Módulo 3: parte de la ficha real del proyecto.
+
 ### Fixed
-- Registro de peticiones (`RequestLoggingInterceptor`): anotaba `statusCode: 500` en respuestas
-  `401`/`404`/`422` producidas por errores de aplicación; ahora registra al terminar la respuesta con
-  el status real.
+- **CRM Módulo 4 — revisión de código** (`04-actividad-comercial.md`, "Precisiones de implementación"):
+  - Concurrencia (RN-04.2): alta y edición de visitas y actividades bloquean el proyecto vinculado
+    **antes** de validarlo; antes, una eliminación concurrente del proyecto podía dejar un registro
+    nuevo vinculado a un proyecto eliminado (prueba de integración con dos transacciones).
+  - Contrato (aditivo): los `form-options` de visitas y actividades publican `timeZone`,
+    `businessTimeZone` y `attachments`; `owner-options` acepta `id` repetible para resolver
+    nombres con el mismo filtro de alcance; `VisitEventDto.canAttachFiles` (D-04.18, misma regla
+    que la subida). `TraceAttachmentDto.contentPath` pasa a ser relativa a la base de la API.
+    Agenda, calendario, historial, seguimiento y listas de adjuntos ya no anuncian `search` y
+    responden `400` si llega (antes se ignoraba).
+  - Frontend: fechas, entradas `datetime-local`, límites de día y rejilla del calendario en la zona
+    del usuario y "hoy" en la de negocio (RN-04.9, D-04.17, conversión con `Intl` segura ante
+    cambios de horario); límites de adjuntos comprobados antes de subir en todas las pantallas;
+    el chip del asesor muestra su nombre tras recargar; los borradores de filtros ya no se borran
+    al recargar la lista; subir o eliminar adjuntos refresca los contadores del módulo
+    (`AttachmentsSection onChanged`, aditivo); eliminar una actividad sale del detalle sin `404`
+    intermedio; un fallo de las opciones del listado de actividades se avisa con "Reintentar";
+    "Adjuntar archivos al evento" sigue a `canAttachFiles`; `search` nunca se envía a esas
+    colecciones; `lineHeight` del calendario desde la tipografía del tema. `httpClient` envía una
+    lista en `query` como parámetro repetible. E2E PF-04.59: la espera del detalle de la visita
+    acepta solo un UUID (la página también pide `/visits/form-options`).
+- **Observabilidad — status de `http_request`** (`RequestLoggingInterceptor`): un
+  `ApplicationError` (401, 403, 404, 409, 422…) se registraba con `statusCode: 500` porque el
+  interceptor lo deducía de una propiedad `status` que esas excepciones no tienen; el cliente
+  recibía el status correcto y no había `unhandled_exception`, así que el log mostraba 500
+  inexistentes (p. ej. cada `POST /auth/refresh` sin cookie). Ahora el interceptor y
+  `AllExceptionsFilter` comparten la misma regla (`httpStatusOf`), con su prueba de regresión.
+- **E2E — esperas tras el login** (`auth-local`, `crm-customers`): las pruebas esperan la
+  respuesta real del login, del cambio de contraseña y de `GET /me/menu` antes de mirar la
+  pantalla; con varios navegadores arrancando, el login superaba los 5 s de `expect`.
 - **CRM Módulo 3 — revisión de código del backend** (`03-proyectos.md`, "Precisiones", Revisión E5):
   - Concurrencia: proyectos, productos asociados, oportunidades (edición, etapa, resultado,
     eliminación) y forecast deciden política, plan de la estimación, rango de fechas y cambios sobre
@@ -53,6 +98,50 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   - NGINX: una sola cabecera `Cache-Control: no-store` en las respuestas de la API.
 
 ### Added
+- **CRM Módulo 4 — Actividad comercial, completado** (F-21…F-33, `matriz-trazabilidad.md`):
+  backend, frontend y E2E en verde. Pendiente al integrar el Módulo 3: montar los puntos de
+  entrada de E.11 en la ficha del proyecto y quitar la simulación del 03 en PF-04.58.
+- **CRM Módulo 4 — Actividad comercial, backend** (`backend/src/modules/commercial-activity/`,
+  `docs/api/README.md`): decorador `@RequireAnyPermission` (addendum ADR-008); actividades
+  (alta con gestión ya realizada, edición, completar, cancelar, eliminación lógica, bandeja de
+  pendientes); visitas (planificar con aviso de conflicto horario, editar, registrar y corregir
+  realización, confirmar solo por el dueño, reprogramar, cancelar, historial de eventos); agenda
+  y calendario, historial de interacciones sobre `crm_interactions_v`, seguimiento por cliente y
+  por proyecto; adjuntos por dueño (visita, evento, actividad); `form-options` y `owner-options`;
+  `CommercialActivityUsageQuery` para los módulos 2 y 3; rutas y opciones de menú `actividad-*`.
+  Sin cambios de esquema. Proyecto y oportunidad se validan con un puerto propio sobre las tablas
+  de Fase 0 mientras el Módulo 3 no esté integrado.
+- **CRM Módulo 4 — Actividad comercial, E2E** (`frontend/tests/e2e/crm-commercial-activity.e2e.spec.ts`,
+  PF-04.58–61; TESTING.md «E2E de Actividad comercial»): llamada «ya realizada» desde el proyecto
+  (Módulo 3 simulado en el navegador), visita con aviso de conflicto, reprogramación, registro y
+  confirmación, permisos recortados y bandeja. `e2e-stack.ts activate` imprime los datos demo del
+  recorrido y crea los dos usuarios recortados de PF-04.60.
+- **CRM Módulo 4 — Actividad comercial, frontend (primera mitad)**
+  (`frontend/src/features/crm/commercial-activity/`, `04-actividad-comercial.md` "Precisiones"):
+  listado de actividades con filtros en la URL, alta con preselección por query string, campos
+  por tipo según `metadata.fields`, "Ya realizada" y archivos, detalle con edición, completar,
+  cancelar y eliminar según `allowedActions`, bandeja de pendientes con pestañas y contadores,
+  piezas comunes (`StatusChip`, `DueBadge`, `CustomerProjectFields`, `ParticipantsField`,
+  `AttachmentsPanel`, `InteractionTimeline`, `date-time.ts`) y puntos de entrada
+  (`NewActivityButton`, `PlanVisitButton`, `CommercialActivitySection`) integrados en la ficha
+  del cliente. Iconos del módulo en `MaterialSymbol`. `AttachmentsSection` gana `canDelete`.
+- **CRM Módulo 4 — Actividad comercial, frontend (segunda mitad)**
+  (`frontend/src/features/crm/commercial-activity/`, `04-actividad-comercial.md` "Precisiones"):
+  - Visitas (E.6–E.8): listado con filtros en la URL (rango, estado, asesor, cliente, país, "sin
+    registrar", "pendientes de confirmar"), planificar con preselección por query string, aviso de
+    conflicto horario con *debounce* que nunca bloquea "Guardar", aviso de fecha pasada y
+    recordatorio en minutos u horas; detalle con Planificación, Realización, Confirmación,
+    Historial de eventos y Adjuntos, y diálogos Editar planificación, Registrar realizada /
+    Corregir realización, Confirmar (solo con `CONFIRM` en `allowedActions`), Reprogramar y
+    Cancelar. Los archivos de cada operación se suben a su evento (D-04.18).
+  - Agenda (E.2): calendario propio sin librería (D-04.1) con vistas Mes, Semana y Día,
+    `calendar-grid.ts`, vista Día con tira de días en móvil, listado conmutable (`view=`), filtros
+    en la URL con chips, panel de resumen con "Ver detalle" y "Completar", y aviso de `truncated`.
+  - Seguimiento (E.4) por cliente o por proyecto con `FollowUpTraceDrawer` (línea de tiempo,
+    próximas visitas y actividades, adjuntos descargables) e historial de interacciones (E.5) con
+    línea de tiempo o tabla, filtros y orden invertible.
+  - Piezas comunes nuevas: `CountrySelect`/`useCountryOptions`, `AttachmentCount`,
+    `NextActionDate`. Se elimina el marcador provisional `CommercialActivityPendingPage`.
 - **CRM Módulo 3 — pantallas:** búsqueda, alta, ficha (general, clasificación, fase, productos
   asociados con totales, oportunidades, resultados, forecast, seguimiento, historial y adjuntos),
   edición, duplicado, eliminación y vista de equipo de proyectos; pipeline de oportunidades en lista

@@ -14,7 +14,8 @@ features/crm/
   projects/                Módulo 3 (Proyectos): búsqueda, alta, ficha, vista de equipo; index.ts
   opportunities/           Módulo 3: pipeline y detalle de oportunidades
   forecast/                Módulo 3: matriz del forecast M+6
-  activities/              (llega con el Módulo 4)
+  commercial-activity/     Módulo 4 (Actividad comercial): common/, activities/, pending/, visits/, agenda/,
+                           follow-up/, interactions/, entry-points/ (barril para 02/03)
 ```
 
 | Pantalla | Carpeta | Ruta | Permiso de la ruta | ¿Opción de menú? |
@@ -29,6 +30,20 @@ features/crm/
 | Pipeline de oportunidades | `opportunities/` | `/proyectos/oportunidades` | `oportunidades.ver` | Sí: `proyectos-oportunidades` |
 | Detalle de oportunidad | `opportunities/` | `/proyectos/oportunidades/:opportunityId` | `oportunidades.ver` | No (ruta con parámetro; destino de alertas de Inicio) |
 | Forecast M+6 | `forecast/` | `/proyectos/forecast` | `forecast.ver` | Sí: `proyectos-forecast` |
+| Bandeja de pendientes | `commercial-activity/pending/` | `/actividad/pendientes` | `actividades.ver` | Sí: `actividad-pendientes` |
+| Listado de actividades | `commercial-activity/activities/` | `/actividad/actividades` | `actividades.ver` | Sí: `actividad-actividades` |
+| Alta de actividad | `commercial-activity/activities/` | `/actividad/actividades/nueva` | `actividades.crear` | No (preselección `?customerId=&projectId=&opportunityId=&typeId=`) |
+| Detalle y edición de actividad | `commercial-activity/activities/` | `/actividad/actividades/:activityId` | `actividades.ver` | No (ruta con parámetro, D-04.13) |
+| Agenda (calendario y listado) | `commercial-activity/agenda/` | `/actividad/agenda` | `actividades.ver` | Sí: `actividad-agenda` |
+| Seguimiento comercial | `commercial-activity/follow-up/` | `/actividad/seguimiento` | `actividades.ver` | Sí: `actividad-seguimiento` |
+| Historial de interacciones | `commercial-activity/interactions/` | `/actividad/historial` | `actividades.ver` | Sí: `actividad-historial` (acepta `?customerId=&projectId=&opportunityId=`) |
+| Listado de visitas | `commercial-activity/visits/` | `/actividad/visitas` | `visitas.ver` | Sí: `actividad-visitas` |
+| Planificar visita | `commercial-activity/visits/` | `/actividad/visitas/nueva` | `visitas.crear` | No (preselección `?customerId=&projectId=`) |
+| Detalle de visita | `commercial-activity/visits/` | `/actividad/visitas/:visitId` | `visitas.ver` | No (ruta con parámetro, D-04.13) |
+
+Las rutas de Actividad comercial viven en `commercial-activity/commercial-activity-routes.ts`
+(agregadas en `crm-routes.ts`); todas las pantallas de 04 §E.1 están entregadas (ya no hay
+marcador provisional).
 
 - La página (`<Pantalla>Page.tsx`) conserva su **export con nombre**: `crm-routes.ts` la carga con
   `React.lazy` por ese nombre.
@@ -49,6 +64,8 @@ features/crm/
 
 - `<submódulo>.api.ts`: funciones sobre `httpClient` (`@/services/api`). Nunca `fetch` ni
   `XMLHttpRequest` sueltos. Los tipos reflejan los DTO del plan (§F), no el modelo de Prisma.
+- Parámetros repetibles: una lista en `query` se envía como `id=a&id=b`
+  (`httpClient.get(path, { query: { id: ['a', 'b'] } })`).
 - Subidas con progreso: `httpClient.upload(path, formData, { onProgress })` (mismo token,
   renovación y errores que el resto). Descargas: `httpClient.download` + `saveFile`; nunca un
   `<a href>` a la API (el token vive en memoria) ni abrir el archivo en línea (ADR-021).
@@ -73,14 +90,46 @@ features/crm/
 | `AttachmentsSection basePath="/customers/{id}/attachments"` | Lista, subida con progreso, descarga y eliminación de los adjuntos de cualquier dueño (cliente, proyecto, actividad). `canManage` sale de las `capabilities` del dueño y `limits` de su `form-options.attachments` |
 | `crmBreadcrumbs({ label: 'Clientes', to: ROUTE_PATHS.crm.customers }, { label: 'Ficha' })` | Migas: Inicio › … |
 | `AttachmentsSection takeInitialFiles` | Archivos elegidos en un formulario de alta que se suben en la ficha tras el `201` (D-02.15); progreso y errores `413`/`422` por archivo |
+| `AttachmentsSection canDelete={false}` | Subir sin eliminar (adjuntos de un evento de visita, 04 §F.4) |
+| `AttachmentsSection onChanged` / `formatDate` | Opciones aditivas: `onChanged` se llama tras cada subida o eliminación correcta (el dueño refresca sus contadores; Actividad comercial invalida la raíz del módulo); `formatDate` formatea la fecha de subida (p. ej. en la zona del usuario). Sin ellas, el comportamiento de Clientes no cambia |
 | `customers/index.ts` | Barril público para otros módulos: `CustomerPicker` (valor `{ id, crmCode, legalName, countryId }`; acepta `{ id }` preseleccionado) y `customerDetailPath(id)` |
 | `PendingPage` / `PendingScreen` | Página con título y migas definitivos y estado "En construcción": permite registrar la ruta y sembrar su opción antes de construir la pantalla (Módulo 3, etapa E1) |
 | `decimal.ts` + `DecimalField` | Decimales sin `number` flotante (ver §3.1) |
 | `invalidateCrmCaches(queryClient, ['forecast', 'opportunities', 'customerProjects', 'projectTeamLists'])` | Invalida cachés de otro submódulo que dependen de una mutación (p. ej. borrar un proyecto refresca el forecast y la ficha del cliente) sin importar sus claves y sin ciclos entre barriles. Raíces en `CRM_CACHE_ROOTS`; matriz en 03 "Revisión E5 — frontend" |
 | `UnsavedChangesGuard when={dirty} shouldBlock?` | Aviso al abandonar una pantalla con cambios sin guardar: `beforeunload` y, con el router de datos de la aplicación, `useBlocker` con un diálogo propio ("Salir sin guardar" / "Seguir editando"). Por defecto solo bloquea cambios de ruta (los filtros en la URL no pierden el borrador). Bajo `MemoryRouter` (pruebas) solo protege `beforeunload` |
-| `projects/index.ts` | Barril público del Módulo 3: constantes de permisos (`PROJECT_`, `OPPORTUNITY_`, `FORECAST_`, `PRODUCT_PERMISSIONS`), `projectDetailPath(id)`, `opportunityDetailPath(id)`, `ProjectPicker`, `OwnerPicker`, `ProductPicker`, `UnitSelect`, `ConversionBadge`, formatos de fecha, `projectKeys`/`useInvalidateProject` y tipos |
+| `projects/index.ts` | Barril público del Módulo 3: constantes de permisos (`PROJECT_`, `OPPORTUNITY_`, `FORECAST_`, `PRODUCT_PERMISSIONS`), `projectDetailPath(id)`, `opportunityDetailPath(id)`, `ProjectPicker`, `OwnerPicker`, `ProductPicker`, `UnitSelect`, `ConversionBadge`, formatos de fecha (y `projectLabel`), `projectKeys`/`useInvalidateProject`, `useProject` (preselección del Módulo 4) y tipos |
 | `opportunities/index.ts` | Barril de Oportunidades: `OpportunityPicker` (Módulo 4: `projectId`, `status="OPEN"`), `OpportunityFormDialog`, `StageChangeDialog`, `ResultEditDialog`, `OpportunityHistoryPanel`, `StageChip`, `OutcomeChip`, `EstimateText`, hooks de lectura y tipos |
 | `forecast/index.ts` | Barril de Forecast: `ForecastMatrix filters={{ mode, projectId… }}` (la ficha la reutiliza filtrada por el proyecto) |
+
+### Piezas comunes de Actividad comercial (`commercial-activity/common/`)
+
+Para las pantallas del Módulo 4 (actividades, visitas, agenda, seguimiento, historial). No se
+importan desde otros submódulos: lo público para 02/03 está en `commercial-activity/entry-points`.
+
+| Pieza | Uso |
+|---|---|
+| `commercial-activity.permissions.ts` | `ACTIVITY_PERMISSIONS`, `VISIT_PERMISSIONS` (`visitas.*`, `actividades.*`) |
+| `commercial-activity.errors.ts` | `COMMERCIAL_ERROR_MESSAGES` (códigos de 04 §F.5), `commercialFieldErrors(error)` (`details[].field` → mensaje, `participants.0.contactId` → `participants`), `withReference`, `isNotFoundError` |
+| `commercial-activity.api.ts` / `.queries.ts` | Tipos de los DTO compartidos (`StatusRef`, `AgendaItem`, `Interaction`, `FollowUpTrace`, `CommercialFormContext`…), lookups (`owner-options`, cliente, contactos activos; proyectos y oportunidades se piden con los selectores y hooks de los barriles de 03), `withoutSearch(query)` (`/agenda`, `/interactions`, `/follow-ups` y los adjuntos no admiten `search`) y claves bajo `['crm', 'commercial-activity']` con `invalidateCommercialActivity` |
+| `useOwnerNames(ids)` / `useOwnerName(id)` | Nombre de usuarios ya elegidos (filtro de asesor o usuario tras recargar) con `owner-options?id=` (repetible, máx. 50). Sólo devuelve los que están en el alcance y activos; si no vuelve, la pantalla muestra su respaldo ("Seleccionado") |
+| `date-time.ts` | Todo con zona explícita (`timeZone` opcional; omitida = la del navegador): `formatDateTime`/`formatDate`/`formatTime`, `toDateTimeLocalValue`/`fromDateTimeLocalValue`/`nowDateTimeLocalValue`/`isFutureLocalValue` (desfase calculado con `Intl` en el propio instante, seguro ante cambios de horario), `startOfDayIso`/`endOfDayIso` (un día con cambio de horario dura 23 o 25 h), `dayKeyInTimeZone`, `todayInTimeZone`; además `formatCalendarDate` (sin zona), `describeDue`, `isValidTimeZone` |
+| `useCommercialTimeZones()` + `formTimeZone(options)` | Zonas de RN-04.9 de los `form-options` del módulo (los de actividades con `actividades.ver`; si no, los de visitas): `timeZone` (perfil del usuario: instantes, entradas `datetime-local`, días de la agenda y del historial) y `businessTimeZone` (`crm.zona_horaria_negocio`: "hoy" y fechas de calendario). Lector pasivo de la caché (no recarga al montarse); mientras carga o si falla, la zona del navegador. Los formularios y diálogos usan `formTimeZone(options)` de sus propios `form-options` |
+| `ZonedDateTime` (`value`, `format?`) | Texto de un instante en la zona del usuario, para celdas de tabla |
+| `useResyncOnChange(values, onChange)` | Borradores de filtros: se reinician cuando cambia el **contenido** de los filtros aplicados (URL), no por un nuevo render con los mismos (p. ej. al recargar la lista) |
+| `StatusChip` (`label`, `group`, `isRescheduled?`, `isUnregistered?`) | Estado con color + icono + texto (RN-04.35) |
+| `DueBadge` (`dueAt`, `bucket`, `now?`) | Vencimiento: marca vencida/próxima, relativo y absoluto en la zona del usuario (RN-04.31) |
+| `CustomerProjectFields` (`value`, `onChange(value, change)`, `withOpportunity?`, `customerReadOnly?`, `customerHelperText?`, `errors?`, `disabled?`) | Cliente (`CustomerPicker` de 02) → proyecto (`ProjectPicker` de 03, del cliente) → oportunidad (`OpportunityPicker` de 03, abiertas); cambiar de cliente limpia lo que depende; sin la opción `proyectos-buscar` el proyecto queda deshabilitado con su explicación |
+| `useCommercialPreselection({ customerId, projectId, opportunityId })` | Resuelve la preselección de la URL (`GET /customers/{id}`, `useProject`, `useOpportunity`): `{ isResolving, value, problems }` |
+| `ProjectFilterField` (`value`, `onChange`, `customerId?`, `label?`) + `useProjectFilterName(id)` | Filtro "Proyecto" de seguimiento, historial y visitas (`ProjectPicker` de 03) y nombre de su chip; no se ofrece ni llama a `/projects` sin la opción `proyectos-buscar` |
+| `ParticipantsField` (`customerId`, `value`, `onChange`, `label?`, `required?`, `disabled?`, `error?`, `helperText?`) + `participants.ts` | Contactos (con `contactos.ver`), usuarios y externos; `toParticipantInputs`, `participantValuesFrom(dtos, role?)`, `withoutContacts` |
+| `OwnerPicker` (`label`, `value`, `onChange`, `fallbackName?`, `excludeIds?`…) | Usuarios de `owner-options` (responsable, asesor, participante). `value` puede ser sólo `{ id }` (un filtro de la URL): el nombre se resuelve con `useOwnerName` |
+| `AttachmentsPanel` (`owner`, `canManage`, `limits?`, `title?`, `emptyMessage?`, `uploadPendingFromCreation?`) + `attachment-owner.ts` | Adjuntos de actividad, visita o evento (`commercialAttachmentsPath`, `stashPendingAttachments`/`takePendingAttachments`). `limits` = `form-options.attachments` del módulo (actividades en una actividad, visitas en una visita o evento). Subir o eliminar invalida la raíz del módulo (`attachmentCount` de listas, agenda, eventos y seguimiento) |
+| `FilesField` (`limits?`) + `uploadFilesInOrder(basePath, files, limits?)` | Elegir archivos en un formulario o diálogo y subirlos en orden, parando en el primer fallo; con `limits`, un archivo demasiado grande o de un tipo no admitido se detecta antes de enviarlo |
+| `InteractionTimeline` (`customerId?`, `projectId?`, `opportunityId?`, `compact?`) / `InteractionTimelineList` (`items`, `hideCustomer?`, `hideProject?`) | Historial de interacciones agrupado por día con enlace al origen |
+| `commercial-paths.ts` | `interactionHistoryPath`, `planVisitPath`, `visitDetailPath` |
+| `CountrySelect` (`value`, `onChange`, `label?`, `disabled?`) + `useCountryOptions(enabled)` | Filtro "país del cliente" con los países de `GET /customers/form-options` (02 F2); sin `clientes.ver` no se ofrece |
+| `AttachmentCount` (`count`) | Columna "Adjuntos": icono + número con nombre accesible ("3 adjuntos") |
+| `NextActionDate` (`date`, `prefix?`, `today?`) | Fecha de próxima acción resaltada con color **y** texto ("(hoy)", "(pasada)"); "hoy" en la zona de negocio |
 
 Opciones aditivas de `@/components/data` usadas por el CRM: `DataTable` `onRowClick` + `getRowLabel`
 (fila navegable con teclado, `role="link"`) y `useTableQueryState({ paramPrefix })` para varias

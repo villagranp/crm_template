@@ -1,5 +1,7 @@
 import { Prisma } from '@prisma/client';
 
+import type { VisibilityScope } from '@/modules/access/visibility-scope';
+
 /**
  * Fragmentos SQL de texto compartidos por los adaptadores Prisma. Todo valor del
  * usuario viaja como parámetro; aquí solo hay SQL fijo.
@@ -60,4 +62,19 @@ export function orSql(conditions: readonly Prisma.Sql[]): Prisma.Sql {
 /** `cond1 AND cond2 …` entre paréntesis; `TRUE` si no hay condiciones. */
 export function andSql(conditions: readonly Prisma.Sql[]): Prisma.Sql {
   return conditions.length === 0 ? Prisma.sql`TRUE` : Prisma.sql`(${Prisma.join(conditions, ' AND ')})`;
+}
+
+/**
+ * `owner IN (…) OR country IN (…)` de un alcance (`VisibilityScope`, 00 §4.2) sobre dos
+ * columnas; `TRUE` si es `ALL`. Listas vacías no casan nada (un alcance `NONE` es `FALSE`).
+ * Lo comparten los predicados de visibilidad de clientes y de actividad comercial.
+ */
+export function visibilityScopeSql(scope: VisibilityScope, ownerColumn: Prisma.Sql, countryColumn: Prisma.Sql): Prisma.Sql {
+  if (scope.kind === 'ALL') return Prisma.sql`TRUE`;
+  return orSql([uuidInSql(ownerColumn, scope.ownerIds), uuidInSql(countryColumn, scope.countryIds)]);
+}
+
+/** ¿El alcance no ve nada (`FILTERED` sin dueños ni países)? */
+export function isEmptyScope(scope: VisibilityScope): boolean {
+  return scope.kind === 'FILTERED' && scope.ownerIds.length === 0 && scope.countryIds.length === 0;
 }

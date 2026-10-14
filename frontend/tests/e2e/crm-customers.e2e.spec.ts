@@ -28,6 +28,7 @@ const foreignCustomerId = process.env.E2E_FOREIGN_CUSTOMER_ID ?? '';
 const country = process.env.E2E_COUNTRY ?? 'Guatemala';
 
 const API_PREFIX = '/api/v1';
+const HTTP_OK = 200;
 const HTTP_CREATED = 201;
 const HTTP_CONFLICT = 409;
 const TEST_TIMEOUT_MS = 120_000;
@@ -46,7 +47,13 @@ async function signIn(page: Page, email: string, password: string): Promise<void
   await page.goto('/acceso');
   await page.getByLabel(/correo electrónico/i).fill(email);
   await page.getByLabel(/^contraseña/i).fill(password);
+  const login = waitForApi(page, 'POST', /^\/auth\/login$/);
+  const menu = waitForApi(page, 'GET', /^\/me\/menu$/);
   await page.getByRole('button', { name: /iniciar sesión/i }).click();
+  // Argon2id y varias escrituras: con los demás workers arrancando, el login
+  // puede pasar de los 5 s de `expect`. Se esperan las respuestas reales.
+  expect((await login).status()).toBe(HTTP_OK);
+  expect((await menu).status()).toBe(HTTP_OK);
   await expect(page.getByRole('button', { name: 'Menú de usuario' })).toBeVisible();
 }
 

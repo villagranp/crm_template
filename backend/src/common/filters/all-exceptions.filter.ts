@@ -22,6 +22,30 @@ import type { AppRequest } from '@/common/types/request-context';
 import type { ErrorResponseDto } from '@/common/dto/error-response.dto';
 
 /**
+ * Status HTTP con el que la API responde a `exception`. Es la unica regla de
+ * traduccion: la usan este filtro y el log `http_request`
+ * (RequestLoggingInterceptor), que asi registra el status real de la respuesta.
+ * Un `ApplicationError` no lleva `status` propio; deducirlo de esa propiedad lo
+ * registraba como 500 aunque el cliente recibiera 401, 404 o 422.
+ */
+export function httpStatusOf(exception: unknown): number {
+  if (exception instanceof ApplicationError) {
+    if (exception instanceof ResourceNotFoundError) return HttpStatus.NOT_FOUND;
+    if (exception instanceof ResourceConflictError) return HttpStatus.CONFLICT;
+    if (exception instanceof AuthenticationFailedError) return HttpStatus.UNAUTHORIZED;
+    if (exception instanceof PermissionDeniedError || exception instanceof AccessDeniedError) return HttpStatus.FORBIDDEN;
+    if (exception instanceof BusinessRuleViolationError) return HttpStatus.UNPROCESSABLE_ENTITY;
+    if (exception instanceof RequestValidationError) return HttpStatus.BAD_REQUEST;
+    if (exception instanceof PayloadTooLargeError) return HttpStatus.PAYLOAD_TOO_LARGE;
+    return HttpStatus.BAD_REQUEST;
+  }
+  if (exception instanceof HttpException) {
+    return exception.getStatus();
+  }
+  return HttpStatus.INTERNAL_SERVER_ERROR;
+}
+
+/**
  * Traduce cualquier excepcion al formato unico de error de la API.
  * Nunca expone stack traces, SQL ni detalles internos (API-STANDARDS.md seccion 8).
  */
@@ -65,7 +89,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
   } {
     if (exception instanceof ApplicationError) {
       return {
-        statusCode: this.statusForApplicationError(exception),
+        statusCode: httpStatusOf(exception),
         code: exception.code,
         message: exception.message,
         details: exception.details,
@@ -73,7 +97,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
 
     if (exception instanceof HttpException) {
-      const status = exception.getStatus();
+      const status = httpStatusOf(exception);
       const payload = exception.getResponse();
 
       if (typeof payload === 'object' && payload !== null) {
@@ -110,22 +134,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     // Error no controlado: no se filtra nada del detalle interno al cliente.
     return {
-      statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+      statusCode: httpStatusOf(exception),
       code: 'INTERNAL_ERROR',
       message: 'An unexpected error occurred',
       details: [],
     };
-  }
-
-  private statusForApplicationError(error: ApplicationError): number {
-    if (error instanceof ResourceNotFoundError) return HttpStatus.NOT_FOUND;
-    if (error instanceof ResourceConflictError) return HttpStatus.CONFLICT;
-    if (error instanceof AuthenticationFailedError) return HttpStatus.UNAUTHORIZED;
-    if (error instanceof PermissionDeniedError || error instanceof AccessDeniedError) return HttpStatus.FORBIDDEN;
-    if (error instanceof BusinessRuleViolationError) return HttpStatus.UNPROCESSABLE_ENTITY;
-    if (error instanceof RequestValidationError) return HttpStatus.BAD_REQUEST;
-    if (error instanceof PayloadTooLargeError) return HttpStatus.PAYLOAD_TOO_LARGE;
-    return HttpStatus.BAD_REQUEST;
   }
 
   private defaultCodeFor(status: number): string {

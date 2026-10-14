@@ -34,7 +34,8 @@ export {
   projectLabel,
 } from './project-format';
 export { withReference } from './projects.errors';
-export { projectKeys, useInvalidateProject } from './projects.queries';
+// `useProject`: el Módulo 4 resuelve con él la preselección de un proyecto (04 §E.10, F-31).
+export { projectKeys, useInvalidateProject, useProject } from './projects.queries';
 export type { Product } from './products/project-products.api';
 export type {
   CatalogRef,

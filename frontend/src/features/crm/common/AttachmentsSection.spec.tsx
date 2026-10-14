@@ -92,7 +92,12 @@ describe('AttachmentsSection', () => {
 
     await user.click(screen.getByRole('button', { name: 'Descargar contrato.pdf' }));
 
-    await waitFor(() => expect(saveFile).toHaveBeenCalledWith(expect.any(Blob), 'contrato firmado.pdf'));
+    await waitFor(() => expect(saveFile).toHaveBeenCalledWith(expect.anything(), 'contrato firmado.pdf'));
+    // Se comprueba el contenido y no `expect.any(Blob)`: la respuesta trae el `Blob`
+    // nativo de Node y el global de jsdom es otra clase, así que `instanceof` falla.
+    const [blob] = vi.mocked(saveFile).mock.calls[0] as [Blob, string];
+    expect(blob.type).toBe('application/pdf');
+    expect(await blob.text()).toBe('%PDF');
     expect(callsTo(fetchMock, 'GET', `${BASE}/att-1/content`)).toHaveLength(1);
   });
 
@@ -125,6 +130,15 @@ describe('AttachmentsSection', () => {
     expect(screen.queryByLabelText('Seleccionar archivos para subir')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Eliminar contrato.pdf' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Descargar contrato.pdf' })).toBeInTheDocument();
+  });
+
+  it('con canDelete=false deja subir pero no eliminar (adjuntos de un evento de visita)', async () => {
+    mockApi({ [`GET ${BASE}`]: () => page([CONTRACT]) });
+    renderSection({ canDelete: false });
+
+    expect(await screen.findByText('contrato.pdf')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Subir archivos' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Eliminar contrato.pdf' })).not.toBeInTheDocument();
   });
 
   it('sube con progreso y, al terminar, refresca la lista y lo anuncia', async () => {
@@ -265,5 +279,32 @@ describe('AttachmentsSection', () => {
     await waitFor(() => expect(uploads).toHaveLength(1));
     expect(uploads[0]?.path).toBe(BASE);
     expect(await screen.findByText('Se subió «contrato.pdf».')).toBeInTheDocument();
+  });
+
+  it('avisa al dueño con onChanged tras subir y tras eliminar, y no si falla (opción aditiva)', async () => {
+    const user = userEvent.setup();
+    let listed: AttachmentDto[] = [CONTRACT];
+    mockApi({
+      [`GET ${BASE}`]: () => page(listed),
+      [`DELETE ${BASE}/att-1`]: () => {
+        listed = [];
+        return new Response(null, { status: 204 });
+      },
+    });
+    mockUpload((request) => (request.path === BASE ? { status: 201, body: { ...CONTRACT, id: 'att-2', fileName: 'plano.png' } } : { status: 500 }));
+    const onChanged = vi.fn();
+    renderSection({ onChanged });
+
+    await screen.findByText('contrato.pdf');
+    await user.upload(fileInput(), file('demasiado.pdf', 'application/pdf', 11 * 1024 * 1024));
+    expect(await screen.findByText(/demasiado\.pdf/)).toBeInTheDocument();
+    expect(onChanged).not.toHaveBeenCalled();
+
+    await user.upload(fileInput(), file('plano.png', 'image/png'));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole('button', { name: 'Eliminar contrato.pdf' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Eliminar adjunto' })).getByRole('button', { name: 'Eliminar' }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2));
   });
 });

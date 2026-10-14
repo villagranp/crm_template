@@ -12,6 +12,21 @@ describe('MaterialSymbol', () => {
   });
 
   it.each([
+    ['event_note', 'EventNoteOutlinedIcon'],
+    ['calendar_month', 'CalendarMonthOutlinedIcon'],
+    ['pending_actions', 'PendingActionsOutlinedIcon'],
+    ['track_changes', 'TrackChangesOutlinedIcon'],
+    ['history', 'HistoryOutlinedIcon'],
+    ['location_on', 'LocationOnOutlinedIcon'],
+    ['task_alt', 'TaskAltOutlinedIcon'],
+    ['call', 'CallOutlinedIcon'],
+    ['mail', 'MailOutlinedIcon'],
+  ])('resuelve el icono `%s` de Actividad comercial (04 §L.4)', (name, testId) => {
+    renderWithProviders(<MaterialSymbol name={name} />);
+    expect(screen.getByTestId(testId)).toBeInTheDocument();
+  });
+
+  it.each([
     ['apartment', 'ApartmentOutlinedIcon'],
     ['groups', 'GroupsOutlinedIcon'],
     ['handshake', 'HandshakeOutlinedIcon'],

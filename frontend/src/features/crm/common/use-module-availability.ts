@@ -19,6 +19,8 @@ import type { MenuModule, MenuOptionNode } from '@/services/access';
 export const CRM_MODULE_OPTION_KEYS = {
   projects: 'proyectos-buscar',
   activities: 'actividad-actividades',
+  /** Visitas del Módulo 4: un usuario puede tenerla sin `actividad-actividades` (solo `visitas.ver`). */
+  visits: 'actividad-visitas',
 } as const;
 
 export type ModuleAvailabilityStatus = 'loading' | 'available' | 'unavailable';
