@@ -9,7 +9,7 @@
 # Stages: deps -> build -> development | production
 # =============================================================================
 
-ARG NODE_VERSION=22.12.0
+ARG NODE_VERSION=22.20.0
 
 # ---------- deps ----------
 FROM node:${NODE_VERSION}-alpine AS deps
@@ -29,7 +29,15 @@ COPY --from=deps /repo/backend/node_modules ./backend/node_modules
 COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml tsconfig.base.json ./
 COPY backend ./backend
 WORKDIR /repo/backend
-RUN pnpm prisma generate && pnpm run build && pnpm prune --prod
+RUN pnpm prisma generate && pnpm run build
+# En un workspace de pnpm, backend/node_modules son enlaces al almacén de la raíz:
+# copiarlos tal cual deja la imagen sin dependencias (`Cannot find module`).
+# `pnpm deploy --prod` produce un node_modules autocontenido solo con las de
+# producción; el cliente de Prisma se regenera dentro de él.
+WORKDIR /repo
+RUN pnpm --filter @app/backend deploy --prod /out \
+ && cp -r /repo/backend/prisma /out/prisma \
+ && /repo/backend/node_modules/.bin/prisma generate --schema /out/prisma/schema.prisma
 
 # ---------- development ----------
 FROM node:${NODE_VERSION}-alpine AS development
@@ -52,10 +60,10 @@ ENV NODE_ENV=production
 
 # The unprivileged `node` user ships with the base image. The container never
 # runs as root and never contains build tooling or source maps.
-COPY --from=build --chown=node:node /repo/backend/node_modules ./node_modules
+COPY --from=build --chown=node:node /out/node_modules ./node_modules
 COPY --from=build --chown=node:node /repo/backend/dist ./dist
-COPY --from=build --chown=node:node /repo/backend/prisma ./prisma
-COPY --from=build --chown=node:node /repo/backend/package.json ./package.json
+COPY --from=build --chown=node:node /out/prisma ./prisma
+COPY --from=build --chown=node:node /out/package.json ./package.json
 
 # Punto de montaje de los adjuntos (ADR-021). Se crea en la imagen con dueño
 # `node` para que un volumen con nombre herede ese dueño; la imagen nunca
@@ -68,4 +76,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:3000/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/src/main.js"]

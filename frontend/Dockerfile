@@ -10,7 +10,7 @@
 # user on port 8080. It is NOT the edge proxy (infrastructure/nginx/).
 # =============================================================================
 
-ARG NODE_VERSION=22.12.0
+ARG NODE_VERSION=22.20.0
 ARG NGINX_VERSION=1.27
 
 # ---------- deps ----------

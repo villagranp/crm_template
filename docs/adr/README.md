@@ -30,6 +30,7 @@ se crea uno nuevo que lo supersede.
 | [ADR-023](ADR-023-mui-x-charts-community-para-graficas.md) | `@mui/x-charts` (edición Community) para gráficas | Accepted |
 | [ADR-024](ADR-024-moneda-base-usd-y-tipos-de-cambio.md) | Moneda base USD y tipos de cambio por país | Accepted |
 | [ADR-025](ADR-025-inmutabilidad-de-la-auditoria-con-disparadores.md) | Inmutabilidad de la bitácora de auditoría con disparadores en la base | Accepted |
+| [ADR-026](ADR-026-runtime-de-qa-en-windows-server-nativo.md) | Runtime de QA: Windows Server nativo con NGINX y servicios de Windows | Accepted |
 
 Los **addenda** se añaden al final del ADR que precisan, con fecha y estado propios,
 cuando la decisión lo amplía sin contradecirlo; si lo contradice, se crea un ADR nuevo

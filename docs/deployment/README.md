@@ -2,7 +2,8 @@
 
 Pipelines live in `azure-pipelines/` (ADR-012). The Foundation builds and
 verifies images but deliberately does **not** deploy: the target runtime is a
-per-project decision that requires its own ADR.
+per-project decision that requires its own ADR. QA: Windows Server nativo
+(ADR-026, [`qa-windows.md`](qa-windows.md)).
 
 | File | Contents |
 |---|---|
@@ -11,6 +12,7 @@ per-project decision that requires its own ADR.
 | `runbook-release.md` | Release steps, verification and rollback |
 | `runbook-incident.md` | Triage, correlation ID lookup, escalation path |
 | [`template-repository.md`](template-repository.md) | Publicar la plantilla en Azure DevOps y derivar proyectos de ella |
+| [`qa-windows.md`](qa-windows.md) | QA en Windows Server: instalación, actualización, respaldos y tareas (ADR-026) |
 
 ## Rules
 

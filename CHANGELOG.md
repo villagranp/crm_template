@@ -28,6 +28,16 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   - E2E PF-04.58 sin simulación del Módulo 3: parte de la ficha real del proyecto.
 
 ### Fixed
+- **Arranque del backend compilado**: `start`, `start:prod` y el `CMD` de la imagen ejecutaban
+  `dist/main.js`, que no existe (el build genera `dist/src/main.js`); el contenedor no arrancaba.
+- **Imágenes Docker**: Node 22.12 → 22.20. El corepack de 22.12 tiene claves de firma de npm
+  caducadas y no podía descargar pnpm (`Cannot find matching keyid`): ninguna imagen se construía.
+- **Imagen del backend**: copiaba `backend/node_modules`, que en el workspace son enlaces al
+  almacén de la raíz, y el contenedor fallaba con `Cannot find module`. Ahora `pnpm deploy --prod`
+  genera un `node_modules` autocontenido con el cliente de Prisma regenerado.
+- **NGINX**: `POST /api/v1/customer-imports` (carga masiva) admite 11 MB como los adjuntos (10 MiB
+  más el multipart); antes NGINX cortaba en 10 MB. `/api/` vuelve a incluir las cabeceras de
+  seguridad, que su `add_header Cache-Control` anulaba.
 - Clientes (Módulo 2): en modo `BY_NATURAL_KEY` sin responsable, el actor por defecto se buscaba
   como clave natural y la fila quedaba `INVALID_SALES_OWNER`; ahora se busca por id.
 - **CRM Módulo 4 — revisión de código** (`04-actividad-comercial.md`, "Precisiones de implementación"):
@@ -104,6 +114,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   - NGINX: una sola cabecera `Cache-Control: no-store` en las respuestas de la API.
 
 ### Added
+- **QA en Windows Server** (ADR-026, `docs/deployment/qa-windows.md`): backend como servicio de
+  Windows, NGINX for Windows con HTTPS sirviendo el frontend y la API, PostgreSQL 18 local.
+  `infrastructure/qa-windows/`: `nginx.conf`, `env.qa.example` (sin valores reales),
+  `actualizar.ps1` (pull, build, migrate deploy, semilla, reinicio y comprobación) y `respaldo.ps1`
+  (base y adjuntos con retención).
 - **CRM Módulo 6 — Carga masiva de clientes (F-42)** (`06-integraciones.md`):
   - API `/customer-imports` (configuración, plantilla CSV/XLSX, subida y validación, historial,
     detalle, filas, confirmación `202` en segundo plano, cancelación y archivo de errores), con
