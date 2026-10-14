@@ -245,7 +245,11 @@ test.describe.serial('CRM · Proyectos', () => {
 
     await signIn(page, noForecastEmail, noForecastPassword);
     await expect(page.getByRole('link', { name: 'Proyectos', exact: true }).first()).toBeVisible();
-    await expect(page.getByRole('link', { name: /Forecast/ })).toHaveCount(0);
+    // Sin la opción de Proyectos › Forecast. La de Reportes › Forecast (`/reportes/forecast`) sí
+    // sigue: exige `reportes.ver`, no `forecast.ver` (05 H.3, D-05.11). Cualquier otro enlace
+    // «Forecast» haría fallar la prueba.
+    await expect(page.locator('a[href^="/proyectos/forecast"]')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Forecast/ }).and(page.locator(':not([href="/reportes/forecast"])'))).toHaveCount(0);
     await page.goto('/proyectos/forecast');
     await expect(page.getByRole('heading', { name: 'Sin acceso', level: 1 })).toBeVisible();
     await expect(page.getByRole('table', { name: 'Matriz del forecast' })).toHaveCount(0);

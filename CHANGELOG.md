@@ -6,6 +6,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 ## [Unreleased]
 
 ### Added
+- **CRM Módulo 5 — E2E de Reportes** (`05-reportes.md`, P-05.33, P-05.34):
+  `frontend/tests/e2e/crm-reports.e2e.spec.ts` con PF-05.39 (manager: reporte de oportunidades
+  filtrado con su resumen y exportación `.xlsx` abierta con `exceljs`; dashboard con filtro de
+  asesor, «Ver como tabla» y etapa → reporte filtrado; embudo desde el menú) y PF-05.40 (asesor:
+  menú de Reportes sin «Exportar a Excel», visibilidad por alcance y siete pantallas a 400 px sin
+  scroll horizontal). `e2e-stack.ts activate` imprime `E2E_REPORT_TEAM_PROJECT_CODE`; TESTING.md
+  «E2E de Reportes» (cuarta tanda). F-34…F-41 pasan a `completada`.
 - **CRM Módulo 5 — frontend de los reportes, la exportación, el dashboard y el embudo** (`05-reportes.md`, P-05.19–P-05.32):
   pantallas `/reportes/proyectos`, `/reportes/oportunidades`, `/reportes/forecast`,
   `/reportes/visitas` y `/reportes/actividades` (F-34…F-38) con filtros, período, orden y página
@@ -34,6 +41,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
     (perfil del usuario) (P-05.27).
 
 ### Changed
+- E2E PF-03.116 (`projects.e2e.spec.ts`): «sin `forecast.ver`» comprueba que no hay enlace a
+  `/proyectos/forecast` ni otro «Forecast» que no sea Reportes › Forecast, que desde el Módulo 5
+  aparece con `reportes.ver` (05 H.3, D-05.11).
 - Frontend (aditivo): `httpClient.download` devuelve las cabeceras de la respuesta y `ApiError`
   expone `retryAfterSeconds` (`Retry-After`). El barril `commercial-activity/entry-points` exporta
   los formatos de fecha del Módulo 4 (e `isValidTimeZone`) para Reportes; las zonas horarias de

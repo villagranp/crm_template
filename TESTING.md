@@ -226,9 +226,13 @@ Notas:
   la página. Repite; con las dependencias ya optimizadas no vuelve a pasar.
 - Sin `E2E_NO_FORECAST_PASSWORD` la prueba «sin forecast.ver» se salta; ningún rol de la
   demo cumple «`proyectos.ver` sin `forecast.ver`».
+- Ese usuario sí ve Reportes › Forecast (`/reportes/forecast`): exige `reportes.ver`, no
+  `forecast.ver` (05 H.3, D-05.11). La prueba comprueba que no hay enlace a
+  `/proyectos/forecast` ni ningún otro «Forecast» que no sea el de Reportes.
 - PF-03.115 reasigna el asesor del proyecto de equipo en cada ejecución y crea una copia;
   PF-03.114 y el forecast crean proyectos con sufijo único. Todo es repetible sin volver
   a `prepare`.
+
 ### E2E de Actividad comercial
 
 `frontend/tests/e2e/crm-commercial-activity.e2e.spec.ts` (PF-04.58 a PF-04.61 del
@@ -288,6 +292,45 @@ Notas:
 - En `<etiqueta>-backend.log`, cada `http_request` lleva el status que recibió
   el cliente (los `POST /auth/refresh` sin cookie son `401`). Un `500` siempre
   va acompañado de `unhandled_exception` con el mismo `correlationId`.
+
+### E2E de Reportes
+
+`frontend/tests/e2e/crm-reports.e2e.spec.ts` (PF-05.39 y PF-05.40 del plan
+`docs/implementation-plans/crm/05-reportes.md`) usa el mismo stack aislado que «E2E de
+Clientes» (`integration_e2e`, semilla esencial y demo, backend en 3100 desde el código
+fuente, Vite en 5180). Solo lee y exporta (cada exportación deja su `crm.report.exported`),
+así que se puede repetir sin volver a preparar el esquema. No necesita usuarios propios: el
+manager demo (TEAM) tiene `reportes.ver` y `reportes.exportar` y el asesor demo (OWN) solo
+`reportes.ver`.
+
+| Recorrido | Qué cubre |
+|---|---|
+| PF-05.39 (reporte) | Manager: Reportes › Oportunidades desde el menú; el resumen cuadra con la tabla (AC-05.5); una tarjeta filtra la tabla; filtro «Estado = Abiertas» con su chip; «Exportar a Excel» descarga `reporte-oportunidades-YYYYMMDD-HHmm.xlsx`, que la prueba abre con `exceljs` (hojas Datos/Resumen/Filtros, encabezados y las mismas filas en el mismo orden que la pantalla, AC-05.23) |
+| PF-05.39 (dashboard y embudo) | Manager: dashboard con los siete paneles, filtro de asesor (AC-05.31), «Ver como tabla» con los valores de la API (AC-05.33), etapa → reporte de oportunidades con etapa, asesor y período `IDENTIFIED` y el mismo conteo; embudo desde el menú (AC-05.35), tabla alternativa y etapa → reporte con el mismo conteo |
+| PF-05.40 | Asesor: las siete opciones de Reportes en el menú, sin «Exportar a Excel» (AC-05.28); un proyecto de otro asesor del equipo lo encuentra el manager y el asesor no (AC-05.41); las siete pantallas a 400 px sin desplazamiento horizontal |
+
+Variables, además de las de «E2E de Clientes» (las imprime `e2e-stack.ts activate`):
+
+| Variable | Valor |
+|---|---|
+| `E2E_REPORT_TEAM_PROJECT_CODE` | código de un proyecto de otro asesor que el manager ve en `GET /reports/projects` y el asesor no (`GET /projects/{id}` → `404`); distinto del `E2E_MANAGER_TEAM_PROJECT` que reasigna PF-03.115 |
+
+Pasos: los 1 a 4 de «E2E de Clientes»; después
+`E2E_BASE_URL=http://localhost:5180 pnpm --filter @app/frontend test:e2e crm-reports`
+con las variables impresas y `E2E_ASESOR_PASSWORD` / `E2E_MANAGER_PASSWORD`. Limpieza: el
+paso 6 (y los `frontend/test-results`, donde queda el `.xlsx` descargado).
+
+Notas:
+
+- El recorrido inicia sesión una vez por usuario (2 accesos) y reutiliza la sesión. Para
+  correr **todos** los E2E se añade una cuarta tanda, `crm-reports`, más de un minuto
+  después de la tercera («E2E de Actividad comercial»).
+- `exceljs` es dependencia del backend (ADR-022): la prueba la resuelve desde
+  `backend/package.json` con `createRequire`, sin añadir dependencias al frontend.
+- Las comparaciones son contra la respuesta real del servidor (conteos de `/summary`,
+  `pagination.totalItems`, `X-Export-Rows`), no contra cifras fijas de la demo.
+- La primera ejecución contra un Vite recién arrancado puede fallar mientras compila las
+  páginas diferidas y el *chunk* de `@mui/x-charts`; con Vite ya caliente no vuelve a pasar.
 
 ## 9. En el pipeline
 

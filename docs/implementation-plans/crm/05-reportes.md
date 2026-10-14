@@ -4,7 +4,7 @@
 - **Contrato de datos:** [`00-modelo-de-datos.md`](00-modelo-de-datos.md). Este módulo **solo lee**: no crea tablas, no escribe en entidades comerciales
 - **Funcionalidades de la matriz:** F-34 a F-41 ([`matriz-trazabilidad.md`](matriz-trazabilidad.md))
 - **Decisiones que lo enmarcan:** [ADR-004](../../adr/ADR-004-data-access-abstraction.md), [ADR-005](../../adr/ADR-005-rest-api-standard.md), [ADR-008](../../adr/ADR-008-authorization.md), [ADR-009](../../adr/ADR-009-material-ui.md), [ADR-015](../../adr/ADR-015-snowflake-analytical-source.md), [ADR-017](../../adr/ADR-017-design-system-grupo-ag.md), [ADR-018](../../adr/ADR-018-identity-access-model.md), [ADR-020](../../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md), [ADR-022](../../adr/ADR-022-exceljs-para-generar-y-leer-xlsx.md) (`exceljs`), [ADR-023](../../adr/ADR-023-mui-x-charts-community-para-graficas.md) (`@mui/x-charts` Community), [ADR-024](../../adr/ADR-024-moneda-base-usd-y-tipos-de-cambio.md) (moneda base USD); PLAN-ADMIN D13/D14 (exportación y tablas)
-- **Estado:** especificación; las ocho funcionalidades `especificada`. Decisiones del módulo resueltas por el responsable de negocio el 2026-10-10. No se ha tocado código, esquema, migraciones ni dependencias.
+- **Estado:** implementado (backend 2026-10-13/14, frontend 2026-10-14) y validado de extremo a extremo con Playwright (PF-05.39, PF-05.40) en el stack aislado el 2026-10-14; las ocho funcionalidades `completada` (ver «Precisiones de implementación — E2E»). Decisiones del módulo resueltas por el responsable de negocio el 2026-10-10. Sin cambios de esquema ni migraciones; dependencias nuevas con ADR: `exceljs` (ADR-022) y `@mui/x-charts` (ADR-023).
 - **Skills aplicados:** `requirements-analysis`, `user-story`, `api-design`, `architecture`, `adr`, `authorization`, `security`, `database`, `frontend-react`, `design-system`, `testing`, `documentation`
 - **Orden de implementación:** sexto (alcance §11): después de Clientes, Proyectos, Actividad comercial e Inicio.
 
@@ -885,7 +885,7 @@ Datos: semilla de demostración + *fixtures* por prueba.
 | `backend/test/reports-read-only.e2e.spec.ts` | PF-05.29 |
 | `backend/test/commercial-metrics-consistency.e2e.spec.ts` | PF-05.30, PF-05.31 (compartida con Inicio) |
 | `backend/test/support/` | *Fixtures* de reportes (usuarios por alcance, oportunidades con productos, visitas reprogramadas) |
-| `frontend/tests/e2e/reports.e2e.spec.ts` | PF-05.39, PF-05.40 |
+| `frontend/tests/e2e/crm-reports.e2e.spec.ts` | PF-05.39, PF-05.40 (nombre con el prefijo `crm-` de los E2E de los módulos 2 y 4; ver P-05.33) |
 
 ### L.4 Documentación
 
@@ -1397,7 +1397,56 @@ solo eje), `charts/charts-architecture.spec.ts` (PF-05.47: versión exacta, sin 
 `OpportunitiesReportPage.spec.tsx` (gráfica por etapa) y `reports-routes.spec.ts` (siete páginas
 lazy). Integración: `reports-projects.e2e.spec.ts` (zonas de `filter-options`). Las pantallas usan
 dobles de las implementaciones (`testing/chart-doubles.ts`). Pendientes: los Playwright
-PF-05.39/PF-05.40.
+PF-05.39/PF-05.40 (cubiertos en P-05.33).
+
+---
+
+## Precisiones de implementación — E2E (2026-10-14)
+
+Etapa E4: recorridos de Playwright contra el stack aislado (`integration_e2e`, TESTING.md «E2E de
+Reportes»). Sin cambios de código de producción, contrato ni esquema; no apareció ningún defecto
+de producto.
+
+### P-05.33 Recorridos PF-05.39 y PF-05.40
+
+- Archivo `frontend/tests/e2e/crm-reports.e2e.spec.ts` (L.3 decía `reports.e2e.spec.ts`; se sigue el
+  prefijo `crm-` de `crm-customers` y `crm-commercial-activity`). Serie con una sesión por usuario
+  (2 accesos); cada aserción se contrasta con la respuesta real del servidor (`/summary`,
+  `pagination.totalItems`, `X-Export-Rows`), nunca con cifras fijas de la demo.
+- **PF-05.39 se divide en dos pruebas.** (1) Reporte de oportunidades desde el menú: resumen que
+  cuadra (AC-05.5) y coincide con la tabla, tarjeta "Ganadas" que filtra la tabla, filtro
+  "Estado = Abiertas" con su chip y, con él, "Exportar a Excel": se descarga
+  `reporte-oportunidades-YYYYMMDD-HHmm.xlsx`, la prueba lo abre con `exceljs` (resuelto desde
+  `backend/package.json`, sin dependencia nueva en el frontend) y comprueba hojas Datos / Resumen /
+  Filtros, encabezados, número de filas y el mismo orden que la pantalla (AC-05.23). (2) Dashboard
+  desde el menú con los siete paneles (AC-05.30), filtro de asesor aplicado a `/dashboard` y
+  `/trends` (AC-05.31), "Ver como tabla" con los valores de la API (AC-05.33) y etapa → reporte de
+  oportunidades con etapa, asesor y período `IDENTIFIED` y el **mismo conteo**; después el embudo.
+- **"Abre el embudo desde el dashboard"** se interpreta como navegar al embudo por el menú estando
+  en el dashboard: E.7 no define un enlace del dashboard al embudo (sus enlaces van a los reportes
+  filtrados, P-05.30) y añadirlo sería alcance nuevo. El embudo se comprueba con su total, su tabla
+  alternativa (AC-05.35) y etapa → reporte de oportunidades con el mismo conteo.
+- **PF-05.40**: el asesor ve las siete opciones de Reportes (sale de `GET /me/menu`), sin
+  "Exportar a Excel" (AC-05.28); visibilidad por alcance (AC-05.41): un proyecto de otro asesor del
+  equipo lo encuentra el manager en el reporte de proyectos y el asesor no; y las siete pantallas a
+  400 px sin desplazamiento horizontal de la página (las de tabla, como lista de tarjetas; dashboard
+  y embudo, con sus gráficas ya pintadas).
+
+### P-05.34 Datos y ejecución
+
+- `e2e-stack.ts activate` imprime `E2E_REPORT_TEAM_PROJECT_CODE`: proyecto que el manager ve en
+  `GET /reports/projects` y el asesor no (`GET /projects/{id}` → `404`), elegido por la API y
+  distinto del que reasigna PF-03.115 (el orden de las suites no importa). No hacen falta usuarios
+  propios: los roles de la semilla ya separan `reportes.exportar` (manager) del asesor.
+- Batería completa en cuatro tandas separadas más de un minuto por el límite de 10 accesos por
+  minuto: la cuarta es `crm-reports`. Puerta E4: dos ejecuciones completas seguidas en verde, cada
+  una desde un esquema recién preparado.
+- **Ajuste en PF-03.116 (Módulo 3).** Su prueba «sin `forecast.ver` no ve la opción del
+  forecast» buscaba *cualquier* enlace «Forecast» y empezó a fallar porque el menú del Módulo 5
+  trae Reportes › Forecast (`/reportes/forecast`), que exige `reportes.ver` y no `forecast.ver`
+  (H.3, D-05.11): es el comportamiento especificado, no un defecto. La prueba comprueba ahora que
+  no hay enlace a `/proyectos/forecast` ni ningún «Forecast» distinto del de Reportes, y la ruta
+  sigue respondiendo «Sin acceso».
 
 ---
 
@@ -1417,3 +1466,7 @@ PF-05.39/PF-05.40.
 > F-39, F-40 y F-41 pasan de `bloqueada` a `especificada` (2026-10-10): las dos
 > librerías nuevas tienen ADR aceptado (ADR-022, ADR-023). Las ocho funcionalidades
 > del módulo quedan `especificada`.
+>
+> **Estado vigente (2026-10-14):** las ocho funcionalidades están `completada` en la
+> matriz (backend, frontend y E2E en verde; P-05.33, P-05.34). Las filas de arriba conservan el
+> estado con que se especificaron.

@@ -25,6 +25,8 @@
  *     él (E2E_NO_FORECAST_EMAIL, por defecto sin.forecast@e2e.invalid), y lo imprime.
  *     Con E2E_RESTRICTED_PASSWORD (12+) crea los dos usuarios con permisos
  *     recortados de PF-04.60 (Actividad comercial).
+ *     Para Reportes (05 §J) imprime E2E_REPORT_TEAM_PROJECT_CODE: un proyecto que el
+ *     manager ve en su reporte de proyectos y el asesor no (visibilidad por alcance).
  *
  *   pnpm exec ts-node --transpile-only scripts/e2e-stack.ts drop
  *     Borra el esquema.
@@ -246,6 +248,7 @@ async function activate(): Promise<void> {
   // PF-03.115 reasigna el proyecto de equipo: Actividad comercial usa otro para no depender del orden.
   const teamProjectCode = projectLines.find((line) => line.startsWith('E2E_MANAGER_TEAM_PROJECT='))?.split('=')[1];
   const activityFixtures = await commercialActivityFixtures(asesorEmail, teamProjectCode);
+  const reportProjectCode = await reportTeamProjectCode(baseUrl, asesorToken, managerToken, teamProjectCode);
   const restrictedPassword = process.env.E2E_RESTRICTED_PASSWORD;
   if (restrictedPassword) {
     await createRestrictedUsers(requireEnv('E2E_RESTRICTED_PASSWORD', MIN_PASSWORD_LENGTH));
@@ -269,6 +272,7 @@ async function activate(): Promise<void> {
   for (const line of projectLines) {
     console.log(line);
   }
+  console.log(`E2E_REPORT_TEAM_PROJECT_CODE=${reportProjectCode}`);
 
   // Usuario sin forecast.ver (PF-03.116): solo si llega su contraseña; si no, esa prueba se salta.
   const noForecastPassword = process.env.E2E_NO_FORECAST_PASSWORD;
@@ -322,6 +326,30 @@ async function commercialActivityFixtures(asesorEmail: string, excludedProjectCo
       E2E_DONE_VISIT_ID: doneVisit.id,
     };
   });
+}
+
+/**
+ * Reportes (05 §J, PF-05.40 y AC-05.41): un proyecto de otro asesor que el manager ve en
+ * `GET /reports/projects` y el asesor no (`GET /projects/{id}` → 404). Se elige por la API para
+ * respetar el alcance real, y distinto del que reasigna PF-03.115 para no depender del orden.
+ */
+async function reportTeamProjectCode(baseUrl: string, asesorToken: string, managerToken: string, excludedProjectCode?: string): Promise<string> {
+  const managerReport = await api(baseUrl, '/reports/projects?pageSize=100&sortBy=code&sortOrder=asc', {}, managerToken);
+  const asesorMe = await api(baseUrl, '/me', {}, asesorToken);
+  if (managerReport.status !== HTTP_OK || asesorMe.status !== HTTP_OK) {
+    throw new Error(`El reporte de proyectos del manager respondió ${managerReport.status} y /me del asesor ${asesorMe.status}.`);
+  }
+  const asesorId = ((await asesorMe.json()) as { id: string }).id;
+  const rows = ((await managerReport.json()) as { data: Array<{ id: string; code: string; owner: { id: string } }> }).data;
+  for (const row of rows) {
+    if (row.owner.id === asesorId || row.code === excludedProjectCode) {
+      continue;
+    }
+    if ((await api(baseUrl, `/projects/${row.id}`, {}, asesorToken)).status === HTTP_NOT_FOUND) {
+      return row.code;
+    }
+  }
+  throw new Error('La demo no tiene un proyecto que el manager vea en el reporte de proyectos y el asesor no.');
 }
 
 /** Crea o repone los roles y usuarios de RESTRICTED_PROFILES (repetible). */
