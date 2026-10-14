@@ -20,7 +20,7 @@ import { closeTestContext, createTestContext, type TestContext } from './support
  * Módulo 4 · Visitas (04 F.1, PF-04.8–PF-04.25 y PF-04.63–PF-04.66): planificar con
  * conflictos, editar, registrar y corregir la realización, confirmar (solo el dueño,
  * DM-20), reprogramar, cancelar e historial de eventos, con auditoría y
- * `projects.last_activity_at`. País propio `V1`.
+ * `projects.last_activity_at`. País propio `K4`.
  */
 
 let context: TestContext;
@@ -34,7 +34,7 @@ const CONFLICT_MODE = 'crm.visitas.validar_conflicto_horario';
 
 beforeAll(async () => {
   context = await createTestContext();
-  v1 = await testCountry(context.prisma, 'V1', { name: 'Prueba Visitas' });
+  v1 = await testCountry(context.prisma, 'K4', { name: 'Prueba Visitas' });
   const codes: [string, string, string][] = [
     ['planned', 'crm.estado_visita', 'PROGRAMADA'],
     ['rescheduled', 'crm.estado_visita', 'REPROGRAMADA'],
@@ -489,7 +489,8 @@ describe('POST /visits/:id/rescheduling y /cancellation (PF-04.21–PF-04.25, AC
     const { user, customerId } = await ownerWithCustomer();
     const client = api(context, user.token);
     const original = at(24);
-    const id = await plannedVisit(client, customerId, { scheduledStartAt: original, scheduledEndAt: at(26) });
+    // Fin derivado del inicio: dos llamadas a `at()` difieren en milisegundos con carga.
+    const id = await plannedVisit(client, customerId, { scheduledStartAt: original, scheduledEndAt: new Date(new Date(original).getTime() + 2 * HOUR).toISOString() });
     const first = at(48);
     const second = at(72);
     const one = await client.post(`/visits/${id}/rescheduling`).send({ newScheduledStartAt: first, reasonId: ids['rescheduleReason'], comment: 'Pide el cliente' }).expect(200);

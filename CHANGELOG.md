@@ -98,6 +98,17 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   - NGINX: una sola cabecera `Cache-Control: no-store` en las respuestas de la API.
 
 ### Added
+- **CRM Módulo 1 — Inicio / Panel de control (F-01…F-04)** (`01-inicio-dashboard.md`):
+  - API `GET /dashboard/*`: indicadores K1–K9 (proyectos activos, oportunidades abiertas,
+    ganadas y perdidas, forecast M+6, visitas, actividades pendientes y vencidas, metas),
+    próximas visitas, actividad reciente, alertas AL-1…AL-4 y su resumen. Cada bloque con el
+    permiso y el alcance de su fuente; alertas calculadas con `crm.alertas.*` en cada consulta.
+  - `CommercialMetricsModule` / `CommercialMetricsService`: fuente única de las fórmulas
+    KPI-01…KPI-10 y DEF-A…G, contrato compartido con Reportes (Módulo 5); `commercial-period.ts`.
+  - Visitas y actividades de Inicio con la visibilidad del Módulo 4 (`commercialVisibilitySql`: directa
+    + herencia por proyecto con `proyectos.ver`) y `@RequireAnyPermission` del Módulo 4.
+  - Panel `/` con tarjetas de indicadores, bandeja de alertas, próximas visitas, actividad
+    reciente y accesos rápidos; token `priorityTones` (color por peso de `crm.prioridad`).
 - **CRM Módulo 4 — Actividad comercial, completado** (F-21…F-33, `matriz-trazabilidad.md`):
   backend, frontend y E2E en verde. Pendiente al integrar el Módulo 3: montar los puntos de
   entrada de E.11 en la ficha del proyecto y quitar la simulación del 03 en PF-04.58.

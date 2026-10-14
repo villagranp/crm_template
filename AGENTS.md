@@ -360,7 +360,7 @@ exactos (códigos, `details`, objetos completos), no solo que algo "se llamó".
 - Las suites corren en paralelo sobre el mismo esquema y la misma carpeta de adjuntos, así que:
   - no se listan carpetas compartidas esperando un estado exacto;
   - no se reutilizan países de prueba de otra suite (cada suite usa códigos propios con
-    `testCountry`);
+    `testCountry`; `test/test-isolation.e2e.spec.ts` falla si dos suites comparten código);
   - todo parámetro cambiado se restaura (`withParameter`, que serializa entre suites los
     cambios del mismo parámetro con un bloqueo consultivo; si el valor nuevo se deriva del
     vigente, se pasa como función para calcularlo dentro del bloqueo). Si basta con un dato

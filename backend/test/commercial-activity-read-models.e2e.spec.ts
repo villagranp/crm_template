@@ -19,7 +19,7 @@ import { closeTestContext, createTestContext, type TestContext } from './support
 /**
  * Módulo 4 · Modelos de lectura (04 F.3, PF-04.37–PF-04.42): agenda (listado y
  * calendario), historial de interacciones y seguimiento comercial con su
- * trazabilidad. Derivados, sin tablas propias (00 §2.12). País propio `R4`.
+ * trazabilidad. Derivados, sin tablas propias (00 §2.12). País propio `K5`.
  */
 
 let context: TestContext;
@@ -31,7 +31,7 @@ const DAY = 24 * HOUR;
 
 beforeAll(async () => {
   context = await createTestContext();
-  r4 = await testCountry(context.prisma, 'R4', { name: 'Prueba Lecturas' });
+  r4 = await testCountry(context.prisma, 'K5', { name: 'Prueba Lecturas' });
   const codes: [string, string, string][] = [
     ['call', 'crm.tipo_actividad', 'LLAMADA'],
     ['task', 'crm.tipo_actividad', 'TAREA'],

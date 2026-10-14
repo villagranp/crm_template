@@ -13,7 +13,9 @@ import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CatalogsModule } from './modules/catalogs/catalogs.module';
 import { CommercialActivityModule } from './modules/commercial-activity/commercial-activity.module';
+import { CommercialMetricsModule } from './modules/commercial-metrics/commercial-metrics.module';
 import { CustomersModule } from './modules/customers/customers.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { ExchangeRatesModule } from './modules/exchange-rates/exchange-rates.module';
 import { ForecastModule } from './modules/forecast/forecast.module';
 import { OpportunitiesModule } from './modules/opportunities/opportunities.module';
@@ -72,6 +74,9 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     ForecastModule,
     // CRM · Módulo 4: actividad comercial (04).
     CommercialActivityModule,
+    // CRM · Módulo 1: fórmulas comerciales compartidas (Inicio y Reportes) y panel de Inicio (01).
+    CommercialMetricsModule,
+    DashboardModule,
     HealthModule,
   ],
   providers: [

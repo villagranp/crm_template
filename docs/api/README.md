@@ -469,6 +469,32 @@ de la transacción de un alta o edición, el proyecto vinculado se bloquea con
 (`CustomerReferenceGuard.assertUsableCustomer`) recibe los alcances resueltos antes de la
 transacción (`accessScopes`), como exige ahora con `tx`.
 
+## Endpoints del CRM — Módulo 1 · Inicio / Panel de control
+
+Contrato completo: [`01-inicio-dashboard.md`](../implementation-plans/crm/01-inicio-dashboard.md) §F
+y "Precisiones de implementación (2026-10-13)". Todos `GET` bajo `/api/v1/dashboard`, solo lectura
+(sin `404`, `409` ni `422`). Cifras, eventos y alertas se calculan en cada consulta con el alcance del
+permiso de su fuente (00 §4.2). Las fórmulas viven en `CommercialMetricsService` (fuente única con
+Reportes, RN-01.10).
+
+| # | Ruta | Permiso | Respuesta | Errores propios |
+|---|---|---|---|---|
+| 1 | `/indicators/projects` | `proyectos.ver` | `ProjectIndicatorsResponseDto` (KPI-01) | — |
+| 2 | `/indicators/opportunities` | `oportunidades.ver` | `OpportunityIndicatorsResponseDto` (KPI-02…04) | `400` período inválido |
+| 3 | `/indicators/forecast` | `forecast.ver` | `ForecastIndicatorsResponseDto` (KPI-05) | — |
+| 4 | `/indicators/visits` | `visitas.ver` | `VisitIndicatorsResponseDto` (KPI-06/07) | — |
+| 5 | `/indicators/activities` | `actividades.ver` | `ActivityIndicatorsResponseDto` (KPI-08/09) | — |
+| 6 | `/indicators/targets` | `metas.ver` | `TargetIndicatorsResponseDto` (KPI-10) | `400` período inválido |
+| 7 | `/upcoming-visits` | `visitas.ver` | `{ data: UpcomingVisitDto[], pagination }` | `400` |
+| 8 | `/recent-activity` | **uno de** `actividades.ver`, `visitas.ver`, `oportunidades.ver`, `proyectos.ver` | `{ data: RecentActivityItemDto[], pagination }` | `400` |
+| 9 | `/alerts` | igual que 8 | `{ data: DashboardAlertDto[], pagination }` | `400` |
+| 10 | `/alerts/summary` | igual que 8 | `AlertsSummaryResponseDto` | — |
+
+Los endpoints 8–10 usan `@RequireAnyPermission` (addendum de ADR-008) y filtran cada fuente o tipo de
+alerta por su propio permiso. Período (2 y 6): `period=MONTH|QUARTER|YEAR` (mes en curso por defecto) o
+`from`/`to` (fechas de calendario, `from ≤ to`, ≤ 366 días); si no, `400 VALIDATION_FAILED` con
+`details[0] = { field, issue }`. No hay códigos de error nuevos.
+
 ## Contract rules
 
 1. Breaking a published contract requires a new URI version (`/api/v2/...`)

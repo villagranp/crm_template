@@ -289,6 +289,61 @@ Notas:
   el cliente (los `POST /auth/refresh` sin cookie son `401`). Un `500` siempre
   va acompañado de `unhandled_exception` con el mismo `correlationId`.
 
+### E2E de Inicio
+
+`frontend/tests/e2e/dashboard.e2e.spec.ts` (PF-01.23, PF-01.41 y PF-01.48 del plan
+`docs/implementation-plans/crm/01-inicio-dashboard.md`) usa el **mismo stack aislado**
+que «E2E de Clientes» (pasos 1–3 y 6) y solo lee: se repite sin volver a `prepare`.
+
+| Recorrido | Qué cubre |
+|---|---|
+| PF-01.48 (asesor) | Hero con el saludo y el nombre de `GET /me`; K1–K8 sin error y con la cifra exacta de cada `GET /dashboard/indicators/*`; bandeja de alertas, próximas visitas y actividad reciente |
+| PF-01.48 (sin permisos comerciales) | Usuario con el rol `usuario`: Hero, «Mi acceso», accesos y el aviso «Todavía no tienes indicadores comerciales asignados»; ninguna tarjeta ni bloque comercial y **ninguna** petición a `/dashboard/*` (AC-01.5) |
+| PF-01.23 | K2 → `/proyectos/oportunidades?status=OPEN` y K1 → `/proyectos?active=true` con el mismo total que la tarjeta (API y «Mostrando … de N»); K6–K8 enlazan a `/actividad/visitas?statusGroup=PENDING` y `/actividad/pendientes` con su `bucket` (AC-01.17) |
+| PF-01.41 | Manager (TEAM): el resumen `ACTIVIDAD_VENCIDA`, la bandeja filtrada, K8 y `GET /activities/pending?bucket=OVERDUE` (tras pulsar K8) cuentan lo mismo; «Abrir» de una actividad vencida lleva a `/actividad/actividades/:id` y el de proyecto u oportunidad, a su ficha (AC-01.31) |
+
+PF-01.41 no recorre «completar la actividad y la alerta desaparece»: gastaría los datos demo y
+los recorridos deben poder repetirse sin `prepare` (lo cubre la prueba de integración de
+PF-01.41). Usa el manager porque el asesor de la demo (`asesor1.gt`) no tiene actividades
+vencidas y su equipo sí.
+
+Variables, además de las de «E2E de Clientes» (los valores entre `<>` son de ejemplo):
+
+| Variable | Valor |
+|---|---|
+| `E2E_NO_COMMERCIAL_PASSWORD` | `<12+>`: si se define **antes** de `activate`, el script crea en el esquema aislado un usuario activo con el rol esencial `usuario` (sin permisos; ningún usuario de la demo lo tiene) |
+| `E2E_NO_COMMERCIAL_EMAIL` | `sin.comercial@e2e.invalid` (por defecto del script; lo imprime `activate`) |
+
+Pasos (Git Bash, desde la raíz):
+
+1. Pasos 1–3 de «E2E de Clientes» (`prepare`, backend, Vite). Si otra sesión usa ya
+   `integration_e2e`, 3100 o 5180, elige otro esquema (`E2E_SCHEMA=integration_e2e_<sufijo>`)
+   y otros puertos, y ajusta `API_PORT`, `CORS_ALLOWED_ORIGINS`, `DEV_API_PROXY_TARGET`,
+   `E2E_API_URL` y `E2E_BASE_URL`.
+2. Con `E2E_NO_COMMERCIAL_PASSWORD` ya exportada,
+   `cd backend && E2E_API_URL=http://localhost:3100 pnpm exec ts-node --transpile-only scripts/e2e-stack.ts activate`
+   y exporta las líneas `E2E_*` que imprime. Es idempotente: repone el rol y la contraseña
+   del usuario sin permisos comerciales.
+3. `E2E_BASE_URL=http://localhost:5180 pnpm --filter @app/frontend test:e2e dashboard`
+   con esas variables y `E2E_ASESOR_PASSWORD`, `E2E_MANAGER_PASSWORD` y
+   `E2E_NO_COMMERCIAL_PASSWORD`.
+4. Limpieza: paso 6 de «E2E de Clientes» (detén solo tu backend y tu Vite,
+   `e2e-stack.ts drop` con el mismo `E2E_SCHEMA`, borra la carpeta temporal de adjuntos y
+   `frontend/test-results`).
+
+Notas:
+
+- **Límite de login:** cada ejecución hace 3 inicios de sesión (el asesor comparte una
+  sesión entre sus dos recorridos) y `activate` hasta 6; deja pasar un minuto entre
+  `activate` y la ejecución.
+- Las aserciones comparan la cifra de cada tarjeta con la respuesta de la API. Antes de
+  registrar las esperas de respuesta, el recorrido espera a que termine la carga anterior
+  (`networkidle`): una respuesta capturada justo antes de `page.goto` pierde su cuerpo.
+- Sin `E2E_NO_COMMERCIAL_PASSWORD` el recorrido del rol `usuario` se salta.
+- Si la demo dejara de tener oportunidades abiertas o proyectos activos del asesor, o
+  actividades vencidas y alertas de proyecto u oportunidad en el equipo del manager, el
+  recorrido falla con un mensaje de precondición: depende de los datos demo.
+
 ## 9. En el pipeline
 
 `lint → typecheck → unit → integration → build → security checks`.
