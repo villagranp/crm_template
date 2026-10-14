@@ -14,7 +14,6 @@ import {
   CUSTOMER_REF,
   FORM_OPTIONS,
   menu,
-  page,
   PROJECT_REF,
   RESULT_OK,
   signInWith,
@@ -127,14 +126,18 @@ describe('ActivityFormPage (F-31, F-32, PF-04.53)', () => {
     });
   });
 
-  it('con projectId preselecciona proyecto y cliente (AC-04.48)', async () => {
+  it('con projectId y opportunityId preselecciona cliente, proyecto y oportunidad con los contratos de 03 (AC-04.48)', async () => {
     const fetchMock = api(
-      { 'GET /projects': () => page([{ ...PROJECT_REF, customer: { id: 'c-1', legalName: CUSTOMER_REF.legalName } }]) },
+      {
+        'GET /projects/p-1': () => jsonResponse({ ...PROJECT_REF, customer: { id: 'c-1', legalName: CUSTOMER_REF.legalName } }),
+        'GET /opportunities/o-1': () => jsonResponse({ id: 'o-1', code: 'OPO-2026-00001', project: PROJECT_REF, stage: { isClosed: false } }),
+      },
       ['actividad-actividades', 'proyectos-buscar'],
     );
-    renderPage(`?customerId=c-1&projectId=p-1&typeId=${TYPE_TASK.id}`);
+    renderPage(`?customerId=c-1&projectId=p-1&opportunityId=o-1&typeId=${TYPE_TASK.id}`);
 
     expect(await screen.findByRole('combobox', { name: 'Proyecto' })).toHaveValue('PRY-2026-00001 · Torre Norte');
+    expect(screen.getByRole('combobox', { name: 'Oportunidad' })).toHaveValue('OPO-2026-00001');
     await userEvent.type(screen.getByLabelText(/Asunto/), 'Visitar obra');
     await userEvent.click(screen.getByRole('button', { name: 'Crear actividad' }));
 
@@ -142,6 +145,26 @@ describe('ActivityFormPage (F-31, F-32, PF-04.53)', () => {
     const body = bodyOf(callsTo(fetchMock, 'POST', '/activities')[0]);
     expect(body.customerId).toBe('c-1');
     expect(body.projectId).toBe('p-1');
+    expect(body.opportunityId).toBe('o-1');
+  });
+
+  it('un proyecto de otro cliente o una oportunidad cerrada no se preseleccionan y se avisa (AC-04.49)', async () => {
+    api(
+      {
+        'GET /projects/p-1': () => jsonResponse({ ...PROJECT_REF, customer: { id: 'c-1', legalName: CUSTOMER_REF.legalName } }),
+        'GET /projects/p-2': () => jsonResponse({ id: 'p-2', code: 'PRY-2026-00002', name: 'Otro', customer: { id: 'c-9', legalName: 'Otro cliente' } }),
+        'GET /opportunities/o-1': () => jsonResponse({ id: 'o-1', code: 'OPO-2026-00001', project: PROJECT_REF, stage: { isClosed: true } }),
+      },
+      ['actividad-actividades', 'proyectos-buscar'],
+    );
+    const { unmount } = renderPage('?customerId=c-1&projectId=p-2');
+    expect(await screen.findByText('El proyecto indicado no existe, no es de este cliente o no tienes acceso.')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Proyecto' })).toHaveValue('');
+    unmount();
+
+    renderPage('?customerId=c-1&projectId=p-1&opportunityId=o-1');
+    expect(await screen.findByText('La oportunidad indicada no existe, no está abierta o no es de este proyecto.')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Proyecto' })).toHaveValue('PRY-2026-00001 · Torre Norte');
   });
 
   it('una preselección inexistente o fuera de alcance se informa y deja el campo vacío (AC-04.49)', async () => {
@@ -153,7 +176,7 @@ describe('ActivityFormPage (F-31, F-32, PF-04.53)', () => {
     expect(screen.getByRole('combobox', { name: /Cliente/ })).toHaveValue('');
   });
 
-  it('sin el módulo de Proyectos, avisa de que el proyecto no se preseleccionó y deja crear (Módulo 3 en otra rama)', async () => {
+  it('sin la opción de menú de Proyectos, avisa de que el proyecto no se preseleccionó y deja crear (D-02.10)', async () => {
     const fetchMock = api();
     renderPage(`?customerId=c-1&projectId=p-1&typeId=${TYPE_TASK.id}`);
 

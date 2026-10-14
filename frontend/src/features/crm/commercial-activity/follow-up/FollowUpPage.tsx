@@ -7,18 +7,20 @@ import { Link as RouterLink } from 'react-router-dom';
 import { DataTable, FilterChips, ListToolbar, useTableQueryState, type DataTableColumn } from '@/components/data';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { crmBreadcrumbs } from '@/features/crm/common/crm-breadcrumbs';
+import { projectDetailPath } from '@/features/crm/projects';
 import { usePermission } from '@/hooks/use-permission';
 import { describeApiError } from '@/lib/api-error-view';
 import type { ListQuery } from '@/lib/query-keys';
 
 import { AttachmentCount } from '../common/AttachmentCount';
-import { projectDetailPath, withoutSearch, type FollowUpRow } from '../common/commercial-activity.api';
+import { withoutSearch, type FollowUpRow } from '../common/commercial-activity.api';
 import { COMMERCIAL_ERROR_MESSAGES, withReference } from '../common/commercial-activity.errors';
 import { COMMERCIAL_RELATED_PERMISSIONS } from '../common/commercial-activity.permissions';
 import { useCustomerLookup, useOwnerName } from '../common/commercial-activity.queries';
 import { endOfDayIso, startOfDayIso } from '../common/date-time';
 import { NextActionDate } from '../common/NextActionDate';
 import { useCommercialTimeZones } from '../common/use-commercial-time-zones';
+import { useProjectFilterName } from '../common/use-project-filter-name';
 import { ZonedDateTime } from '../common/ZonedDateTime';
 
 import { ActiveFollowUpFilterChips, FollowUpFilters } from './components/FollowUpFilters';
@@ -37,7 +39,7 @@ import { useFollowUps } from './follow-up.queries';
 
 const TITLE = 'Seguimiento comercial';
 const DEFAULT_SORT = { field: 'lastInteractionAt', direction: 'desc' } as const;
-const CHIP_FILTERS: readonly FollowUpChipFilter[] = [...FOLLOW_UP_FORM_FILTERS, 'projectId'];
+const CHIP_FILTERS: readonly FollowUpChipFilter[] = FOLLOW_UP_FORM_FILTERS;
 const CLEARABLE_FILTERS = FOLLOW_UP_FILTER_KEYS.filter((key) => key !== 'groupBy');
 
 /** Los enlaces dentro de una fila navegable no deben abrir además el drawer. */
@@ -186,7 +188,8 @@ export function FollowUpPage() {
   const customerLookup = useCustomerLookup(canListCountries ? filters.customerId : undefined);
   const customerName =
     (filters.customerId && rows?.find((row) => row.customer.id === filters.customerId)?.customer.legalName) || customerLookup.data?.legalName || null;
-  const projectName = (filters.projectId && rows?.find((row) => row.project?.id === filters.projectId)?.project?.name) || null;
+  const projectFilterName = useProjectFilterName(filters.projectId);
+  const projectName = (filters.projectId && rows?.find((row) => row.project?.id === filters.projectId)?.project?.name) || projectFilterName;
 
   const clearFilters = () => table.setFilters(Object.fromEntries(CLEARABLE_FILTERS.map((key) => [key, undefined])));
   const openTrace = (row: FollowUpRow) => {

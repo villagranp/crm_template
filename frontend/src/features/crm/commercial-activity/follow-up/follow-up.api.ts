@@ -19,8 +19,8 @@ export const FOLLOW_UP_SORT_FIELDS = ['lastInteractionAt', 'nextActionDate', 'cu
 /**
  * Parámetros de la URL con el mismo nombre que en la API. Las fechas
  * `lastInteraction*` viajan en la URL como `YYYY-MM-DD` y a la API como
- * instantes. `projectId` sólo llega por enlace (sin selector: el Módulo 3 no
- * está en esta rama).
+ * instantes. `projectId` se elige con el `ProjectPicker` del Módulo 3 o llega por
+ * enlace (ficha del proyecto, trazabilidad).
  */
 export const FOLLOW_UP_FILTER_KEYS = [
   'groupBy',

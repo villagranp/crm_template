@@ -11,13 +11,13 @@ import { ConfirmDialog, DetailList, DetailSection, EmptyState } from '@/componen
 import { PageHeader } from '@/components/layout/PageHeader';
 import { crmBreadcrumbs } from '@/features/crm/common/crm-breadcrumbs';
 import { customerDetailPath } from '@/features/crm/customers';
+import { projectDetailPath } from '@/features/crm/projects';
 import { describeApiError } from '@/lib/api-error-view';
 import { ROUTE_PATHS } from '@/routes/route-paths';
 import { useAuthStore } from '@/stores/auth.store';
 import { usePermission } from '@/hooks/use-permission';
 
 import { AttachmentsPanel } from '../common/AttachmentsPanel';
-import { projectDetailPath } from '../common/commercial-activity.api';
 import { COMMERCIAL_ERROR_MESSAGES, isNotFoundError, withReference } from '../common/commercial-activity.errors';
 import { ACTIVITY_PERMISSIONS } from '../common/commercial-activity.permissions';
 import { formatCalendarDate, formatDateTime, formatMinutes } from '../common/date-time';

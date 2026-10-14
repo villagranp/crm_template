@@ -7,7 +7,7 @@ import { errorResponse, jsonResponse, mockApi } from '@/test/api-mocks';
 import { renderWithProviders } from '@/test/render-with-providers';
 
 import { endOfDayIso, formatDate, formatDateTime, startOfDayIso } from '../common/date-time';
-import { ASESOR_PERMISSIONS, CUSTOMER_REF, FORM_OPTIONS, INTERACTION, lastQuery, ME, page, signInWith, signOut, simulateWideScreen } from '../testing/fixtures';
+import { ASESOR_PERMISSIONS, CUSTOMER_REF, FORM_OPTIONS, INTERACTION, lastQuery, ME, menu, page, signInWith, signOut, simulateWideScreen } from '../testing/fixtures';
 import { ACTIVITY_INTERACTION, FROZEN_NOW } from '../testing/read-model-fixtures';
 
 import { InteractionHistoryPage } from './InteractionHistoryPage';
@@ -79,6 +79,31 @@ afterEach(() => {
 });
 
 describe('InteractionHistoryPage (F-24, PF-04.55)', () => {
+  it('con el módulo de Proyectos, filtra por proyecto y por una oportunidad de ese proyecto (04 §E.5)', async () => {
+    signInWith([...ASESOR_PERMISSIONS, 'oportunidades.ver']);
+    const user = userEvent.setup();
+    const fetchMock = mockApi({
+      'GET /me/menu': () => jsonResponse(menu(['actividad-historial', 'proyectos-buscar'])),
+      'GET /interactions': () => page([INTERACTION]),
+      'GET /activities/form-options': () => jsonResponse(FORM_OPTIONS),
+      'GET /projects': () => page([{ id: 'p-1', code: 'PRY-2026-00001', name: 'Torre Norte', customer: { id: 'c-1', legalName: 'Constructora Peña S.A.' } }]),
+      'GET /projects/p-1': () => jsonResponse({ id: 'p-1', code: 'PRY-2026-00001', name: 'Torre Norte', customer: { id: 'c-1', legalName: 'Constructora Peña S.A.' } }),
+      'GET /projects/p-1/opportunities': () => page([{ id: 'o-1', code: 'OPO-2026-00001', stage: { id: 'st-1', code: 'CONTACTADO', label: 'Contactado' } }]),
+    });
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Filtros' }));
+    expect(screen.queryByRole('combobox', { name: 'Oportunidad' })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole('combobox', { name: 'Proyecto' }));
+    await user.click(await screen.findByRole('option', { name: 'PRY-2026-00001 · Torre Norte' }));
+    await user.click(await screen.findByRole('combobox', { name: 'Oportunidad' }));
+    await user.click(await screen.findByRole('option', { name: 'OPO-2026-00001 · Contactado' }));
+    await user.click(screen.getByRole('button', { name: 'Aplicar filtros' }));
+
+    await waitFor(() => expect(lastQuery(fetchMock, '/interactions').get('opportunityId')).toBe('o-1'));
+    expect(lastQuery(fetchMock, '/interactions').get('projectId')).toBe('p-1');
+  });
+
   it('línea de tiempo por defecto, más recientes primero, agrupada por día y con enlace a cada origen (AC-04.15, AC-04.16)', async () => {
     const fetchMock = routes(() => page([ACTIVITY_INTERACTION, INTERACTION]));
     renderPage();

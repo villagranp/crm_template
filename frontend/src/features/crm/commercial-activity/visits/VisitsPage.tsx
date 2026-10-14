@@ -120,7 +120,7 @@ export function VisitsPage() {
   );
   const activeFilterCount = Object.keys(formFilters).length;
   const [filtersOpen, setFiltersOpen] = useState(activeFilterCount > 0);
-  const hasFilters = Boolean(search) || activeFilterCount > 0 || Boolean(filters.projectId) || Boolean(filters.statusGroup);
+  const hasFilters = Boolean(search) || activeFilterCount > 0 || Boolean(filters.statusGroup);
   const ownerName = useOwnerName(filters.ownerId);
 
   const clearFilters = () => table.setFilters(Object.fromEntries(VISIT_FILTER_KEYS.map((key) => [key, undefined])));
@@ -171,10 +171,9 @@ export function VisitsPage() {
             onRemove={(key) => table.setFilter(key, undefined)}
             onClear={clearFilters}
           />
-          {filters.projectId || filters.statusGroup ? (
+          {filters.statusGroup ? (
             <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ pt: 2 }} aria-label="Filtros de origen">
-              {filters.projectId ? <Chip label="Proyecto seleccionado" onDelete={() => table.setFilter('projectId', undefined)} /> : null}
-              {filters.statusGroup ? <Chip label="Grupo de estado seleccionado" onDelete={() => table.setFilter('statusGroup', undefined)} /> : null}
+              <Chip label="Grupo de estado seleccionado" onDelete={() => table.setFilter('statusGroup', undefined)} />
             </Stack>
           ) : null}
         </ListToolbar>

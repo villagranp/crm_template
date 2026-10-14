@@ -6,6 +6,7 @@ import { Link as RouterLink } from 'react-router-dom';
 
 import { DetailList, EntityDrawer } from '@/components/data';
 import { customerDetailPath } from '@/features/crm/customers';
+import { projectDetailPath } from '@/features/crm/projects';
 import { usePermission } from '@/hooks/use-permission';
 import { describeApiError } from '@/lib/api-error-view';
 
@@ -13,7 +14,7 @@ import type { ActivityDetail } from '../../activities/activities.api';
 import { useActivity } from '../../activities/activities.queries';
 import { ActivityCompletionDialog } from '../../activities/components/ActivityCompletionDialog';
 import { AttachmentCount } from '../../common/AttachmentCount';
-import { projectDetailPath, type AgendaItem } from '../../common/commercial-activity.api';
+import type { AgendaItem } from '../../common/commercial-activity.api';
 import { COMMERCIAL_ERROR_MESSAGES, withReference } from '../../common/commercial-activity.errors';
 import { COMMERCIAL_RELATED_PERMISSIONS } from '../../common/commercial-activity.permissions';
 import { formatDateTime } from '../../common/date-time';

@@ -2,11 +2,15 @@ import { Box, Button, Chip, MenuItem, Stack, TextField } from '@mui/material';
 import { useState, type FormEvent } from 'react';
 
 import { CustomerPicker, type CustomerPickerValue } from '@/features/crm/customers';
+import { OpportunityPicker, type OpportunityPickerValue } from '@/features/crm/opportunities';
+import { usePermission } from '@/hooks/use-permission';
 
 import type { ActivityFormOptions } from '../../activities/activities.api';
 import type { UserRef } from '../../common/commercial-activity.api';
+import { COMMERCIAL_RELATED_PERMISSIONS } from '../../common/commercial-activity.permissions';
 import { formatCalendarDate } from '../../common/date-time';
 import { OwnerPicker } from '../../common/OwnerPicker';
+import { ProjectFilterField, type ProjectFilterValue } from '../../common/ProjectFilterField';
 import { useResyncOnChange } from '../../common/use-resync-on-change';
 import { VISIT_TYPE_VALUE, type InteractionChipFilter, type InteractionFilterValues, type InteractionFormFilter } from '../interaction-filters';
 
@@ -27,6 +31,13 @@ function interactionTypes(options: ActivityFormOptions | undefined) {
   return (options?.types ?? []).filter((type) => type.isInteraction);
 }
 
+/** Oportunidad elegida; desde la URL sólo se conoce el id (el selector muestra "Seleccionada"). */
+type OpportunityChoice = OpportunityPickerValue | { id: string; code: string } | null;
+
+function opportunityChoice(opportunityId: string | undefined): OpportunityChoice {
+  return opportunityId ? { id: opportunityId, code: 'Seleccionada' } : null;
+}
+
 export interface InteractionFiltersProps {
   /** Filtros aplicados (los de la URL); las fechas, `YYYY-MM-DD`. */
   values: InteractionFilterValues;
@@ -36,13 +47,18 @@ export interface InteractionFiltersProps {
 }
 
 /**
- * Filtros del historial (04 §E.5): rango de fechas, cliente, usuario, tipo
- * (Visita o tipo de actividad) y resultado. Se aplican juntos y viven en la URL.
+ * Filtros del historial (04 §E.5): rango de fechas, cliente, proyecto y
+ * oportunidad del proyecto (selectores de 03, si su módulo está en el menú y,
+ * la oportunidad, con `oportunidades.ver`), usuario, tipo (Visita o tipo de
+ * actividad) y resultado. Se aplican juntos y viven en la URL.
  */
 export function InteractionFilters({ values, options, onApply }: InteractionFiltersProps) {
+  const canViewOpportunities = usePermission(COMMERCIAL_RELATED_PERMISSIONS.viewOpportunities);
   const [draft, setDraft] = useState<InteractionFilterValues>(values);
   const [user, setUser] = useState<UserRef | { id: string } | null>(values.userId ? { id: values.userId } : null);
   const [customer, setCustomer] = useState<CustomerPickerValue | { id: string } | null>(values.customerId ? { id: values.customerId } : null);
+  const [project, setProject] = useState<ProjectFilterValue>(values.projectId ? { id: values.projectId } : null);
+  const [opportunity, setOpportunity] = useState<OpportunityChoice>(opportunityChoice(values.opportunityId));
 
   // La URL manda (atrás/adelante, "Limpiar", un chip quitado), pero sólo si
   // cambian los filtros: un nuevo render con los mismos no borra el borrador.
@@ -50,7 +66,14 @@ export function InteractionFilters({ values, options, onApply }: InteractionFilt
     setDraft(applied);
     setUser(applied.userId ? { id: applied.userId } : null);
     setCustomer(applied.customerId ? { id: applied.customerId } : null);
+    setProject(applied.projectId ? { id: applied.projectId } : null);
+    setOpportunity(opportunityChoice(applied.opportunityId));
   });
+  // La oportunidad es del proyecto: cambiar de proyecto la quita.
+  const changeProject = (next: ProjectFilterValue) => {
+    if (next?.id !== project?.id) setOpportunity(null);
+    setProject(next);
+  };
 
   const set = (key: InteractionFormFilter, value: string) => setDraft((current) => ({ ...current, [key]: value }));
   const typeValue = draft.sourceType === VISIT_TYPE_VALUE ? VISIT_TYPE_VALUE : (draft.typeId ?? '');
@@ -76,6 +99,8 @@ export function InteractionFilters({ values, options, onApply }: InteractionFilt
       from: draft.from,
       to: draft.to,
       customerId: customer?.id,
+      projectId: project?.id,
+      opportunityId: project ? opportunity?.id : undefined,
       userId: user?.id,
       sourceType: draft.sourceType,
       typeId: draft.typeId,
@@ -114,6 +139,12 @@ export function InteractionFilters({ values, options, onApply }: InteractionFilt
         <Box sx={{ gridColumn: { sm: 'span 2' } }}>
           <CustomerPicker label={LABELS.customerId} value={customer} onChange={setCustomer} />
         </Box>
+        <Box sx={{ gridColumn: { sm: 'span 2' }, '&:empty': { display: 'none' } }}>
+          <ProjectFilterField label={LABELS.projectId} value={project} onChange={changeProject} customerId={customer?.id} />
+        </Box>
+        {project && canViewOpportunities ? (
+          <OpportunityPicker label={LABELS.opportunityId} projectId={project.id} value={opportunity} onChange={setOpportunity} />
+        ) : null}
         <OwnerPicker label={LABELS.userId} value={user} fallbackName="Usuario seleccionado" onChange={setUser} />
         <TextField select size="small" label={LABELS.typeId} value={typeValue} onChange={(event) => setType(event.target.value)}>
           <MenuItem value="">Todos</MenuItem>

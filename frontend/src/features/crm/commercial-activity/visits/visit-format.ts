@@ -43,7 +43,16 @@ export function rescheduleLabel(count: number): string | null {
 }
 
 /** Filtros del formulario del listado de visitas (los nombres son los de la API). */
-export type VisitFilterField = 'from' | 'to' | 'statusId' | 'ownerId' | 'customerId' | 'countryId' | 'unregistered' | 'pendingConfirmation';
+export type VisitFilterField =
+  | 'from'
+  | 'to'
+  | 'statusId'
+  | 'ownerId'
+  | 'customerId'
+  | 'projectId'
+  | 'countryId'
+  | 'unregistered'
+  | 'pendingConfirmation';
 
 export type VisitFilterValues = Partial<Record<VisitFilterField, string>>;
 
@@ -53,6 +62,7 @@ export const VISIT_FILTER_FIELDS: readonly VisitFilterField[] = [
   'statusId',
   'ownerId',
   'customerId',
+  'projectId',
   'countryId',
   'unregistered',
   'pendingConfirmation',

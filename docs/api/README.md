@@ -452,7 +452,22 @@ módulo autoriza **antes** de leer el cuerpo. No hay rutas genéricas `/attachme
 
 `CommercialActivityModule` exporta el token `COMMERCIAL_ACTIVITY_USAGE_QUERY`
 (`CommercialActivityUsageQuery`: `countOpenByCustomer`, `countOpenByProject`,
-`countByContact`, con `tx` opcional) para los bloqueos de eliminación de 02 y 03.
+`countByContact`, con `tx` opcional). Hoy no lo consume nadie: 03 cuenta los bloqueos de
+eliminación y de cambio de cliente con su propia consulta (03 §F.4, con su regla: visitas no
+canceladas y actividades abiertas) y 02 no lo usa.
+
+### Integración con el Módulo 3 (2026-10-13)
+
+Sin cambios de contrato. Lo que el Módulo 4 consume del 03 coincide con lo implementado:
+`GET /projects?customerId=` (`ProjectListItemDto`), `GET /projects/{id}` (preselección),
+`GET /projects/{projectId}/opportunities?status=OPEN` (`OpportunityListItemDto`),
+`GET /opportunities/{id}` (preselección) y la ruta `/proyectos/:projectId` del frontend. Dentro
+de la transacción de un alta o edición, el proyecto vinculado se bloquea con
+`lockProject(id, 'UPDATE')` y `projects.last_activity_at` se escribe con
+`touchLastActivity` del repositorio de proyectos (`PROJECTS_REPOSITORY`, exportado por
+`ProjectsModule`): una sola escritura de `last_activity_at` en el CRM. La guarda de cliente
+(`CustomerReferenceGuard.assertUsableCustomer`) recibe los alcances resueltos antes de la
+transacción (`accessScopes`), como exige ahora con `tx`.
 
 ## Contract rules
 

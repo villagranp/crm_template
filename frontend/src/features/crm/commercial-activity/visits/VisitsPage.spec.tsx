@@ -7,7 +7,7 @@ import { deferred, errorResponse, jsonResponse, mockApi, type RouteHandler } fro
 import { renderWithProviders } from '@/test/render-with-providers';
 
 import { endOfDayIso, startOfDayIso } from '../common/date-time';
-import { ASESOR_PERMISSIONS, lastQuery, OTHER_USER, page, signInWith, signOut, simulateWideScreen } from '../testing/fixtures';
+import { ASESOR_PERMISSIONS, lastQuery, menu, OTHER_USER, page, signInWith, signOut, simulateWideScreen } from '../testing/fixtures';
 import { VISIT_FORM_OPTIONS, VISIT_LIST_ITEM } from '../testing/visit-fixtures';
 
 import { VisitsPage } from './VisitsPage';
@@ -95,6 +95,24 @@ describe('VisitsPage (F-25, AC-04.19)', () => {
 
     await user.click(within(chips).getByRole('button', { name: 'Limpiar' }));
     await waitFor(() => expect(lastQuery(fetchMock, '/visits').has('statusId')).toBe(false));
+  });
+
+  it('con el módulo de Proyectos, filtra por proyecto con el selector de 03 y lo muestra como chip (04 §E.6)', async () => {
+    const user = userEvent.setup();
+    const fetchMock = api({
+      'GET /me/menu': () => jsonResponse(menu(['actividad-visitas', 'proyectos-buscar'])),
+      'GET /projects': () => page([{ id: 'p-1', code: 'PRY-2026-00001', name: 'Torre Norte', customer: { id: 'c-1', legalName: 'Constructora Peña S.A.' } }]),
+      'GET /projects/p-1': () => jsonResponse({ id: 'p-1', code: 'PRY-2026-00001', name: 'Torre Norte', customer: { id: 'c-1', legalName: 'Constructora Peña S.A.' } }),
+    });
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Filtros' }));
+    await user.click(await screen.findByRole('combobox', { name: 'Proyecto' }));
+    await user.click(await screen.findByRole('option', { name: 'PRY-2026-00001 · Torre Norte' }));
+    await user.click(screen.getByRole('button', { name: 'Aplicar filtros' }));
+
+    await waitFor(() => expect(lastQuery(fetchMock, '/visits').get('projectId')).toBe('p-1'));
+    expect(await within(screen.getByLabelText('Filtros activos')).findByText('Proyecto: PRY-2026-00001 · Torre Norte')).toBeInTheDocument();
   });
 
   it('respeta "sin registrar" y el grupo de estado que llegan por la URL (destino de Inicio)', async () => {

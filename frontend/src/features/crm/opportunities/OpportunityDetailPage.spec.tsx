@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { signInWith, signOut, simulateWideScreen } from '@/features/crm/projects/testing/project-fixtures';
+import { menu, signInWith, signOut, simulateWideScreen } from '@/features/crm/projects/testing/project-fixtures';
 import { errorResponse, jsonResponse, mockApi } from '@/test/api-mocks';
 import { renderWithProviders } from '@/test/render-with-providers';
 
@@ -83,6 +83,30 @@ describe('OpportunityDetailPage (F-17, F-18)', () => {
     expect(await screen.findByText('Puedes consultar esta oportunidad, pero no editarla.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Cambiar etapa' })).not.toBeInTheDocument();
+  });
+
+  it('con el Módulo 4: "Nueva actividad" preselecciona cliente, proyecto y oportunidad; no en una cerrada (04 §E.11)', async () => {
+    signInWith(['oportunidades.ver', 'actividades.ver', 'actividades.crear']);
+    api(detail(), { 'GET /me/menu': () => jsonResponse(menu(['proyectos-oportunidades', 'actividad-actividades'])) });
+    const { unmount } = renderPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Nueva actividad' }));
+    expect(await screen.findByText('En /actividad/actividades/nueva?customerId=c-1&projectId=p-1&opportunityId=o-1')).toBeInTheDocument();
+    unmount();
+
+    api(detail({ stage: STAGES.ganado }), { 'GET /me/menu': () => jsonResponse(menu(['proyectos-oportunidades', 'actividad-actividades'])) });
+    renderPage();
+    expect(await screen.findByRole('heading', { level: 1, name: /OPO-2026-00001/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Nueva actividad' })).not.toBeInTheDocument();
+  });
+
+  it('sin el Módulo 4 en el menú no ofrece "Nueva actividad"', async () => {
+    signInWith(['oportunidades.ver', 'actividades.crear']);
+    api(detail(), { 'GET /me/menu': () => jsonResponse(menu(['proyectos-oportunidades'])) });
+    renderPage();
+
+    expect(await screen.findByRole('heading', { level: 1, name: /OPO-2026-00001/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Nueva actividad' })).not.toBeInTheDocument();
   });
 
   it('eliminar con dependencias explica el bloqueo; sin ellas vuelve a la ficha del proyecto (AC-03.50)', async () => {

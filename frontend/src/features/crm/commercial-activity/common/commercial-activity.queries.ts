@@ -8,9 +8,7 @@ import {
   getFollowUpTrace,
   listCountryOptions,
   listCustomerContacts,
-  listCustomerProjectsLookup,
   listInteractions,
-  listOpenOpportunities,
   listOwnerOptions,
   listOwnersByIds,
   type FollowUpScope,
@@ -47,8 +45,6 @@ export const commercialLookupKeys = {
   ownersByIds: (ids: readonly string[]) => [...lookupKeys.all, 'owners-by-id', ids] as const,
   customer: (customerId: string) => [...lookupKeys.all, 'customer', customerId] as const,
   contacts: (customerId: string, query: ListQuery) => [...lookupKeys.all, 'contacts', customerId, query] as const,
-  projects: (customerId: string, query: ListQuery) => [...lookupKeys.all, 'projects', customerId, query] as const,
-  opportunities: (projectId: string, query: ListQuery) => [...lookupKeys.all, 'opportunities', projectId, query] as const,
   countries: () => [...lookupKeys.all, 'countries'] as const,
 };
 
@@ -69,8 +65,6 @@ export function useInvalidateCommercialActivity(): () => Promise<void> {
 
 /** Búsquedas de selectores: resultados por página. */
 export const LOOKUP_PAGE_SIZE = 20;
-/** Para resolver una preselección entre los proyectos u oportunidades de su padre (máximo de la API). */
-export const LOOKUP_MAX_PAGE_SIZE = 100;
 
 export function useOwnerOptions(search: string, enabled: boolean) {
   const query: ListQuery = { search: search || undefined, page: 1, pageSize: LOOKUP_PAGE_SIZE };
@@ -125,24 +119,6 @@ export function useCustomerContacts(customerId: string | null, search: string, e
     queryFn: () => listCustomerContacts(customerId ?? '', query),
     enabled: enabled && Boolean(customerId),
     placeholderData: keepPreviousData,
-  });
-}
-
-export function useCustomerProjectsLookup(customerId: string | null, query: ListQuery, enabled: boolean) {
-  return useQuery({
-    queryKey: commercialLookupKeys.projects(customerId ?? '', query),
-    queryFn: () => listCustomerProjectsLookup(customerId ?? '', query),
-    enabled: enabled && Boolean(customerId),
-    placeholderData: keepPreviousData,
-  });
-}
-
-export function useOpenOpportunities(projectId: string | null, enabled: boolean) {
-  const query: ListQuery = { page: 1, pageSize: LOOKUP_MAX_PAGE_SIZE };
-  return useQuery({
-    queryKey: commercialLookupKeys.opportunities(projectId ?? '', query),
-    queryFn: () => listOpenOpportunities(projectId ?? '', query),
-    enabled: enabled && Boolean(projectId),
   });
 }
 

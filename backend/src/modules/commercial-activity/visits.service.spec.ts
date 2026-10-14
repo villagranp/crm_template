@@ -9,6 +9,7 @@ import type { CustomerReferenceGuard } from '@/modules/customers/customer-refere
 import type { ParameterReader } from '@/modules/parameters/parameter-reader';
 
 import type { CommercialActorResolver } from './commercial-actor.resolver';
+import type { LinkedProjectsService } from './linked-projects.service';
 import type { CommercialLinkReader } from './ports/commercial-link.reader.port';
 import type { CommercialUsersReader } from './ports/commercial-users.reader.port';
 import type { ScheduleCandidateRecord, VisitRecord, VisitRepository } from './ports/visit.repository.port';
@@ -25,6 +26,7 @@ interface Fakes {
   service: VisitsService;
   visits: FakeOf<VisitRepository>;
   links: FakeOf<CommercialLinkReader>;
+  linkedProjects: { lock: jest.Mock; touch: jest.Mock };
   users: FakeOf<CommercialUsersReader>;
   sequences: { next: jest.Mock };
   customers: { accessScopes: jest.Mock; assertUsableCustomer: jest.Mock; assertContactOfCustomer: jest.Mock };
@@ -59,8 +61,6 @@ function setup(options: { stored?: VisitRecord | null; mode?: string; candidates
   const links: FakeOf<CommercialLinkReader> = {
     findProject: jest.fn(async () => ({ id: 'project-1', customerId: 'customer-1', isDeleted: false, isVisible: true })),
     findOpportunity: jest.fn(),
-    lockProjects: jest.fn(async () => undefined),
-    touchProjects: jest.fn(async () => undefined),
   };
   const users: FakeOf<CommercialUsersReader> = {
     isEligibleOwner: jest.fn(async () => true),
@@ -78,9 +78,11 @@ function setup(options: { stored?: VisitRecord | null; mode?: string; candidates
   const catalogReferences = { assertItem: jest.fn(async () => ({})) };
   const audit = { record: jest.fn(async () => undefined) };
   const logger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+  const linkedProjects = { lock: jest.fn(async () => undefined), touch: jest.fn(async () => undefined) };
   const service = new VisitsService(
     visits as unknown as VisitRepository,
     links as unknown as CommercialLinkReader,
+    linkedProjects as unknown as LinkedProjectsService,
     users as unknown as CommercialUsersReader,
     { run } as unknown as TransactionRunner,
     sequences as unknown as SequenceGenerator,
@@ -92,7 +94,7 @@ function setup(options: { stored?: VisitRecord | null; mode?: string; candidates
     audit as unknown as AuditService,
     logger as unknown as AppLogger,
   );
-  return { service, visits, links, users, sequences, customers, catalogReferences, audit, logger };
+  return { service, visits, links, linkedProjects, users, sequences, customers, catalogReferences, audit, logger };
 }
 
 const order = (mock: jest.Mock): number => mock.mock.invocationCallOrder[0] ?? -1;
@@ -121,8 +123,8 @@ describe('VisitsService.create (RN-04.13, RN-04.14)', () => {
     expect(fakes.customers.assertUsableCustomer).toHaveBeenCalledWith('customer-1', expect.anything(), { requireActive: true, tx: TX, scopes: CUSTOMER_SCOPES });
     expect(fakes.links.findProject).toHaveBeenCalledWith('project-1', expect.anything(), TX);
     // RN-04.2: el proyecto se bloquea antes de validarlo (una eliminación concurrente no se cuela).
-    expect(fakes.links.lockProjects).toHaveBeenCalledWith(['project-1'], TX);
-    expect(order(fakes.links.findProject)).toBeGreaterThan(order(fakes.links.lockProjects));
+    expect(fakes.linkedProjects.lock).toHaveBeenCalledWith(['project-1'], TX);
+    expect(order(fakes.links.findProject)).toBeGreaterThan(order(fakes.linkedProjects.lock));
     expect(fakes.visits.lockOwnerSchedules).toHaveBeenCalledWith(['user-1'], TX);
     expect(order(fakes.visits.findScheduleCandidates)).toBeGreaterThan(order(fakes.visits.lockOwnerSchedules));
     expect(order(fakes.sequences.next)).toBeGreaterThan(order(fakes.visits.findScheduleCandidates));
@@ -147,7 +149,7 @@ describe('VisitsService.create (RN-04.13, RN-04.14)', () => {
       },
       TX,
     );
-    expect(fakes.links.touchProjects).toHaveBeenCalledWith(['project-1'], expect.any(Date), TX);
+    expect(fakes.linkedProjects.touch).toHaveBeenCalledWith(['project-1'], expect.any(Date), TX);
     expect(fakes.audit.record).toHaveBeenCalledWith('crm.visit.created', expect.anything(), expect.objectContaining({ resourceId: 'visit-new' }));
     expect(view.scheduleConflicts).toEqual([]);
   });

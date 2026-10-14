@@ -11,6 +11,7 @@ import type { ParameterReader } from '@/modules/parameters/parameter-reader';
 import { ActivitiesService } from './activities.service';
 import type { CommercialActorResolver } from './commercial-actor.resolver';
 import type { ActivityRecord, ActivityRepository } from './ports/activity.repository.port';
+import type { LinkedProjectsService } from './linked-projects.service';
 import type { CommercialLinkReader } from './ports/commercial-link.reader.port';
 import type { CommercialUsersReader } from './ports/commercial-users.reader.port';
 import { CATALOG_ITEMS, CUSTOMER_SCOPES, makeActivity, makeActor, makeScopes, teamScope, TX } from './testing/activity-fixtures';
@@ -29,6 +30,7 @@ interface Fakes {
   service: ActivitiesService;
   activities: FakeOf<ActivityRepository>;
   links: FakeOf<CommercialLinkReader>;
+  linkedProjects: { lock: jest.Mock; touch: jest.Mock };
   users: FakeOf<CommercialUsersReader>;
   sequences: { next: jest.Mock };
   run: jest.Mock;
@@ -54,8 +56,6 @@ function setup(stored: ActivityRecord | null = makeActivity(), scopes = makeScop
   const links: FakeOf<CommercialLinkReader> = {
     findProject: jest.fn(async () => ({ id: 'project-1', customerId: 'customer-1', isDeleted: false, isVisible: true })),
     findOpportunity: jest.fn(),
-    lockProjects: jest.fn(async () => undefined),
-    touchProjects: jest.fn(async () => undefined),
   };
   const users: FakeOf<CommercialUsersReader> = {
     isEligibleOwner: jest.fn(async () => true),
@@ -73,9 +73,11 @@ function setup(stored: ActivityRecord | null = makeActivity(), scopes = makeScop
   const catalogReferences = { assertItem: jest.fn(async () => ({})) };
   const audit = { record: jest.fn(async () => undefined) };
   const logger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+  const linkedProjects = { lock: jest.fn(async () => undefined), touch: jest.fn(async () => undefined) };
   const service = new ActivitiesService(
     activities as unknown as ActivityRepository,
     links as unknown as CommercialLinkReader,
+    linkedProjects as unknown as LinkedProjectsService,
     users as unknown as CommercialUsersReader,
     { run } as unknown as TransactionRunner,
     sequences as unknown as SequenceGenerator,
@@ -87,7 +89,7 @@ function setup(stored: ActivityRecord | null = makeActivity(), scopes = makeScop
     audit as unknown as AuditService,
     logger as unknown as AppLogger,
   );
-  return { service, activities, links, users, sequences, run, customers, catalogReferences, audit };
+  return { service, activities, links, linkedProjects, users, sequences, run, customers, catalogReferences, audit };
 }
 
 const order = (mock: jest.Mock): number => mock.mock.invocationCallOrder[0] ?? -1;
@@ -109,12 +111,12 @@ describe('ActivitiesService.create', () => {
       ['crm.prioridad', 'priority-medium', { field: 'priorityId', requireActive: true, currentId: null, tx: TX }],
     ]);
     expect(fakes.links.findProject).toHaveBeenCalledWith('project-1', expect.anything(), TX);
-    expect(fakes.links.lockProjects).toHaveBeenCalledWith(['project-1'], TX);
+    expect(fakes.linkedProjects.lock).toHaveBeenCalledWith(['project-1'], TX);
     expect(fakes.sequences.next).toHaveBeenCalledWith('crm.actividad', TX, { timeZone: 'America/Guatemala' });
-    expect(order(fakes.sequences.next)).toBeGreaterThan(order(fakes.links.lockProjects));
+    expect(order(fakes.sequences.next)).toBeGreaterThan(order(fakes.linkedProjects.lock));
     expect(order(fakes.sequences.next)).toBeGreaterThan(order(fakes.catalogReferences.assertItem));
     // RN-04.2: el proyecto se bloquea antes de validarlo (una eliminación concurrente no se cuela).
-    expect(order(fakes.links.findProject)).toBeGreaterThan(order(fakes.links.lockProjects));
+    expect(order(fakes.links.findProject)).toBeGreaterThan(order(fakes.linkedProjects.lock));
     expect(fakes.activities.create).toHaveBeenCalledWith(
       expect.objectContaining({
         code: 'ACT-2026-000042',
@@ -130,7 +132,7 @@ describe('ActivitiesService.create', () => {
       }),
       TX,
     );
-    expect(fakes.links.touchProjects).toHaveBeenCalledWith(['project-1'], expect.any(Date), TX);
+    expect(fakes.linkedProjects.touch).toHaveBeenCalledWith(['project-1'], expect.any(Date), TX);
     expect(fakes.audit.record).toHaveBeenCalledWith('crm.activity.created', expect.anything(), expect.objectContaining({ resourceId: 'activity-new' }));
     expect(order(fakes.audit.record)).toBeGreaterThan(order(fakes.run));
     expect(view.allowedActions).toEqual(['EDIT', 'COMPLETE', 'CANCEL']);
@@ -257,8 +259,8 @@ describe('ActivitiesService.update / complete / remove', () => {
       { statusId: 'status-completed', completedAt: expect.any(Date), completedById: 'user-1', completionComment: 'c', resultNotes: 'Bien', updatedById: 'user-1' },
       TX,
     );
-    expect(fakes.links.lockProjects).toHaveBeenCalledWith(['project-1'], TX);
-    expect(fakes.links.touchProjects).toHaveBeenCalledWith(['project-1'], expect.any(Date), TX);
+    expect(fakes.linkedProjects.lock).toHaveBeenCalledWith(['project-1'], TX);
+    expect(fakes.linkedProjects.touch).toHaveBeenCalledWith(['project-1'], expect.any(Date), TX);
     expect(fakes.audit.record).toHaveBeenCalledWith('crm.activity.completed', expect.anything(), expect.anything());
   });
 

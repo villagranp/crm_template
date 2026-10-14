@@ -258,23 +258,22 @@ con las variables impresas y las contraseñas. Limpieza: el paso 6.
 
 Notas:
 
-- **PF-04.58 sin el Módulo 3.** Esta rama no tiene ficha de proyecto ni API
-  `/projects`. El recorrido parte de la URL que abre «Nueva actividad» en la
-  ficha del proyecto (`/actividad/actividades/nueva?customerId&projectId&typeId`,
-  E.11) y, solo en esa prueba, el navegador simula el Módulo 3 con
-  `page.route`: añade la opción `proyectos-buscar` a la respuesta real de
-  `GET /me/menu` y responde `GET /projects` con el proyecto demo real. El alta,
-  el historial y el seguimiento son los del backend real, que valida el vínculo
-  contra la tabla `projects`. Cuando el Módulo 3 se integre, se quita la
-  simulación y se parte de su ficha.
+- **PF-04.58** parte de la ficha real del proyecto demo
+  (`/proyectos/:projectId?seccion=seguimiento`, Módulo 3): pulsa «Nueva
+  actividad» de la sección «Seguimiento comercial» (E.11) y comprueba la llamada
+  en esa sección, en el historial y en el seguimiento. `activate` elige como
+  `E2E_PROJECT_*` un proyecto distinto del `E2E_MANAGER_TEAM_PROJECT` que
+  reasigna PF-03.115, así que el orden de las suites no importa.
 - El recorrido inicia sesión una vez por usuario (4 accesos) y reutiliza la
   sesión en las cuatro pruebas. El login admite 10 intentos por minuto por IP:
-  `activate` hace hasta 4 y la batería completa más de 10, así que para correr
-  **todos** los E2E se separan en dos tandas con más de un minuto entre ellas:
-  (1) `auth-local smoke crm-customers` con la contraseña inicial del
-  administrador y (2) `admin-access crm-commercial-activity` con la ya cambiada
-  (`E2E_ADMIN_PASSWORD = E2E_ADMIN_NEW_PASSWORD`). `auth-local` exige volver al
-  paso 1 antes de repetirlo.
+  `activate` hace hasta 5 (4 sin `E2E_NO_FORECAST_PASSWORD`) y la batería
+  completa más de 10, así que para correr **todos**
+  los E2E se separan en tres tandas con más de un minuto entre ellas (y tras
+  `activate`): (1) `auth-local smoke crm-customers` con la contraseña inicial
+  del administrador, (2) `admin-access crm-commercial-activity` con la ya
+  cambiada (`E2E_ADMIN_PASSWORD = E2E_ADMIN_NEW_PASSWORD`) y (3) `projects
+  forecast` («E2E de Proyectos», con `E2E_NO_FORECAST_PASSWORD`).
+  `auth-local` exige volver al paso 1 antes de repetirlo.
 - Con varios navegadores en paralelo la SPA puede pasar de 120 peticiones por
   minuto desde la misma IP: en el stack aislado se arranca el backend con
   `RATE_LIMIT_MAX_REQUESTS=5000` (solo ese proceso; no cambia el login).

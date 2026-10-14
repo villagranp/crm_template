@@ -7,9 +7,10 @@ import { Link as RouterLink } from 'react-router-dom';
 import { DetailList, DetailSection, EmptyState, EntityDrawer } from '@/components/data';
 import { formatFileSize } from '@/features/crm/common/attachment-format';
 import { customerDetailPath } from '@/features/crm/customers';
+import { projectDetailPath } from '@/features/crm/projects';
 import { describeApiError } from '@/lib/api-error-view';
 
-import { projectDetailPath, type FollowUpRow, type FollowUpScope, type FollowUpTrace, type TraceAttachment } from '../../common/commercial-activity.api';
+import { type FollowUpRow, type FollowUpScope, type FollowUpTrace, type TraceAttachment } from '../../common/commercial-activity.api';
 import { COMMERCIAL_ERROR_MESSAGES, isNotFoundError, withReference } from '../../common/commercial-activity.errors';
 import { useFollowUpTrace } from '../../common/commercial-activity.queries';
 import { interactionHistoryPath } from '../../common/commercial-paths';

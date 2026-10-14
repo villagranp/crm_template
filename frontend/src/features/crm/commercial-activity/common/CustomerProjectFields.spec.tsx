@@ -41,7 +41,7 @@ describe('CustomerProjectFields (RN-04.1, E.10)', () => {
     mockApi({
       'GET /me/menu': () => jsonResponse(menu(['proyectos-buscar'])),
       'GET /projects': () => page([{ ...PROJECT_REF, customer: { id: CUSTOMER.id, legalName: CUSTOMER.legalName } }]),
-      'GET /projects/p-1/opportunities': () => page([{ id: 'o-1', code: 'OPO-2026-00001', name: 'Fase 1', project: PROJECT_REF }]),
+      'GET /projects/p-1/opportunities': () => page([{ id: 'o-1', code: 'OPO-2026-00001', project: PROJECT_REF, stage: { id: 'st-1', code: 'CONTACTADO', label: 'Contactado' } }]),
     });
     renderWithProviders(<Harness initial={{ customer: CUSTOMER, project: null, opportunity: null }} />);
 
@@ -50,8 +50,25 @@ describe('CustomerProjectFields (RN-04.1, E.10)', () => {
     expect(screen.getByText(/Proyecto: PRY-2026-00001/)).toBeInTheDocument();
 
     await user.click(screen.getByRole('combobox', { name: 'Oportunidad' }));
-    await user.click(await screen.findByRole('option', { name: 'OPO-2026-00001 · Fase 1' }));
+    await user.click(await screen.findByRole('option', { name: 'OPO-2026-00001 · Contactado' }));
     expect(screen.getByText(/Oportunidad: OPO-2026-00001/)).toBeInTheDocument();
+  });
+
+  it('usa los contratos de 03: proyectos del cliente y sólo oportunidades abiertas del proyecto', async () => {
+    const user = userEvent.setup();
+    const fetchMock = mockApi({
+      'GET /me/menu': () => jsonResponse(menu(['proyectos-buscar'])),
+      'GET /projects': () => page([]),
+      'GET /projects/p-1/opportunities': () => page([]),
+    });
+    renderWithProviders(<Harness initial={{ customer: CUSTOMER, project: PROJECT_REF, opportunity: null }} />);
+
+    await user.click(await screen.findByRole('combobox', { name: 'Proyecto' }));
+    await user.click(screen.getByRole('combobox', { name: 'Oportunidad' }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/projects/p-1/opportunities'))).toBe(true));
+    const urls = fetchMock.mock.calls.map(([input]) => new URL(String(input), 'http://localhost'));
+    expect(urls.find((url) => url.pathname.endsWith('/projects'))?.searchParams.get('customerId')).toBe(CUSTOMER.id);
+    expect(urls.find((url) => url.pathname.endsWith('/projects/p-1/opportunities'))?.searchParams.get('status')).toBe('OPEN');
   });
 
   it('cambiar de cliente limpia proyecto y oportunidad', async () => {
@@ -86,7 +103,7 @@ describe('CustomerProjectFields (RN-04.1, E.10)', () => {
     renderWithProviders(<Harness initial={{ customer: CUSTOMER, project: null, opportunity: null }} />);
 
     await user.click(await screen.findByRole('combobox', { name: 'Proyecto' }));
-    expect(await screen.findByText('No se pudieron cargar los proyectos. Puedes guardar sin proyecto.')).toBeInTheDocument();
+    expect(await screen.findByText(/^No se pudo buscar proyectos\./)).toBeInTheDocument();
     expect(screen.getByText('Cliente: CLI-000001 · Proyecto: ninguno · Oportunidad: ninguna')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('combobox', { name: /Cliente/ })).toBeEnabled());
   });

@@ -8,7 +8,7 @@ import { callsTo, errorResponse, jsonResponse, mockApi } from '@/test/api-mocks'
 import { renderWithProviders } from '@/test/render-with-providers';
 
 import { endOfDayIso, formatDateTime, startOfDayIso } from '../common/date-time';
-import { ASESOR_PERMISSIONS, lastQuery, ME, page, signInWith, signOut, simulateWideScreen } from '../testing/fixtures';
+import { ASESOR_PERMISSIONS, lastQuery, ME, menu, page, signInWith, signOut, simulateWideScreen } from '../testing/fixtures';
 import { ACTIVITY_FOLLOW_UP_ROW, FROZEN_NOW, FULL_TRACE, followUpRow, PROJECT_FOLLOW_UP_ROW, TRACE_ATTACHMENT, TRACE_CONTENT_PATH } from '../testing/read-model-fixtures';
 
 import { traceAttachmentPath } from './follow-up.api';
@@ -222,6 +222,41 @@ describe('FollowUpPage (F-23, PF-04.55)', () => {
     await userEvent.click(within(projectChip).getByTestId('CancelIcon'));
     await waitFor(() => expect(lastQuery(fetchMock, '/follow-ups').get('projectId')).toBeNull());
     expect(lastQuery(fetchMock, '/follow-ups').get('groupBy')).toBe('PROJECT');
+  });
+
+  it('con el módulo de Proyectos, filtra por el proyecto elegido con el selector de 03 (04 §E.4)', async () => {
+    const user = userEvent.setup();
+    const fetchMock = mockApi({
+      'GET /me/menu': () => jsonResponse(menu(['actividad-seguimiento', 'proyectos-buscar'])),
+      'GET /follow-ups': () => page([followUpRow()]),
+      'GET /projects': () => page([{ id: 'p-1', code: 'PRY-2026-00001', name: 'Torre Norte', customer: { id: 'c-1', legalName: 'Constructora Peña S.A.' } }]),
+      'GET /projects/p-1': () => jsonResponse({ id: 'p-1', code: 'PRY-2026-00001', name: 'Torre Norte', customer: { id: 'c-1', legalName: 'Constructora Peña S.A.' } }),
+    });
+    renderPage();
+
+    await screen.findByRole('table', { name: 'Seguimiento por cliente' });
+    await user.click(screen.getByRole('button', { name: 'Filtros' }));
+    await user.click(await screen.findByRole('combobox', { name: 'Proyecto' }));
+    await user.click(await screen.findByRole('option', { name: 'PRY-2026-00001 · Torre Norte' }));
+    await user.click(screen.getByRole('button', { name: 'Aplicar filtros' }));
+
+    await waitFor(() => expect(lastQuery(fetchMock, '/follow-ups').get('projectId')).toBe('p-1'));
+    expect(await within(screen.getByLabelText('Filtros activos')).findByText('Proyecto: PRY-2026-00001 · Torre Norte')).toBeInTheDocument();
+  });
+
+  it('sin el módulo de Proyectos en el menú no ofrece el filtro de proyecto ni llama a /projects (D-02.10)', async () => {
+    const user = userEvent.setup();
+    const fetchMock = mockApi({
+      'GET /me/menu': () => jsonResponse(menu(['actividad-seguimiento'])),
+      'GET /follow-ups': () => page([followUpRow()]),
+    });
+    renderPage();
+
+    await screen.findByRole('table', { name: 'Seguimiento por cliente' });
+    await user.click(screen.getByRole('button', { name: 'Filtros' }));
+    expect(await screen.findByRole('combobox', { name: /Cliente/ })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Proyecto' })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/projects'))).toBe(false);
   });
 
   it('nunca envía `search` a /follow-ups aunque llegue en la URL (la API responde 400)', async () => {

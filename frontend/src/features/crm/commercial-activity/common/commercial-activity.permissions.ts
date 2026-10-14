@@ -31,4 +31,6 @@ export const COMMERCIAL_RELATED_PERMISSIONS = {
   viewContacts: 'contactos.ver',
   /** Lista de países del filtro (`GET /customers/form-options`, 02 F2). */
   viewCustomers: 'clientes.ver',
+  /** Oportunidades de un proyecto en los filtros (`GET /projects/{id}/opportunities`, 03 F.2). */
+  viewOpportunities: 'oportunidades.ver',
 } as const;

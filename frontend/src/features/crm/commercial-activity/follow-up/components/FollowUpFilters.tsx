@@ -8,6 +8,7 @@ import { useCountryOptions } from '../../common/commercial-activity.queries';
 import { CountrySelect } from '../../common/CountrySelect';
 import { formatCalendarDate } from '../../common/date-time';
 import { OwnerPicker } from '../../common/OwnerPicker';
+import { ProjectFilterField, type ProjectFilterValue } from '../../common/ProjectFilterField';
 import { useResyncOnChange } from '../../common/use-resync-on-change';
 import type { FollowUpChipFilter, FollowUpFilterValues, FollowUpFormFilter } from '../follow-up-filters';
 
@@ -29,14 +30,16 @@ export interface FollowUpFiltersProps {
 }
 
 /**
- * Filtros del seguimiento (04 §E.4): cliente, asesor (responsable de la fila),
- * país del cliente, "sin próxima acción" y rango de última interacción. Se
+ * Filtros del seguimiento (04 §E.4): cliente, proyecto (`ProjectPicker` de 03,
+ * si el módulo está en el menú), asesor (responsable de la fila), país del
+ * cliente, "sin próxima acción" y rango de última interacción. Se
  * escriben en un borrador y se aplican juntos; viven en la URL.
  */
 export function FollowUpFilters({ values, onApply }: FollowUpFiltersProps) {
   const [draft, setDraft] = useState<FollowUpFilterValues>(values);
   const [owner, setOwner] = useState<UserRef | { id: string } | null>(values.ownerId ? { id: values.ownerId } : null);
   const [customer, setCustomer] = useState<CustomerPickerValue | { id: string } | null>(values.customerId ? { id: values.customerId } : null);
+  const [project, setProject] = useState<ProjectFilterValue>(values.projectId ? { id: values.projectId } : null);
 
   // La URL manda (atrás/adelante, "Limpiar", un chip quitado), pero sólo si
   // cambian los filtros: un nuevo render con los mismos no borra el borrador.
@@ -44,6 +47,7 @@ export function FollowUpFilters({ values, onApply }: FollowUpFiltersProps) {
     setDraft(applied);
     setOwner(applied.ownerId ? { id: applied.ownerId } : null);
     setCustomer(applied.customerId ? { id: applied.customerId } : null);
+    setProject(applied.projectId ? { id: applied.projectId } : null);
   });
 
   const set = (key: FollowUpFormFilter, value: string) => setDraft((current) => ({ ...current, [key]: value }));
@@ -56,6 +60,7 @@ export function FollowUpFilters({ values, onApply }: FollowUpFiltersProps) {
     }
     onApply({
       customerId: customer?.id,
+      projectId: project?.id,
       ownerId: owner?.id,
       countryId: draft.countryId,
       withoutNextAction: draft.withoutNextAction,
@@ -76,6 +81,9 @@ export function FollowUpFilters({ values, onApply }: FollowUpFiltersProps) {
       >
         <Box sx={{ gridColumn: { sm: 'span 2' } }}>
           <CustomerPicker label={LABELS.customerId} value={customer} onChange={setCustomer} />
+        </Box>
+        <Box sx={{ gridColumn: { sm: 'span 2' }, '&:empty': { display: 'none' } }}>
+          <ProjectFilterField label={LABELS.projectId} value={project} onChange={setProject} customerId={customer?.id} />
         </Box>
         <OwnerPicker label={LABELS.ownerId} value={owner} fallbackName="Asesor seleccionado" onChange={setOwner} />
         <CountrySelect value={draft.countryId ?? ''} onChange={(countryId) => set('countryId', countryId)} />

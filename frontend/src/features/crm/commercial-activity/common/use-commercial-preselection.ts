@@ -1,9 +1,11 @@
 import { useMemo } from 'react';
 
 import { CRM_MODULE_OPTION_KEYS, useModuleAvailability } from '@/features/crm/common/use-module-availability';
+import { useOpportunity } from '@/features/crm/opportunities';
+import { useProject } from '@/features/crm/projects';
 import { ApiError } from '@/services/api/api-error';
 
-import { LOOKUP_MAX_PAGE_SIZE, useCustomerLookup, useCustomerProjectsLookup, useOpenOpportunities } from './commercial-activity.queries';
+import { useCustomerLookup } from './commercial-activity.queries';
 import { EMPTY_COMMERCIAL_LINK, type CommercialLinkValue, type CommercialPreselectionIds } from './commercial-link';
 
 export interface CommercialPreselection {
@@ -15,22 +17,24 @@ export interface CommercialPreselection {
   problems: string[];
 }
 
-const PROJECTS_QUERY = { page: 1, pageSize: LOOKUP_MAX_PAGE_SIZE };
-
 function notFoundOr(error: unknown, notFound: string, other: string): string {
   return error instanceof ApiError && error.isNotFound ? notFound : other;
 }
 
+const PROJECT_MISMATCH = 'El proyecto indicado no existe, no es de este cliente o no tienes acceso.';
+const OPPORTUNITY_MISMATCH = 'La oportunidad indicada no existe, no está abierta o no es de este proyecto.';
+
 /**
  * Resuelve la preselección de una ficha (04 §E.10, F-31): con `customerId` el
- * cliente; con `projectId` el proyecto (entre los de ese cliente); con
- * `opportunityId` la oportunidad abierta (entre las del proyecto). Lo que no
- * existe, no es visible o no encaja se deja vacío y se informa; el backend
- * vuelve a validar todo al guardar (RN-04.23).
+ * cliente (`GET /customers/{id}`, 02); con `projectId` el proyecto
+ * (`GET /projects/{id}`, `useProject` del barril de 03), que debe ser de ese
+ * cliente; con `opportunityId` la oportunidad (`GET /opportunities/{id}`,
+ * `useOpportunity` del barril de 03), que debe ser del proyecto y estar abierta.
+ * Lo que no existe, no es visible o no encaja se deja vacío y se informa; el
+ * backend vuelve a validar todo al guardar (RN-04.23).
  *
- * El Módulo 3 puede no estar entregado: sin su opción de menú no se llama a
- * `/projects` (D-02.10) y se avisa de que el proyecto no se preseleccionó; si su
- * API falla, igual.
+ * Sin la opción de menú de Proyectos (D-02.10) no se llama a `/projects` y se
+ * avisa de que el proyecto no se preseleccionó.
  */
 export function useCommercialPreselection(ids: CommercialPreselectionIds): CommercialPreselection {
   const customerId = ids.customerId || undefined;
@@ -39,10 +43,10 @@ export function useCommercialPreselection(ids: CommercialPreselectionIds): Comme
   const projectsModule = useModuleAvailability(CRM_MODULE_OPTION_KEYS.projects);
 
   const customer = useCustomerLookup(customerId);
-  const wantsProject = Boolean(projectId) && Boolean(customerId) && customer.isSuccess;
-  const projects = useCustomerProjectsLookup(customerId ?? null, PROJECTS_QUERY, wantsProject && projectsModule.isAvailable);
-  const project = projects.data?.data.find((item) => item.id === projectId) ?? null;
-  const opportunities = useOpenOpportunities(project?.id ?? null, Boolean(opportunityId) && project !== null);
+  const wantsProject = Boolean(projectId) && customer.isSuccess && projectsModule.isAvailable;
+  const project = useProject(wantsProject ? projectId : undefined);
+  const projectMatches = project.isSuccess && project.data.customer.id === customerId;
+  const opportunity = useOpportunity(opportunityId && projectMatches ? opportunityId : undefined);
 
   return useMemo<CommercialPreselection>(() => {
     const problems: string[] = [];
@@ -77,31 +81,28 @@ export function useCommercialPreselection(ids: CommercialPreselectionIds): Comme
         isResolving = true;
       } else if (!projectsModule.isAvailable) {
         problems.push('El módulo de Proyectos no está disponible: no se preseleccionó el proyecto.');
-      } else if (projects.isPending) {
+      } else if (project.isPending) {
         isResolving = true;
-      } else if (projects.isError) {
-        problems.push('No se pudieron cargar los proyectos del cliente: no se preseleccionó el proyecto.');
-      } else if (!project) {
-        problems.push('El proyecto indicado no existe, no es de este cliente o no tienes acceso.');
+      } else if (project.isError) {
+        problems.push(notFoundOr(project.error, PROJECT_MISMATCH, 'No se pudo comprobar el proyecto indicado: no se preseleccionó.'));
+      } else if (!projectMatches) {
+        problems.push(PROJECT_MISMATCH);
       } else {
-        value.project = { id: project.id, code: project.code, name: project.name };
+        value.project = { id: project.data.id, code: project.data.code, name: project.data.name };
       }
     }
 
     if (opportunityId && !isResolving) {
       if (!value.project) {
         problems.push('No se preseleccionó la oportunidad porque falta su proyecto.');
-      } else if (opportunities.isPending) {
+      } else if (opportunity.isPending) {
         isResolving = true;
-      } else if (opportunities.isError) {
-        problems.push('No se pudieron cargar las oportunidades del proyecto: no se preseleccionó la oportunidad.');
+      } else if (opportunity.isError) {
+        problems.push(notFoundOr(opportunity.error, OPPORTUNITY_MISMATCH, 'No se pudo comprobar la oportunidad indicada: no se preseleccionó.'));
+      } else if (opportunity.data.project.id !== value.project.id || opportunity.data.stage.isClosed) {
+        problems.push(OPPORTUNITY_MISMATCH);
       } else {
-        const match = opportunities.data.data.find((item) => item.id === opportunityId);
-        if (match) {
-          value.opportunity = { id: match.id, code: match.code };
-        } else {
-          problems.push('La oportunidad indicada no existe, no está abierta o no es de este proyecto.');
-        }
+        value.opportunity = { id: opportunity.data.id, code: opportunity.data.code };
       }
     }
 
@@ -116,11 +117,14 @@ export function useCommercialPreselection(ids: CommercialPreselectionIds): Comme
     customer.data,
     projectsModule.isLoading,
     projectsModule.isAvailable,
-    projects.isPending,
-    projects.isError,
-    project,
-    opportunities.isPending,
-    opportunities.isError,
-    opportunities.data,
+    project.isPending,
+    project.isError,
+    project.error,
+    project.data,
+    projectMatches,
+    opportunity.isPending,
+    opportunity.isError,
+    opportunity.error,
+    opportunity.data,
   ]);
 }

@@ -5,6 +5,24 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 
 ## [Unreleased]
 
+### Changed
+- **CRM — integración de los Módulos 3 y 4** (`04-actividad-comercial.md`, «Precisiones de
+  implementación (2026-10-13)»; sin cambios de contrato):
+  - Backend: el bloqueo del proyecto vinculado y `projects.last_activity_at` de visitas y
+    actividades usan el repositorio de proyectos del Módulo 3 (`LinkedProjectsService` sobre
+    `PROJECTS_REPOSITORY`: `lockProject(id, 'UPDATE')` antes de validar, `touchLastActivity`);
+    ya no hay una segunda escritura de `last_activity_at`. `CommercialLinkReader` se conserva
+    solo para validar proyecto y oportunidad (03 no publica una guardia que distinga referencia
+    desconocida de eliminada). La guarda de cliente recibe los alcances resueltos antes de la
+    transacción.
+  - Frontend: la ficha del proyecto monta en «Seguimiento comercial» la sección del Módulo 4
+    con «Nueva actividad» y «Planificar visita»; el detalle de una oportunidad abierta ofrece
+    «Nueva actividad» con cliente, proyecto y oportunidad. Los formularios usan `ProjectPicker`
+    y `OpportunityPicker` de 03 y la preselección se resuelve con `GET /projects/{id}` y
+    `GET /opportunities/{id}`. Seguimiento, historial y visitas ofrecen el filtro «Proyecto»
+    (y el historial, «Oportunidad»).
+  - E2E PF-04.58 sin simulación del Módulo 3: parte de la ficha real del proyecto.
+
 ### Fixed
 - **CRM Módulo 4 — revisión de código** (`04-actividad-comercial.md`, "Precisiones de implementación"):
   - Concurrencia (RN-04.2): alta y edición de visitas y actividades bloquean el proyecto vinculado

@@ -16,9 +16,9 @@ import { visibilityScopeSql } from '../sql-text';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Adaptador Prisma de `CommercialLinkReader` (04 RN-04.1, RN-04.2, RN-04.11) sobre
- * las tablas `projects` y `opportunities` de la Fase 0. Puerto propio del Módulo 4
- * hasta que el Módulo 3 publique su guardia de referencia.
+ * Adaptador Prisma de `CommercialLinkReader` (04 RN-04.1, RN-04.2) sobre las tablas
+ * `projects` y `opportunities`. El bloqueo del proyecto y `last_activity_at` los
+ * hace el repositorio del Módulo 3 (`LinkedProjectsService`).
  */
 @Injectable()
 export class PrismaCommercialLinkReader implements CommercialLinkReader {
@@ -57,19 +57,5 @@ export class PrismaCommercialLinkReader implements CommercialLinkReader {
       ${lock}`;
     const row = rows[0];
     return row ? { id: row.id, projectId: row.project_id, isDeleted: row.is_deleted, isVisible: row.in_scope } : null;
-  }
-
-  async lockProjects(projectIds: readonly string[], tx: TransactionContext): Promise<void> {
-    const ids = [...new Set(projectIds)].filter((id) => UUID_PATTERN.test(id)).sort();
-    if (ids.length === 0) return;
-    await prismaClientFor(this.prisma, tx).$queryRaw`
-      SELECT id FROM projects WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR NO KEY UPDATE`;
-  }
-
-  async touchProjects(projectIds: readonly string[], at: Date, tx: TransactionContext): Promise<void> {
-    const ids = [...new Set(projectIds)].filter((id) => UUID_PATTERN.test(id));
-    if (ids.length === 0) return;
-    await prismaClientFor(this.prisma, tx).$executeRaw`
-      UPDATE projects SET last_activity_at = ${at.toISOString()}::timestamptz WHERE id = ANY(${ids}::uuid[])`;
   }
 }

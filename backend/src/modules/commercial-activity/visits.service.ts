@@ -25,6 +25,7 @@ import {
   userScopeFrom,
   type VisitAccessScopes,
 } from './commercial-actor.resolver';
+import { LinkedProjectsService } from './linked-projects.service';
 import {
   COMMERCIAL_ERROR_CODES,
   commercialIssue,
@@ -401,6 +402,7 @@ export class VisitsService {
   constructor(
     @Inject(VISIT_REPOSITORY) private readonly visits: VisitRepository,
     @Inject(COMMERCIAL_LINK_READER) private readonly links: CommercialLinkReader,
+    private readonly linkedProjects: LinkedProjectsService,
     @Inject(COMMERCIAL_USERS_READER) private readonly users: CommercialUsersReader,
     @Inject(TRANSACTION_RUNNER) private readonly transactions: TransactionRunner,
     @Inject(SEQUENCE_GENERATOR) private readonly sequences: SequenceGenerator,
@@ -556,7 +558,7 @@ export class VisitsService {
       await this.customers.assertUsableCustomer(draft.customerId, actor, { requireActive: true, tx, scopes: customerScopes });
       if (ownerId !== actorId) await this.assertEligibleOwner(ownerId, scopes, tx);
       // Bloqueo del proyecto ANTES de validarlo: una eliminación concurrente espera o ya se ve (RN-04.2).
-      await this.links.lockProjects(draft.projectId ? [draft.projectId] : [], tx);
+      await this.linkedProjects.lock(draft.projectId ? [draft.projectId] : [], tx);
       await assertProjectLink(this.links, draft, null, scopes.projects, tx);
       const invitees = await this.validateParticipantList(draft.participants, draft.customerId, null, 'INVITED', 'participants', tx);
       const found = await this.guardSchedule(settings, { ownerId, start: draft.scheduledStartAt, end: draft.scheduledEndAt, excludeVisitId: null }, scopes, tx);
@@ -582,7 +584,7 @@ export class VisitsService {
         },
         tx,
       );
-      if (draft.projectId) await this.links.touchProjects([draft.projectId], now, tx);
+      if (draft.projectId) await this.linkedProjects.touch([draft.projectId], now, tx);
       return { visitId: id, conflicts: found };
     });
 
@@ -643,7 +645,7 @@ export class VisitsService {
     const conflicts = await this.transactions.run(async (tx) => {
       if (ownerChanged) await this.assertEligibleOwner(final.ownerId, scopes, tx);
       // Bloqueo de los proyectos ANTES de validar el vínculo (RN-04.2, AGENTS §9.4).
-      await this.links.lockProjects(projectIds, tx);
+      await this.linkedProjects.lock(projectIds, tx);
       await assertProjectLink(this.links, final, current, scopes.projects, tx);
       const invitees = participantsChanged
         ? await this.validateParticipantList(final.participants, final.customerId, current, 'INVITED', 'participants', tx)
@@ -653,7 +655,7 @@ export class VisitsService {
         : [];
       await this.write(before, { ...patch, updatedById: actor.userId }, tx);
       if (participantsChanged) await this.visits.replaceParticipants(visitId, final.customerId, 'INVITED', invitees, actor.userId, tx);
-      await this.links.touchProjects(projectIds, now, tx);
+      await this.linkedProjects.touch(projectIds, now, tx);
       return found;
     });
 
@@ -726,7 +728,7 @@ export class VisitsService {
       const attendees = attendeesChanged
         ? await this.validateParticipantList(draft.attendees, before.customer.id, { customerId: before.customer.id, participants: participantsOf(before, 'ATTENDED') }, 'ATTENDED', 'attendees', tx)
         : [];
-      await this.links.lockProjects(projectIds, tx);
+      await this.linkedProjects.lock(projectIds, tx);
       const statusPatch: VisitPatch = isCorrection
         ? { updatedById: actor.userId }
         : { statusId: doneStatusId, completionRecordedById: actor.userId, completionRecordedAt: now, updatedById: actor.userId };
@@ -735,7 +737,7 @@ export class VisitsService {
       if (!isCorrection) {
         await this.visits.insertEvent(visitId, this.event('COMPLETED', before.status.id, doneStatusId, actor.userId ?? '', now), tx);
       }
-      await this.links.touchProjects(projectIds, now, tx);
+      await this.linkedProjects.touch(projectIds, now, tx);
     });
 
     const after = await this.requireRecord(visitId);
@@ -775,7 +777,7 @@ export class VisitsService {
     const projectIds = before.project ? [before.project.id] : [];
 
     await this.transactions.run(async (tx) => {
-      await this.links.lockProjects(projectIds, tx);
+      await this.linkedProjects.lock(projectIds, tx);
       await this.write(
         before,
         { statusId: confirmedStatusId, confirmedAt: now, confirmedById: ownerId, confirmationSummary: summary, updatedById: actor.userId },
@@ -783,7 +785,7 @@ export class VisitsService {
         { requiresSummary: summary === null },
       );
       await this.visits.insertEvent(visitId, this.event('CONFIRMED', before.status.id, confirmedStatusId, ownerId, now), tx);
-      await this.links.touchProjects(projectIds, now, tx);
+      await this.linkedProjects.touch(projectIds, now, tx);
     });
 
     const after = await this.requireRecord(visitId);
@@ -834,7 +836,7 @@ export class VisitsService {
       if (reason.reasonId) {
         await this.catalogReferences.assertItem(VISIT_CATALOGS.rescheduleReason, reason.reasonId, { field: 'reasonId', requireActive: true, tx });
       }
-      await this.links.lockProjects(projectIds, tx);
+      await this.linkedProjects.lock(projectIds, tx);
       const found = await this.guardSchedule(settings, { ownerId: before.owner.id, start: newStart, end: newEnd, excludeVisitId: visitId }, scopes, tx);
       await this.write(
         before,
@@ -858,7 +860,7 @@ export class VisitsService {
         },
         tx,
       );
-      await this.links.touchProjects(projectIds, now, tx);
+      await this.linkedProjects.touch(projectIds, now, tx);
       return { conflicts: found, eventId: id };
     });
 
@@ -891,14 +893,14 @@ export class VisitsService {
       if (reason.reasonId) {
         await this.catalogReferences.assertItem(VISIT_CATALOGS.cancellationReason, reason.reasonId, { field: 'reasonId', requireActive: true, tx });
       }
-      await this.links.lockProjects(projectIds, tx);
+      await this.linkedProjects.lock(projectIds, tx);
       await this.write(before, { statusId: cancelledStatusId, cancelledAt: now, updatedById: actor.userId }, tx);
       const id = await this.visits.insertEvent(
         visitId,
         { ...this.event('CANCELLED', before.status.id, cancelledStatusId, actor.userId ?? '', now), ...reason, comment: text(request.comment) },
         tx,
       );
-      await this.links.touchProjects(projectIds, now, tx);
+      await this.linkedProjects.touch(projectIds, now, tx);
       return id;
     });
 

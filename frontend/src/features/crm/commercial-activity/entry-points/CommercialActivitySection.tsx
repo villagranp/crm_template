@@ -19,20 +19,38 @@ import { NextActionDate } from '../common/NextActionDate';
 import { StatusChip } from '../common/StatusChip';
 import { useCommercialTimeZones } from '../common/use-commercial-time-zones';
 
-export type CommercialActivitySectionProps = FollowUpScope;
+export type CommercialActivitySectionProps = FollowUpScope & {
+  /** Título de la sección; por defecto "Actividad comercial" (la ficha del proyecto la llama "Seguimiento comercial", 03 §E.4). */
+  title?: string;
+  /** Acciones a la derecha del título (p. ej. `NewActivityButton` y `PlanVisitButton` en la ficha del proyecto). */
+  actions?: ReactNode;
+};
 
 /** Próximas visitas y actividades que se listan en la ficha. */
 const UPCOMING_SIZE = 5;
-const TITLE = 'Actividad comercial';
+const DEFAULT_TITLE = 'Actividad comercial';
 
-function SectionCard({ titleId, children }: { titleId: string; children: ReactNode }) {
+function SectionCard({ titleId, title, actions, children }: { titleId: string; title: string; actions?: ReactNode; children: ReactNode }) {
   return (
     <Card component="section" aria-labelledby={titleId}>
-      <Box sx={{ px: { xs: 2, sm: 2.5 }, py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
+      <Stack
+        direction="row"
+        spacing={1}
+        useFlexGap
+        flexWrap="wrap"
+        alignItems="center"
+        justifyContent="space-between"
+        sx={{ px: { xs: 2, sm: 2.5 }, py: 1.5, borderBottom: 1, borderColor: 'divider' }}
+      >
         <Typography id={titleId} variant="h6" component="h2">
-          {TITLE}
+          {title}
         </Typography>
-      </Box>
+        {actions ? (
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+            {actions}
+          </Stack>
+        ) : null}
+      </Stack>
       {children}
     </Card>
   );
@@ -129,8 +147,9 @@ function TraceContent({ trace, scope }: { trace: FollowUpTrace; scope: FollowUpS
  * `actividades.ver` ni `visitas.ver`. Sin ninguna visita o actividad visible el
  * backend responde `404`: se muestra como estado vacío, no como error.
  */
-export function CommercialActivitySection(scope: CommercialActivitySectionProps) {
+export function CommercialActivitySection({ title = DEFAULT_TITLE, actions, ...scope }: CommercialActivitySectionProps) {
   const titleId = useId();
+  const card = { titleId, title, actions };
   const can = useCan();
   const visible = can(ACTIVITY_PERMISSIONS.view) || can(VISIT_PERMISSIONS.view);
   const trace = useFollowUpTrace(scope, visible);
@@ -141,7 +160,7 @@ export function CommercialActivitySection(scope: CommercialActivitySectionProps)
 
   if (trace.isPending) {
     return (
-      <SectionCard titleId={titleId}>
+      <SectionCard {...card}>
         <Stack role="status" aria-label="Cargando la actividad comercial" spacing={1} sx={{ p: 2 }}>
           <Skeleton variant="text" />
           <Skeleton variant="text" />
@@ -153,7 +172,7 @@ export function CommercialActivitySection(scope: CommercialActivitySectionProps)
 
   if (trace.isError) {
     return (
-      <SectionCard titleId={titleId}>
+      <SectionCard {...card}>
         {isNotFoundError(trace.error) ? (
           <EmptyState icon={<EventNoteOutlinedIcon />} title="Aún no hay actividad comercial registrada" description="Las visitas y actividades aparecerán aquí." />
         ) : (
@@ -174,7 +193,7 @@ export function CommercialActivitySection(scope: CommercialActivitySectionProps)
   }
 
   return (
-    <SectionCard titleId={titleId}>
+    <SectionCard {...card}>
       <TraceContent trace={trace.data} scope={scope} />
     </SectionCard>
   );

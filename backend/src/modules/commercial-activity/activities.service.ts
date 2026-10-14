@@ -44,6 +44,7 @@ import {
   inScope,
   userScopeFrom,
 } from './commercial-actor.resolver';
+import { LinkedProjectsService } from './linked-projects.service';
 import {
   assertProjectLink,
   calendarDate,
@@ -366,6 +367,7 @@ export class ActivitiesService {
   constructor(
     @Inject(ACTIVITY_REPOSITORY) private readonly activities: ActivityRepository,
     @Inject(COMMERCIAL_LINK_READER) private readonly links: CommercialLinkReader,
+    private readonly linkedProjects: LinkedProjectsService,
     @Inject(COMMERCIAL_USERS_READER) private readonly users: CommercialUsersReader,
     @Inject(TRANSACTION_RUNNER) private readonly transactions: TransactionRunner,
     @Inject(SEQUENCE_GENERATOR) private readonly sequences: SequenceGenerator,
@@ -535,7 +537,7 @@ export class ActivitiesService {
       await this.assertCatalogs(final, { statusId: request.statusId ?? null, resultId }, null, tx);
       if (ownerId !== actorId) await this.assertEligibleOwner(ownerId, scopes, tx);
       // Bloqueo del proyecto ANTES de validarlo: una eliminación concurrente espera o ya se ve (RN-04.2).
-      await this.links.lockProjects(final.projectId ? [final.projectId] : [], tx);
+      await this.linkedProjects.lock(final.projectId ? [final.projectId] : [], tx);
       await this.assertLinks(final, null, scopes, tx);
       const participants = await this.validateParticipants(final.participants, final.customerId, null, tx);
 
@@ -554,7 +556,7 @@ export class ActivitiesService {
         },
         tx,
       );
-      if (final.projectId) await this.links.touchProjects([final.projectId], now, tx);
+      if (final.projectId) await this.linkedProjects.touch([final.projectId], now, tx);
       return id;
     });
 
@@ -629,7 +631,7 @@ export class ActivitiesService {
       await this.assertCatalogs(final, { statusId: statusChanged ? statusId : null, resultId: final.resultId }, current, tx);
       if (final.ownerId !== current.ownerId) await this.assertEligibleOwner(final.ownerId, scopes, tx);
       // Bloqueo de los proyectos ANTES de validar el vínculo (RN-04.2, AGENTS §9.4).
-      await this.links.lockProjects(projectIds, tx);
+      await this.linkedProjects.lock(projectIds, tx);
       await this.assertLinks(final, current, scopes, tx);
       const participants = participantsChanged || customerChanged ? await this.validateParticipants(final.participants, final.customerId, current, tx) : [];
 
@@ -640,7 +642,7 @@ export class ActivitiesService {
       if (participantsChanged || customerChanged) {
         await this.activities.insertParticipants(activityId, final.customerId, participants, actor.userId, tx);
       }
-      await this.links.touchProjects(projectIds, now, tx);
+      await this.linkedProjects.touch(projectIds, now, tx);
     });
 
     const after = await this.requireRecord(activityId);
@@ -772,11 +774,11 @@ export class ActivitiesService {
       if (resultId) {
         await this.catalogReferences.assertItem(ACTIVITY_CATALOGS.result, resultId, { field: 'resultId', tx });
       }
-      await this.links.lockProjects(projectIds, tx);
+      await this.linkedProjects.lock(projectIds, tx);
       if (!(await this.activities.update(before.id, before.status.id, patch, tx))) {
         throw concurrentChangeConflict();
       }
-      await this.links.touchProjects(projectIds, now, tx);
+      await this.linkedProjects.touch(projectIds, now, tx);
     });
   }
 

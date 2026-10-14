@@ -26,9 +26,11 @@ cada especificación (numeración continua, sin huecos ni duplicados).
 - `pendiente`: 0 · `especificada`: 18 · `implementada (backend)`: 0 · `bloqueada`: 0 · `en desarrollo`: 0 ·
   `completada`: 29 (Módulo 2: F-05…F-09, 2026-10-11/12; Módulo 3: F-10…F-20, 2026-10-12;
   Módulo 4: F-21…F-33, 2026-10-13).
-- Módulo 4 completado el 2026-10-13 con el Módulo 3 en otra rama; al integrarse el 03 queda
-  pendiente montar los puntos de entrada de E.11 en la ficha del proyecto y quitar la
-  simulación del 03 en el E2E PF-04.58 (ver 04, «Precisiones de implementación»).
+- Módulos 3 y 4 integrados el 2026-10-13 en `feature/crm-actividad-comercial`: el Módulo 4
+  consume el Módulo 3 real (selectores y preselección de su barril, bloqueo del proyecto y
+  `last_activity_at` con su repositorio, puntos de entrada de E.11 en la ficha del proyecto y
+  en el detalle de oportunidad, E2E PF-04.58 desde la ficha; ver 04, «Precisiones de
+  implementación (2026-10-13)»). F-11 y F-31 quedan cubiertas de extremo a extremo.
 - **Todas las decisiones están resueltas (2026-10-10)**: el responsable de negocio
   respondió expresamente cinco temas y aprobó el valor recomendado del resto
   ([`decisiones-pendientes.md`](decisiones-pendientes.md)). F-39, F-40 y F-41 dejaron

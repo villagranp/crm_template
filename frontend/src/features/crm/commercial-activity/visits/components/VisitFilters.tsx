@@ -8,6 +8,8 @@ import { useCountryOptions, useCustomerLookup } from '../../common/commercial-ac
 import { CountrySelect } from '../../common/CountrySelect';
 import { formatCalendarDate } from '../../common/date-time';
 import { OwnerPicker } from '../../common/OwnerPicker';
+import { ProjectFilterField, type ProjectFilterValue } from '../../common/ProjectFilterField';
+import { useProjectFilterName } from '../../common/use-project-filter-name';
 import { useResyncOnChange } from '../../common/use-resync-on-change';
 import type { VisitFormOptions } from '../visits.api';
 
@@ -21,6 +23,7 @@ const LABELS: Record<VisitFilterField, string> = {
   statusId: 'Estado',
   ownerId: 'Asesor',
   customerId: 'Cliente',
+  projectId: 'Proyecto',
   countryId: 'País',
   unregistered: 'Sin registrar',
   pendingConfirmation: 'Pendientes de confirmar',
@@ -35,7 +38,8 @@ export interface VisitFiltersProps {
 
 /**
  * Filtros combinables del listado de visitas (04 §E.6): rango de fechas,
- * estado (catálogo `crm.estado_visita`), asesor, cliente, país, "sin
+ * estado (catálogo `crm.estado_visita`), asesor, cliente, proyecto
+ * (`ProjectPicker` de 03, si su módulo está en el menú), país, "sin
  * registrar" (RN-04.22) y "pendientes de confirmar". Se escriben en un
  * borrador y se aplican juntos; viven en la URL.
  */
@@ -44,6 +48,7 @@ export function VisitFilters({ values, options, onApply }: VisitFiltersProps) {
   const [draft, setDraft] = useState<VisitFilterValues>(values);
   const [owner, setOwner] = useState<UserRef | { id: string } | null>(values.ownerId ? { id: values.ownerId } : null);
   const [customer, setCustomer] = useState<CustomerPickerValue | { id: string } | null>(values.customerId ? { id: values.customerId } : null);
+  const [project, setProject] = useState<ProjectFilterValue>(values.projectId ? { id: values.projectId } : null);
 
   // La URL manda (atrás/adelante, "Limpiar", un chip quitado), pero sólo si
   // cambian los filtros: un nuevo render con los mismos no borra el borrador.
@@ -51,12 +56,13 @@ export function VisitFilters({ values, options, onApply }: VisitFiltersProps) {
     setDraft(applied);
     setOwner(applied.ownerId ? { id: applied.ownerId } : null);
     setCustomer(applied.customerId ? { id: applied.customerId } : null);
+    setProject(applied.projectId ? { id: applied.projectId } : null);
   });
 
   const set = (key: VisitFilterField, value: string) => setDraft((current) => ({ ...current, [key]: value }));
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    onApply({ ...draft, ownerId: owner?.id, customerId: customer?.id });
+    onApply({ ...draft, ownerId: owner?.id, customerId: customer?.id, projectId: project?.id });
   };
   const statuses = [...(options?.statuses ?? [])].sort((left, right) => left.sortOrder - right.sortOrder);
 
@@ -83,6 +89,9 @@ export function VisitFilters({ values, options, onApply }: VisitFiltersProps) {
         <OwnerPicker label={LABELS.ownerId} value={owner} fallbackName="Asesor seleccionado" onChange={setOwner} />
         <Box sx={{ gridColumn: { sm: 'span 2' } }}>
           <CustomerPicker label={LABELS.customerId} value={customer} onChange={setCustomer} />
+        </Box>
+        <Box sx={{ gridColumn: { sm: 'span 2' }, '&:empty': { display: 'none' } }}>
+          <ProjectFilterField label={LABELS.projectId} value={project} onChange={setProject} customerId={customer?.id} />
         </Box>
         <CountrySelect value={draft.countryId ?? ''} onChange={(countryId) => set('countryId', countryId)} />
         <Stack>
@@ -118,6 +127,7 @@ export interface ActiveVisitFilterChipsProps {
 /** Chips de los filtros activos del listado de visitas, cada uno con su "quitar", y "Limpiar". */
 export function ActiveVisitFilterChips({ values, options, ownerName, countriesEnabled, onRemove, onClear }: ActiveVisitFilterChipsProps) {
   const customer = useCustomerLookup(values.customerId);
+  const projectName = useProjectFilterName(values.projectId);
   const countries = useCountryOptions(countriesEnabled && Boolean(values.countryId));
   const entries = (Object.entries(values) as [VisitFilterField, string | undefined][]).filter((entry): entry is [VisitFilterField, string] =>
     Boolean(entry[1]),
@@ -134,6 +144,8 @@ export function ActiveVisitFilterChips({ values, options, ownerName, countriesEn
         return ownerName ?? 'Seleccionado';
       case 'customerId':
         return customer.data?.legalName ?? 'Seleccionado';
+      case 'projectId':
+        return projectName ?? 'Seleccionado';
       case 'countryId':
         return countries.data?.find((item) => item.id === value)?.name ?? 'Seleccionado';
       case 'unregistered':

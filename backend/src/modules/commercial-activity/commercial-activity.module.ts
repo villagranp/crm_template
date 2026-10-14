@@ -12,6 +12,7 @@ import { AccessModule } from '@/modules/access/access.module';
 import { AttachmentsModule } from '@/modules/attachments/attachments.module';
 import { CatalogsModule } from '@/modules/catalogs/catalogs.module';
 import { CustomersModule } from '@/modules/customers/customers.module';
+import { ProjectsModule } from '@/modules/projects/projects.module';
 
 import { ActivitiesController } from './activities.controller';
 import { ActivitiesService } from './activities.service';
@@ -22,6 +23,7 @@ import { CommercialActivityOptionsService } from './commercial-activity-options.
 import { CommercialAttachmentWriteGuard } from './commercial-attachment-write.guard';
 import { ActivityAttachmentsController, VisitAttachmentsController } from './commercial-attachments.controller';
 import { InteractionsService } from './interactions.service';
+import { LinkedProjectsService } from './linked-projects.service';
 import { ACTIVITY_REPOSITORY } from './ports/activity.repository.port';
 import { AGENDA_READ_MODEL } from './ports/agenda-read-model.port';
 import { COMMERCIAL_ACTIVITY_USAGE_QUERY } from './ports/commercial-activity-usage.port';
@@ -42,14 +44,18 @@ import { VisitsService } from './visits.service';
  * Prisma (ADR-004). `AuditModule`, `ParametersCoreModule` y `PrismaModule`
  * (transacciones y secuencias) son globales. Del Módulo 2 usa
  * `CustomerReferenceGuard` (02 F.6.3) y el servicio transversal de adjuntos
- * (`AttachmentsModule`, 02 F.6.5); los vínculos con proyectos y oportunidades los
- * valida `CommercialLinkReader`, propio hasta que el Módulo 3 publique su guardia.
+ * (`AttachmentsModule`, 02 F.6.5). Del Módulo 3, el repositorio de proyectos
+ * (`ProjectsModule`, `PROJECTS_REPOSITORY`) para bloquear el proyecto vinculado y
+ * escribir `last_activity_at` (`LinkedProjectsService`); los vínculos con proyectos y
+ * oportunidades los valida `CommercialLinkReader`, propio porque 03 no publica una
+ * guardia que distinga referencia desconocida de eliminada (04 «Precisiones»).
  *
  * Exporta `CommercialActivityUsageQuery` (token `COMMERCIAL_ACTIVITY_USAGE_QUERY`,
- * 04 F.6) para los bloqueos de eliminación de 02 y 03.
+ * 04 F.6) para quien necesite contar visitas y actividades abiertas; 03 cuenta los
+ * bloqueos de eliminación con su propia consulta (03 §F.4), con su propia regla.
  */
 @Module({
-  imports: [PrismaModule, AccessModule, CatalogsModule, CustomersModule, AttachmentsModule],
+  imports: [PrismaModule, AccessModule, CatalogsModule, CustomersModule, ProjectsModule, AttachmentsModule],
   controllers: [
     ActivitiesController,
     VisitsController,
@@ -68,6 +74,7 @@ import { VisitsService } from './visits.service';
     CommercialActivityOptionsService,
     CommercialActorResolver,
     CommercialAttachmentWriteGuard,
+    LinkedProjectsService,
     { provide: ACTIVITY_REPOSITORY, useClass: PrismaActivityRepository },
     { provide: VISIT_REPOSITORY, useClass: PrismaVisitRepository },
     { provide: AGENDA_READ_MODEL, useClass: PrismaAgendaReadModel },

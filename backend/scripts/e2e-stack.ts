@@ -241,7 +241,11 @@ async function activate(): Promise<void> {
     throw new Error('No se encontraron en la demo un cliente con proyectos visible al manager y uno ajeno al asesor.');
   }
 
-  const activityFixtures = await commercialActivityFixtures(asesorEmail);
+  // Proyectos (03 §J, PF-03.114–PF-03.116). Se eligen por la API para respetar el alcance real.
+  const projectLines = await projectVariables(baseUrl, asesorToken, managerToken);
+  // PF-03.115 reasigna el proyecto de equipo: Actividad comercial usa otro para no depender del orden.
+  const teamProjectCode = projectLines.find((line) => line.startsWith('E2E_MANAGER_TEAM_PROJECT='))?.split('=')[1];
+  const activityFixtures = await commercialActivityFixtures(asesorEmail, teamProjectCode);
   const restrictedPassword = process.env.E2E_RESTRICTED_PASSWORD;
   if (restrictedPassword) {
     await createRestrictedUsers(requireEnv('E2E_RESTRICTED_PASSWORD', MIN_PASSWORD_LENGTH));
@@ -262,8 +266,7 @@ async function activate(): Promise<void> {
     console.log('# Sin E2E_RESTRICTED_PASSWORD no se crean los usuarios de PF-04.60.');
   }
 
-  // Proyectos (03 §J, PF-03.114–PF-03.116). Se eligen por la API para respetar el alcance real.
-  for (const line of await projectVariables(baseUrl, asesorToken, managerToken)) {
+  for (const line of projectLines) {
     console.log(line);
   }
 
@@ -286,13 +289,15 @@ async function activate(): Promise<void> {
 /**
  * Datos demo de los recorridos de Actividad comercial (04 §J, PF-04.58–61): un
  * proyecto del asesor con su cliente activo (también cliente de las visitas y
- * actividades del recorrido), el tipo "Llamada" y una visita `REALIZADA`.
+ * actividades del recorrido) distinto del que reasigna PF-03.115, el tipo
+ * "Llamada" y una visita `REALIZADA`.
  */
-async function commercialActivityFixtures(asesorEmail: string): Promise<Record<string, string>> {
+async function commercialActivityFixtures(asesorEmail: string, excludedProjectCode?: string): Promise<Record<string, string>> {
   return withPrisma(async (prisma) => {
     const project = await prisma.project.findFirst({
       where: {
         deletedAt: null,
+        ...(excludedProjectCode ? { code: { not: excludedProjectCode } } : {}),
         owner: { emailNormalized: asesorEmail.toLowerCase() },
         customer: { deletedAt: null, status: { code: 'ACTIVO' }, salesOwner: { emailNormalized: asesorEmail.toLowerCase() } },
       },

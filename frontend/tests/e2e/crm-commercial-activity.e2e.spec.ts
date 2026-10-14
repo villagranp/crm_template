@@ -12,15 +12,10 @@ import { expect, test, type Browser, type BrowserContext, type Page, type Respon
  * - Regla de conflicto horario por defecto `AVISAR` (D-04.2).
  * - Los usuarios ya tienen contraseña personal (sin cambio pendiente).
  *
- * Aproximación de PF-04.58 (el Módulo 3 vive en otra rama): no hay ficha de
- * proyecto ni API `/projects`, así que el punto de partida es la URL que el
- * botón «Nueva actividad» de la ficha del proyecto abre (E.11:
- * `/actividad/actividades/nueva?customerId&projectId&typeId`) y, solo en esa
- * prueba, el navegador simula el Módulo 3: añade la opción `proyectos-buscar`
- * a la respuesta real de `GET /me/menu` y responde `GET /projects` con el
- * proyecto demo real (contrato de 03 F.1). El alta, el historial y el
- * seguimiento van contra el backend real, que valida el vínculo con su propio
- * lector sobre la tabla `projects`.
+ * PF-04.58 parte de la ficha real del proyecto (Módulo 3, sección
+ * «Seguimiento comercial», 03 §E.4): su botón «Nueva actividad» (04 §E.11)
+ * abre el alta con el cliente y el proyecto preseleccionados, que se resuelven
+ * con `GET /customers/{id}` y `GET /projects/{id}`. Todo va contra el backend real.
  *
  * Variables (nunca se escriben credenciales aquí; `e2e-stack.ts activate` imprime las E2E_* sin contraseñas):
  * - `E2E_ASESOR_EMAIL`, `E2E_ASESOR_PASSWORD` — asesor demo (OWN), dueño del proyecto y del cliente.
@@ -153,56 +148,35 @@ test.describe.serial('CRM · Actividad comercial', () => {
     sessions.clear();
   });
 
-  test('PF-04.58 · asesor: llamada «ya realizada» desde el proyecto → historial y seguimiento del proyecto', async ({ browser }) => {
+  test('PF-04.58 · asesor: llamada «ya realizada» desde la ficha del proyecto → ficha, historial y seguimiento del proyecto', async ({ browser }) => {
     test.skip(
-      !asesor.email || !asesor.password || !project.id || !project.customerId || !callTypeId,
-      'Define E2E_ASESOR_EMAIL, E2E_ASESOR_PASSWORD, E2E_PROJECT_* y E2E_CALL_TYPE_ID.',
+      !asesor.email || !asesor.password || !project.id || !project.customerId,
+      'Define E2E_ASESOR_EMAIL, E2E_ASESOR_PASSWORD y E2E_PROJECT_*.',
     );
     const subject = `E2E llamada ${uniqueSuffix()}`;
     const page = await sessionFor(browser, asesor);
 
-    // Simulación del Módulo 3 (ver cabecera): solo la opción de menú y la búsqueda de proyectos.
-    await page.route(`**${API_PREFIX}/me/menu`, async (route) => {
-      const response = await route.fetch();
-      const modules = (await response.json()) as Array<Record<string, unknown>>;
-      modules.push({
-        key: 'proyectos',
-        label: 'Proyectos',
-        icon: 'apartment',
-        order: 30,
-        isSystem: false,
-        options: [
-          { id: 'e2e-proyectos-buscar', key: 'proyectos-buscar', label: 'Proyectos', icon: 'apartment', path: '/proyectos', order: 10, requiredPermission: 'proyectos.ver', children: [] },
-        ],
-      });
-      await route.fulfill({ response, json: modules });
-    });
-    await page.route(`**${API_PREFIX}/projects?**`, (route) =>
-      route.fulfill({
-        json: {
-          data: [{ id: project.id, code: project.code, name: project.name, customer: { id: project.customerId, legalName: project.customerName } }],
-          pagination: { page: 1, pageSize: 100, totalItems: 1, totalPages: 1 },
-        },
-      }),
-    );
+    // Ficha del proyecto (03 §E.4), sección «Seguimiento comercial» con los puntos de entrada del 04.
+    const projectDetail = waitForApi(page, 'GET', new RegExp(`^/projects/${escapeRegExp(project.id)}$`));
+    await page.goto(`/proyectos/${project.id}?seccion=seguimiento`);
+    expect((await projectDetail).status()).toBe(HTTP_OK);
+    const followUp = page.getByRole('region', { name: 'Seguimiento comercial' });
+    const newActivity = followUp.getByRole('button', { name: 'Nueva actividad' });
+    await expect(newActivity).toBeVisible();
 
-    try {
-      // La preselección depende de dos consultas tras recargar la sesión: se
-      // esperan sus respuestas reales antes de mirar los valores del formulario.
-      const customerLookup = waitForApi(page, 'GET', new RegExp(`^/customers/${escapeRegExp(project.customerId)}$`));
-      const projectsLookup = waitForApi(page, 'GET', /^\/projects$/);
-      await page.goto(`/actividad/actividades/nueva?customerId=${project.customerId}&projectId=${project.id}&typeId=${callTypeId}`);
-      expect((await customerLookup).status()).toBe(HTTP_OK);
-      expect((await projectsLookup).status()).toBe(HTTP_OK);
-      const form = page.getByRole('form', { name: 'Crear actividad' });
-      await expect(form.getByRole('combobox', { name: /Cliente/ })).toHaveValue(new RegExp(escapeRegExp(project.customerName)));
-      await expect(form.getByRole('combobox', { name: /Proyecto/ })).toHaveValue(new RegExp(escapeRegExp(project.name)));
-      await expect(form.getByRole('combobox', { name: /Tipo de actividad/ })).toHaveText(/Llamada/);
-    } finally {
-      await page.unrouteAll({ behavior: 'wait' });
-    }
-
+    // La preselección resuelve el cliente (`GET /customers/{id}`, se espera su
+    // respuesta real) y el proyecto (`GET /projects/{id}`, ya en la caché de la ficha).
+    const customerLookup = waitForApi(page, 'GET', new RegExp(`^/customers/${escapeRegExp(project.customerId)}$`));
+    await newActivity.click();
+    await expect(page).toHaveURL(new RegExp(`/actividad/actividades/nueva\\?customerId=${project.customerId}&projectId=${project.id}$`));
+    expect((await customerLookup).status()).toBe(HTTP_OK);
     const form = page.getByRole('form', { name: 'Crear actividad' });
+    await expect(form.getByRole('combobox', { name: /Cliente/ })).toHaveValue(new RegExp(escapeRegExp(project.customerName)));
+    await expect(form.getByRole('combobox', { name: /Proyecto/ })).toHaveValue(new RegExp(escapeRegExp(project.name)));
+    await form.getByRole('combobox', { name: /Tipo de actividad/ }).click();
+    await page.getByRole('option', { name: 'Llamada' }).click();
+    await expect(form.getByRole('combobox', { name: /Tipo de actividad/ })).toHaveText(/Llamada/);
+
     await form.getByLabel(/^Asunto/).fill(subject);
     await form.getByLabel('Ya realizada: registrar la gestión como completada').check();
     await form.getByLabel(/^Notas del resultado/).fill('Cliente interesado; enviar cotización.');
@@ -214,6 +188,10 @@ test.describe.serial('CRM · Actividad comercial', () => {
     expect(body.project?.id).toBe(project.id);
     expect(body.customer.id).toBe(project.customerId);
     const code = await codeFromNotice(page, /registrada como realizada/, ACTIVITY_CODE);
+
+    // De vuelta en la ficha del proyecto: la llamada figura en su historial reciente.
+    await page.goto(`/proyectos/${project.id}?seccion=seguimiento`);
+    await expect(page.getByRole('region', { name: 'Seguimiento comercial' }).getByRole('link', { name: `Ver actividad ${code}`, exact: true })).toBeVisible();
 
     // Historial del proyecto: la llamada aparece una vez, con enlace a su origen.
     await page.goto(`/actividad/historial?projectId=${project.id}`);

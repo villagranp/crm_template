@@ -295,39 +295,3 @@ export function listCustomerContacts(customerId: string, query: ListQuery): Prom
     query: { ...query, status: 'ACTIVE' },
   });
 }
-
-/**
- * Lo que este módulo usa de `ProjectListItemDto` (03 F.1). El Módulo 3 vive en
- * otra rama: el tipo es propio hasta que se integre su barril público.
- */
-export interface ProjectLookup {
-  id: string;
-  code: string;
-  name: string;
-  customer: { id: string; legalName: string };
-}
-
-/** `GET /projects?customerId=&search=&pageSize=` (contrato de 03). */
-export function listCustomerProjectsLookup(customerId: string, query: ListQuery): Promise<PaginatedResponse<ProjectLookup>> {
-  return httpClient.get<PaginatedResponse<ProjectLookup>>('/projects', { query: { ...query, customerId } });
-}
-
-/** Lo que este módulo usa de `OpportunityListItemDto` (03). */
-export interface OpportunityLookup {
-  id: string;
-  code: string;
-  name?: string | null;
-  project: ProjectRef;
-}
-
-/** `GET /projects/{id}/opportunities?status=OPEN` (contrato de 03). */
-export function listOpenOpportunities(projectId: string, query: ListQuery): Promise<PaginatedResponse<OpportunityLookup>> {
-  return httpClient.get<PaginatedResponse<OpportunityLookup>>(`/projects/${encodeURIComponent(projectId)}/opportunities`, {
-    query: { ...query, status: 'OPEN' },
-  });
-}
-
-/** Ruta de la ficha del proyecto (Módulo 3). */
-export function projectDetailPath(projectId: string): string {
-  return `/proyectos/${encodeURIComponent(projectId)}`;
-}

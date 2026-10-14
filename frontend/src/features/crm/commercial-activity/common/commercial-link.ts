@@ -36,8 +36,3 @@ export function applyLinkChange(current: CommercialLinkValue, change: Commercial
   }
   return next;
 }
-
-/** Etiqueta "PRY-2026-00042 · Nombre". */
-export function projectLabel(project: Pick<ProjectRef, 'code' | 'name'>): string {
-  return `${project.code} · ${project.name}`;
-}

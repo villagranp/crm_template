@@ -22,6 +22,7 @@ import { useCustomerLookup, useOwnerName } from '../common/commercial-activity.q
 import { endOfDayIso, startOfDayIso } from '../common/date-time';
 import { InteractionTimelineList } from '../common/InteractionTimeline';
 import { useCommercialTimeZones } from '../common/use-commercial-time-zones';
+import { useProjectFilterName } from '../common/use-project-filter-name';
 import { ZonedDateTime } from '../common/ZonedDateTime';
 import { sourceLinkText } from '../follow-up/follow-up-format';
 
@@ -31,7 +32,7 @@ import { DEFAULT_INTERACTION_SORT, INTERACTION_FILTER_KEYS, INTERACTION_SORT_FIE
 import { useInteractionHistory } from './interactions.queries';
 
 const TITLE = 'Historial de interacciones';
-const CHIP_FILTERS: readonly InteractionChipFilter[] = [...INTERACTION_FORM_FILTERS, 'projectId', 'opportunityId'];
+const CHIP_FILTERS: readonly InteractionChipFilter[] = INTERACTION_FORM_FILTERS;
 /** Parámetro de la URL de la vista (no va a la API). */
 const VIEW_PARAM = 'view';
 type HistoryView = 'timeline' | 'table';
@@ -213,9 +214,10 @@ export function InteractionHistoryPage() {
 
   const customerLookup = useCustomerLookup(canViewCustomers ? filters.customerId : undefined);
   const userName = useOwnerName(filters.userId);
+  const projectFilterName = useProjectFilterName(filters.projectId);
   const names = {
     customer: (filters.customerId && rows?.find((item) => item.customer.id === filters.customerId)?.customer.legalName) || customerLookup.data?.legalName || null,
-    project: (filters.projectId && rows?.find((item) => item.project?.id === filters.projectId)?.project?.name) || null,
+    project: (filters.projectId && rows?.find((item) => item.project?.id === filters.projectId)?.project?.name) || projectFilterName,
     opportunity: (filters.opportunityId && rows?.find((item) => item.opportunity?.id === filters.opportunityId)?.opportunity?.code) || null,
     user: userName,
   };
