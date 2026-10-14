@@ -154,7 +154,7 @@ test.describe.serial('CRM · Clientes', () => {
     await page.goto('/clientes');
     await page.getByRole('searchbox', { name: /Buscar por código/ }).fill(dependentCustomer);
     await page.getByRole('link', { name: new RegExp(`Abrir la ficha de ${dependentCustomer}`) }).first().click();
-    await page.getByRole('button', { name: 'Eliminar' }).click();
+    await page.getByRole('button', { name: 'Eliminar', exact: true }).click();
     const blocked = waitForApi(page, 'DELETE', /^\/customers\/[^/]+$/);
     await page.getByRole('dialog', { name: 'Eliminar cliente' }).getByRole('button', { name: 'Eliminar' }).click();
     expect((await blocked).status()).toBe(HTTP_CONFLICT);
@@ -173,7 +173,7 @@ test.describe.serial('CRM · Clientes', () => {
 
     // Elimina otro sin dependencias.
     await createCustomer(page, `E2E Eliminar ${suffix}`, `E2EEL${suffix}`, false);
-    await page.getByRole('button', { name: 'Eliminar' }).click();
+    await page.getByRole('button', { name: 'Eliminar', exact: true }).click();
     const removed = waitForApi(page, 'DELETE', /^\/customers\/[^/]+$/);
     await page.getByRole('dialog', { name: 'Eliminar cliente' }).getByRole('button', { name: 'Eliminar' }).click();
     expect((await removed).status()).toBe(204);

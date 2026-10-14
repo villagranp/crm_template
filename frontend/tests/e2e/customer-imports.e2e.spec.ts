@@ -148,7 +148,11 @@ test.describe.serial('CRM · Carga masiva de clientes', () => {
 
     // La opción sale del menú del servidor (ADR-018) y abre el historial.
     await page.getByRole('button', { name: 'Integraciones', exact: true }).click();
-    await page.getByRole('link', { name: TITLE, exact: true }).click();
+    // Desde el menú lateral: Inicio (01 §E.6) también la ofrece en sus accesos rápidos.
+    await page
+      .getByRole('complementary', { name: 'Menú lateral' })
+      .getByRole('link', { name: TITLE, exact: true })
+      .click();
     await expect(page).toHaveURL(new RegExp(`${LIST_PATH}$`));
     await expect(page.getByRole('heading', { name: TITLE, level: 1 })).toBeVisible();
 
