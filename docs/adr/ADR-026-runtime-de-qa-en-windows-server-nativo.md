@@ -45,7 +45,7 @@ la misma máquina con una base y un usuario propios de la aplicación.**
   límites, Swagger cerrado), `env.qa.example` (sin valores reales) y los
   scripts de actualización y respaldo. El `.env` real solo existe en el servidor.
 - HTTPS siempre, también por IP: certificado de la CA interna o autofirmado
-  para la IP; el puerto 80 solo redirige. Solo se exponen 80 y 443; el backend
+  para la IP; el 8080 solo redirige a HTTPS (el 80 lo ocupa IIS en ese servidor). Solo se exponen 443 y 8080; el backend
   (3000) y PostgreSQL (5432) escuchan en `localhost`.
 - PostgreSQL 18, la versión de los entornos de desarrollo, para poder restaurar
   en QA un respaldo hecho en desarrollo.
@@ -92,7 +92,7 @@ la misma máquina con una base y un usuario propios de la aplicación.**
 - TLS 1.2+ en NGINX; cookie de sesión `Secure`, `HttpOnly`, `SameSite=Lax`;
   `trust proxy` de un solo salto con `X-Forwarded-For` sobrescrito en el borde.
 - Backend, PostgreSQL y adjuntos no son accesibles desde la red: solo NGINX en
-  80/443. Swagger cerrado (`SWAGGER_ENABLED=false` y `404` en `/api/docs`).
+  443/8080. Swagger cerrado (`SWAGGER_ENABLED=false` y `404` en `/api/docs`).
 - Restaurar en QA un respaldo de desarrollo copia usuarios y contraseñas de esa
   base: solo con datos de prueba y cambiando después las credenciales que se
   conserven.

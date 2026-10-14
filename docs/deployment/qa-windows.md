@@ -9,7 +9,7 @@ Navegador ──HTTPS 443──► NGINX for Windows (frontend estático + proxy
                                         └──► PostgreSQL 18, localhost:5432
 ```
 
-Solo 80 (redirige) y 443 quedan abiertos. Todos los comandos son de **PowerShell como
+Solo 443 y 8080 (redirige a HTTPS) quedan abiertos; el 80 es de IIS, que el servidor ya tenía y no se toca. Todos los comandos son de **PowerShell como
 administrador** en el servidor, salvo los marcados como «en tu equipo».
 
 ## Convenciones
@@ -194,7 +194,7 @@ nssm set MiClienteAG-NGINX Start SERVICE_AUTO_START
 nssm start MiClienteAG-NGINX
 
 New-NetFirewallRule -DisplayName 'MiClienteAG HTTPS' -Direction Inbound -Protocol TCP -LocalPort 443 -Action Allow
-New-NetFirewallRule -DisplayName 'MiClienteAG HTTP'  -Direction Inbound -Protocol TCP -LocalPort 80  -Action Allow
+New-NetFirewallRule -DisplayName 'MiClienteAG HTTP'  -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow
 ```
 
 `nginx.conf` se usa tal cual desde el clon: incluye `security-headers.conf` de
@@ -204,7 +204,7 @@ New-NetFirewallRule -DisplayName 'MiClienteAG HTTP'  -Direction Inbound -Protoco
 
 Desde otro equipo de la red:
 
-1. `http://<IP>/` redirige a `https://<IP>/` (con certificado autofirmado, el navegador avisa
+1. `http://<IP>:8080/` redirige a `https://<IP>/` (con certificado autofirmado, el navegador avisa
    una vez).
 2. `https://<IP>/healthz` → `ok`; `https://<IP>/api/v1/ready` → 200.
 3. `https://<IP>/api/docs` → 404.
