@@ -29,6 +29,8 @@
     { "path": "/actividad/visitas/:visitId", "label": "Detalle de visita" },
     { "path": "/actividad/actividades", "label": "Actividades" },
     { "path": "/actividad/actividades/nueva", "label": "Nueva actividad" },
-    { "path": "/actividad/actividades/:activityId", "label": "Detalle de actividad" }
+    { "path": "/actividad/actividades/:activityId", "label": "Detalle de actividad" },
+    { "path": "/integraciones/clientes", "label": "Carga masiva de clientes" },
+    { "path": "/integraciones/clientes/:importId", "label": "Detalle de carga de clientes" }
   ]
 }

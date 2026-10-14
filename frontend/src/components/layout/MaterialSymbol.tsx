@@ -77,8 +77,8 @@ const ICON_REGISTRY: Record<string, SvgIconComponent> = {
   apartment: ApartmentOutlinedIcon,
   handshake: HandshakeOutlinedIcon,
   trending_up: TrendingUpOutlinedIcon,
-  // CRM: Reportes, Integraciones y catálogos del CRM (crm-access.ts), que el Panel de
-  // control muestra en sus accesos (01 §E.6). Los de Actividad comercial, más abajo.
+  // CRM: Reportes, Integraciones (`upload_file`: carga masiva, 06 §E) y catálogos del CRM
+  // (crm-access.ts), que el Panel de control muestra en sus accesos (01 §E.6). Los de Actividad comercial, más abajo.
   bar_chart: BarChartOutlinedIcon,
   insights: InsightsOutlinedIcon,
   filter_alt: FilterAltOutlinedIcon,

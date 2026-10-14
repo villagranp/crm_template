@@ -117,3 +117,29 @@ Durante la lectura (los tamaños declarados pueden mentir):
   registra en logs; las incidencias guardan códigos, no valores.
 - Exportar exige `reportes.exportar` y respeta el alcance del usuario: la
   librería no cambia ninguna decisión de autorización.
+
+## Addendum — 2026-10-13 (implementación de la carga masiva, Módulo 6)
+
+- **Versión:** `exceljs` **4.4.0**, fijada exacta. `pnpm audit --prod`: la única advertencia nueva
+  es **moderada** en la dependencia transitiva `uuid@8.3.2` (`<11.1.1`, comprobación de límites
+  al escribir en un búfer que pasa el llamador; `exceljs` no usa esa variante). Ninguna alta ni
+  crítica: el gate de incorporación se cumple.
+- **Lectura sin streaming:** `stream.xlsx.WorkbookReader` escribe cada hoja en un archivo
+  temporal en disco cuando `xl/sharedStrings.xml` aparece después de las hojas dentro del ZIP,
+  que es el orden habitual de Excel. Eso contradice la regla "nunca disco temporal" (06 H.2).
+  Se usa `workbook.xlsx.load(buffer)` en memoria, **después** de la guardia ZIP, que ahora
+  además descomprime cada entrada con `maxOutputLength` (si el tamaño declarado miente, se
+  rechaza), rechaza XML con DTD/entidades sin parsearlo y cuenta filas con valores y celdas por
+  hoja. Revisión E5: el recuento es un presupuesto **global** de todas las hojas (elementos
+  `<row>`, celdas y textos compartidos); la carga pasa `ignoreNodes` para no expandir los nodos de
+  rango (`mergeCells`, `dataValidations`, `conditionalFormatting`, `hyperlinks`…: un
+  `A1:XFD1048576` de pocos bytes creaba millones de objetos), se recorren solo las filas
+  existentes (`eachRow`) y se lee un XLSX a la vez por proceso. Así la memoria de la librería
+  queda acotada por los topes de filas y columnas, no por lo que declare el archivo. Tiempo
+  máximo de lectura: 20 s (`PARSE_TIMEOUT`; no interrumpe la parte síncrona de la carga, que
+  queda acotada por esos topes).
+- **Escritura:** `stream.xlsx.WorkbookWriter` (plantilla y archivo de errores), celdas con
+  `numFmt '@'` y valores neutralizados con `neutralizeFormula` de `common/csv.ts`.
+- `common/xlsx.ts` lo crea el Módulo 6 (`readSheetRows`, `writeTextWorkbook`); el Módulo 5
+  añade allí su escritor de exportaciones. Las pruebas generan los archivos con `exceljs`
+  directamente desde `modules/customer-imports/testing/` (código de prueba, fuera del build).

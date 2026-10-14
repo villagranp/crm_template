@@ -14,6 +14,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { CatalogsModule } from './modules/catalogs/catalogs.module';
 import { CommercialActivityModule } from './modules/commercial-activity/commercial-activity.module';
 import { CommercialMetricsModule } from './modules/commercial-metrics/commercial-metrics.module';
+import { CustomerImportsModule } from './modules/customer-imports/customer-imports.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { ExchangeRatesModule } from './modules/exchange-rates/exchange-rates.module';
@@ -77,6 +78,8 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     // CRM · Módulo 1: fórmulas comerciales compartidas (Inicio y Reportes) y panel de Inicio (01).
     CommercialMetricsModule,
     DashboardModule,
+    // CRM · Módulo 6: carga masiva de clientes (06, F-42).
+    CustomerImportsModule,
     HealthModule,
   ],
   providers: [

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import type { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 
 import { withParameterLock } from './parameter-lock';
@@ -602,4 +602,31 @@ export async function withParameter<T>(
       await restore();
     }
   });
+}
+
+/**
+ * Candado exclusivo entre archivos de pruebas que cambian temporalmente los mismos
+ * parámetros globales (las suites corren en paralelo sobre el mismo esquema: un
+ * `withParameter` de una cambiaría el resultado de la otra). Es un candado
+ * consultivo de PostgreSQL de sesión, con su propia conexión, y su clave incluye el
+ * esquema: dos ejecuciones con `INTEGRATION_SCHEMA` distinto no se bloquean.
+ *
+ * ```ts
+ * let releaseParameters: () => Promise<void>;
+ * beforeAll(async () => { releaseParameters = await exclusiveParameters('crm-customer-parameters'); }, EXCLUSIVE_TIMEOUT_MS);
+ * afterAll(async () => releaseParameters?.());
+ * ```
+ */
+export const EXCLUSIVE_TIMEOUT_MS = 10 * 60_000;
+
+export async function exclusiveParameters(name: string): Promise<() => Promise<void>> {
+  const url = new URL(process.env.DATABASE_URL ?? '');
+  url.searchParams.set('connection_limit', '1');
+  const client = new PrismaClient({ datasourceUrl: url.toString() });
+  const key = `${url.searchParams.get('schema') ?? 'public'}:${name}`;
+  await client.$queryRaw`SELECT pg_advisory_lock(hashtext(${key}))::text AS locked`;
+  return async () => {
+    await client.$queryRaw`SELECT pg_advisory_unlock(hashtext(${key}))::text AS unlocked`;
+    await client.$disconnect();
+  };
 }

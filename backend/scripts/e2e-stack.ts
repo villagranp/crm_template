@@ -28,6 +28,11 @@
  *     Si llega E2E_NO_COMMERCIAL_PASSWORD (12+), crea un usuario activo con el rol
  *     esencial `usuario` (sin permisos comerciales; E2E_NO_COMMERCIAL_EMAIL, por
  *     defecto sin.comercial@e2e.invalid) para el recorrido de Inicio, y lo imprime.
+ *     Si llega E2E_ADMIN_PASSWORD (12+), cambia también la contraseña inicial del
+ *     administrador sembrado (E2E_ADMIN_EMAIL, o SEED_ADMIN_EMAIL, o admin@example.com;
+ *     contraseña inicial SEED_ADMIN_PASSWORD) e imprime E2E_ADMIN_EMAIL y
+ *     E2E_IMPORT_EXISTING_CODE (código de cliente de un cliente existente, para la
+ *     carga masiva del Módulo 6, TESTING.md §«E2E de Integraciones»).
  *
  *   pnpm exec ts-node --transpile-only scripts/e2e-stack.ts drop
  *     Borra el esquema.
@@ -47,6 +52,8 @@ const DEMO_PARAMETER_KEY = 'sistema.permite_datos_demo';
 const DEFAULT_ASESOR_EMAIL = 'asesor1.gt@demo.invalid';
 const DEFAULT_MANAGER_EMAIL = 'manager.gt@demo.invalid';
 const DEFAULT_NO_FORECAST_EMAIL = 'sin.forecast@e2e.invalid';
+const DEFAULT_ADMIN_EMAIL = 'admin@example.com';
+const IMPORT_COUNTRY_ISO = 'GT';
 const NO_FORECAST_ROLE_CODE = 'e2e_asesor_sin_forecast';
 const DEFAULT_NO_COMMERCIAL_EMAIL = 'sin.comercial@e2e.invalid';
 const BASIC_ROLE_CODE = 'usuario';
@@ -303,6 +310,14 @@ async function activate(): Promise<void> {
     }
     console.log(`E2E_NO_COMMERCIAL_EMAIL=${email}`);
   }
+
+  // Administrador para la carga masiva (06 PF-06.49): solo si llega su contraseña; si no, esa prueba se salta.
+  const adminPassword = process.env.E2E_ADMIN_PASSWORD;
+  if (adminPassword) {
+    for (const line of await importVariables(baseUrl, adminPassword)) {
+      console.log(line);
+    }
+  }
 }
 
 interface E2EUser {
@@ -425,6 +440,34 @@ async function createRestrictedUsers(password: string): Promise<void> {
       }
     }),
   );
+}
+
+/**
+ * Deja al administrador sembrado con contraseña personal y elige un código de cliente existente
+ * del país de la carga (`GT`) que el administrador ve, para la fila «duplicada con un existente».
+ */
+async function importVariables(baseUrl: string, adminPassword: string): Promise<string[]> {
+  if (adminPassword.length < MIN_PASSWORD_LENGTH) {
+    throw new Error(`E2E_ADMIN_PASSWORD debe tener ${MIN_PASSWORD_LENGTH}+ caracteres.`);
+  }
+  const email = process.env.E2E_ADMIN_EMAIL ?? process.env.SEED_ADMIN_EMAIL ?? DEFAULT_ADMIN_EMAIL;
+  const token = await activateUser(baseUrl, email, requireEnv('SEED_ADMIN_PASSWORD'), adminPassword);
+  const lines = [`E2E_ADMIN_EMAIL=${email}`];
+
+  const candidates = await withPrisma((prisma) =>
+    prisma.customer.findMany({
+      where: { deletedAt: null, customerCode: { not: null }, country: { isoCode: IMPORT_COUNTRY_ISO } },
+      select: { id: true, customerCode: true },
+      orderBy: { customerCode: 'asc' },
+    }),
+  );
+  for (const candidate of candidates) {
+    if ((await api(baseUrl, `/customers/${candidate.id}`, {}, token)).status === HTTP_OK) {
+      lines.push(`E2E_IMPORT_EXISTING_CODE=${candidate.customerCode}`);
+      break;
+    }
+  }
+  return lines;
 }
 
 /**

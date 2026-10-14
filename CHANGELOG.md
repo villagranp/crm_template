@@ -6,6 +6,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 ## [Unreleased]
 
 ### Changed
+- Pruebas de integración: `exclusiveParameters` (candado consultivo por esquema) hace mutuamente
+  excluyentes `customers.e2e` y `customer-imports.e2e`, que cambian los mismos parámetros globales.
+- Semilla demo: la carga `DEMO-IMP-0001` guarda `raw_data` e incidencias con la forma real de la
+  importación (13 columnas, códigos y campos de 06 F.3).
 - **CRM — integración de los Módulos 3 y 4** (`04-actividad-comercial.md`, «Precisiones de
   implementación (2026-10-13)»; sin cambios de contrato):
   - Backend: el bloqueo del proyecto vinculado y `projects.last_activity_at` de visitas y
@@ -24,6 +28,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   - E2E PF-04.58 sin simulación del Módulo 3: parte de la ficha real del proyecto.
 
 ### Fixed
+- Clientes (Módulo 2): en modo `BY_NATURAL_KEY` sin responsable, el actor por defecto se buscaba
+  como clave natural y la fila quedaba `INVALID_SALES_OWNER`; ahora se busca por id.
 - **CRM Módulo 4 — revisión de código** (`04-actividad-comercial.md`, "Precisiones de implementación"):
   - Concurrencia (RN-04.2): alta y edición de visitas y actividades bloquean el proyecto vinculado
     **antes** de validarlo; antes, una eliminación concurrente del proyecto podía dejar un registro
@@ -98,6 +104,24 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   - NGINX: una sola cabecera `Cache-Control: no-store` en las respuestas de la API.
 
 ### Added
+- **CRM Módulo 6 — Carga masiva de clientes (F-42)** (`06-integraciones.md`):
+  - API `/customer-imports` (configuración, plantilla CSV/XLSX, subida y validación, historial,
+    detalle, filas, confirmación `202` en segundo plano, cancelación y archivo de errores), con
+    `importaciones.ver` / `importaciones.crear` (+ `clientes.crear` para subir y confirmar) y
+    tras el parámetro `crm.importaciones.habilitada` (`409 IMPORTS_DISABLED`).
+  - Lectura segura: tipo real por firma (`415 UNSUPPORTED_FILE_TYPE`), guardia ZIP propia
+    (entradas, tamaños reales descomprimidos, razón de compresión, rutas, macros, DTD), lector CSV
+    propio (`common/csv-reader.ts`, UTF-8 estricto, `,`/`;`) y envoltorio `common/xlsx.ts` sobre
+    **`exceljs` 4.4.0** (nueva dependencia, ADR-022 y su addendum).
+  - Validación fila a fila con las reglas del Módulo 2, duplicados en el archivo y contra
+    existentes, avisos de NIT (`DUPLICATE_TAX_ID`) y una transacción por fila al importar.
+  - Pantallas `/integraciones/clientes` (historial, nueva carga) y `/integraciones/clientes/:importId`
+    (vista previa, confirmación, progreso y resultado); opción de menú `integraciones-clientes`.
+  - Script de purga de retención `pnpm --filter @app/backend run imports:purge-rows` (D-06.12).
+  - `413`/`415` en el filtro global (`UnsupportedMediaTypeError`).
+- Módulo 2 (aditivo, para la importación): `duplicateKeys` devuelve `legalName` y acepta el
+  contexto de `prepare()`; `CustomerReferenceCache` para validar lotes; `withinTransaction` y
+  `auditMetadata` en `CustomerCreationService.create`; `CustomersService` exportado.
 - **CRM Módulo 1 — Inicio / Panel de control (F-01…F-04)** (`01-inicio-dashboard.md`):
   - API `GET /dashboard/*`: indicadores K1–K9 (proyectos activos, oportunidades abiertas,
     ganadas y perdidas, forecast M+6, visitas, actividades pendientes y vencidas, metas),

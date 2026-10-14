@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 
 import { SEQUENCE_GENERATOR, type SequenceGenerator } from '@/infrastructure/database/ports/sequence-generator.port';
-import { TRANSACTION_RUNNER, type TransactionRunner } from '@/infrastructure/database/ports/transaction.port';
+import { type TransactionContext, TRANSACTION_RUNNER, type TransactionRunner } from '@/infrastructure/database/ports/transaction.port';
 import { AppLogger } from '@/infrastructure/logging/app-logger.service';
 import { type AuditContext, AuditService } from '@/modules/audit/audit.service';
 
@@ -31,6 +31,14 @@ export interface CustomerCreationContext {
   readonly sourceImportId?: string;
   /** Confirmación de avisos de duplicado (RN-02.14). En `IMPORT`, la traduce el Módulo 6 (D-06.6). */
   readonly acknowledgedDuplicateIds?: readonly string[];
+  /**
+   * Escritura del llamador en la **misma** transacción del alta, tras el `INSERT`
+   * (la importación marca su fila `IMPORTED` con el cliente creado, 06 RN-06.21).
+   * Si lanza, el alta se deshace.
+   */
+  readonly withinTransaction?: (customerId: string, tx: TransactionContext) => Promise<void>;
+  /** Metadatos extra del evento `crm.customer.created` (la importación añade `rowNumber`, 06 H.6). */
+  readonly auditMetadata?: Readonly<Record<string, string | number | boolean | null>>;
 }
 
 /**
@@ -82,10 +90,12 @@ export class CustomerCreationService {
         if (!normalized) throw new Error('Validation outcome without normalized values');
 
         const crmCode = await this.sequences.next(CUSTOMER_SEQUENCE_KEY, tx);
-        return this.customers.create(
+        const id = await this.customers.create(
           { ...normalized, crmCode, sourceImportId: context.sourceImportId ?? null, createdById: actor.userId },
           tx,
         );
+        await context.withinTransaction?.(id, tx);
+        return id;
       });
     } catch (error) {
       if (error instanceof CustomerCodeConflictError && codeNormalized) {
@@ -105,7 +115,7 @@ export class CustomerCreationService {
       resourceId: customerId,
       before: null,
       after: customerAuditState(created),
-      metadata: { source: context.source, crmCode: created.crmCode, sourceImportId: context.sourceImportId ?? null },
+      metadata: { ...context.auditMetadata, source: context.source, crmCode: created.crmCode, sourceImportId: context.sourceImportId ?? null },
     });
     return created;
   }

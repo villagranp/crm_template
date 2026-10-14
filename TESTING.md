@@ -344,6 +344,61 @@ Notas:
   actividades vencidas y alertas de proyecto u oportunidad en el equipo del manager, el
   recorrido falla con un mensaje de precondición: depende de los datos demo.
 
+### E2E de Integraciones
+
+`frontend/tests/e2e/customer-imports.e2e.spec.ts` (PF-06.49 y PF-06.50 del plan
+`docs/implementation-plans/crm/06-integraciones.md`) usa el **mismo stack aislado** que
+«E2E de Clientes»: `prepare` siembra la demo, que deja `crm.importaciones.habilitada = true`
+**en ese esquema** (nunca en `public`).
+
+| Recorrido | Qué cubre |
+|---|---|
+| PF-06.49 | Administrador: abre «Carga masiva de clientes» desde el menú → descarga la plantilla CSV (BOM + encabezados) → sube un CSV generado en la prueba con las columnas de esa plantilla (3 filas válidas, 1 sin razón social, 1 con el código de un cliente existente de `GT`) → vista previa (contadores y filtros Con errores / Duplicadas existentes / Válidas) → confirma → «Completada con errores» → archivo de errores con las 2 filas no importadas (fila de Excel, estado e incidencia) → abre un cliente importado en su ficha |
+| PF-06.50 | Asesor demo (sin `importaciones.ver`): `GET /me/menu` no trae la opción ni aparece el grupo «Integraciones»; la ruta directa `/integraciones/clientes` muestra «Sin acceso» |
+
+Variables, además de las de «E2E de Clientes» (los valores entre `<>` son de ejemplo):
+
+| Variable | Valor |
+|---|---|
+| `SEED_ADMIN_EMAIL` | `admin@e2e.invalid`: exportada **antes** de `prepare`, el esquema aislado tiene un administrador de prueba (la semilla no pisa una variable ya definida con la del `.env`) |
+| `SEED_ADMIN_PASSWORD` | `<12+>`: su contraseña inicial (cambio obligatorio); exportada antes de `prepare` y de `activate` |
+| `E2E_ADMIN_PASSWORD` | `<12+>`: si se define antes de `activate`, el script cambia por la API la contraseña inicial del administrador a esta e imprime `E2E_ADMIN_EMAIL` y `E2E_IMPORT_EXISTING_CODE` |
+| `E2E_ADMIN_EMAIL` | lo imprime `activate` (`E2E_ADMIN_EMAIL`, o `SEED_ADMIN_EMAIL`, o `admin@example.com`) |
+| `E2E_IMPORT_EXISTING_CODE` | código de cliente de un cliente existente de `GT` que el administrador ve (`DEMO-GT-001` con la demo; lo imprime `activate`) |
+
+Pasos (Git Bash, desde la raíz). El esquema y los puertos son parametrizables para no
+chocar con otras sesiones: aquí, `E2E_SCHEMA=integration_e2e_m6`, backend en **3106** y
+Vite en **5186** (en lugar de 3100/5180 de «E2E de Clientes»):
+
+1. Exporta `E2E_SCHEMA`, `DATABASE_URL` (la de `.env` con `?schema=<E2E_SCHEMA>`),
+   `ATTACHMENTS_STORAGE_PATH` (carpeta temporal), `SEED_DEMO_PASSWORD`, `SEED_ADMIN_EMAIL`,
+   `SEED_ADMIN_PASSWORD`, `JWT_ACCESS_TOKEN_SECRET` y `AUTH_DEFAULT_PASSWORD`, y ejecuta
+   `cd backend && pnpm exec ts-node --transpile-only scripts/e2e-stack.ts prepare`.
+2. Backend desde `backend/`: `API_PORT=3106 NODE_ENV=development AUTH_PROVIDER=local
+   CORS_ALLOWED_ORIGINS=http://localhost:5186 TS_NODE_PROJECT=tsconfig.json pnpm exec ts-node -r tsconfig-paths/register src/main.ts`.
+3. Frontend desde `frontend/`: `DEV_API_PROXY_TARGET=http://localhost:3106 pnpm exec vite --port 5186 --strictPort`.
+4. Con `E2E_ASESOR_PASSWORD`, `E2E_MANAGER_PASSWORD` y `E2E_ADMIN_PASSWORD` exportadas,
+   `E2E_API_URL=http://localhost:3106 pnpm exec ts-node --transpile-only scripts/e2e-stack.ts activate`
+   y exporta las líneas `E2E_*` que imprime (sin contraseñas).
+5. `E2E_BASE_URL=http://localhost:5186 pnpm --filter @app/frontend test:e2e customer-imports`.
+6. Limpieza: detén solo el backend (3106) y el Vite (5186) de los pasos 2 y 3,
+   `E2E_SCHEMA=integration_e2e_m6 pnpm exec ts-node --transpile-only scripts/e2e-stack.ts drop`,
+   y borra la carpeta temporal de adjuntos y `frontend/test-results`.
+
+Notas:
+
+- **Límite de login:** la primera vez `activate` hace hasta 6 intentos (asesor, manager y
+  administrador: la contraseña personal y, si falla, la inicial) y cada ejecución del
+  recorrido hace 2. Con 10 por minuto por IP, una ejecución justo después de `activate`
+  cabe; si añades otros archivos, deja pasar un minuto.
+- Sin `E2E_ADMIN_PASSWORD` (o sin `E2E_IMPORT_EXISTING_CODE`) PF-06.49 se salta; sin
+  las variables del asesor, PF-06.50.
+- Cada ejecución crea una carga nueva y 3 clientes con sufijo único (`E2E Carga … <sufijo>`);
+  la fila duplicada reutiliza el código existente y nunca lo modifica (RN-06.16). Es
+  repetible sin volver a `prepare`; con el stack ya compilado tarda unos 13 s.
+- La plantilla y el archivo de errores se comprueban leyendo la descarga real de
+  Playwright (`download.path()`); el nombre llega en `Content-Disposition`.
+
 ## 9. En el pipeline
 
 `lint → typecheck → unit → integration → build → security checks`.

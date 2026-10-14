@@ -19,13 +19,13 @@ cada especificación (numeración continua, sin huecos ni duplicados).
 | 3 Proyectos | [03](03-proyectos.md) | 11 (F-10…F-20) | 83 | 95 | 133 | 0 | 0 | 0 | 11 |
 | 4 Actividad comercial | [04](04-actividad-comercial.md) | 13 (F-21…F-33) | 36 | 64 | 68 | 0 | 0 | 0 | 13 |
 | 5 Reportes | [05](05-reportes.md) | 8 (F-34…F-41) | 59 | 47 | 47 | 8 | 0 | 0 | 0 |
-| 6 Integraciones | [06](06-integraciones.md) | 1 (F-42) | 31 | 34 | 54 | 1 | 0 | 0 | 0 |
+| 6 Integraciones | [06](06-integraciones.md) | 1 (F-42) | 31 | 34 | 54 | 0 | 0 | 0 | 1 |
 | 7 Administración | [07](07-administracion.md) | 5 (F-43…F-47) | 46 | 42 | 51 | 5 | 0 | 0 | 0 |
-| **Total** | | **47** | **319** | **378** | **465** | **14** | **0** | **0** | **33** |
+| **Total** | | **47** | **319** | **378** | **465** | **13** | **0** | **0** | **34** |
 
-- `pendiente`: 0 · `especificada`: 14 · `implementada (backend)`: 0 · `bloqueada`: 0 · `en desarrollo`: 0 ·
-  `completada`: 33 (Módulo 1: F-01…F-04, 2026-10-13; Módulo 2: F-05…F-09, 2026-10-11/12;
-  Módulo 3: F-10…F-20, 2026-10-12; Módulo 4: F-21…F-33, 2026-10-13).
+- `pendiente`: 0 · `especificada`: 13 · `implementada (backend)`: 0 · `bloqueada`: 0 · `en desarrollo`: 0 ·
+  `completada`: 34 (Módulo 1: F-01…F-04, 2026-10-13; Módulo 2: F-05…F-09, 2026-10-11/12;
+  Módulo 3: F-10…F-20, 2026-10-12; Módulo 4: F-21…F-33, 2026-10-13; Módulo 6: F-42, 2026-10-13).
 - Módulos 3 y 4 integrados el 2026-10-13 en `feature/crm-actividad-comercial`: el Módulo 4
   consume el Módulo 3 real (selectores y preselección de su barril, bloqueo del proyecto y
   `last_activity_at` con su repositorio, puntos de entrada de E.11 en la ficha del proyecto y
@@ -119,7 +119,7 @@ de cada especificación (`AC-<módulo>.<n>`, `PF-<módulo>.<n>`). La columna *De
 | F-39 | 5 Reportes | Exportación a Excel | §7.6 | [05](05-reportes.md) | Las de F-34…F-38; `audit_logs` (escritura); `system_parameters` (`crm.reportes.max_filas_exportacion`) | F-34…F-38; ADR-022 (`exceljs`, escritor en *streaming*, neutralización de fórmulas) | AC-05.23–AC-05.29, AC-05.46 | PF-05.6, PF-05.21, PF-05.24–PF-05.28, PF-05.35, PF-05.39–PF-05.41, PF-05.45 | especificada | D-05.1 (ADR-022), D-05.3, D-05.14, DM-36 |
 | F-40 | 5 Reportes | Dashboard comercial | §7.7 | [05](05-reportes.md) | `projects`, `opportunities`, `opportunity_results`, `forecast_lines`, `visits`, `activities`, `catalog_items`, `users` | `commercial-metrics`; ADR-023 (`@mui/x-charts` Community, carga diferida) | AC-05.30–AC-05.34, AC-05.41, AC-05.42, AC-05.47 | PF-05.22, PF-05.30, PF-05.36, PF-05.38, PF-05.39, PF-05.47 | especificada | D-05.2 (ADR-023), D-05.13 |
 | F-41 | 5 Reportes | Embudo comercial | §7.8 | [05](05-reportes.md) | `opportunities`, `opportunity_stage_history`, `projects`, `customers`, `catalog_items` | `commercial-metrics`; ADR-023 (barras horizontales, sin `FunnelChart` Pro) | AC-05.35–AC-05.39, AC-05.47 | PF-05.5, PF-05.32, PF-05.38, PF-05.39, PF-05.47 | especificada | D-05.2 (ADR-023), D-05.8, D-05.9 |
-| F-42 | 6 Integraciones | Carga masiva de clientes (CSV/XLSX) | §8.1 | [06](06-integraciones.md) | `customer_imports`, `customer_import_rows`, `customers`, `countries`, `catalog_items` (`crm.tipo_empresa`, `crm.estado_cliente`, `crm.calificacion_cliente`), `users`, `system_parameters`, `sequences`, `audit_logs` | Fase 0; Módulo 2 (validación y alta de clientes, F-06); `exceljs` y `common/xlsx.ts` compartidos con F-39 (ADR-022); uso productivo sujeto a `crm.importaciones.habilitada` (no bloquea) | AC-06.1–AC-06.34 | PF-06.1–PF-06.54 | especificada | DM-2, DM-4, DM-8, DM-18, DM-28, D-06.1 (ADR-022), D-06.2–D-06.13, DC-4, DC-6 |
+| F-42 | 6 Integraciones | Carga masiva de clientes (CSV/XLSX) | §8.1 | [06](06-integraciones.md) | `customer_imports`, `customer_import_rows`, `customers`, `countries`, `catalog_items` (`crm.tipo_empresa`, `crm.estado_cliente`, `crm.calificacion_cliente`), `users`, `system_parameters`, `sequences`, `audit_logs` | Fase 0; Módulo 2 (validación y alta de clientes, F-06); `exceljs` y `common/xlsx.ts` compartidos con F-39 (ADR-022); uso productivo sujeto a `crm.importaciones.habilitada` (no bloquea) | AC-06.1–AC-06.34 | PF-06.1–PF-06.54 | completada (2026-10-13) | DM-2, DM-4, DM-8, DM-18, DM-28, D-06.1 (ADR-022), D-06.2–D-06.13, DC-4, DC-6 |
 | F-43 | 7 Administración | Usuarios | §9.1 | [07](07-administracion.md) | `users` (+`employee_code`, `country_id`; defaults `es-GT`/`America/Guatemala`), `countries`, `teams`, `team_members`, `user_roles`, `audit_logs` | Fase 0 (migración 2, semilla de países); PLAN-ADMIN usuarios y equipos; ADR-020 y su addendum de 2026-10-10 | AC-07.1–AC-07.10, AC-07.41 | PF-07.1–PF-07.5, PF-07.19–PF-07.24, PF-07.39, PF-07.43, PF-07.45, PF-07.49 | especificada | DM-12, DM-14, DM-30, D-07.2, D-07.3, D-07.4, D-07.13, D-07.14 |
 | F-44 | 7 Administración | Roles y permisos | §9.2 | [07](07-administracion.md) | `roles`, `permissions`, `role_permissions`, `role_menu_options`, enum `data_scope` | Fase 0 (migración 1, semilla de roles/permisos); PLAN-ADMIN roles; ADR-018, ADR-020 | AC-07.11–AC-07.17 | PF-07.6–PF-07.9, PF-07.25–PF-07.27, PF-07.45 | especificada | DM-10, DM-11, DM-32, DM-34, D-07.1 |
 | F-45 | 7 Administración | Catálogos | §9.3 | [07](07-administracion.md) | `catalogs`, `catalog_items` (17 `crm.*`), `system_parameters` (referencias) | Fase 0 (semilla, registro de semántica); PLAN-ADMIN catálogos | AC-07.18–AC-07.25 | PF-07.10, PF-07.11, PF-07.28–PF-07.33, PF-07.40, PF-07.46 | especificada | D-07.5, D-07.6, D-07.12 |

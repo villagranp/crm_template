@@ -16,6 +16,7 @@ features/crm/
   forecast/                Módulo 3: matriz del forecast M+6
   commercial-activity/     Módulo 4 (Actividad comercial): common/, activities/, pending/, visits/, agenda/,
                            follow-up/, interactions/, entry-points/ (barril para 02/03)
+  customer-imports/        Módulo 6 (Integraciones): carga masiva de clientes; index.ts
 ```
 
 | Pantalla | Carpeta | Ruta | Permiso de la ruta | ¿Opción de menú? |
@@ -40,6 +41,8 @@ features/crm/
 | Listado de visitas | `commercial-activity/visits/` | `/actividad/visitas` | `visitas.ver` | Sí: `actividad-visitas` |
 | Planificar visita | `commercial-activity/visits/` | `/actividad/visitas/nueva` | `visitas.crear` | No (preselección `?customerId=&projectId=`) |
 | Detalle de visita | `commercial-activity/visits/` | `/actividad/visitas/:visitId` | `visitas.ver` | No (ruta con parámetro, D-04.13) |
+| Carga masiva de clientes | `customer-imports/` | `/integraciones/clientes` | `importaciones.ver` | Sí: `integraciones-clientes` |
+| Detalle de carga de clientes | `customer-imports/` | `/integraciones/clientes/:importId` | `importaciones.ver` | No (ruta con parámetro) |
 
 Las rutas de Actividad comercial viven en `commercial-activity/commercial-activity-routes.ts`
 (agregadas en `crm-routes.ts`); todas las pantallas de 04 §E.1 están entregadas (ya no hay
@@ -99,6 +102,7 @@ marcador provisional).
 | `UnsavedChangesGuard when={dirty} shouldBlock?` | Aviso al abandonar una pantalla con cambios sin guardar: `beforeunload` y, con el router de datos de la aplicación, `useBlocker` con un diálogo propio ("Salir sin guardar" / "Seguir editando"). Por defecto solo bloquea cambios de ruta (los filtros en la URL no pierden el borrador). Bajo `MemoryRouter` (pruebas) solo protege `beforeunload` |
 | `projects/index.ts` | Barril público del Módulo 3: constantes de permisos (`PROJECT_`, `OPPORTUNITY_`, `FORECAST_`, `PRODUCT_PERMISSIONS`), `projectDetailPath(id)`, `opportunityDetailPath(id)`, `ProjectPicker`, `OwnerPicker`, `ProductPicker`, `UnitSelect`, `ConversionBadge`, formatos de fecha (y `projectLabel`), `projectKeys`/`useInvalidateProject`, `useProject` (preselección del Módulo 4) y tipos |
 | `opportunities/index.ts` | Barril de Oportunidades: `OpportunityPicker` (Módulo 4: `projectId`, `status="OPEN"`), `OpportunityFormDialog`, `StageChangeDialog`, `ResultEditDialog`, `OpportunityHistoryPanel`, `StageChip`, `OutcomeChip`, `EstimateText`, hooks de lectura y tipos |
+| `customer-imports/index.ts` | Barril del Módulo 6: `customerImportDetailPath(id)` (p. ej. para enlazar el `sourceImport` de un cliente), `CUSTOMER_IMPORT_PERMISSIONS`, `ImportStatusChip` y tipos |
 | `forecast/index.ts` | Barril de Forecast: `ForecastMatrix filters={{ mode, projectId… }}` (la ficha la reutiliza filtrada por el proyecto) |
 
 ### Piezas comunes de Actividad comercial (`commercial-activity/common/`)
@@ -210,3 +214,18 @@ hermanas (D-03.3): `projects/`, `opportunities/` y `forecast/`. Entre ellas solo
   cuando el menú del usuario contiene `proyectos-buscar` (D-02.10).
 - Decimales (`progress`, cantidades, tonelajes, montos) con `decimal.ts` (§3.1); fechas de
   calendario (`YYYY-MM-DD`) sin pasar por `new Date(cadena)`, que las desplaza un día en UTC-6.
+
+## 8. Submódulo Carga masiva de clientes (Módulo 6, F-42)
+
+Plan: [`06-integraciones.md`](../../../../docs/implementation-plans/crm/06-integraciones.md) §E y §L.4.
+
+| Pieza | Qué hace |
+|---|---|
+| `CustomerImportsPage` (E.1) | Historial con estado, rango de fechas (`createdFrom`/`createdTo` en la URL como `YYYY-MM-DD`; a la API van como inicio y fin del día local en ISO 8601) y búsqueda; "Nueva carga" (`importaciones.crear` + `clientes.crear`) y "Descargar plantilla" (`importaciones.crear`); aviso y altas deshabilitadas con `settings.enabled = false` |
+| `components/NewImportDialog` (E.3) | Arrastrar-soltar o selector de un único `.csv`/`.xlsx`, comprobación previa (sólo ayuda), `httpClient.upload` con progreso y "Cancelar subida" (`AbortController`); `413` (también sin cuerpo, de NGINX), `415`, `422 INVALID_IMPORT_FILE` (lista de `details`) y `409` dentro del diálogo |
+| `CustomerImportDetailPage` (E.4) | Pasos, resumen, filas paginadas con filtro en la URL (`rows.view`), incidencias expandibles, confirmación (`ConfirmImportDialog`), cancelación y archivo de errores. Sondeo cada 2 s mientras la carga está en `UPLOADED`/`VALIDATING`/`IMPORTING`; el progreso se anuncia con `aria-live` |
+| `ConfirmImportDialog` | "Se importarán N clientes. M filas no se importarán." N se calcula con las filas **válidas** con advertencias, que se piden a `GET /rows?status=VALID&hasWarnings=true&pageSize=1` (`warningRows` cuenta filas de cualquier estado) |
+
+- Las acciones del detalle salen de `canConfirm`/`canCancel`/`hasErrorFile` (los calcula el backend) y,
+  además, de los permisos del usuario. Los mensajes de las incidencias de fila llegan en español del
+  servidor y se muestran tal cual, con el campo traducido al encabezado de `settings.columns`.

@@ -8,6 +8,8 @@ import {
   catalogItemId,
   type CrmUser,
   crmUser,
+  EXCLUSIVE_TIMEOUT_MS,
+  exclusiveParameters,
   insertActivity,
   insertContact,
   insertCustomer,
@@ -75,15 +77,20 @@ async function audit(event: string, resourceId: string) {
   return context.prisma.auditLog.findMany({ where: { event, resourceId }, orderBy: { occurredAt: 'asc' } });
 }
 
+// Cambia parámetros globales de clientes: excluye a las demás suites que también lo hacen.
+let releaseParameters: (() => Promise<void>) | undefined;
+
 beforeAll(async () => {
+  releaseParameters = await exclusiveParameters('crm-customer-parameters');
   context = await createTestContext();
   q1 = await testCountry(context.prisma, 'Q1', { name: 'Prueba Uno' });
   q2 = await testCountry(context.prisma, 'Q2', { name: 'Prueba Dos', phonePattern: '\\+502 \\d{4}-\\d{4}', taxIdPattern: '\\d{6}[0-9K]' });
   q3 = await testCountry(context.prisma, 'Q3', { name: 'Prueba Tres' });
-});
+}, EXCLUSIVE_TIMEOUT_MS);
 
 afterAll(async () => {
   await closeTestContext(context);
+  await releaseParameters?.();
 });
 
 describe('Autenticación y permisos (PF-02.8)', () => {

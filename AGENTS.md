@@ -354,6 +354,9 @@ exactos (códigos, `details`, objetos completos), no solo que algo "se llamó".
   `^integration_[a-z0-9_]+$`. El global setup lo borra y lo recrea, aplica las migraciones y la
   semilla esencial. Al terminar, el agente borra los esquemas que creó, incluidos los derivados
   (`_seeds`, `_rb`).
+- Cada suite abre como mucho `connection_limit=4` conexiones (`INTEGRATION_CONNECTION_LIMIT`,
+  o el `connection_limit` explícito de `DATABASE_URL`): con un worker por CPU, el límite por
+  defecto de Prisma agotaba las 100 conexiones del PostgreSQL local.
 - Ayudantes: `backend/test/support/test-app.ts` (`createTestContext`, `createTestUser`,
   `tokenWithRoles`) y `backend/test/support/crm-fixtures.ts` (`crmUser`, `api`, `insertCustomer`,
   `insertTeam`, `withParameter`, `testCountry`…). Se amplían allí; no se duplican.
@@ -365,7 +368,13 @@ exactos (códigos, `details`, objetos completos), no solo que algo "se llamó".
     cambios del mismo parámetro con un bloqueo consultivo; si el valor nuevo se deriva del
     vigente, se pasa como función para calcularlo dentro del bloqueo). Si basta con un dato
     que no dependa de un parámetro compartido (p. ej. un archivo mayor que el máximo
-    sembrado), mejor no cambiarlo.
+    sembrado), mejor no cambiarlo;
+  - si una suite cambia parámetros **globales** que otra lee o cambia a la vez (p. ej. los de
+    clientes: `crm.campos_obligatorios`, `crm.clientes.reglas_duplicidad`,
+    `crm.clientes.unicidad_codigo`), ambas toman el mismo candado con
+    `exclusiveParameters('<nombre>')` en `beforeAll` (con `EXCLUSIVE_TIMEOUT_MS`) y lo liberan en
+    `afterAll`: un candado consultivo de PostgreSQL por esquema que las hace mutuamente
+    excluyentes (`customers.e2e` y `customer-imports.e2e` usan `crm-customer-parameters`).
 
 #### 9.8.3 Reglas de frontend
 

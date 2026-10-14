@@ -4,7 +4,7 @@
 - **Funcionalidad de la matriz:** **F-42** — Carga masiva de clientes (CSV/XLSX) ([`matriz-trazabilidad.md`](matriz-trazabilidad.md))
 - **Contrato de datos:** [`00-modelo-de-datos.md`](00-modelo-de-datos.md) §2.4 (`Customer`), §2.14 (`CustomerImport`, `CustomerImportRow`), §3 (catálogos), §4 (visibilidad), §5 (permisos y menú), §6 (identificadores y unicidad), §8.2 (parámetros), §10 (DM-x)
 - **Decisiones que lo enmarcan:** [ADR-004](../../adr/ADR-004-data-access-abstraction.md), [ADR-005](../../adr/ADR-005-rest-api-standard.md), [ADR-008](../../adr/ADR-008-authorization.md), [ADR-014](../../adr/ADR-014-modular-clean-architecture.md), [ADR-018](../../adr/ADR-018-identity-access-model.md), [ADR-020](../../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md), [ADR-022](../../adr/ADR-022-exceljs-para-generar-y-leer-xlsx.md) (`exceljs` para leer y escribir XLSX)
-- **Estado:** especificación. No se ha tocado código, esquema, migraciones ni seeds. Todas las
+- **Estado:** implementado (2026-10-13; ver [Precisiones de implementación](#precisiones-de-implementación-2026-10-13)). Todas las
   decisiones del módulo quedaron **resueltas por el responsable de negocio el 2026-10-10** (ver
   [Decisiones del módulo](#decisiones-del-módulo-resueltas-el-2026-10-10)); la variante XLSX ya no
   está bloqueada.
@@ -356,7 +356,7 @@ antes de `:id`.
 |---|---|---|---|---|---|
 | 1 | GET | `/customer-imports/settings` | `importaciones.ver` | `200` | Habilitación, límites efectivos, formatos, versión y columnas de la plantilla |
 | 2 | GET | `/customer-imports/template?format=CSV\|XLSX` | `importaciones.crear` | `200` archivo | Plantilla (funcionalidad 1) |
-| 3 | POST | `/customer-imports` (multipart) | `importaciones.crear`, `clientes.crear` | `201` + `Location` | Subir, leer y validar (funcionalidades 2–10) |
+| 3 | POST | `/customer-imports` (multipart) | `importaciones.ver`, `importaciones.crear`, `clientes.crear` (P-20) | `201` + `Location` | Subir, leer y validar (funcionalidades 2–10) |
 | 4 | GET | `/customer-imports` | `importaciones.ver` | `200` paginado | Historial (funcionalidad 17) |
 | 5 | GET | `/customer-imports/{id}` | `importaciones.ver` | `200` | Resumen y resultado (11, 17) |
 | 6 | GET | `/customer-imports/{id}/rows` | `importaciones.ver` | `200` paginado | Vista previa y errores por fila (11, 12) |
@@ -561,7 +561,7 @@ no se haya entregado.
 |---|---|---|
 | Ver historial, detalle, filas, configuración, archivo de errores | `importaciones.ver` | Más la visibilidad de H.4 |
 | Descargar plantilla | `importaciones.crear` | |
-| Subir/validar | `importaciones.crear` **y** `clientes.crear` | Crea clientes: necesita el permiso de alta del Módulo 2 |
+| Subir/validar | `importaciones.ver`, `importaciones.crear` **y** `clientes.crear` | Crea clientes: necesita el permiso de alta del Módulo 2. `importaciones.ver`: sin él el autor no vería la carga creada (P-20) |
 | Confirmar | `importaciones.crear` **y** `clientes.crear` | Además: autor de la carga o alcance `ORGANIZATION` (RN-06.19). Cada fila respeta las reglas de alcance que el Módulo 2 aplica al alta |
 | Cancelar | `importaciones.crear` | Mismo requisito de autoría |
 
@@ -950,3 +950,44 @@ con su valor recomendado. Se conservan todos los identificadores.
 | ID | Módulo | Funcionalidad | Alcance | Especificación | Entidades | Dependencias | Criterios | Pruebas | Estado | Decisión pendiente |
 |---|---|---|---|---|---|---|---|---|---|---|
 | F-42 | 6 Integraciones | Carga masiva de clientes (CSV/XLSX) | §8.1 | [06](06-integraciones.md) | `CustomerImport`, `CustomerImportRow`, `Customer`, `Country`, `CatalogItem` (`crm.tipo_empresa`, `crm.estado_cliente`, `crm.calificacion_cliente`), `User`, `SystemParameter`, `Sequence`, `AuditLog` | Fase 0; Módulo 2 (validación y alta de clientes, F-06); `exceljs` y `common/xlsx.ts` compartidos con F-39 (ADR-022) | AC-06.1 – AC-06.34 | PF-06.1 – PF-06.54 | especificada | Ninguna (todas resueltas el 2026-10-10: DM-2, DM-4, DM-8, DM-18, DM-28, D-06.1 – D-06.13, DC-4, DC-6). La habilitación en producción sigue sujeta al parámetro `crm.importaciones.habilitada` (DM-28), que no bloquea la implementación |
+
+---
+
+## Precisiones de implementación (2026-10-13)
+
+Huecos técnicos resueltos al implementar (AGENTS §9.3). Ninguno cambia una regla de negocio.
+
+| # | Tema | Decisión |
+|---|---|---|
+| P-1 | Lector XLSX | `exceljs` 4.4.0 (versión exacta). Se usa la carga **en memoria** (`xlsx.load`) y no `stream.xlsx.WorkbookReader`: el lector en streaming vuelca las hojas a archivos temporales en disco cuando `sharedStrings.xml` va detrás de ellas en el ZIP (el orden habitual de Excel), lo que contradice H.2 ("nunca disco temporal"). La memoria queda acotada porque: la guardia ZIP **descomprime de verdad** cada entrada con `maxOutputLength` (si el tamaño declarado miente, `ARCHIVE_LIMITS_EXCEEDED`) y aplica un presupuesto **global** (todas las hojas) de elementos `<row>`, celdas y textos compartidos; la carga ignora los nodos de rango que la librería expandiría celda a celda (combinaciones, validaciones, formatos condicionales, hipervínculos…); se recorren solo las filas existentes (una celda en la fila 1 048 576 no crea un millón de filas); y se lee un XLSX a la vez por proceso. Addendum en ADR-022 (revisión E5, B-1 y M-1) |
+| P-2 | `issue` nuevos de `422 INVALID_IMPORT_FILE` | `TOO_MANY_COLUMNS` (más de 30 columnas, CSV o XLSX), `UNSAFE_CONTENT` (XML con `<!DOCTYPE` o `<!ENTITY`: se rechaza sin entregarlo a ningún parser) y `UNREADABLE_FILE` (ZIP válido que la librería no puede leer como libro) |
+| P-3 | Momento del registro | El tipo real (firma, macros, cifrado) y la estructura se comprueban **antes** de registrar la carga. Un `415` no deja registro; un fallo de estructura sí (`FAILED` con `failureReason`). La carga se crea directamente en `VALIDATING` (el `UPLOADED` no es observable: la subida valida en la misma petición) |
+| P-4 | `failureReason` | `ISSUE: encabezado` separados por `; `, citando solo encabezados de la plantilla; un encabezado desconocido (texto del usuario) aparece como `UNKNOWN_COLUMN` sin el nombre. La respuesta `422` sí devuelve la columna (acotada a 100 caracteres) |
+| P-5 | Columna "Estado" del archivo de errores | Se llama **"Estado de la fila"**: "Estado" ya es una columna de la plantilla y chocaría al volver a subir el archivo |
+| P-6 | Volver a subir el archivo de errores (AC-06.20) | El lector ignora las columnas "Fila del archivo", "Estado de la fila" y "Errores", y quita el apóstrofo de la neutralización delante de `=`, `+`, `-`, `@`, tab o CR (tras quitarlo, la regla de fórmulas se aplica igual) |
+| P-7 | `raw_data` de celdas rechazadas | Se conserva el texto de una celda con `FORMULA_NOT_ALLOWED` por texto o con `MAX_LENGTH`, para que el archivo de errores muestre qué corregir (neutralizado). Una fórmula real de XLSX, una fecha, un booleano, un error de celda o un decimal en columna de código no conservan valor (`null`) |
+| P-8 | Campo de las incidencias | `field` = clave de la columna de la plantilla (`country`, `salesOwner`…), no el del DTO del Módulo 2 (`countryId`…). Los mensajes los produce el servidor en español también para los códigos del Módulo 2 (el código no cambia) |
+| P-9 | Una incidencia de celda manda | Si la celda tiene `MAX_LENGTH`, `INVALID_CELL_TYPE` o `FORMULA_NOT_ALLOWED`, no se repite la incidencia del Módulo 2 sobre el mismo campo |
+| P-10 | Avisos en archivo | Además del NIT (RN-06.14), la razón social normalizada repetida entre filas genera `POSSIBLE_DUPLICATE_IN_FILE` si su regla no vale `NO`. Una fila con aviso de NIT frente a un existente y frente a otra fila lista ambos avisos |
+| P-11 | Reconocimiento al confirmar con advertencias | `acknowledgedDuplicateIds` = candidatos visibles avisados en la vista previa (se guardan en `errors[].candidateIds`, nunca expuestos) + clientes creados por la misma carga. Se aplica a toda fila con advertencias (NIT y razón social entre filas), no solo al NIT. Una fila sin advertencias que al confirmar recibe un aviso nuevo se rechaza |
+| P-12 | Estado final sin importadas | Si al confirmar se rechazan todas las filas válidas, la carga termina `COMPLETED_WITH_ERRORS` con `importedRows = 0` |
+| P-13 | Interrupción en validación | La regla de 15 minutos sin señal de vida (RN-06.24) se aplica también a `UPLOADED`/`VALIDATING`, para que un proceso caído durante la validación no bloquee al usuario con `IMPORT_IN_PROGRESS` para siempre |
+| P-14 | Atomicidad fila ↔ cliente | `CustomerCreationService.create` admite `withinTransaction(customerId, tx)`: la fila se marca `IMPORTED` en la **misma** transacción del alta; si la fila ya no está `VALID` (marcada interrumpida), el alta se deshace |
+| P-15 | Rendimiento (PF-06.44) | Medido 21 s con 5 000 filas: se añadió en el **Módulo 2** `CustomerReferenceCache` (memoria por archivo de país, catálogo y responsable; solo sin `tx`) y `prepare()` una vez por archivo. Resultado: 4,3 s. La revalidación de la confirmación no usa la memoria |
+| P-16 | Purga y cargas pendientes | La purga (`pnpm --filter @app/backend run imports:purge-rows`) solo toca cargas no activas; una carga `VALIDATED` purgada ya no se puede confirmar (`409 IMPORT_DATA_PURGED`, `canConfirm = false`) |
+| P-17 | Límite por usuario de `@Throttle` | El `ThrottlerGuard` global corre antes de la autenticación, así que los límites de H.5 (10/5/30 por minuto) se aplican por IP, como el resto de la API |
+| P-18 | Visibilidad de `duplicateOfCustomer` | Se evalúa para quien consulta con el alcance **directo** de `clientes.ver` (sin herencia por proyectos) y, si el cliente está eliminado, exige `clientes.eliminar`: la opción más restrictiva |
+| P-20 | Subida y `importaciones.ver` | La subida exige también `importaciones.ver` (revisión E5): sin él el autor crearía una carga que no puede ver, confirmar ni cancelar (`404`). Opción más restrictiva |
+| P-21 | Una carga activa al confirmar | RN-06.30 se aplica también al confirmar: en la misma transacción que la transición condicional se bloquea la fila del autor y, si tiene **otra** carga `VALIDATING`/`IMPORTING`, `409 IMPORT_IN_PROGRESS` |
+| P-22 | Responsable por defecto al confirmar | Las filas sin responsable se crean con el **actor del alta**, es decir, quien confirma (RN-06.21: `createdById` = confirmador); si confirma el autor, coincide con la vista previa. Si confirma un administrador la carga de otro (D-06.10), esas filas quedan a su nombre |
+| P-23 | Campos de más en CSV | Un registro con más valores que encabezados (p. ej. `Acme, S.A.` sin comillas) rechaza el archivo con `MALFORMED_CSV`: los valores quedarían desplazados de columna (RN-06.10). Celdas vacías de sobra se admiten. Más de 30 columnas es `TOO_MANY_COLUMNS` también en CSV |
+| P-24 | Purga en producción | El script vive en `backend/src/scripts/` y se compila con el build: `node dist/src/scripts/purge-customer-import-rows.js` (`imports:purge-rows:prod`); en desarrollo, `imports:purge-rows` con `ts-node` |
+| P-25 | Pendiente | El filtro "Iniciada por" del historial (E.1, solo alcance `ORGANIZATION`) no está en la pantalla: no hay un endpoint de usuarios accesible con `importaciones.ver`; la API ya admite `startedById` |
+| P-19 | Plantilla y valores válidos | Se leen con `CustomersService.formOptions()` (exportado por el Módulo 2). "Obligatoria" excluye el responsable (lo completa el alta con quien carga) y los catálogos con valor por defecto vigente |
+
+### Cambios aditivos en el Módulo 2 (02 §F.6)
+
+- `CustomerValidationService.duplicateKeys(draft, context?)` devuelve además `legalName` y acepta el contexto de `prepare()`.
+- `CustomerValidationOptions.referenceCache` (`CustomerReferenceCache`).
+- `CustomerCreationContext.withinTransaction` y `auditMetadata` (`rowNumber` en `crm.customer.created`).
+- **Corrección**: en modo `BY_NATURAL_KEY` sin responsable, el actor por defecto se buscaba como clave natural y la fila quedaba `INVALID_SALES_OWNER`; ahora se busca por id.
