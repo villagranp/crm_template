@@ -11,17 +11,12 @@ describe('REPORT_ROUTES (05 E.1, H.3)', () => {
     );
   });
 
-  it('los cinco reportes ya no usan el marcador provisional; dashboard y embudo sí (otra tanda)', () => {
-    const pageOf = (path: string) => REPORT_ROUTES.find((route) => route.path === path)?.Page;
-    const provisional = pageOf(ROUTE_PATHS.reports.dashboard);
-
-    expect(pageOf(ROUTE_PATHS.reports.funnel)).toBe(provisional);
-    const delivered = [ROUTE_PATHS.reports.projects, ROUTE_PATHS.reports.opportunities, ROUTE_PATHS.reports.forecast, ROUTE_PATHS.reports.visits, ROUTE_PATHS.reports.activities];
-    const pages = delivered.map(pageOf);
+  it('las siete pantallas tienen su página propia, cargada en diferido (sin marcador provisional)', () => {
+    const pages = REPORT_ROUTES.map((route) => route.Page);
+    expect(new Set(pages).size).toBe(REPORT_ROUTES.length);
     for (const page of pages) {
-      expect(page).toBeDefined();
-      expect(page).not.toBe(provisional);
+      // `React.lazy` devuelve un objeto con `$$typeof` REACT_LAZY_TYPE: la página no está en el bundle inicial.
+      expect((page as unknown as { $$typeof: symbol }).$$typeof).toBe(Symbol.for('react.lazy'));
     }
-    expect(new Set(pages).size).toBe(delivered.length);
   });
 });

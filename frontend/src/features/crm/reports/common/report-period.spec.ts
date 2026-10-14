@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  calendarMonthsOf,
   defaultForecastWindow,
   describePeriod,
   exceedsYears,
@@ -79,6 +80,14 @@ describe('periodDraftSchema (espejo de las reglas del backend)', () => {
   it('con período exige la base de fecha si el reporte no tiene una por defecto (proyectos)', () => {
     expect(issues({ from: '2026-10-01', to: '2026-10-31', dateBasis: '' }, { dateBasisRequired: true })).toEqual({ dateBasis: PERIOD_MESSAGES.dateBasisRequired });
     expect(issues({ from: '', to: '', dateBasis: '' }, { dateBasisRequired: true })).toEqual({});
+  });
+
+  it('dashboard (P-05.14): con maxMonths cuenta meses de calendario tocados, no aniversarios', () => {
+    expect(calendarMonthsOf({ from: '2025-01-15', to: '2026-12-31' })).toBe(24);
+    expect(calendarMonthsOf({ from: '2025-01-31', to: '2027-01-01' })).toBe(25);
+    expect(issues({ from: '2025-01-15', to: '2026-12-31', dateBasis: '' }, { maxMonths: 24 })).toEqual({});
+    // Menos de 2 años de días, pero 25 meses de calendario: el backend responde 422 PERIOD_TOO_LONG.
+    expect(issues({ from: '2025-01-31', to: '2027-01-01', dateBasis: '' }, { maxMonths: 24 })).toEqual({ to: PERIOD_MESSAGES.tooManyMonths(24) });
   });
 });
 

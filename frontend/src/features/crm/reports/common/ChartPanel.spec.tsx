@@ -51,4 +51,19 @@ describe('ChartPanel (05 E.1, AC-05.32, AC-05.33)', () => {
     rerender(<ChartPanel title="Panel" table={TABLE} isEmpty />);
     expect(screen.getByRole('status')).toHaveTextContent('No hay datos para los filtros seleccionados.');
   });
+
+  it('summary (aditivo) se pinta sobre ambas vistas y no mientras carga ni con error', async () => {
+    const user = userEvent.setup();
+    const summary = <p>Total: 12</p>;
+    const { rerender } = renderWithProviders(<ChartPanel title="Proyectos" table={TABLE} chart={<p>Barras</p>} summary={summary} />);
+
+    expect(screen.getByText('Total: 12')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Ver como tabla' }));
+    expect(screen.getByText('Total: 12')).toBeInTheDocument();
+
+    rerender(<ChartPanel title="Proyectos" table={TABLE} summary={summary} isLoading />);
+    expect(screen.queryByText('Total: 12')).not.toBeInTheDocument();
+    rerender(<ChartPanel title="Proyectos" table={TABLE} summary={summary} errorMessage="Falló" />);
+    expect(screen.queryByText('Total: 12')).not.toBeInTheDocument();
+  });
 });

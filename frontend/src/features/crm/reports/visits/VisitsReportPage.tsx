@@ -3,7 +3,7 @@ import { Box, Chip, Stack, Tooltip, Typography } from '@mui/material';
 import { useMemo } from 'react';
 
 import type { DataTableColumn } from '@/components/data';
-import { formatDateTime, useCommercialTimeZones } from '@/features/crm/commercial-activity/entry-points';
+import { formatDateTime } from '@/features/crm/commercial-activity/entry-points';
 import { customerDetailPath } from '@/features/crm/customers';
 import { projectDetailPath } from '@/features/crm/projects';
 
@@ -19,6 +19,7 @@ import { SourceLink } from '../common/SourceLink';
 import { SummaryCards, type SummaryCardItem } from '../common/SummaryCards';
 import { useReportExport } from '../common/use-report-export';
 import { useReportQueryState, type ReportPeriodMode } from '../common/use-report-query-state';
+import { useReportTimeZones } from '../common/use-report-time-zones';
 import { useReportFilterOptions } from '../filter-options.queries';
 import { useVisitReport, useVisitReportSummary } from '../report.queries';
 import { reportErrorMessage } from '../reports.errors';
@@ -73,7 +74,7 @@ function rescheduleText(count: number): string | null {
 }
 
 function ScheduledCell({ row }: { row: VisitReportRow }) {
-  const { timeZone } = useCommercialTimeZones();
+  const { timeZone } = useReportTimeZones();
   const rescheduled = rescheduleText(row.rescheduleCount);
   return (
     <Box sx={{ minWidth: 0 }}>

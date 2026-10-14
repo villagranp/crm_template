@@ -3,8 +3,8 @@ import { Autocomplete, Box, Button, Chip, Collapse, MenuItem, Paper, Stack, Text
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
 
 import { ListToolbar } from '@/components/data';
-import { CustomerPicker, type CustomerPickerValue } from '@/features/crm/customers';
-import { ProductPicker, projectLabel, productLabel, ProjectPicker, type Product, type ProjectPickerValue } from '@/features/crm/projects';
+import { CustomerPicker, type CustomerPickerValue, useCustomer } from '@/features/crm/customers';
+import { ProductPicker, projectLabel, productLabel, ProjectPicker, type Product, type ProjectPickerValue, useProject } from '@/features/crm/projects';
 import { usePermission } from '@/hooks/use-permission';
 
 import { REPORT_SOURCE_PERMISSIONS } from '../reports.permissions';
@@ -77,6 +77,10 @@ export type ReportPeriodField =
       /** `true` si se puede quitar el período (sin período no se filtra por fecha). */
       allowEmpty: boolean;
       maxYears?: number;
+      /** Máximo en meses de calendario (sustituye a `maxYears`; dashboard: 24). */
+      maxMonths?: number;
+      /** Texto que acompaña al chip del período por defecto (p. ej. "por defecto"). */
+      defaultNote?: string;
       /** Aviso bajo el período por base de fecha (p. ej. `DECIDED`: "solo entran las que tienen resultado"). */
       dateBasisNotes?: Readonly<Record<string, string>>;
     }
@@ -89,7 +93,7 @@ export type ReportPeriodField =
 
 export interface ReportFilterChip {
   key: string;
-  label: string;
+  label: ReactNode;
   onDelete?: () => void;
 }
 
@@ -241,7 +245,11 @@ function hasUserPeriod(period: ReportPeriodField, values: ReportFilterValues): b
 
 function validatePeriod(period: ReportPeriodField | undefined, draft: Draft): Record<string, string> {
   if (period?.kind === 'dates') {
-    const result = periodDraftSchema({ maxYears: period.maxYears ?? MAX_PERIOD_YEARS, dateBasisRequired: period.dateBasisRequired }).safeParse({
+    const result = periodDraftSchema({
+      maxYears: period.maxYears ?? MAX_PERIOD_YEARS,
+      maxMonths: period.maxMonths,
+      dateBasisRequired: period.dateBasisRequired,
+    }).safeParse({
       from: draft.from ?? '',
       to: draft.to ?? '',
       dateBasis: draft.dateBasis ?? '',
@@ -504,7 +512,25 @@ interface BuildChipsInput {
   onApply: (values: ReportFilterValues) => void;
 }
 
-function chipValue(field: ReportFilterField, value: string): string {
+/**
+ * Nombre de un cliente o proyecto elegido en un selector remoto cuando la sesión no lo recuerda
+ * (p. ej. tras recargar): se resuelve con su ficha (`GET /customers/:id`, `GET /projects/:id`)
+ * sólo con el mismo permiso que ofrece el selector; si no se puede (sin permiso, fuera de
+ * alcance o error), "Seleccionado" (P-05.28).
+ */
+function CustomerChipName({ id }: { id: string }) {
+  const allowed = usePermission(REPORT_SOURCE_PERMISSIONS.customer);
+  const customer = useCustomer(allowed ? id : undefined);
+  return <>{customer.data?.legalName ?? SELECTED}</>;
+}
+
+function ProjectChipName({ id }: { id: string }) {
+  const allowed = usePermission(REPORT_SOURCE_PERMISSIONS.project);
+  const project = useProject(allowed ? id : undefined);
+  return <>{project.data ? projectLabel(project.data) : SELECTED}</>;
+}
+
+function chipValue(field: ReportFilterField, value: string): ReactNode {
   switch (field.kind) {
     case 'select':
     case 'autocomplete':
@@ -512,8 +538,11 @@ function chipValue(field: ReportFilterField, value: string): string {
     case 'text':
       return value;
     case 'customer':
+      return remembered(field.kind, value) ?? <CustomerChipName id={value} />;
     case 'project':
+      return remembered(field.kind, value) ?? <ProjectChipName id={value} />;
     case 'product':
+      // Sin `GET /products/:id` ni filtro por id en `GET /products`: hueco documentado (P-05.28).
       return remembered(field.kind, value) ?? SELECTED;
   }
 }
@@ -525,7 +554,8 @@ function buildChips({ fields, period, values, onApply }: BuildChipsInput): Repor
 
   if (period?.kind === 'dates' && period.period) {
     const basis = period.dateBases?.find((option) => option.value === (values.dateBasis ?? period.defaultDateBasis));
-    const text = `Período: ${describePeriod(period.period, period.today)}${basis ? ` · ${basis.label}` : ''}`;
+    const note = period.isDefault && period.defaultNote ? ` (${period.defaultNote})` : '';
+    const text = `Período: ${describePeriod(period.period, period.today)}${note}${basis ? ` · ${basis.label}` : ''}`;
     chips.push({
       key: 'period',
       label: text,
@@ -552,7 +582,15 @@ function buildChips({ fields, period, values, onApply }: BuildChipsInput): Repor
   for (const field of fields) {
     const value = values[field.key];
     if (value) {
-      chips.push({ key: field.key, label: `${field.label}: ${chipValue(field, value)}`, onDelete: without(field.key) });
+      chips.push({
+        key: field.key,
+        label: (
+          <>
+            {field.label}: {chipValue(field, value)}
+          </>
+        ),
+        onDelete: without(field.key),
+      });
     }
   }
   return chips;

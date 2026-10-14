@@ -5,7 +5,9 @@ import { jsonResponse } from '@/test/api-mocks';
 
 import type { ReportFilterOptions } from '../common/report-types';
 import type { ActivityReportRow, ActivityReportSummary } from '../activities/activities-report.api';
+import type { CommercialDashboard, CommercialTrends } from '../dashboard/dashboard.api';
 import type { ForecastGroup, ForecastReportRow, ForecastReportSummary } from '../forecast/forecast-report.api';
+import type { SalesFunnel } from '../funnel/funnel.api';
 import type { OpportunityReportRow, OpportunityReportSummary } from '../opportunities/opportunities-report.api';
 import type { ProjectReportRow } from '../projects/projects-report.api';
 import type { VisitReportRow, VisitReportSummary } from '../visits/visits-report.api';
@@ -50,6 +52,8 @@ export const FILTER_OPTIONS: ReportFilterOptions = {
   },
   productFamilies: [{ id: 'fam-steel', name: 'Acero' }],
   scope: 'TEAM',
+  businessTimeZone: 'America/Guatemala',
+  timeZone: 'America/Guatemala',
 };
 
 export const PROJECT_ROW: ProjectReportRow = {
@@ -327,3 +331,81 @@ export function xlsxResponse(fileName: string, rows: number): Response {
     },
   });
 }
+
+/** Dashboard comercial (F-40) de dos meses del período y forecast hasta M+2. */
+export const DASHBOARD: CommercialDashboard = {
+  period: { from: '2026-09-01', to: '2026-10-31' },
+  activeProjects: {
+    count: 7,
+    byPhase: [
+      { phase: { id: 'ph-design', code: 'DISENO', label: 'Diseño', order: 1 }, count: 5 },
+      { phase: { id: 'ph-quote', code: 'COTIZACION', label: 'Cotización', order: 2 }, count: 2 },
+    ],
+  },
+  opportunitiesByStage: [
+    { stage: { ...STAGE_CONTACTED, isActive: true }, count: 3 },
+    { stage: { ...STAGE_QUOTING, isActive: true }, count: 4 },
+  ],
+  wonLostByMonth: [
+    { year: 2026, month: 9, won: 3, wonFull: 2, partial: 1, lost: 1 },
+    { year: 2026, month: 10, won: 0, wonFull: 0, partial: 0, lost: 2 },
+  ],
+  forecastRange: { from: { year: 2026, month: 9 }, to: { year: 2026, month: 12 } },
+  forecastByMonth: [
+    { year: 2026, month: 9, tonnage: '10.0000', cumulative: '10.0000', lineCount: 2, linesWithoutConversion: 0 },
+    { year: 2026, month: 10, tonnage: '12.5000', cumulative: '22.5000', lineCount: 3, linesWithoutConversion: 1 },
+  ],
+  tonnageUnit: 'TON',
+  byOwner: [
+    { owner: ME, openOpportunities: 4, won: 2, forecastTonnage: '15.0000' },
+    { owner: null, openOpportunities: 1, won: 1, forecastTonnage: '7.5000' },
+  ],
+  activityVisitByMonth: [
+    { year: 2026, month: 9, activitiesCompleted: 6, visitsCompleted: 3, visitsCancelled: 1 },
+    { year: 2026, month: 10, activitiesCompleted: 2, visitsCompleted: 0, visitsCancelled: 0 },
+  ],
+};
+
+export const TRENDS: CommercialTrends = {
+  period: DASHBOARD.period,
+  series: [
+    { metric: 'OPPORTUNITIES_IDENTIFIED', points: [{ year: 2026, month: 9, value: 5 }, { year: 2026, month: 10, value: 2 }] },
+    { metric: 'WON', points: [{ year: 2026, month: 9, value: 3 }, { year: 2026, month: 10, value: 0 }] },
+    { metric: 'LOST', points: [{ year: 2026, month: 9, value: 1 }, { year: 2026, month: 10, value: 2 }] },
+    { metric: 'ACTIVITIES_COMPLETED', points: [{ year: 2026, month: 9, value: 6 }, { year: 2026, month: 10, value: 2 }] },
+    { metric: 'VISITS_COMPLETED', points: [{ year: 2026, month: 9, value: 3 }, { year: 2026, month: 10, value: 0 }] },
+  ],
+};
+
+const FUNNEL_CONTACTED = { id: STAGE_CONTACTED.id, code: STAGE_CONTACTED.code, label: STAGE_CONTACTED.label, order: STAGE_CONTACTED.order };
+const FUNNEL_QUOTING = { id: STAGE_QUOTING.id, code: STAGE_QUOTING.code, label: STAGE_QUOTING.label, order: STAGE_QUOTING.order };
+
+/** Embudo con porcentajes calculables (RN-05.54, RN-05.55). */
+export const FUNNEL: SalesFunnel = {
+  stages: [
+    { stage: FUNNEL_CONTACTED, count: 3, shareOfTotal: '42.86', cumulativeConversion: '100.00', unavailableReason: null },
+    { stage: FUNNEL_QUOTING, count: 4, shareOfTotal: '57.14', cumulativeConversion: '57.14', unavailableReason: null },
+  ],
+  totalInFunnel: 7,
+  sampleMinimum: 5,
+};
+
+/** Conjunto vacío: nunca 0 %, siempre "—" con `NO_DATA` (AC-05.36). */
+export const FUNNEL_EMPTY: SalesFunnel = {
+  stages: [
+    { stage: FUNNEL_CONTACTED, count: 0, shareOfTotal: null, cumulativeConversion: null, unavailableReason: 'NO_DATA' },
+    { stage: FUNNEL_QUOTING, count: 0, shareOfTotal: null, cumulativeConversion: null, unavailableReason: 'NO_DATA' },
+  ],
+  totalInFunnel: 0,
+  sampleMinimum: 5,
+};
+
+/** Una oportunidad sin historial: la participación sí, la conversión no (AC-05.37). */
+export const FUNNEL_NO_HISTORY: SalesFunnel = {
+  stages: [
+    { stage: FUNNEL_CONTACTED, count: 3, shareOfTotal: '42.86', cumulativeConversion: null, unavailableReason: 'INSUFFICIENT_HISTORY' },
+    { stage: FUNNEL_QUOTING, count: 4, shareOfTotal: '57.14', cumulativeConversion: null, unavailableReason: 'INSUFFICIENT_HISTORY' },
+  ],
+  totalInFunnel: 7,
+  sampleMinimum: 5,
+};

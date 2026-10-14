@@ -23,7 +23,9 @@ export class FilterOptionsController {
     description:
       'Asesores responsables de algún registro comercial visible, países de los registros visibles (y el del alcance `COUNTRY`), valores ' +
       'de los catálogos con su semántica (etapas, fases, tipos de proyecto, estados de visita y actividad, tipos de actividad, prioridades, ' +
-      'tipos de empresa; activos e inactivos) y familias de producto activas. `scope` = alcance de `reportes.ver`. Sin parámetros.',
+      'tipos de empresa; activos e inactivos) y familias de producto activas. `scope` = alcance de `reportes.ver`. Zonas horarias de ' +
+      'presentación (aditivo): `businessTimeZone` (`crm.zona_horaria_negocio`) y `timeZone` (perfil del usuario; sin ella, la del negocio). ' +
+      'Sin parámetros.',
     ok: ReportFilterOptionsDto,
     withQuery: false,
   })

@@ -410,6 +410,10 @@ export class ReportFilterOptionsDto {
   @ApiProperty({ type: ReportFilterCatalogsDto }) catalogs!: ReportFilterCatalogsDto;
   @ApiProperty({ type: [ReportNamedRefDto], description: 'Familias de producto activas' }) productFamilies!: ReportNamedRefDto[];
   @ApiProperty({ enum: ['OWN', 'TEAM', 'COUNTRY', 'ORGANIZATION'], description: 'Alcance de `reportes.ver`' }) scope!: 'OWN' | 'TEAM' | 'COUNTRY' | 'ORGANIZATION';
+  @ApiProperty({ example: 'America/Guatemala', description: '`crm.zona_horaria_negocio`: "hoy", períodos y fechas de calendario (aditivo, P-05.27)' })
+  businessTimeZone!: string;
+  @ApiProperty({ example: 'America/Guatemala', description: 'Zona del perfil del usuario (`users.time_zone`) para los instantes (`*At`); sin ella, la del negocio (aditivo, P-05.27)' })
+  timeZone!: string;
 }
 
 // ---------------------------------------------------------------------------

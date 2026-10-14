@@ -228,6 +228,8 @@ export function toReportFilterOptionsDto(options: ReportFilterOptions): ReportFi
     },
     productFamilies: [...options.productFamilies],
     scope: options.scope,
+    businessTimeZone: options.businessTimeZone,
+    timeZone: options.timeZone,
   };
 }
 

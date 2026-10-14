@@ -83,6 +83,25 @@ describe('Autenticación y permiso en cada endpoint (PF-05.20, AC-05.40)', () =>
     const response = await api(context, granted.token).get('/reports/filter-options').expect(200);
     expect(response.body).toMatchObject({ owners: [], scope: 'OWN' });
   });
+
+  it('publica las zonas de presentación: la del negocio y la del perfil (P-05.27, aditivo)', async () => {
+    const granted = await crmUser(context, { roleCodes: ['usuario'], grant: ['reportes.ver'] });
+    const business = (await context.prisma.systemParameter.findUniqueOrThrow({ where: { key: 'crm.zona_horaria_negocio' } })).value;
+
+    await context.prisma.user.update({ where: { id: granted.id }, data: { timeZone: 'America/Mexico_City' } });
+    const withProfile = await api(context, granted.token).get('/reports/filter-options').expect(200);
+    expect({ businessTimeZone: withProfile.body.businessTimeZone, timeZone: withProfile.body.timeZone }).toEqual({
+      businessTimeZone: business,
+      timeZone: 'America/Mexico_City',
+    });
+
+    await context.prisma.user.update({ where: { id: granted.id }, data: { timeZone: '  ' } });
+    const blankProfile = await api(context, granted.token).get('/reports/filter-options').expect(200);
+    expect({ businessTimeZone: blankProfile.body.businessTimeZone, timeZone: blankProfile.body.timeZone }).toEqual({
+      businessTimeZone: business,
+      timeZone: business,
+    });
+  });
 });
 
 describe('GET /reports/projects (PF-05.7, AC-05.1–AC-05.3)', () => {

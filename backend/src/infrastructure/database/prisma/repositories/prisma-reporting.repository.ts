@@ -755,6 +755,11 @@ export class PrismaReportingRepository implements ReportingRepository {
     return rows;
   }
 
+  async userTimeZone(userId: string): Promise<string | null> {
+    const row = await this.prisma.user.findUnique({ where: { id: userId }, select: { timeZone: true } });
+    return row?.timeZone ?? null;
+  }
+
   /**
    * `SELECT columna` de los registros vigentes y visibles de cada entidad, unidos: los
    * mismos predicados que los reportes con criterios vacíos (sin filtros ni período).

@@ -320,6 +320,41 @@ export const zIndex = {
 export const chartSeries = [brand[600], brand[500], brand[400], brand[300], brand[200]] as const;
 
 /**
+ * Colores de datos de las gráficas de Reportes (ADR-023, DESIGN-SYSTEM §3 "Gráficas"), por
+ * modo. La marca sólo admite azul y grises, así que la identidad de las series es un par de
+ * azules separados en luminosidad (como mucho dos series de identidad por gráfica) y el rojo
+ * semántico sólo para una serie que **es** un estado negativo (perdidas, canceladas).
+ * Validados con el validador de paletas de la skill `dataviz` (CVD protan/deutan ≥ 15,
+ * visión normal ≥ 15, contraste ≥ 3:1 sobre la superficie del modo). En oscuro, el segundo
+ * azul queda en L 0.70 (banda recomendada ≤ 0.67): se acepta porque la marca no tiene otro
+ * tono y toda serie lleva leyenda con texto y la vista "Ver como tabla".
+ */
+export const chartColors = {
+  light: {
+    /** Serie principal (slot 1) y secundaria (slot 2). */
+    series: [brand[500], brand[300]],
+    /** Estado negativo (perdidas, canceladas): siempre con su texto en la leyenda. */
+    negative: semantic.danger,
+  },
+  dark: {
+    series: ['#4466BE', '#7C99F2'],
+    negative: '#EF5350',
+  },
+} as const;
+
+/** Medidas de las gráficas (px): alto del lienzo, alto por barra en barras horizontales y radio del extremo. */
+export const chartLayout = {
+  height: 280,
+  /** Alto de cada categoría en barras horizontales (etapas, asesores). */
+  bandHeight: 36,
+  minHeight: 160,
+  /** Ancho reservado a las etiquetas del eje de categorías en barras horizontales. */
+  categoryAxisWidth: 128,
+  barRadius: 4,
+  legendSwatch: 12,
+} as const;
+
+/**
  * Escala tipográfica del shell tomada del prototipo (`docs/design/prototype`).
  * Los componentes del shell usan estos nombres en vez de escribir `rem` sueltos.
  */

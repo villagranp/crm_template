@@ -497,7 +497,7 @@ Reglas comunes:
 
 | Método | Ruta | Permiso | Entrada → salida | Errores |
 |---|---|---|---|---|
-| GET | `/reports/filter-options` | `reportes.ver` | → `ReportFilterOptionsDto` (`owners`, `countries`, `catalogs`, `productFamilies`, `scope`) | `422 INVALID_CATALOG_SEMANTICS` |
+| GET | `/reports/filter-options` | `reportes.ver` | → `ReportFilterOptionsDto` (`owners`, `countries`, `catalogs`, `productFamilies`, `scope`, `businessTimeZone`, `timeZone`; las dos zonas son aditivas, 05 P-05.27) | `422 INVALID_CATALOG_SEMANTICS` |
 | GET | `/reports/projects` | `reportes.ver` | `ProjectReportQueryDto` (`search`, `countryId[]`, `city`, `ownerId[]`, `customerId[]`, `projectTypeId[]`, `phaseId[]`, `commercialStatus[]`, `situation`, `from`, `to`, `dateBasis` obligatorio con período) → `PaginatedProjectReportDto` | `400`, `422 PERIOD_TOO_LONG` / `INVALID_CATALOG_SEMANTICS` |
 | GET | `/reports/opportunities` | `reportes.ver` | `OpportunityReportQueryDto` (`from`, `to`, `dateBasis`, `ownerId[]`, `customerId[]`, `countryId[]`, `status[]`, `stageId[]`, `productId[]`, `productFamilyId[]`) → `PaginatedOpportunityReportDto` | `400`, `422` |
 | GET | `/reports/opportunities/summary` | `reportes.ver` | mismos filtros → `OpportunityReportSummaryDto` (conteos, `byStage`, `byOwner`, `estimateTotals` en USD + referencia local) | `400`, `422` |

@@ -41,6 +41,8 @@ const OPTIONS: ReportFilterOptions = {
   catalogs: { opportunityStages: [], projectPhases: [], projectTypes: [], visitStatuses: [], activityStatuses: [], activityTypes: [], priorities: [], companyTypes: [] },
   productFamilies: [],
   scope: 'OWN',
+  businessTimeZone: 'America/Guatemala',
+  timeZone: 'America/Guatemala',
 };
 
 function setup(rows: ProjectReportRecord[], maxRows: number) {

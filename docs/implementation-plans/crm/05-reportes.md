@@ -509,7 +509,8 @@ SalesFunnelDto             stages[{stage{id,label,order}, count, shareOfTotal:"4
                            INSUFFICIENT_SAMPLE|null}], totalInFunnel, sampleMinimum
 ReportFilterOptionsDto     owners[{id, displayName}] (solo usuarios dentro del alcance con registros comerciales),
                            countries[{id, name}] (dentro del alcance), catalogs{<key>: [{id, code, label, metadata relevante}]},
-                           productFamilies[{id, name}], scope: OWN|TEAM|COUNTRY|ORGANIZATION
+                           productFamilies[{id, name}], scope: OWN|TEAM|COUNTRY|ORGANIZATION,
+                           businessTimeZone, timeZone (aditivos, P-05.27)
 ```
 
 Decimales como cadena (API-STANDARDS §10), porcentajes con dos decimales,
@@ -1251,7 +1252,7 @@ Módulo 4 (`useCommercialTimeZones`, ahora exportado por su barril `entry-points
 del perfil y "hoy" en la del negocio; sin `actividades.ver` ni `visitas.ver`, o mientras cargan,
 la del navegador. Las fechas de calendario (`estimatedDecisionDate`, `decisionDate`) se muestran
 sin conversión. **Hueco:** publicar `businessTimeZone` en `ReportFilterOptionsDto` (aditivo) para no
-depender del Módulo 4; no bloquea (el negocio y los usuarios comparten zona).
+depender del Módulo 4; no bloquea (el negocio y los usuarios comparten zona). **Cerrado en P-05.27.**
 
 ### P-05.22 Exportación en la interfaz (F-39)
 
@@ -1275,7 +1276,8 @@ depender del Módulo 4; no bloquea (el negocio y los usuarios comparten zona).
   `ProjectPicker`, `ProductPicker`) y no se ofrecen sin `clientes.ver`, `proyectos.ver` o
   `productos.ver`. `CustomerPicker` busca solo clientes activos (limitación aceptada; un id de la
   URL se respeta). El texto de su chip se recuerda en la sesión; tras recargar dice
-  "Seleccionado" (no se resuelve el nombre para no consultar otro módulo).
+  "Seleccionado" (no se resuelve el nombre para no consultar otro módulo). **Revisado en P-05.28**
+  para cliente y proyecto.
 
 ### P-05.24 Distribuciones de F-35 y piezas para el dashboard y el embudo
 
@@ -1302,6 +1304,100 @@ pantalla (`ProjectsReportPage`, `OpportunitiesReportPage` con PF-05.46, `Forecas
 error con reintento y sin permiso) en proyectos y error/vacío en el resto; `http-client.spec.ts`
 cubre las cabeceras y `Retry-After`. Pendientes: PF-05.38 y PF-05.47 (gráficas, otra tanda) y los
 Playwright PF-05.39/PF-05.40.
+
+---
+
+## Precisiones de implementación — frontend, segunda tanda (2026-10-14)
+
+Dashboard (F-40), embudo (F-41) y gráficas de F-35 con `@mui/x-charts` Community (ADR-023 y su
+addendum), más los huecos de la primera tanda. Único cambio de backend: campos aditivos en
+`GET /reports/filter-options` (P-05.27). Sin cambios de esquema ni de permisos.
+
+### P-05.27 Zonas horarias en `filter-options` (cierra el hueco de P-05.21)
+
+`ReportFilterOptionsDto` añade `businessTimeZone` (`crm.zona_horaria_negocio`, el mismo valor que ya
+usa `ReportContext`) y `timeZone` (zona del perfil, `users.time_zone`; vacía → la del negocio), con
+el mismo `reportes.ver`. Puerto nuevo `ReportingRepository.userTimeZone(userId)`. El frontend usa
+`useReportTimeZones()` (comparte caché con las opciones de filtro: sin peticiones nuevas) en lugar
+de `useCommercialTimeZones`; una zona que `Intl` no reconoce, o mientras carga, → la del navegador.
+Prueba de integración en `reports-projects.e2e.spec.ts` (perfil propio y perfil vacío).
+
+### P-05.28 Chips de cliente, proyecto y producto tras recargar
+
+Cliente y proyecto se nombran con su ficha (`GET /customers/:id` con `clientes.ver`,
+`GET /projects/:id` con `proyectos.ver`): son los **mismos** permisos con que se ofrece el
+selector, y la misma consulta (misma clave de caché) que el selector ya hace para su valor
+preseleccionado, así que no hay petición nueva. Sin permiso no se consulta; fuera de alcance
+(`404`) o con error, "Seleccionado". **Hueco:** producto sigue en "Seleccionado" tras recargar:
+`GET /products` no filtra por id y no hay `GET /products/:id` (añadirlo es un cambio de contrato
+del Módulo 3; no bloquea).
+
+### P-05.29 Gráficas: una sola puerta, colores por papel y un solo eje
+
+- `charts/LazyCharts.tsx` (`LazyBarChart`, `LazyLineChart`, `LazyComboChart`) es la única entrada;
+  carga con `React.lazy` las tres implementaciones, únicas que importan la librería. Cada gráfica
+  va en una `figure` con leyenda HTML con texto (≥ 2 series) y esqueleto mientras llega el
+  *chunk*. Sin animación con `prefers-reduced-motion: reduce`.
+- Colores por papel (`tone`): dos azules de identidad y el rojo semántico sólo para una serie que
+  es un estado negativo (perdidas, visitas canceladas), tokens `chartColors`/`chartLayout`
+  (DESIGN-SYSTEM §3 "Gráficas"). Verde/rojo no se emparejan (CVD).
+- Nunca dos ejes: en "Distribución por asesor" abiertas y ganadas (conteos) van en una gráfica y
+  las toneladas de forecast en otra, dentro del mismo panel (E.7 las pedía juntas; se separan por
+  unidad). "Forecast por mes" sí combina barras y línea porque ambas son toneladas.
+- Tendencias como **múltiplos pequeños**: una línea por indicador con su título y su escala
+  (cinco series en una sola gráfica no se distinguían con la paleta de la marca); la tabla
+  equivalente es mes × indicador.
+- F-35: la distribución por etapa añade barras horizontales sobre la tabla existente; la de
+  asesor sigue como tabla (E.3).
+- Cada gráfica tiene "Ver como tabla" (`ChartDataTable`) con los mismos valores, formateados desde
+  las cadenas decimales de la API (la conversión a número es sólo para la geometría).
+
+### P-05.30 Dashboard (F-40) en la interfaz
+
+- Sin período en la URL **no se envía** ninguno: el servidor aplica el suyo (P-05.14) y la
+  pantalla muestra el `period` devuelto en el chip ("… (por defecto)", no se quita). Así pantalla
+  y servidor nunca discrepan. Con período, el máximo de **24 meses de calendario** se valida en
+  pantalla con la misma cuenta que el backend (`periodDraftSchema({ maxMonths })`, aditivo).
+- País y asesor, un valor cada uno en la URL (P-05.19), se envían a `/dashboard` y a `/trends`.
+- Granularidad de error: los seis paneles de `GET /reports/dashboard` comparten consulta y fallan
+  juntos (cada uno pinta su error y su "Reintentar"); "Tendencias" (`/trends`) carga y falla por
+  separado (AC-05.32). Partir el endpoint por panel sería un cambio de contrato; no hace falta.
+- Clic en una barra → reporte con el filtro aplicado, y el mismo destino como enlace en la tabla:
+  etapa → oportunidades (`stageId`, asesor, país, período con `dateBasis=IDENTIFIED`); fase →
+  proyectos (`phaseId`, `situation=ACTIVE`, asesor, país); asesor → oportunidades (`ownerId`, país,
+  período `IDENTIFIED`; "Otros" sin enlace); mes de forecast → forecast de ese mes (`fromMonth` =
+  `toMonth`, asesor, país). "Ganadas vs. perdidas" y "Actividades y visitas" no navegan: sus
+  conjuntos (ganadas + parciales por fecha de decisión; visitas realizadas + confirmadas por fecha
+  real) no se expresan con un solo filtro de URL de los reportes de destino.
+- "Proyectos activos" muestra la cifra y el texto "El período no aplica y este indicador no tiene
+  tendencia" (AC-05.34). "Forecast por mes" avisa de las líneas sin conversión del rango.
+
+### P-05.31 Embudo (F-41) en la interfaz
+
+- Filtro de etapa de **un valor** en la URL (P-05.19; E.8 lo pedía multivalor, la API lo admite y
+  queda como mejora sin cambio de contrato); sólo ofrece etapas con `inFunnel`.
+- Barra: cantidad y, si se puede calcular, la participación ("4 · 57.14 %"). Tabla: Etapa,
+  Cantidad, % del embudo, Conversión acumulada. Un porcentaje `null` se pinta "—" con el motivo
+  visible debajo y en *tooltip*: "Sin datos", "Historial insuficiente" y "Muestra insuficiente
+  (menos de M oportunidades)" con M = `sampleMinimum` (el DTO no trae el tamaño de la muestra, así
+  que no se muestra "n < M"). Si la conversión no se puede calcular, un aviso lo explica.
+- Clic en una etapa (o su enlace en la tabla) → reporte de oportunidades con `stageId`, cliente,
+  asesor, país y período (`dateBasis=IDENTIFIED`). `companyTypeId` **no** se traslada: el reporte
+  de oportunidades no tiene ese filtro.
+
+### P-05.32 Pruebas de esta tanda
+
+Vitest + RTL: `CommercialDashboardPage.spec.tsx` (AC-05.30–AC-05.34, PF-05.36, PF-05.38),
+`SalesFunnelPage.spec.tsx` (AC-05.35–AC-05.39, PF-05.36, PF-05.38), `charts/ReportCharts.spec.tsx`
+(librería real: embudo como `BarChart` horizontal con el color del tema; líneas y combinada con un
+solo eje), `charts/charts-architecture.spec.ts` (PF-05.47: versión exacta, sin Pro/Premium ni
+`FunnelChart`, librería sólo en las implementaciones y éstas sólo por `import()`, páginas lazy),
+`use-report-time-zones.spec.tsx` (P-05.27), y ampliadas `ReportFilterBar.spec.tsx` (P-05.28),
+`ChartPanel.spec.tsx` (`summary`), `report-period.spec.ts` (meses de calendario),
+`OpportunitiesReportPage.spec.tsx` (gráfica por etapa) y `reports-routes.spec.ts` (siete páginas
+lazy). Integración: `reports-projects.e2e.spec.ts` (zonas de `filter-options`). Las pantallas usan
+dobles de las implementaciones (`testing/chart-doubles.ts`). Pendientes: los Playwright
+PF-05.39/PF-05.40.
 
 ---
 

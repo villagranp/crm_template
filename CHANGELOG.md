@@ -6,7 +6,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 ## [Unreleased]
 
 ### Added
-- **CRM Módulo 5 — frontend de los reportes y la exportación** (`05-reportes.md`, P-05.19–P-05.26):
+- **CRM Módulo 5 — frontend de los reportes, la exportación, el dashboard y el embudo** (`05-reportes.md`, P-05.19–P-05.32):
   pantallas `/reportes/proyectos`, `/reportes/oportunidades`, `/reportes/forecast`,
   `/reportes/visitas` y `/reportes/actividades` (F-34…F-38) con filtros, período, orden y página
   en la URL, tarjetas de resumen que filtran la tabla, tabla → tarjetas en móvil, enlaces a la
@@ -14,12 +14,33 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   "Exportar a Excel" (F-39, solo con `reportes.exportar`; mensajes de `EXPORT_TOO_LARGE`, `429` y
   `REPORT_TIMEOUT` con referencia). Piezas comunes reutilizables en `features/crm/reports/common`
   (`useReportQueryState`, `ReportFilterBar`, `SummaryCards`, `ExportButton`, `ChartPanel`,
-  `ReportTable`, `ReportPage`, `SourceLink`). Dashboard y embudo siguen provisionales.
+  `ReportTable`, `ReportPage`, `SourceLink`).
+  - **Dashboard comercial** `/reportes/dashboard` (F-40): siete paneles (proyectos activos por
+    fase, oportunidades por etapa, ganadas vs. perdidas, forecast por mes con acumulado,
+    distribución por asesor, actividades y visitas, tendencias como múltiplos pequeños) con
+    filtros de período (máximo 24 meses de calendario; sin período, el que aplica el servidor),
+    país y asesor en la URL; cada panel con "Ver como tabla", estados propios y clic en la barra
+    hacia el reporte filtrado.
+  - **Embudo comercial** `/reportes/embudo` (F-41): barras horizontales por etapa con cantidad y
+    % de participación, tabla con conversión acumulada, porcentajes no calculables como "—" con
+    su motivo (`NO_DATA`, `INSUFFICIENT_HISTORY`, `INSUFFICIENT_SAMPLE`), filtros de etapa,
+    cliente, tipo de cliente, asesor, país y período; clic en una etapa → reporte de
+    oportunidades filtrado.
+  - Gráficas con **`@mui/x-charts` 8.29.3** (Community, ADR-023 addendum), cargadas en un *chunk*
+    diferido desde `reports/charts/LazyCharts` (también la distribución por etapa de F-35);
+    tokens `chartColors`/`chartLayout` (DESIGN-SYSTEM §3 "Gráficas"); prueba de arquitectura
+    PF-05.47. `features/crm/reports/README.md` con las convenciones del área.
+  - Backend (aditivo): `GET /reports/filter-options` publica `businessTimeZone` y `timeZone`
+    (perfil del usuario) (P-05.27).
 
 ### Changed
 - Frontend (aditivo): `httpClient.download` devuelve las cabeceras de la respuesta y `ApiError`
   expone `retryAfterSeconds` (`Retry-After`). El barril `commercial-activity/entry-points` exporta
-  las zonas horarias y formatos de fecha del Módulo 4 para Reportes.
+  los formatos de fecha del Módulo 4 (e `isValidTimeZone`) para Reportes; las zonas horarias de
+  Reportes salen ya de `GET /reports/filter-options` (`useReportTimeZones`). `ChartPanel` acepta
+  `summary`, `ReportFilterBar` acepta `maxMonths`/`defaultNote` en el período y nombra cliente y
+  proyecto tras recargar con su ficha (P-05.28); `customers` exporta `useCustomer`. Vitest
+  procesa `@mui/x-charts` con `server.deps.inline`. Se elimina `ReportsPendingPage`.
 - **CRM — integración de los Módulos 3 y 4** (`04-actividad-comercial.md`, «Precisiones de
   implementación (2026-10-13)»; sin cambios de contrato):
   - Backend: el bloqueo del proyecto vinculado y `projects.last_activity_at` de visitas y

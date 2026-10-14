@@ -8,10 +8,10 @@ import { useId, useState, type ReactNode } from 'react';
  * ("Ver como tabla", AC-05.33) y estados propios: cada panel carga y falla por separado
  * (AC-05.32), con "Reintentar".
  *
- * La gráfica es opcional: hoy F-35 sólo pasa la tabla (las distribuciones por etapa y asesor);
- * la tanda del dashboard y el embudo añade `chart` con `@mui/x-charts` Community (ADR-023)
- * sin cambiar este contrato. Con `chart`, la vista inicial es la gráfica y el conmutador
- * alterna con la tabla; sin ella, sólo se muestra la tabla.
+ * La gráfica es opcional (`chart`, con `@mui/x-charts` Community en diferido, ADR-023): con
+ * ella, la vista inicial es la gráfica y el conmutador alterna con la tabla; sin ella (p. ej. la
+ * distribución por asesor de F-35), sólo se muestra la tabla. `summary` (aditivo) pinta una
+ * cifra o aviso común a ambas vistas (p. ej. el total de proyectos activos).
  */
 
 export interface ChartPanelProps {
@@ -31,6 +31,8 @@ export interface ChartPanelProps {
   emptyMessage?: string;
   /** Acciones extra en la cabecera (p. ej. un enlace al reporte filtrado). */
   action?: ReactNode;
+  /** Cifra o aviso sobre la gráfica y la tabla (no se pinta mientras carga ni con error). */
+  summary?: ReactNode;
 }
 
 export function ChartPanel({
@@ -44,6 +46,7 @@ export function ChartPanel({
   isEmpty = false,
   emptyMessage = 'No hay datos para los filtros seleccionados.',
   action,
+  summary,
 }: ChartPanelProps) {
   const titleId = useId();
   const [view, setView] = useState<'chart' | 'table'>('chart');
@@ -110,7 +113,10 @@ export function ChartPanel({
         }
       />
       <CardContent sx={{ flex: 1, minWidth: 0 }}>
-        <Box sx={{ minWidth: 0 }}>{body}</Box>
+        <Stack spacing={2} sx={{ minWidth: 0 }}>
+          {summary && !errorMessage && !isLoading ? summary : null}
+          <Box sx={{ minWidth: 0 }}>{body}</Box>
+        </Stack>
       </CardContent>
     </Card>
   );

@@ -45,6 +45,10 @@ export default defineConfig({
     // with the generic `pnpm run test` step used by templates/verify.yml.
     reporters: ['default', ['junit', { outputFile: './junit-frontend.xml' }]],
     exclude: ['node_modules/**', 'dist/**', 'tests/e2e/**'],
+    // `@mui/x-charts` (ADR-023) publica ESM que importa `@mui/material/styles` como directorio,
+    // lo que el cargador ESM de Node rechaza (ERR_UNSUPPORTED_DIR_IMPORT). Procesarlo con Vite
+    // (como hace el build) lo resuelve; no afecta al bundle de producción.
+    server: { deps: { inline: [/@mui\/x-charts/, /@mui\/x-internals/] } },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

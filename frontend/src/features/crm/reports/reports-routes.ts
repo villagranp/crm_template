@@ -8,17 +8,14 @@ import { REPORT_PERMISSIONS } from './reports.permissions';
 
 export { REPORT_PERMISSIONS } from './reports.permissions';
 
-const ReportsPendingPage = lazy(() => import('./ReportsPendingPage').then((module) => ({ default: module.ReportsPendingPage })));
-
 /**
  * Rutas de Reportes (05 E.1, H.3): las siete opciones sembradas del módulo `reportes`,
  * todas con `reportes.ver` y registradas en `app-routes.registry.json` (DM-32). Cada página se
- * carga con `React.lazy` (la lógica de reportes no pesa en la carga inicial).
+ * carga con `React.lazy` (la lógica de reportes no pesa en la carga inicial) y, dentro, las
+ * gráficas de `@mui/x-charts` van en su propio *chunk* diferido (`charts/LazyCharts`, ADR-023).
  *
- * Entregadas: proyectos (F-34), oportunidades (F-35), forecast (F-36), visitas (F-37) y
- * actividades (F-38), con su exportación (F-39). **Provisional:** el dashboard (F-40) y el
- * embudo (F-41) siguen en `ReportsPendingPage` ("En construcción") hasta su tanda, que
- * sustituirá su `Page` aquí sin cambiar ruta ni permiso.
+ * Entregadas las siete: proyectos (F-34), oportunidades (F-35), forecast (F-36), visitas (F-37),
+ * actividades (F-38), con su exportación (F-39), dashboard (F-40) y embudo (F-41).
  */
 export const REPORT_ROUTES: readonly CrmRoute[] = [
   {
@@ -46,6 +43,14 @@ export const REPORT_ROUTES: readonly CrmRoute[] = [
     permission: REPORT_PERMISSIONS.view,
     Page: lazy(() => import('./activities/ActivitiesReportPage').then((module) => ({ default: module.ActivitiesReportPage }))),
   },
-  { path: ROUTE_PATHS.reports.dashboard, permission: REPORT_PERMISSIONS.view, Page: ReportsPendingPage },
-  { path: ROUTE_PATHS.reports.funnel, permission: REPORT_PERMISSIONS.view, Page: ReportsPendingPage },
+  {
+    path: ROUTE_PATHS.reports.dashboard,
+    permission: REPORT_PERMISSIONS.view,
+    Page: lazy(() => import('./dashboard/CommercialDashboardPage').then((module) => ({ default: module.CommercialDashboardPage }))),
+  },
+  {
+    path: ROUTE_PATHS.reports.funnel,
+    permission: REPORT_PERMISSIONS.view,
+    Page: lazy(() => import('./funnel/SalesFunnelPage').then((module) => ({ default: module.SalesFunnelPage }))),
+  },
 ];

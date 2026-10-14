@@ -4,13 +4,15 @@ import type { ListQuery } from '@/lib/query-keys';
 
 import { reportKeys } from './filter-options.queries';
 import { getActivityReportSummary, listActivityReport } from './activities/activities-report.api';
+import { getCommercialDashboard, getCommercialTrends } from './dashboard/dashboard.api';
 import { getForecastReportSummary, listForecastConsolidated, listForecastReport } from './forecast/forecast-report.api';
+import { getSalesFunnel } from './funnel/funnel.api';
 import { getOpportunityReportSummary, listOpportunityReport } from './opportunities/opportunities-report.api';
 import { listProjectReport } from './projects/projects-report.api';
 import { getVisitReportSummary, listVisitReport } from './visits/visits-report.api';
 
 /**
- * Consultas de los cinco reportes (05 F.1) bajo `['crm', 'reports', <reporte>, …]`. Las listas
+ * Consultas de los cinco reportes, el dashboard y el embudo (05 F.1) bajo `['crm', 'reports', <reporte>, …]`. Las listas
  * conservan la página anterior mientras llega la nueva (`keepPreviousData`); los resúmenes se
  * piden con **los mismos filtros** que la lista (RN-05.9: todos los números de una pantalla
  * usan el mismo conjunto).
@@ -69,4 +71,19 @@ export function useActivityReport(query: ListQuery) {
 
 export function useActivityReportSummary(query: ListQuery) {
   return useQuery({ queryKey: reportQueryKeys.summary('activities', query), queryFn: () => getActivityReportSummary(query), placeholderData: keepPreviousData });
+}
+
+/** Paneles del dashboard (F-40): un panel falla junto a los demás de este endpoint; las tendencias, por separado. */
+export function useCommercialDashboard(query: ListQuery) {
+  return useQuery({ queryKey: [...reportKeys.all, 'dashboard', query] as const, queryFn: () => getCommercialDashboard(query), placeholderData: keepPreviousData });
+}
+
+/** Tendencias del dashboard (F-40, RN-05.52): consulta propia, carga y falla por separado (AC-05.32). */
+export function useCommercialTrends(query: ListQuery) {
+  return useQuery({ queryKey: [...reportKeys.all, 'dashboard', 'trends', query] as const, queryFn: () => getCommercialTrends(query), placeholderData: keepPreviousData });
+}
+
+/** Embudo comercial (F-41). */
+export function useSalesFunnel(query: ListQuery) {
+  return useQuery({ queryKey: [...reportKeys.all, 'funnel', query] as const, queryFn: () => getSalesFunnel(query), placeholderData: keepPreviousData });
 }

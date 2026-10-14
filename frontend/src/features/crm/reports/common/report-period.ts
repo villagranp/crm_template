@@ -105,6 +105,13 @@ export function exceedsYears(period: ReportPeriod, years: number): boolean {
   return period.to >= dayKey(year + years, month, day);
 }
 
+/** Meses de calendario que toca un período (`2025-01-15 – 2026-12-31` → 24), como el backend del dashboard. */
+export function calendarMonthsOf(period: ReportPeriod): number {
+  const from = partsOf(period.from);
+  const to = partsOf(period.to);
+  return (to.year - from.year) * MONTHS_PER_YEAR + (to.month - from.month) + 1;
+}
+
 /** Número de meses (incluidos) entre dos meses. */
 export function monthsBetween(from: ForecastMonthRef, to: ForecastMonthRef): number {
   return (to.year - from.year) * MONTHS_PER_YEAR + (to.month - from.month) + 1;
@@ -138,6 +145,7 @@ export const PERIOD_MESSAGES = {
   invalidDate: 'Escribe una fecha válida.',
   fromAfterTo: 'La fecha inicial no puede ser posterior a la final.',
   tooLong: (years: number) => `El período no puede superar ${years} años.`,
+  tooManyMonths: (months: number) => `El período no puede abarcar más de ${months} meses.`,
   dateBasisRequired: 'Elige la fecha por la que se filtra el período.',
   monthsBothRequired: 'Indica el mes inicial y el final, o ninguno.',
   invalidMonth: 'Escribe un mes válido.',
@@ -154,12 +162,17 @@ export interface PeriodDraft {
 
 export interface PeriodDraftSchemaOptions {
   maxYears?: number;
+  /**
+   * Máximo en **meses de calendario** (dashboard: 24, P-05.14). Si se indica, sustituye a
+   * `maxYears` (el backend cuenta meses tocados, no aniversarios).
+   */
+  maxMonths?: number;
   /** Proyectos no tiene base por defecto: con período, la base es obligatoria (P-05.4). */
   dateBasisRequired?: boolean;
 }
 
 /** Esquema del período de fechas: juntos o ninguno, fechas reales, `from ≤ to`, máximo de años y base si se exige. */
-export function periodDraftSchema({ maxYears = MAX_PERIOD_YEARS, dateBasisRequired = false }: PeriodDraftSchemaOptions = {}) {
+export function periodDraftSchema({ maxYears = MAX_PERIOD_YEARS, maxMonths, dateBasisRequired = false }: PeriodDraftSchemaOptions = {}) {
   return z.object({ from: z.string(), to: z.string(), dateBasis: z.string() }).superRefine((draft, context) => {
     const { from, to } = draft;
     if (!from && !to) {
@@ -175,6 +188,10 @@ export function periodDraftSchema({ maxYears = MAX_PERIOD_YEARS, dateBasisRequir
     }
     if (from > to) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ['to'], message: PERIOD_MESSAGES.fromAfterTo });
+    } else if (maxMonths !== undefined) {
+      if (calendarMonthsOf({ from, to }) > maxMonths) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ['to'], message: PERIOD_MESSAGES.tooManyMonths(maxMonths) });
+      }
     } else if (exceedsYears({ from, to }, maxYears)) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ['to'], message: PERIOD_MESSAGES.tooLong(maxYears) });
     }

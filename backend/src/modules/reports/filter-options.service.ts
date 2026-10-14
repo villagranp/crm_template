@@ -47,6 +47,10 @@ export interface ReportFilterOptions {
   };
   readonly productFamilies: readonly NamedRef[];
   readonly scope: DataScope;
+  /** `crm.zona_horaria_negocio`: "hoy", períodos y fechas de calendario (P-05.27). */
+  readonly businessTimeZone: string;
+  /** Zona del perfil del usuario (`users.time_zone`) para los instantes; sin ella, la del negocio. */
+  readonly timeZone: string;
 }
 
 function option(item: { id: string; code: string; label: string; isActive: boolean }): CatalogOption {
@@ -61,7 +65,9 @@ function weightOf(metadata: unknown): number {
 /**
  * Opciones de filtro autorizadas (05 B "operaciones transversales", E.1): asesores y
  * países **dentro del alcance** de `reportes.ver` (solo los que tienen registros visibles;
- * nunca una lista fija), valores de catálogo con su semántica y familias de producto.
+ * nunca una lista fija), valores de catálogo con su semántica y familias de producto. Publica
+ * además las zonas horarias de presentación (aditivo, P-05.27) para que la interfaz no dependa
+ * de los `form-options` de Actividad comercial.
  */
 @Injectable()
 export class FilterOptionsService {
@@ -72,7 +78,7 @@ export class FilterOptionsService {
   ) {}
 
   async get(ctx: ReportContext): Promise<ReportFilterOptions> {
-    const [semantics, owners, countries, productFamilies, projectTypes, activityTypes, priorities, companyTypes] = await Promise.all([
+    const [semantics, owners, countries, productFamilies, projectTypes, activityTypes, priorities, companyTypes, userTimeZone] = await Promise.all([
       this.metrics.semantics(),
       this.reporting.visibleOwners(ctx.scope),
       this.reporting.visibleCountries(ctx.scope),
@@ -81,6 +87,7 @@ export class FilterOptionsService {
       this.catalogItems(REPORT_OPTION_CATALOGS.activityType),
       this.catalogItems(REPORT_OPTION_CATALOGS.priority),
       this.catalogItems(REPORT_OPTION_CATALOGS.companyType),
+      this.reporting.userTimeZone(ctx.userId),
     ]);
     return {
       owners,
@@ -102,6 +109,8 @@ export class FilterOptionsService {
       },
       productFamilies,
       scope: ctx.dataScope,
+      businessTimeZone: ctx.businessTimeZone,
+      timeZone: userTimeZone?.trim() || ctx.businessTimeZone,
     };
   }
 

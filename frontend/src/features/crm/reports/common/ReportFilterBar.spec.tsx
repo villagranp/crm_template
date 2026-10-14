@@ -4,9 +4,10 @@ import { useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { todayInTimeZone } from '@/features/crm/commercial-activity/entry-points';
+import { errorResponse, jsonResponse, mockApi } from '@/test/api-mocks';
 import { renderWithProviders } from '@/test/render-with-providers';
 
-import { FILTER_OPTIONS, signInWith, signOut } from '../testing/report-fixtures';
+import { callCount, CUSTOMER, FILTER_OPTIONS, PROJECT, signInWith, signOut } from '../testing/report-fixtures';
 
 import { ReportFilterBar, type ReportFilterField } from './ReportFilterBar';
 import { namedOptions, ownerOptions } from './report-filter-options';
@@ -204,5 +205,52 @@ describe('ReportFilterBar + useReportQueryState (05 E.1, PF-05.34)', () => {
 
     expect(await within(form).findByText('El rango no puede superar 24 meses.')).toBeInTheDocument();
     expect(searchParams().toString()).toBe('');
+  });
+
+  describe('chips de selectores remotos tras recargar (P-05.28)', () => {
+    const REMOTE_FIELDS: ReportFilterField[] = [
+      { key: 'customerId', label: 'Cliente', kind: 'customer' },
+      { key: 'projectId', label: 'Proyecto', kind: 'project' },
+      { key: 'productId', label: 'Producto', kind: 'product' },
+    ];
+    const NO_PERIOD_KEYS = ['customerId', 'projectId', 'productId'] as const;
+
+    function RemoteHarness() {
+      const state = useReportQueryState({ filterKeys: NO_PERIOD_KEYS, sortableFields: SORT_FIELDS, defaultSort: DEFAULT_SORT, period: null });
+      return <ReportFilterBar label="Filtros remotos" fields={REMOTE_FIELDS} values={state.values} onApply={state.apply} onClear={state.clear} />;
+    }
+
+    const URL = '/reportes/x?customerId=c-1&projectId=p-1&productId=prod-9';
+
+    it('con el permiso del selector, cliente y proyecto se nombran con su ficha; producto sigue "Seleccionado"', async () => {
+      signInWith(['reportes.ver', 'clientes.ver', 'proyectos.ver', 'productos.ver']);
+      mockApi({
+        'GET /reports/filter-options': () => jsonResponse(FILTER_OPTIONS),
+        // Formas mínimas de las fichas (los selectores ya las piden para su valor preseleccionado: caché compartida).
+        'GET /customers/c-1': () => jsonResponse({ id: CUSTOMER.id, crmCode: 'CLI-1', legalName: CUSTOMER.name, country: { id: 'gt', name: 'Guatemala' } }),
+        'GET /projects/p-1': () => jsonResponse({ id: PROJECT.id, code: PROJECT.code, name: PROJECT.name, customer: { id: CUSTOMER.id, name: CUSTOMER.name } }),
+      });
+      renderWithProviders(<RemoteHarness />, { initialEntries: [URL] });
+
+      const chips = screen.getByLabelText('Filtros activos');
+      expect(await within(chips).findByText('Cliente: Constructora Peña S.A.')).toBeInTheDocument();
+      expect(await within(chips).findByText('Proyecto: PRY-2026-00001 · Torre Norte')).toBeInTheDocument();
+      expect(within(chips).getByText('Producto: Seleccionado')).toBeInTheDocument();
+    });
+
+    it('sin el permiso no se consulta la ficha; fuera de alcance (404) queda "Seleccionado"', async () => {
+      signInWith(['reportes.ver', 'clientes.ver']);
+      const fetchMock = mockApi({
+        'GET /reports/filter-options': () => jsonResponse(FILTER_OPTIONS),
+        'GET /customers/c-1': () => errorResponse(404, 'RESOURCE_NOT_FOUND'),
+      });
+      renderWithProviders(<RemoteHarness />, { initialEntries: [URL] });
+
+      const chips = screen.getByLabelText('Filtros activos');
+      await waitFor(() => expect(callCount(fetchMock, '/customers/c-1')).toBeGreaterThan(0));
+      expect(within(chips).getByText('Cliente: Seleccionado')).toBeInTheDocument();
+      expect(within(chips).getByText('Proyecto: Seleccionado')).toBeInTheDocument();
+      expect(callCount(fetchMock, '/projects/p-1')).toBe(0);
+    });
   });
 });

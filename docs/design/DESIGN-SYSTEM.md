@@ -67,7 +67,8 @@ ajenos a la marca son los semánticos de estado.
 `brand[900…50]`: `#101C38 · #16264B · #1E3569 · #29478D · #33559F · #3E60B0 ·
 #6B86C9 · #A9B9E0 · #D5DEF1 · #EAEFF8`.
 
-Se usa para jerarquía, gradientes y series de gráficas (`chartSeries`).
+Se usa para jerarquía y gradientes; las gráficas de datos toman sus colores de
+`chartColors` (ver "Gráficas" más abajo).
 
 ### Semánticos (sólo estado, nunca marca)
 
@@ -82,6 +83,36 @@ Base azul-negra (`#0C1424` / `#121C30` / `#0F1829`), nunca gris neutro. El color
 primario sube a `brand[300]` para mantener contraste sobre fondo oscuro. Se
 selecciona con `useUiStore.themeMode`, que arranca de la preferencia del sistema
 y persiste en `localStorage`.
+
+### Gráficas (Reportes, ADR-023)
+
+Las gráficas usan `@mui/x-charts` Community en diferido (ver
+`frontend/src/features/crm/reports/README.md`). El color de cada serie sale de su
+**papel**, nunca de su posición ni de su valor:
+
+| Token | Claro | Oscuro | Papel |
+|---|---|---|---|
+| `chartColors[mode].series[0]` | `brand[500]` `#33559F` | `#4466BE` | Identidad, slot 1 (serie principal; la única si hay una) |
+| `chartColors[mode].series[1]` | `brand[300]` `#6B86C9` | `#7C99F2` | Identidad, slot 2 |
+| `chartColors[mode].negative` | `semantic.danger` `#C62828` | `#EF5350` | Sólo una serie que **es** un estado negativo (perdidas, canceladas) |
+
+- Validado con el validador de paletas de la skill `dataviz` contra la superficie de cada modo
+  (`#FFFFFF`, `#121C30`): croma ≥ 0,10, separación CVD protan/deutan ≥ 15, visión normal ≥ 15 y
+  contraste ≥ 3:1. Excepción aceptada: en oscuro el slot 2 queda en L 0,70 (banda recomendada
+  ≤ 0,67), porque la marca no admite otro tono (sin morado, teal ni naranja) y toda serie lleva
+  leyenda en texto y tabla equivalente.
+- Verde/rojo **no** se emparejan (fallan en deuteranopia): "ganadas" es azul y "perdidas" rojo.
+- Como mucho **dos** series de identidad por gráfica; más medidas → otra gráfica (múltiplos
+  pequeños, como las tendencias). **Nunca dos ejes**: medidas de distinta unidad van en gráficas
+  separadas.
+- Leyenda en HTML con texto (≥ 2 series); con una, el título del panel la nombra. Toda gráfica
+  tiene "Ver como tabla" con los mismos valores.
+- `chartLayout`: alto del lienzo (`height` 280, `minHeight` 160), alto por categoría en barras
+  horizontales (`bandHeight` 36), ancho del eje de categorías (`categoryAxisWidth` 128), radio
+  del extremo de la barra (`barRadius` 4) y muestra de la leyenda (`legendSwatch` 12).
+- Movimiento: con `prefers-reduced-motion: reduce` la librería no anima (`skipAnimation`).
+- `chartSeries` (escala monocromática previa) se conserva para usos decorativos; las gráficas de
+  datos usan `chartColors`.
 
 ---
 

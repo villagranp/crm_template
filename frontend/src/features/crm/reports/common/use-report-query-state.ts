@@ -1,10 +1,11 @@
 import { useCallback, useMemo } from 'react';
 
 import { useTableQueryState, type TableSort, type UseTableQueryStateResult } from '@/components/data';
-import { todayInTimeZone, useCommercialTimeZones } from '@/features/crm/commercial-activity/entry-points';
+import { todayInTimeZone } from '@/features/crm/commercial-activity/entry-points';
 import type { ListQuery } from '@/lib/query-keys';
 
 import { presetPeriod, type PeriodPreset, type ReportPeriod } from './report-period';
+import { useReportTimeZones } from './use-report-time-zones';
 
 /**
  * Estado de una pantalla de Reportes en la URL (05 E.1): filtros, período, base de fecha,
@@ -102,7 +103,7 @@ export function useReportQueryState<TFilter extends string>({
     defaultSort,
     paramPrefix,
   });
-  const { businessTimeZone } = useCommercialTimeZones();
+  const { businessTimeZone } = useReportTimeZones();
   const today = todayInTimeZone(businessTimeZone);
   const values = table.state.filters as ReportFilterValues;
 

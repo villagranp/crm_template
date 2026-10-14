@@ -82,6 +82,10 @@ export interface ReportFilterOptions {
   };
   productFamilies: ReportNamedRef[];
   scope: ReportScope;
+  /** `crm.zona_horaria_negocio`: "hoy", períodos y fechas de calendario (aditivo, P-05.27). */
+  businessTimeZone: string;
+  /** Zona del perfil del usuario para los instantes (sin ella, la del negocio). */
+  timeZone: string;
 }
 
 export interface ForecastMonthRef {

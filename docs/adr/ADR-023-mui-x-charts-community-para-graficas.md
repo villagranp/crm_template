@@ -64,3 +64,32 @@ en las rutas de reportes y cargada en diferido.**
 - Se fija la versión y pasa por `pnpm audit` en el pipeline (ADR-012).
 - Las etiquetas que vienen de datos (nombres de etapa, de usuario) se renderizan
   como texto por React; no se usa HTML crudo en *tooltips*.
+
+## Addendum (2026-10-14) — versión, carga diferida y colores
+
+Implementación del frontend de F-35 (distribución por etapa), F-40 y F-41
+(`05-reportes.md`, P-05.29–P-05.31).
+
+- **Versión: `@mui/x-charts` 8.29.3**, fijada exacta (`--save-exact`) en
+  `frontend/package.json` y en `pnpm-lock.yaml`. Es la última estable cuyo `peerDependencies`
+  admite `@mui/material` `^6` (el proyecto usa 6.5.0) y React 18: la línea 9.x exige
+  `@mui/material ^7.3 || ^9` y se descarta hasta la subida de versión mayor de MUI (ADR-009).
+  Publicada el 2026-08-21, licencia MIT. Trae su propia `@mui/utils` 7.x, `reselect`,
+  `use-sync-external-store`, `bezier-easing`, `flatqueue` y la familia `d3-*` (vía
+  `@mui/x-charts-vendor`). `pnpm audit` no reporta ningún aviso en esas rutas (los 19 avisos del
+  monorepo son previos: vite, vitest, esbuild, react-router, jest, prisma).
+- **Carga diferida en dos niveles.** Las páginas de dashboard y embudo (como las otras cinco)
+  son `React.lazy` en `reports-routes.ts`; además, la librería sólo se importa desde
+  `charts/ReportBarChart.tsx`, `ReportLineChart.tsx` y `ReportComboChart.tsx`, que sólo carga
+  `charts/LazyCharts.tsx` con `import()`. Resultado del build: el *chunk* inicial no contiene la
+  librería; el núcleo diferido (`useChartsContainerProps-*.js`) pesa 234,9 kB (70,5 kB gzip)
+  más `BarPlot` (20,3 kB), `MarkPlot` (22,0 kB), `ChartsWrapper` (8,1 kB) y las tres
+  implementaciones (5,3 kB, 11,6 kB y 1,4 kB). Lo vigila `charts-architecture.spec.ts`
+  (PF-05.47), que también falla si aparece `@mui/x-charts-pro`/`-premium` o el `FunnelChart`.
+- **Colores**: `chartSeries` (cinco azules) no distinguía series adyacentes ni en oscuro; se
+  añaden `chartColors` (identidad: dos azules por modo; estado negativo: el rojo semántico) y
+  `chartLayout` a `tokens.ts`, validados con el validador de paletas de la skill `dataviz`
+  (DESIGN-SYSTEM §3 "Gráficas"). Leyendas en HTML con texto; la librería oculta la suya.
+- **Pruebas**: vitest procesa `@mui/x-charts` con `server.deps.inline` (su ESM importa
+  `@mui/material/styles` como directorio y Node lo rechaza); no afecta al build.
+

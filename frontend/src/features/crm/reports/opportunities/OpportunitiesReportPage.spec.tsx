@@ -21,6 +21,7 @@ import {
 import { OpportunitiesReportPage } from './OpportunitiesReportPage';
 
 vi.mock('@/lib/save-file', () => ({ saveFile: vi.fn() }));
+vi.mock('../charts/ReportBarChart', async () => (await import('../testing/chart-doubles')).barChartModule);
 
 function api(extra: Record<string, RouteHandler> = {}) {
   return mockApi({
@@ -99,11 +100,18 @@ describe('OpportunitiesReportPage (05 F-35)', () => {
     expect(within(totals).getByTestId('local-reference')).toHaveTextContent('≈ GTQ 968,750.00 (referencial, tasa del 1 oct 2026)');
   });
 
-  it('AC-05.10: distribuciones por etapa (también con 0) y por asesor como tablas', async () => {
+  it('AC-05.10/PF-05.38: por etapa, barras horizontales y "Ver como tabla" con los mismos valores; por asesor, tabla', async () => {
+    const user = userEvent.setup();
     api();
     renderPage();
 
-    const byStage = await screen.findByRole('table', { name: 'Oportunidades por etapa' });
+    const stagePanel = await screen.findByRole('region', { name: 'Distribución por etapa' });
+    const chart = await within(stagePanel).findByTestId('bar-chart');
+    expect(chart).toHaveAttribute('data-layout', 'horizontal');
+    expect(within(chart).getAllByRole('button').map((item) => item.textContent)).toEqual(['Contactado = 0', 'Cotizando = 4', 'Cerrada = 6']);
+    await user.click(within(stagePanel).getByRole('button', { name: 'Ver como tabla' }));
+
+    const byStage = within(stagePanel).getByRole('table', { name: 'Oportunidades por etapa' });
     const stageRows = within(byStage).getAllByRole('row').map((row) => row.textContent);
     expect(stageRows).toEqual(['EtapaOportunidades', 'Contactado0', 'Cotizando4', 'Cerrada6']);
     const byOwner = screen.getByRole('table', { name: 'Oportunidades por asesor' });

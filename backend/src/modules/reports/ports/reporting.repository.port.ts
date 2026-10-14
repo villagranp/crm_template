@@ -261,4 +261,6 @@ export interface ReportingRepository {
   productFamilies(): Promise<NamedRef[]>;
   /** Moneda de cada país pedido (los inexistentes no aparecen). */
   countryCurrencies(countryIds: readonly string[]): Promise<CountryOptionRecord[]>;
+  /** Zona horaria del perfil del usuario (`users.time_zone`, DM-2), o `null` si no existe. */
+  userTimeZone(userId: string): Promise<string | null>;
 }

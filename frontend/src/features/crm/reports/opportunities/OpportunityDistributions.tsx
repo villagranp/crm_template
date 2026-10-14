@@ -1,5 +1,6 @@
 import { Box, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
 
+import { LazyBarChart } from '../charts/LazyCharts';
 import { ChartPanel } from '../common/ChartPanel';
 import { formatCount } from '../common/report-format';
 
@@ -7,9 +8,9 @@ import type { OpportunityReportSummary } from './opportunities-report.api';
 
 /**
  * Distribuciones del reporte de oportunidades (05 E.3, RN-05.30, RN-05.31): por etapa (todas
- * las activas en orden, también con 0) y por asesor. Hoy se muestran como tabla dentro de
- * `ChartPanel`; la gráfica de barras (`@mui/x-charts`, ADR-023) la añade la tanda del dashboard
- * pasando `chart` sin cambiar estas tablas, que siguen siendo la vista "Ver como tabla".
+ * las activas en orden, también con 0) y por asesor. Por etapa: barras horizontales
+ * (`@mui/x-charts` Community en diferido, ADR-023) con la tabla como "Ver como tabla"; por
+ * asesor: tabla (E.3 no pide gráfica para ella).
  */
 export interface OpportunityDistributionsProps {
   summary: OpportunityReportSummary | undefined;
@@ -21,6 +22,7 @@ export interface OpportunityDistributionsProps {
 export function OpportunityDistributions({ summary, isLoading, errorMessage, onRetry }: OpportunityDistributionsProps) {
   const stages = summary?.byStage ?? [];
   const owners = summary?.byOwner ?? [];
+  const stageLabel = (item: (typeof stages)[number]) => (item.stage.isActive ? item.stage.label : `${item.stage.label} (inactiva)`);
   return (
     <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' } }}>
       <ChartPanel
@@ -30,6 +32,14 @@ export function OpportunityDistributions({ summary, isLoading, errorMessage, onR
         errorMessage={errorMessage}
         onRetry={onRetry}
         isEmpty={stages.length === 0}
+        chart={
+          <LazyBarChart
+            ariaLabel="Oportunidades por etapa"
+            layout="horizontal"
+            categories={stages.map(stageLabel)}
+            series={[{ key: 'count', label: 'Oportunidades', tone: 'primary', values: stages.map((item) => item.count) }]}
+          />
+        }
         table={
           <TableContainer className="scroll-x">
             <Table size="small" aria-label="Oportunidades por etapa">
@@ -42,7 +52,7 @@ export function OpportunityDistributions({ summary, isLoading, errorMessage, onR
               <TableBody>
                 {stages.map((item) => (
                   <TableRow key={item.stage.id}>
-                    <TableCell>{item.stage.isActive ? item.stage.label : `${item.stage.label} (inactiva)`}</TableCell>
+                    <TableCell>{stageLabel(item)}</TableCell>
                     <TableCell align="right">{formatCount(item.count)}</TableCell>
                   </TableRow>
                 ))}
