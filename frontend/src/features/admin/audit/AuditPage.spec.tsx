@@ -153,7 +153,7 @@ describe('AuditPage', () => {
     });
     const download = vi
       .spyOn(httpClient, 'download')
-      .mockResolvedValue({ blob: new Blob(['a,b']), fileName: 'auditoria-20261008-1000.csv' });
+      .mockResolvedValue({ blob: new Blob(['a,b']), fileName: 'auditoria-20261008-1000.csv', headers: new Headers() });
     const user = userEvent.setup();
 
     renderWithProviders(<AuditPage />, { initialEntries: ['/?event=auth.&page=2'] });

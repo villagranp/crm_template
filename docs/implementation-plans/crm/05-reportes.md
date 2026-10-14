@@ -1209,6 +1209,102 @@ series mensuales), `dashboard.service.spec.ts`, `report-export.service.spec.ts`.
 
 ---
 
+## Precisiones de implementación — frontend, primera tanda (2026-10-14)
+
+Pantallas de F-34 a F-38 y su exportación (F-39) sobre el contrato real del backend. Sin
+dependencias nuevas (`@mui/x-charts` la incorpora la tanda del dashboard y el embudo), sin
+cambios de backend ni de contrato. El dashboard (F-40) y el embudo (F-41) siguen con
+`ReportsPendingPage`.
+
+### P-05.19 Estado en la URL y filtros de un solo valor
+
+`useReportQueryState` (sobre `useTableQueryState`) guarda filtros, período, base de fecha,
+búsqueda, orden y página con **los nombres de parámetro de la API**. Cada filtro admite **un
+valor** en la URL aunque la API acepte repetidos (máx. 50): es el patrón de los módulos 2–4 y
+basta para los AC; multivalor queda como mejora sin cambio de contrato. Las tarjetas de resumen
+fijan el filtro de estado (`status` en oportunidades, `statusCategory` en visitas y actividades);
+pulsar la tarjeta activa lo quita. Lista, resumen y exportación usan los mismos filtros
+(RN-05.9, RN-05.44): la exportación añade `sortBy`/`sortOrder` de la pantalla y `format=xlsx`, sin
+`page`/`pageSize`.
+
+### P-05.20 Período por defecto
+
+- Visitas y actividades: sin período en la URL, la pantalla calcula "Mes en curso" con "hoy" en
+  `crm.zona_horaria_negocio` y lo **envía** (P-05.4), sin escribirlo en la URL (un enlace sin
+  período abre siempre el mes en curso). Su chip no se quita (se cambia) y no se ofrece "Sin
+  período" (opción más restrictiva; un rango libre de hasta 5 años sigue disponible). "Limpiar"
+  vuelve al mes en curso.
+- Proyectos y oportunidades: sin período por defecto ("Sin período" = no se filtra por fecha).
+  En proyectos, con período la base de fecha es obligatoria (validación en pantalla, igual que el
+  `400` del backend).
+- Forecast: sin `fromMonth`/`toMonth` no se envía rango; el chip muestra el rango que devuelve
+  `/summary` (`range`, M+1…M+6). Rango máximo de 24 meses validado en pantalla.
+- Atajos: "Mes en curso", "Trimestre en curso", "Año en curso" y "Últimos 12 meses" (11 meses
+  cerrados + el mes en curso). Los esquemas Zod de `report-period.ts` replican `from ≤ to`, juntos
+  o ninguno y el máximo de 5 años (hasta el día anterior al aniversario).
+
+### P-05.21 Zonas horarias
+
+`GET /reports/filter-options` no publica zonas. La pantalla usa las de los `form-options` del
+Módulo 4 (`useCommercialTimeZones`, ahora exportado por su barril `entry-points` junto con
+`formatDateTime`, `formatDate`, `formatCalendarDate` y `todayInTimeZone`): instantes en la zona
+del perfil y "hoy" en la del negocio; sin `actividades.ver` ni `visitas.ver`, o mientras cargan,
+la del navegador. Las fechas de calendario (`estimatedDecisionDate`, `decisionDate`) se muestran
+sin conversión. **Hueco:** publicar `businessTimeZone` en `ReportFilterOptionsDto` (aditivo) para no
+depender del Módulo 4; no bloquea (el negocio y los usuarios comparten zona).
+
+### P-05.22 Exportación en la interfaz (F-39)
+
+- `httpClient.download` devuelve además las cabeceras de la respuesta (`X-Export-Rows`) y
+  `ApiError.retryAfterSeconds` lee `Retry-After` (cambios aditivos del cliente HTTP). La descarga
+  usa un tiempo máximo de 120 s (la consulta puede tardar hasta 60 s, P-05.12).
+- Botón "Exportar a Excel" solo con `reportes.exportar`; durante la generación muestra
+  "Generando archivo…" deshabilitado. Al terminar: "Se descargó <archivo> con N filas.". Errores,
+  siempre con "Referencia: <correlationId>": `422 EXPORT_TOO_LARGE` → "El resultado tiene N filas
+  y el máximo exportable es M. Acota los filtros."; `429` → "Vuelve a intentarlo en N segundos";
+  `503 REPORT_TIMEOUT` → "Acota los filtros"; `422 PERIOD_TOO_LONG` con el límite de `details`.
+- Forecast: desde la pestaña "Consolidado" la exportación lleva `groupBy`/`thenBy` (hoja
+  "Consolidado"); desde "Detalle", solo el detalle.
+
+### P-05.23 Navegación al origen y selectores remotos
+
+- Código como enlace a la ficha solo con el `.ver` de la entidad (`proyectos.ver`,
+  `oportunidades.ver`, `visitas.ver`, `actividades.ver`); cliente y proyecto de cada fila, con
+  `clientes.ver` y `proyectos.ver`. Todas las fichas ya están registradas en el router.
+- Cliente, proyecto y producto se eligen con los selectores de 02/03 (`CustomerPicker`,
+  `ProjectPicker`, `ProductPicker`) y no se ofrecen sin `clientes.ver`, `proyectos.ver` o
+  `productos.ver`. `CustomerPicker` busca solo clientes activos (limitación aceptada; un id de la
+  URL se respeta). El texto de su chip se recuerda en la sesión; tras recargar dice
+  "Seleccionado" (no se resuelve el nombre para no consultar otro módulo).
+
+### P-05.24 Distribuciones de F-35 y piezas para el dashboard y el embudo
+
+Las distribuciones por etapa y por asesor se muestran como **tablas** dentro de `ChartPanel`
+(título, descripción, carga, error con "Reintentar", vacío y conmutador "Ver como tabla" /
+"Ver como gráfica" que aparece solo si se pasa `chart`). La tanda del dashboard y el embudo añade
+la gráfica (`@mui/x-charts`, ADR-023) pasando `chart` sin cambiar las tablas. Piezas comunes en
+`features/crm/reports/common/` (ver `features/crm/README.md`).
+
+### P-05.25 Forecast consolidado
+
+Pestañas "Detalle" y "Consolidado" en la URL (`vista=consolidado`). El consolidado pagina los
+grupos con su propio prefijo (`consolidado.page`, `consolidado.groupBy`, `consolidado.thenBy`);
+`groupBy` por defecto `MONTH`. Columnas = meses del rango del resumen + "Total" (toneladas,
+cantidades por unidad y líneas sin conversión); subgrupos sangrados bajo su grupo.
+
+### P-05.26 Pruebas de esta tanda
+
+Vitest + RTL: `report-period.spec.ts`, `report-format.spec.ts`, `reports.errors.spec.ts`,
+`ReportFilterBar.spec.tsx` (PF-05.34), `ExportButton.spec.tsx` (PF-05.35), `SummaryCards.spec.tsx`,
+`ChartPanel.spec.tsx`, `SourceLink.spec.tsx` (PF-05.37), `reports-routes.spec.ts` y una por
+pantalla (`ProjectsReportPage`, `OpportunitiesReportPage` con PF-05.46, `ForecastReportPage`,
+`VisitsReportPage`, `ActivitiesReportPage`), con los cuatro estados de PF-05.36 (cargando, vacío,
+error con reintento y sin permiso) en proyectos y error/vacío en el resto; `http-client.spec.ts`
+cubre las cabeceras y `Retry-After`. Pendientes: PF-05.38 y PF-05.47 (gráficas, otra tanda) y los
+Playwright PF-05.39/PF-05.40.
+
+---
+
 ## Filas para la matriz
 
 | ID | Módulo | Funcionalidad | Alcance | Especificación | Entidades | Dependencias | Criterios | Pruebas | Estado | Decisiones (resueltas 2026-10-10) |

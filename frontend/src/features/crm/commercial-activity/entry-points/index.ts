@@ -17,3 +17,14 @@ export { NewActivityButton } from './NewActivityButton';
 export type { NewActivityButtonProps } from './NewActivityButton';
 export { PlanVisitButton } from './PlanVisitButton';
 export type { PlanVisitButtonProps } from './PlanVisitButton';
+
+/**
+ * Zonas horarias y formatos de fecha del Módulo 4 que reutiliza Reportes (05 E.1, RN-05.7):
+ * `useCommercialTimeZones()` (zona del perfil para instantes y `crm.zona_horaria_negocio`
+ * para "hoy" y los períodos; la del navegador mientras cargan o sin `actividades.ver` /
+ * `visitas.ver`), `formatDateTime`/`formatDate` con zona explícita, `formatCalendarDate`
+ * (sin zona) y `todayInTimeZone`. Mismo comportamiento que en Actividad comercial.
+ */
+export { useCommercialTimeZones } from '../common/use-commercial-time-zones';
+export type { CommercialTimeZones } from '../common/use-commercial-time-zones';
+export { formatCalendarDate, formatDate, formatDateTime, todayInTimeZone } from '../common/date-time';

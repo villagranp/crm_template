@@ -244,6 +244,47 @@ describe('httpClient', () => {
 
       await expect(httpClient.download('/users/export')).rejects.toMatchObject({ statusCode: 403 });
     });
+
+    it('expone las cabeceras de la respuesta (X-Export-Rows de las exportaciones XLSX)', async () => {
+      fetchMock.mockResolvedValue(
+        new Response('xlsx', {
+          status: 200,
+          headers: { 'content-disposition': 'attachment; filename="reporte.xlsx"', 'x-export-rows': '42' },
+        }),
+      );
+
+      const file = await httpClient.download('/reports/projects/export');
+
+      expect(file.headers.get('X-Export-Rows')).toBe('42');
+    });
+
+    it('lleva al error los segundos de Retry-After de un 429', async () => {
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ statusCode: 429, code: 'RATE_LIMIT_EXCEEDED', message: 'x', details: [] }), {
+          status: 429,
+          headers: { 'content-type': 'application/json', 'retry-after': '37' },
+        }),
+      );
+
+      await expect(httpClient.download('/reports/projects/export')).rejects.toMatchObject({
+        statusCode: 429,
+        code: 'RATE_LIMIT_EXCEEDED',
+        retryAfterSeconds: 37,
+      });
+    });
+
+    it('ignora un Retry-After que no son segundos', async () => {
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ statusCode: 429, code: 'RATE_LIMIT_EXCEEDED', message: 'x' }), {
+          status: 429,
+          headers: { 'content-type': 'application/json', 'retry-after': 'Wed, 21 Oct 2026 07:28:00 GMT' },
+        }),
+      );
+
+      const error = (await httpClient.download('/reports/projects/export').catch((caught: unknown) => caught)) as ApiError;
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error.retryAfterSeconds).toBeUndefined();
+    });
   });
 });
 

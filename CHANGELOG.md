@@ -5,7 +5,21 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 
 ## [Unreleased]
 
+### Added
+- **CRM Módulo 5 — frontend de los reportes y la exportación** (`05-reportes.md`, P-05.19–P-05.26):
+  pantallas `/reportes/proyectos`, `/reportes/oportunidades`, `/reportes/forecast`,
+  `/reportes/visitas` y `/reportes/actividades` (F-34…F-38) con filtros, período, orden y página
+  en la URL, tarjetas de resumen que filtran la tabla, tabla → tarjetas en móvil, enlaces a la
+  ficha de origen según permiso, importes en USD con la referencia local "referencial" y botón
+  "Exportar a Excel" (F-39, solo con `reportes.exportar`; mensajes de `EXPORT_TOO_LARGE`, `429` y
+  `REPORT_TIMEOUT` con referencia). Piezas comunes reutilizables en `features/crm/reports/common`
+  (`useReportQueryState`, `ReportFilterBar`, `SummaryCards`, `ExportButton`, `ChartPanel`,
+  `ReportTable`, `ReportPage`, `SourceLink`). Dashboard y embudo siguen provisionales.
+
 ### Changed
+- Frontend (aditivo): `httpClient.download` devuelve las cabeceras de la respuesta y `ApiError`
+  expone `retryAfterSeconds` (`Retry-After`). El barril `commercial-activity/entry-points` exporta
+  las zonas horarias y formatos de fecha del Módulo 4 para Reportes.
 - **CRM — integración de los Módulos 3 y 4** (`04-actividad-comercial.md`, «Precisiones de
   implementación (2026-10-13)»; sin cambios de contrato):
   - Backend: el bloqueo del proyecto vinculado y `projects.last_activity_at` de visitas y
