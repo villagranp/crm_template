@@ -68,3 +68,32 @@ interface TransactionRunner {
 **Consecuencias.** Los casos de uso siguen probándose sin base de datos (un `TransactionRunner`
 falso que invoca `work` con un contexto ficticio). Cambiar de motor exige reimplementar solo el
 adaptador del runner.
+
+## Addendum 2026-10-13 — Lecturas de reportes e indicadores (`runReportRead`)
+
+**Estado:** Accepted — 2026-10-13. Origen: Módulo 5 del CRM (05 D.3, F.5): las pantallas de
+Reportes (y los indicadores compartidos con Inicio, 01 F.2) leen una página y su conteo, o
+varios agregados, que deben ver la misma instantánea, sin poder escribir y con un tiempo máximo.
+
+**Decisión.** Los adaptadores de solo lectura (`prisma-commercial-metrics.repository.ts`,
+`prisma-reporting.repository.ts`) ejecutan cada consulta con
+`runReportRead(prisma, work, statementTimeoutMs)` de
+`backend/src/infrastructure/database/prisma/report-read.ts`: una transacción interactiva
+`REPEATABLE READ` + `SET TRANSACTION READ ONLY` + `set_config('statement_timeout', …, true)`
+(equivalente a `SET LOCAL`, con el valor como parámetro). Un vencimiento (SQLSTATE `57014` o
+`P2028` de Prisma) se traduce a `ServiceUnavailableError` → `503 REPORT_TIMEOUT`. Es un detalle
+del adaptador: los puertos no exponen la transacción y la aplicación no la ve.
+
+- Pantallas: 10 s (`SCREEN_STATEMENT_TIMEOUT_MS`). Exportación (F-39): 60 s
+  (`EXPORT_STATEMENT_TIMEOUT_MS`), con el mismo helper.
+- No sustituye a `TransactionRunner`: este sigue siendo el único camino para escrituras
+  atómicas entre puertos.
+
+**Alternativas descartadas.** *Lecturas sueltas sin transacción:* la página y el conteo
+podrían ver estados distintos y no hay forma de acotar el tiempo por pantalla sin tocar la
+configuración global del pool. *`statement_timeout` en la URL de conexión:* afectaría también a
+las escrituras y a las migraciones.
+
+**Consecuencias.** Cada pantalla ocupa una conexión durante su lectura (consultas en serie
+dentro de la transacción). Probado en `commercial-metrics-consistency.e2e.spec.ts` (solo
+lectura y `REPORT_TIMEOUT`) y `report-read.spec.ts`.

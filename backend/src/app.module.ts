@@ -13,6 +13,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CatalogsModule } from './modules/catalogs/catalogs.module';
 import { CommercialActivityModule } from './modules/commercial-activity/commercial-activity.module';
+import { CommercialMetricsModule } from './modules/commercial-metrics/commercial-metrics.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { ExchangeRatesModule } from './modules/exchange-rates/exchange-rates.module';
 import { ForecastModule } from './modules/forecast/forecast.module';
@@ -21,6 +22,7 @@ import { ParametersCoreModule } from './modules/parameters/parameters-core.modul
 import { ParametersModule } from './modules/parameters/parameters.module';
 import { ProductsModule } from './modules/products/products.module';
 import { ProjectsModule } from './modules/projects/projects.module';
+import { ReportsModule } from './modules/reports/reports.module';
 import { TeamsModule } from './modules/teams/teams.module';
 import { UnitConversionsModule } from './modules/unit-conversions/unit-conversions.module';
 import { HealthModule } from './modules/health/health.module';
@@ -72,6 +74,9 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     ForecastModule,
     // CRM · Módulo 4: actividad comercial (04).
     CommercialActivityModule,
+    // CRM · indicadores compartidos por Inicio y Reportes (01 F.2, 05 G.3) y Módulo 5: reportes (05).
+    CommercialMetricsModule,
+    ReportsModule,
     HealthModule,
   ],
   providers: [

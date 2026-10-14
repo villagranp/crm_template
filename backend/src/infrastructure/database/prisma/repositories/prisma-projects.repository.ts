@@ -169,7 +169,8 @@ function sortExpression(field: ProjectListSortField, criteria: ProjectSearchCrit
   }
 }
 
-function commercialStatusCondition(filter: CommercialStatusFilter): Prisma.Sql {
+/** Filtro `commercialStatus` (DEF-B) sobre el agregado `cs` de `commercialLateral`. Exportado para Reportes (05 F-34). */
+export function commercialStatusCondition(filter: CommercialStatusFilter): Prisma.Sql {
   switch (filter.kind) {
     case 'OPEN_STAGE':
       return filter.stageId ? Prisma.sql`cs.leading_stage_id = ${filter.stageId}::uuid` : Prisma.sql`cs.leading_stage_id IS NOT NULL`;
@@ -201,9 +202,10 @@ function dateColumn(field: NonNullable<ProjectSearchCriteria['dateRange']>['fiel
 /**
  * Agregado por proyecto para DEF-B (RN-03.14): una fila por proyecto (subconsulta
  * `LATERAL` con agregados, nunca un `JOIN` que multiplique filas). El resultado vigente
- * es 0..1 por oportunidad, así que el `LEFT JOIN` no duplica.
+ * es 0..1 por oportunidad, así que el `LEFT JOIN` no duplica. Exportado para Reportes
+ * (05 RN-05.17, D-05.15): el estado comercial se calcula con la **misma** subconsulta.
  */
-function commercialLateral(openStageRanking: readonly string[]): Prisma.Sql {
+export function commercialLateral(openStageRanking: readonly string[]): Prisma.Sql {
   const leading =
     openStageRanking.length === 0
       ? Prisma.sql`NULL::uuid`

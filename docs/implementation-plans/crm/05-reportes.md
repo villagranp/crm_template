@@ -157,7 +157,7 @@ RN-05.5).
 | ID | Métrica | Definición exacta |
 |---|---|---|
 | RN-05.41 | Categorías (disjuntas, D-05.5) | **Pendiente** = estado `isOpen` y (`due_at IS NULL` o `due_at ≥ ahora`); **Vencida** = `isOpen` y `due_at < ahora` (derivada, 00 C8); **Realizada** = `isCompleted`; **Cancelada** = `isCancelled`. Suma = total. "Abiertas" = pendientes + vencidas. Universo: `deleted_at IS NULL` |
-| RN-05.42 | Próximas a vencer (informativo) | Pendiente con `due_at` en `[ahora, ahora + crm.alertas.actividad_por_vencer_horas)` (mismo parámetro que §6.2) |
+| RN-05.42 | Próximas a vencer (informativo) | Pendiente con `due_at` en `[ahora, ahora + crm.alertas.actividad_por_vencer_horas]` (límite superior **incluido**, mismo parámetro que §6.2 y misma regla que la bandeja del Módulo 4 y KPI-08 de 01; corregido el 2026-10-13, ver Precisiones) |
 
 ### C.4 Exportación
 
@@ -942,6 +942,141 @@ conservan los identificadores.
 | **D-05.13** | ¿Tendencia de "proyectos activos"? (no hay instantáneas históricas) | **Resuelta (2026-10-10).** Sin tendencia; valor actual y distribución por fase. Reconstruirla desde `project_phase_history` es posible pero costoso y aproximado (eliminaciones no fechadas) | Si se exige: reconstrucción desde el historial de fases o tabla de instantáneas mensuales (cambio en 00, ADR si implica planificador) |
 | **D-05.14** | ¿Exportaciones mayores que el tope? | **Resuelta (2026-10-10).** Fuera de v1: `422` y acotar filtros | Exportación asíncrona (`202` + descarga posterior) podría guardar el archivo con el `FileStorage` de ADR-021 (DM-8 resuelta), pero necesita planificador: ADR |
 | **D-05.15** | ¿Vista SQL para el estado comercial del proyecto, compartida con Proyectos §5.4? | **Resuelta (2026-10-10).** No en v1: subconsulta en el adaptador de métricas compartido | Si se crea, se define en 00 (migración aditiva) |
+
+---
+
+## Precisiones de implementación (2026-10-13)
+
+Primera etapa del backend (K.2 pasos 1–4): servicio de métricas compartido, `ReportingRepository`,
+reportes F-34 a F-38 y opciones de filtro. La exportación XLSX (F-39), el dashboard (F-40), el
+embudo (F-41), el menú y las rutas llegan en la etapa siguiente. Sin cambios de esquema,
+migraciones ni dependencias; Snowflake no aplica (D.4).
+
+### P-05.1 `commercial-metrics` creado aquí con los nombres de 01 (decisión del usuario)
+
+El Módulo 1 (Inicio) lo desarrolla otro desarrollador en otra rama. Para no bloquear Reportes y
+para que la integración sea limpia, esta rama crea **solo** lo que Reportes necesita, con los
+nombres y firmas exactos de `01-inicio-dashboard.md` §F.2 y §L.1:
+
+| Pieza (01 L.1) | Archivo | Contenido en esta rama |
+|---|---|---|
+| `CommercialMetricsModule` | `commercial-metrics/commercial-metrics.module.ts` | Enlaza el puerto a su adaptador; exporta `CommercialMetricsService` y `BUSINESS_CLOCK` (mismo token que provee `ProjectsModule`) |
+| `CommercialMetricsService` | `commercial-metrics/commercial-metrics.service.ts` | KPI-01…09 con la firma de 01 F.2 (`countActiveProjects`, `countOpenOpportunities`, `countWonOpportunities`, `countLostOpportunities`, `forecastWindow`, `countVisits`, `countActivities`, `resolvePeriod`, `forecastWindowMonths`) **más** las agregaciones de Reportes (P-05.2). **No** incluye `targetCompliance` (KPI-10, metas DM-9): Reportes no lo usa; lo añade el Módulo 1 |
+| `MetricContext`, `DateRange` | `ports/…port.ts`, `commercial-period.ts` | Como 01 F.2: `{ scope, now, businessTimeZone }` y `{ from, to }` inclusivo |
+| `COMMERCIAL_METRICS_READ_MODEL` / `CommercialMetricsReadModel` | `commercial-metrics/ports/commercial-metrics-read-model.port.ts` | Agregados con criterios por entidad (P-05.2) |
+| `prisma-commercial-metrics.repository.ts` | `infrastructure/database/prisma/repositories/` | Adaptador; además exporta los `FROM … WHERE …` por entidad que reutiliza `prisma-reporting.repository.ts` (un solo predicado para lista, conteos y exportación, RN-05.9) |
+| `commercial-period.ts` | `commercial-metrics/` | `resolvePeriod` (mes/trimestre/año en curso), `businessToday`, `startOfBusinessDay`, `toBusinessWindow` (RN-05.8), `exceedsYears`, `monthsBetween`, `parseYearMonth`; reexporta `forecastWindowMonths` de `metric-definitions.ts` (DEF-G no se duplica) |
+| `metric-definitions.ts` | ídem | **Ampliado sin tocar** lo que usa el Módulo 3: `isFunnelStage`, `opportunityCategory` (+ `tallyOpportunities`, `opportunityCountsAreConsistent`, filtro `OPPORTUNITY_STATUS_FILTERS`), `visitCategory` (+ DEF-E `isDoneUnconfirmedVisit`, `visitStatusIdsByCategory`, `upcomingVisitsLimit`) y `activityCategory` (+ DEF-D `isActivityDueSoon`, `activityStatusIdsByGroup`). Las de visitas y actividades **delegan** en las reglas de referencia del Módulo 4 (`visitStatusGroup`, `activityStatusGroup`, `dueSoonLimit`); no son una segunda implementación |
+
+Las pruebas de lo añadido van en `metric-definitions.reports.spec.ts` (no en
+`metric-definitions.spec.ts`) para no chocar con lo que añada el Módulo 1. Al integrar la rama
+del Módulo 1 se espera conflicto en estos archivos nuevos: se conserva **una** implementación
+(estas firmas ya son las de 01) y el Módulo 1 añade `targetCompliance`, `DashboardReadModel` y
+`AlertsReadModel`. Las tarjetas de Inicio deben llamar a estos mismos métodos (PF-05.30 ya los
+compara con los reportes).
+
+### P-05.2 Firmas de las agregaciones de Reportes (G.3)
+
+G.3 nombra `countVisits(filter)` y `countActivities(filter)`, pero 01 F.2 ya define
+`countVisits(ctx, upcomingDays)` y `countActivities(ctx, dueSoonHours)`. Se conservan las de 01 y
+las de Reportes se llaman `countVisitCategories(criteria, now, upcomingDays | null)` y
+`countActivityCategories(criteria, dueSoonHours | null)`. El resto: `countOpportunities(criteria)`,
+`stageDistribution(criteria, semantics)`, `ownerDistribution(criteria)`, `countProjects(criteria)`,
+`forecastTotals(criteria)`, `forecastConsolidation(criteria, grouping, page)` y `semantics()`
+(catálogos validados y resueltos a ids, sin caché). `funnel` y `monthlySeries` llegan con el
+embudo y el dashboard. El `filter` genérico de G.3 se concreta en un criterio tipado por entidad
+(`OpportunityCriteria`, `ProjectCriteria`, `ForecastCriteria`, `VisitCriteria`,
+`ActivityCriteria`), que comparten el servicio de métricas y `ReportingRepository`.
+
+### P-05.3 Alcance y universo
+
+- Todas las consultas usan el alcance de **`reportes.ver`** (D-05.11) tanto para lo directo como
+  para las herencias de DM-13/DM-25, con los predicados ya publicados por los módulos dueños:
+  `projectVisibilitySql`, `opportunityVisibilitySql`, `commercialVisibilitySql` (visitas y
+  actividades) y `forecastLineVisibilitySql` (antes `lineVisibilitySql`, privado; ahora exportado).
+  También se exportan, sin cambiar su comportamiento, `commercialLateral` y
+  `commercialStatusCondition` (DEF-B, D-05.15) y `PRIORITY_WEIGHT_SQL`.
+- "Registro vigente" (RN-01.13 + RN-05.5): ni el registro, ni su proyecto, ni su cliente
+  eliminados. Se aplica también a visitas y actividades cuyo proyecto vinculado está eliminado.
+- Deny-by-default: sin cuenta local o con alcance `NONE` el servicio responde `403` antes de
+  consultar, aunque el guard ya haya exigido el permiso.
+
+### P-05.4 Períodos, orden y validación
+
+- `from`/`to` van **juntos** o ninguno (`400`); `from > to` → `400`. **Sin período no se filtra
+  por fecha**: el "período por defecto" de C.2 (mes en curso en visitas y actividades) es el
+  valor inicial de la pantalla, que lo envía; la API sin período devuelve todo, que es lo que
+  exige G.3 ("Inicio = Reportes sin período" para pendientes, vencidas y visitas).
+- Proyectos no tiene base por defecto: con período, `dateBasis` es obligatorio (`400`).
+- Rango máximo de 5 años: se admite hasta el día anterior al aniversario (`2021-01-01`…`2025-12-31`);
+  forecast ≤ 24 meses incluidos. `422 PERIOD_TOO_LONG` con `details[{ field, code, message, maxYears | maxMonths }]`.
+- El orden `year,month` del forecast (E.4) se llama `sortBy=period`. Sin `sortBy` se usa el orden
+  por defecto del reporte (o el `sortOrder` pedido); con `sortBy` y sin `sortOrder`, ascendente.
+  Desempate siempre por `id`.
+
+### P-05.5 Definiciones (contradicciones resueltas)
+
+- **"Por vencer"** (RN-05.42): 05 decía `[ahora, ahora + horas)`; 01 KPI-08 y la bandeja del
+  Módulo 4 (`activityDueBucket`) usan el límite **incluido**. Se aplica `[ahora, ahora + horas]`
+  (una sola regla para los tres módulos) y se corrige el texto de RN-05.42.
+- "Visita próxima" (KPI-07): `[ahora, ahora + días]`, límite incluido.
+- Categoría de visita con la precedencia del Módulo 4 (`isPending` → `isDone` → `isConfirmed`;
+  sin indicador válido, `CANCELLED`).
+- Distribución por etapa (RN-05.30): todas las activas (también con 0) **y** las inactivas que aún
+  tienen oportunidades, para que la suma sea el total.
+
+### P-05.6 `INVALID_CATALOG_SEMANTICS`
+
+`semantics()` valida cada elemento (activo o no) de `crm.etapa_oportunidad`, `crm.fase_cliente`,
+`crm.estado_visita` y `crm.estado_actividad` con el esquema y las reglas por elemento del registro
+de 00 §3.3 (`catalog-semantics.registry.ts`); un catálogo ausente también lo dispara. No se
+re-evalúan los invariantes del conjunto activo (se imponen al escribir con `409 CATALOG_INVARIANT`
+y no producen cifras erróneas). `details[] = { field: <catalog>, code, itemCode, message }`. Se
+prueba con unitarias: provocarlo en integración rompería el catálogo compartido de las suites
+paralelas (PF-05.32 queda para el embudo).
+
+### P-05.7 Forma de los DTO (aditivos respecto de F.3)
+
+- `ReportFilterOptionsDto.catalogs` usa claves fijas en camelCase (`opportunityStages`,
+  `projectPhases`, `projectTypes`, `visitStatuses`, `activityStatuses`, `activityTypes`,
+  `priorities`, `companyTypes`), con `isActive` (los inactivos se ofrecen para históricos) y la
+  semántica relevante (`order`, `isClosed`, `inFunnel`, `isFinal`, `category`, `group`, `weight`).
+  `owners` = responsables de algún registro comercial visible; `countries` = países de los
+  registros visibles ∪ país del alcance `COUNTRY`; `productFamilies` = familias activas.
+- Añadidos: `commercialStatus.label` (proyectos), `status.category` (visitas y actividades),
+  `ReportStageCountDto.stage.code/isActive`, `ForecastReportSummaryDto.range`,
+  `ActivityReportSummaryDto.dueSoonHours`, `ForecastGroupDto.subgroups = null` sin `thenBy`.
+
+### P-05.8 Moneda local de referencia (RN-05.58)
+
+País efectivo = el filtro `countryId` si viene; si no, el país del alcance `COUNTRY`; en otro
+caso no hay país (`MULTIPLE_COUNTRIES`). Un país filtrado que no existe también es
+`MULTIPLE_COUNTRIES`. Fecha de corte = `to` del período (cualquier `dateBasis`) o hoy en
+`crm.zona_horaria_negocio`. Tasa con `CurrencyConversionService.findApplicable` (sin exportar el
+puerto de lectura) y producto con `multiplyDecimal` (4 decimales `HALF_UP`).
+
+### P-05.9 Tiempo máximo y lectura (D.3)
+
+`runReportRead` (addendum de 2026-10-13 a ADR-004): transacción `REPEATABLE READ READ ONLY` con
+`statement_timeout` de 10 s; al vencer, `503 REPORT_TIMEOUT` con la nueva clase transversal
+`ServiceUnavailableError` (traducida a `503` por `AllExceptionsFilter`). El registro con
+`correlationId` es el `http_request` del interceptor (status `503`). Inicio heredará el mismo
+comportamiento al usar el servicio compartido. No hay logs adicionales: las lecturas no llevan
+datos personales y no se auditan (solo la exportación, F-39).
+
+### P-05.10 Pruebas de esta etapa
+
+Unitarias: `metric-definitions.reports.spec.ts` (PF-05.1, PF-05.2), `commercial-period.spec.ts`
+(PF-05.3), `commercial-metrics.service.spec.ts`, `report-criteria.spec.ts`,
+`local-currency-reference.spec.ts` (PF-05.44), `opportunity-report.service.spec.ts`,
+`report-services.spec.ts`, `report-read.spec.ts`. Integración: `reports-projects.e2e.spec.ts`
+(PF-05.7, PF-05.20 en los 11 endpoints, PF-05.33), `reports-opportunities.e2e.spec.ts`
+(PF-05.8–12, PF-05.42, PF-05.43, PF-05.27), `reports-forecast.e2e.spec.ts` (PF-05.13–15),
+`reports-visits-activities.e2e.spec.ts` (PF-05.16–19), `reports-visibility.e2e.spec.ts`
+(PF-05.22, PF-05.23), `reports-read-only.e2e.spec.ts` (PF-05.29) y
+`commercial-metrics-consistency.e2e.spec.ts` (PF-05.30, PF-05.31, solo lectura y timeout).
+Pendientes de la etapa siguiente: PF-05.5, PF-05.6, PF-05.21, PF-05.24–28 (exportación y
+`429`), PF-05.32 y las de frontend y Playwright.
 
 ---
 

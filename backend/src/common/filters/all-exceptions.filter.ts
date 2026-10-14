@@ -16,6 +16,7 @@ import {
   RequestValidationError,
   ResourceConflictError,
   ResourceNotFoundError,
+  ServiceUnavailableError,
 } from '@/common/errors/application-error';
 import { AppLogger } from '@/infrastructure/logging/app-logger.service';
 import type { AppRequest } from '@/common/types/request-context';
@@ -37,6 +38,7 @@ export function httpStatusOf(exception: unknown): number {
     if (exception instanceof BusinessRuleViolationError) return HttpStatus.UNPROCESSABLE_ENTITY;
     if (exception instanceof RequestValidationError) return HttpStatus.BAD_REQUEST;
     if (exception instanceof PayloadTooLargeError) return HttpStatus.PAYLOAD_TOO_LARGE;
+    if (exception instanceof ServiceUnavailableError) return HttpStatus.SERVICE_UNAVAILABLE;
     return HttpStatus.BAD_REQUEST;
   }
   if (exception instanceof HttpException) {

@@ -469,6 +469,81 @@ de la transacción de un alta o edición, el proyecto vinculado se bloquea con
 (`CustomerReferenceGuard.assertUsableCustomer`) recibe los alcances resueltos antes de la
 transacción (`accessScopes`), como exige ahora con `tx`.
 
+## Endpoints del CRM — Módulo 5 · Reportes (primera etapa: F-34 a F-38 y opciones)
+
+Especificación: [`05-reportes.md`](../implementation-plans/crm/05-reportes.md) §F.1–§F.5 y
+"Precisiones de implementación (2026-10-13)". Etiqueta OpenAPI `reports`. **Solo lectura**
+(RN-05.1): todo es `GET` y ningún endpoint escribe en tablas comerciales. La exportación XLSX
+(F-39), el dashboard (F-40) y el embudo (F-41) llegan en la siguiente etapa.
+
+Reglas comunes:
+
+- Todos exigen sesión (`401 UNAUTHENTICATED`) y **`reportes.ver`** (`403 PERMISSION_DENIED`);
+  no se exige además el `.ver` de cada entidad (D-05.11).
+- Filas, conteos y totales se calculan **después** de aplicar el alcance de `reportes.ver`
+  (OWN / TEAM con subequipos / COUNTRY / ORGANIZATION, con las herencias DM-13 y DM-25 de 00
+  §4.2). Un filtro nunca amplía el alcance: un asesor, país o id fuera del alcance o
+  inexistente devuelve `200` con conjunto vacío (RN-05.4, F.5).
+- Excluyen los registros eliminados lógicamente y los hijos de proyectos o clientes
+  eliminados (RN-05.5, D-05.12).
+- Filtros multivalor como parámetros repetidos (`ownerId=a&ownerId=b`, máximo 50). Período
+  `from`/`to` (`YYYY-MM-DD`, inclusivos) **juntos o ninguno**; sin período no se filtra por
+  fecha (la pantalla envía su período por defecto, C.2). `dateBasis` por reporte (C.2).
+- Colecciones `{ data, pagination }` con `page`, `pageSize` (≤ 100), `sortBy` (lista blanca por
+  reporte) y `sortOrder`; desempate siempre por `id` (RN-05.14). Los resúmenes van en
+  `…/summary` con los **mismos** filtros y el **mismo** conjunto que la lista (RN-05.9).
+- Importes: decimales como texto; todo total en USD sobre `estimated_amount_usd` (RN-05.13,
+  ADR-024).
+
+| Método | Ruta | Permiso | Entrada → salida | Errores |
+|---|---|---|---|---|
+| GET | `/reports/filter-options` | `reportes.ver` | → `ReportFilterOptionsDto` (`owners`, `countries`, `catalogs`, `productFamilies`, `scope`) | `422 INVALID_CATALOG_SEMANTICS` |
+| GET | `/reports/projects` | `reportes.ver` | `ProjectReportQueryDto` (`search`, `countryId[]`, `city`, `ownerId[]`, `customerId[]`, `projectTypeId[]`, `phaseId[]`, `commercialStatus[]`, `situation`, `from`, `to`, `dateBasis` obligatorio con período) → `PaginatedProjectReportDto` | `400`, `422 PERIOD_TOO_LONG` / `INVALID_CATALOG_SEMANTICS` |
+| GET | `/reports/opportunities` | `reportes.ver` | `OpportunityReportQueryDto` (`from`, `to`, `dateBasis`, `ownerId[]`, `customerId[]`, `countryId[]`, `status[]`, `stageId[]`, `productId[]`, `productFamilyId[]`) → `PaginatedOpportunityReportDto` | `400`, `422` |
+| GET | `/reports/opportunities/summary` | `reportes.ver` | mismos filtros → `OpportunityReportSummaryDto` (conteos, `byStage`, `byOwner`, `estimateTotals` en USD + referencia local) | `400`, `422` |
+| GET | `/reports/forecast` | `reportes.ver` | `ForecastReportQueryDto` (`fromMonth`, `toMonth` `YYYY-MM`, por defecto M+1…M+6; `projectId[]`, `customerId[]`, `productId[]`, `productFamilyId[]`, `ownerId[]`, `countryId[]`) → `PaginatedForecastReportDto` | `400`, `422` |
+| GET | `/reports/forecast/consolidated` | `reportes.ver` | mismos filtros + `groupBy` (`MONTH` por defecto), `thenBy` → `PaginatedForecastGroupDto` | `400` (incl. `thenBy = groupBy`), `422` |
+| GET | `/reports/forecast/summary` | `reportes.ver` | mismos filtros → `ForecastReportSummaryDto` (cada mes del rango con acumulados, totales por unidad, `tonnageUnit`, `lastUpdatedAt`) | `400`, `422` |
+| GET | `/reports/visits` | `reportes.ver` | `VisitReportQueryDto` (`from`, `to`, `dateBasis`, `ownerId[]`, `customerId[]`, `countryId[]` del cliente, `projectId[]`, `statusCategory[]`, `statusId[]`) → `PaginatedVisitReportDto` | `400`, `422` |
+| GET | `/reports/visits/summary` | `reportes.ver` | mismos filtros → `VisitReportSummaryDto` | `400`, `422` |
+| GET | `/reports/activities` | `reportes.ver` | `ActivityReportQueryDto` (`from`, `to`, `dateBasis`, `ownerId[]`, `customerId[]`, `countryId[]` del cliente, `typeId[]`, `statusCategory[]`, `statusId[]`, `priorityId[]`) → `PaginatedActivityReportDto` | `400`, `422` |
+| GET | `/reports/activities/summary` | `reportes.ver` | mismos filtros → `ActivityReportSummaryDto` (con `dueSoonHours`) | `400`, `422` |
+
+Listas blancas de `sortBy` (y orden por defecto): proyectos `code`, `name`, `customerName`,
+`countryName`, `ownerName`, `phaseOrder`, `phaseProgress`, `estimatedDecisionDate`,
+`lastActivityAt` (`lastActivityAt desc`); oportunidades `code`, `projectName`, `customerName`,
+`ownerName`, `stageOrder`, `estimatedAmountUsd`, `decisionDate`, `updatedAt` (`updatedAt desc`);
+forecast `period`, `projectName`, `productSku`, `familyName`, `ownerName`, `tonnage`,
+`updatedAt` (`period asc`); visitas `scheduledStartAt`, `actualStartAt`, `confirmedAt`,
+`customerName`, `ownerName`, `statusOrder` (`scheduledStartAt desc`); actividades
+`activityDate`, `dueAt`, `priorityWeight`, `customerName`, `ownerName`, `typeName`
+(`activityDate desc`). Con `sortBy` y sin `sortOrder`, ascendente.
+
+Todos pueden responder además `503 REPORT_TIMEOUT` (la consulta superó el `statement_timeout`
+de 10 s; acotar los filtros).
+
+### Códigos de error nuevos (05 F.5)
+
+| Status | Código | Cuándo |
+|---|---|---|
+| 422 | `PERIOD_TOO_LONG` | Período de más de 5 años (`details[0] = { field: "to", code, message, maxYears: 5 }`) o rango de forecast de más de 24 meses (`{ field: "toMonth", …, maxMonths: 24 }`) |
+| 422 | `INVALID_CATALOG_SEMANTICS` | Un elemento de `crm.etapa_oportunidad`, `crm.fase_cliente`, `crm.estado_visita` o `crm.estado_actividad` no cumple su esquema de 00 §3.3 (`details[] = { field: <catalog>, code, itemCode, message }`) |
+| 503 | `REPORT_TIMEOUT` | La consulta superó el tiempo máximo (nueva clase `ServiceUnavailableError` → `503`) |
+
+`400 VALIDATION_FAILED` (DC-6) cubre además: `from`/`to` sueltos o `from > to`, período sin
+`dateBasis` en proyectos, `fromMonth`/`toMonth` sueltos o invertidos, `thenBy = groupBy` y
+`commercialStatus` mal formado.
+
+### Servicio compartido de indicadores (05 G.3, 01 F.2)
+
+`CommercialMetricsModule` (`backend/src/modules/commercial-metrics/`) exporta
+`CommercialMetricsService` y `BUSINESS_CLOCK`; el puerto `COMMERCIAL_METRICS_READ_MODEL` lo
+implementa `prisma-commercial-metrics.repository.ts`. Es la fuente única de las fórmulas de
+Inicio y Reportes: los métodos de 01 F.2 (`countActiveProjects`, `countOpenOpportunities`,
+`countWonOpportunities`, `countLostOpportunities`, `forecastWindow`, `countVisits`,
+`countActivities`, `resolvePeriod`, `forecastWindowMonths`) y las agregaciones con filtros de
+Reportes. Sin endpoints propios.
+
 ## Contract rules
 
 1. Breaking a published contract requires a new URI version (`/api/v2/...`)

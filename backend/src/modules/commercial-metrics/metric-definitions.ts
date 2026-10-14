@@ -12,7 +12,17 @@
  * Creado por el Módulo 3 con DEF-A, DEF-B, DEF-C y DEF-G (y "proyecto activo",
  * RN-03.15, que DEF-B/KPI-01 necesitan). El Módulo 1 añade DEF-D, DEF-E y DEF-F y
  * el servicio (01 §L, D-01.2).
+ *
+ * Reportes (05 G.3, K.2 paso 1) añade, al final del archivo, las categorías
+ * disjuntas de oportunidades (RN-05.20–RN-05.27), visitas (RN-05.38, DEF-E) y
+ * actividades (RN-05.41, DEF-D) y sus conjuntos de ids para SQL. Las de visitas y
+ * actividades **reutilizan** las definiciones de referencia del Módulo 4
+ * (`visit-lifecycle.ts`, `activity-lifecycle.ts`, `activity-due-status.ts`): no son
+ * una segunda implementación.
  */
+import { dueSoonLimit } from '@/modules/commercial-activity/activity-due-status';
+import { activityStatusGroup, activityStatusSemantics } from '@/modules/commercial-activity/activity-lifecycle';
+import { visitStatusGroup, visitStatusSemantics } from '@/modules/commercial-activity/visit-lifecycle';
 
 /** Elemento de catálogo con su semántica (`metadata`, 00 §3.3). Forma neutral, sin ORM. */
 export interface SemanticCatalogItem {
@@ -60,6 +70,11 @@ export function openStageIds(stages: readonly SemanticCatalogItem[]): string[] {
 
 export function closedStageIds(stages: readonly SemanticCatalogItem[]): string[] {
   return stages.filter(isClosedStage).map((stage) => stage.id);
+}
+
+/** RN-05.53: etapa que forma parte del embudo comercial (`metadata.inFunnel = true`). */
+export function isFunnelStage(stage: SemanticCatalogItem): boolean {
+  return stage.metadata?.['inFunnel'] === true;
 }
 
 // ---------------------------------------------------------------------------
@@ -235,4 +250,183 @@ export function forecastWindowMonths(clock: MetricClock, horizonMonths: number):
 export function isInForecastWindow(period: YearMonth, clock: MetricClock, horizonMonths: number): boolean {
   const offset = compareYearMonth(period, businessMonth(clock));
   return offset >= 1 && offset <= horizonMonths;
+}
+
+// ===========================================================================
+// Reportes (05 G.3) — categorías disjuntas y conjuntos de ids para SQL
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Oportunidades: abierta / ganada / parcial / perdida / cerrada sin resultado
+// (RN-05.20–RN-05.27, DM-15, KPI-02…04)
+// ---------------------------------------------------------------------------
+
+/**
+ * Categoría **disjunta** de una oportunidad vigente:
+ *
+ * - `OPEN`: etapa abierta (DEF-A), tenga o no fila de resultado.
+ * - `WON_FULL`: cerrada con `outcome = WON` (implícito 100 %, DM-15).
+ * - `PARTIAL`: cerrada con `outcome = PARTIAL` (una adjudicación: cuenta como ganada).
+ * - `LOST`: cerrada con `outcome = LOST`.
+ * - `CLOSED_NO_RESULT`: cerrada sin fila en `opportunity_results` (dato heredado, RN-05.26).
+ *
+ * Ganadas = `WON_FULL` + `PARTIAL`. Invariante RN-05.27:
+ * `abiertas + ganadas + perdidas + cerradas sin resultado = total`.
+ */
+export type OpportunityCategory = 'OPEN' | 'WON_FULL' | 'PARTIAL' | 'LOST' | 'CLOSED_NO_RESULT';
+
+export function opportunityCategory(stage: SemanticCatalogItem, outcome: OpportunityOutcomeCode | null): OpportunityCategory {
+  if (isOpenStage(stage)) return 'OPEN';
+  switch (outcome) {
+    case 'WON':
+      return 'WON_FULL';
+    case 'PARTIAL':
+      return 'PARTIAL';
+    case 'LOST':
+      return 'LOST';
+    default:
+      return 'CLOSED_NO_RESULT';
+  }
+}
+
+/** Filtro `status` del reporte de oportunidades (RN-05.32). No son disjuntos: se combinan con `OR`. */
+export const OPPORTUNITY_STATUS_FILTERS = ['OPEN', 'CLOSED', 'WON', 'PARTIAL', 'LOST', 'CLOSED_NO_RESULT'] as const;
+export type OpportunityStatusFilter = (typeof OPPORTUNITY_STATUS_FILTERS)[number];
+
+/** Categorías que casan con cada valor del filtro `status` (RN-05.32). */
+export const OPPORTUNITY_STATUS_CATEGORIES: Readonly<Record<OpportunityStatusFilter, readonly OpportunityCategory[]>> = {
+  OPEN: ['OPEN'],
+  CLOSED: ['WON_FULL', 'PARTIAL', 'LOST', 'CLOSED_NO_RESULT'],
+  WON: ['WON_FULL', 'PARTIAL'],
+  PARTIAL: ['PARTIAL'],
+  LOST: ['LOST'],
+  CLOSED_NO_RESULT: ['CLOSED_NO_RESULT'],
+};
+
+export function matchesOpportunityStatus(category: OpportunityCategory, status: OpportunityStatusFilter): boolean {
+  return OPPORTUNITY_STATUS_CATEGORIES[status].includes(category);
+}
+
+/** Conteos de oportunidades (05 F.3 `OpportunityReportSummaryDto`, KPI-02…04). */
+export interface OpportunityCounts {
+  readonly total: number;
+  readonly open: number;
+  /** Ganadas = `wonFull + partial` (DM-15). */
+  readonly won: number;
+  readonly wonFull: number;
+  readonly partial: number;
+  readonly lost: number;
+  readonly closedWithoutResult: number;
+}
+
+/** Conteos a partir de las categorías: referencia de los agregados SQL (PF-05.2). */
+export function tallyOpportunities(categories: readonly OpportunityCategory[]): OpportunityCounts {
+  const count = (category: OpportunityCategory): number => categories.filter((value) => value === category).length;
+  const wonFull = count('WON_FULL');
+  const partial = count('PARTIAL');
+  return {
+    total: categories.length,
+    open: count('OPEN'),
+    won: wonFull + partial,
+    wonFull,
+    partial,
+    lost: count('LOST'),
+    closedWithoutResult: count('CLOSED_NO_RESULT'),
+  };
+}
+
+/** RN-05.27: `open + won + lost + closedWithoutResult = total`, `won = wonFull + partial` y `partial ≤ won`. */
+export function opportunityCountsAreConsistent(counts: OpportunityCounts): boolean {
+  return (
+    counts.open + counts.won + counts.lost + counts.closedWithoutResult === counts.total &&
+    counts.wonFull + counts.partial === counts.won &&
+    counts.partial <= counts.won
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Visitas: programada / realizada / confirmada / cancelada (RN-05.38, DEF-E, KPI-06/07)
+// ---------------------------------------------------------------------------
+
+export const VISIT_CATEGORIES = ['SCHEDULED', 'COMPLETED', 'CONFIRMED', 'CANCELLED'] as const;
+/**
+ * Categoría disjunta por el estado **vigente** (`visits.status_id`): `SCHEDULED` =
+ * `isPending` (incluye REPROGRAMADA), `COMPLETED` = `isDone` (realizada sin confirmar,
+ * DEF-E), `CONFIRMED` = `isConfirmed`, `CANCELLED` = `isCancelled`. Misma precedencia
+ * que `visitStatusGroup` del Módulo 4 (sin indicador válido = `CANCELLED`).
+ */
+export type VisitCategory = (typeof VISIT_CATEGORIES)[number];
+
+const VISIT_CATEGORY_BY_GROUP = { PENDING: 'SCHEDULED', DONE: 'COMPLETED', CONFIRMED: 'CONFIRMED', CANCELLED: 'CANCELLED' } as const;
+
+export function visitCategory(status: SemanticCatalogItem): VisitCategory {
+  return VISIT_CATEGORY_BY_GROUP[visitStatusGroup(visitStatusSemantics(status.metadata))];
+}
+
+/** DEF-E: visita realizada sin confirmar = categoría `COMPLETED`. */
+export function isDoneUnconfirmedVisit(status: SemanticCatalogItem): boolean {
+  return visitCategory(status) === 'COMPLETED';
+}
+
+/** Ids de estados de visita por categoría, para `status_id = ANY(…)` (el SQL nunca lee la `metadata`). */
+export function visitStatusIdsByCategory(statuses: readonly SemanticCatalogItem[]): Readonly<Record<VisitCategory, readonly string[]>> {
+  const result: Record<VisitCategory, string[]> = { SCHEDULED: [], COMPLETED: [], CONFIRMED: [], CANCELLED: [] };
+  for (const status of statuses) result[visitCategory(status)].push(status.id);
+  return result;
+}
+
+const DAY_MS = 86_400_000;
+
+/** KPI-07 / RN-05.40: límite superior (incluido) de "visita próxima": `ahora + días`. */
+export function upcomingVisitsLimit(now: Date, upcomingDays: number): Date {
+  return new Date(now.getTime() + upcomingDays * DAY_MS);
+}
+
+// ---------------------------------------------------------------------------
+// Actividades: pendiente / vencida / realizada / cancelada (RN-05.41, D-05.5, DEF-D, KPI-08/09)
+// ---------------------------------------------------------------------------
+
+export const ACTIVITY_CATEGORIES = ['PENDING', 'OVERDUE', 'COMPLETED', 'CANCELLED'] as const;
+/**
+ * Categoría disjunta: `PENDING` = abierta y (`due_at IS NULL` o `due_at ≥ ahora`);
+ * `OVERDUE` = abierta y `due_at < ahora` (derivada, nunca un estado, 00 C8);
+ * `COMPLETED` = `isCompleted`; `CANCELLED` = `isCancelled`. Mismo criterio que la
+ * bandeja de pendientes del Módulo 4 (`activity-due-status.ts`).
+ */
+export type ActivityCategory = (typeof ACTIVITY_CATEGORIES)[number];
+
+/** Grupo de estado de `crm.estado_actividad` (`OPEN`/`COMPLETED`/`CANCELLED`), regla del Módulo 4. */
+export function activityStateGroup(status: SemanticCatalogItem): 'OPEN' | 'COMPLETED' | 'CANCELLED' {
+  return activityStatusGroup(activityStatusSemantics(status.metadata));
+}
+
+export function activityCategory(status: SemanticCatalogItem, dueAt: Date | null, now: Date): ActivityCategory {
+  const group = activityStateGroup(status);
+  if (group !== 'OPEN') return group;
+  return dueAt !== null && dueAt.getTime() < now.getTime() ? 'OVERDUE' : 'PENDING';
+}
+
+/**
+ * DEF-D "por vencer": pendiente con `due_at ∈ [ahora, ahora + horas]` (límite incluido,
+ * igual que `activityDueBucket` del Módulo 4 y KPI-08 de 01).
+ */
+export function isActivityDueSoon(status: SemanticCatalogItem, dueAt: Date | null, now: Date, dueSoonHours: number): boolean {
+  if (dueAt === null || activityCategory(status, dueAt, now) !== 'PENDING') return false;
+  return dueAt.getTime() <= dueSoonLimit(now, dueSoonHours).getTime();
+}
+
+export { dueSoonLimit };
+
+/** Ids de estados de actividad por grupo, para `status_id = ANY(…)`. */
+export function activityStatusIdsByGroup(
+  statuses: readonly SemanticCatalogItem[],
+): Readonly<{ open: readonly string[]; completed: readonly string[]; cancelled: readonly string[] }> {
+  const open: string[] = [];
+  const completed: string[] = [];
+  const cancelled: string[] = [];
+  for (const status of statuses) {
+    const group = activityStateGroup(status);
+    (group === 'OPEN' ? open : group === 'COMPLETED' ? completed : cancelled).push(status.id);
+  }
+  return { open, completed, cancelled };
 }
