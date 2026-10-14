@@ -1,9 +1,11 @@
-import { Controller, Get, Query, Req } from '@nestjs/common';
+import { Controller, Get, Query, Req, Res } from '@nestjs/common';
+import type { Response } from 'express';
 
 import { PaginatedResponseDto } from '@/common/dto/paginated-response.dto';
 import type { AppRequest } from '@/common/types/request-context';
+import { AppLogger } from '@/infrastructure/logging/app-logger.service';
 
-import { ForecastConsolidatedQueryDto, ForecastReportQueryDto, ForecastSummaryQueryDto } from './dto/report-query.dto';
+import { ForecastConsolidatedQueryDto, ForecastReportExportQueryDto, ForecastReportQueryDto, ForecastSummaryQueryDto } from './dto/report-query.dto';
 import {
   type ForecastGroupDto,
   type ForecastReportRowDto,
@@ -12,8 +14,10 @@ import {
   PaginatedForecastReportDto,
 } from './dto/report-response.dto';
 import { ForecastReportService } from './forecast-report.service';
-import { ReportEndpoint, ReportsController } from './report-api.decorators';
+import { ReportEndpoint, ReportExportEndpoint, ReportsController } from './report-api.decorators';
 import { ReportContextResolver } from './report-context';
+import { streamReportExport } from './report-download';
+import { ReportExportService } from './report-export.service';
 import { toForecastGroupDto, toForecastReportRowDto, toForecastReportSummaryDto } from './report.mapper';
 
 const RANGE_ERRORS = '`fromMonth`/`toMonth` sueltos o mal formados, `fromMonth > toMonth`';
@@ -28,7 +32,20 @@ export class ForecastReportController {
   constructor(
     private readonly reports: ForecastReportService,
     private readonly contexts: ReportContextResolver,
+    private readonly exports: ReportExportService,
+    private readonly logger: AppLogger,
   ) {}
+
+  @Get('export')
+  @ReportExportEndpoint({
+    summary: 'Exportación XLSX del reporte de forecast (F-39)',
+    description: 'Detalle por línea (E.4), cada cantidad con su unidad al lado y toneladas vacías = "sin conversión". Con `groupBy` (y `thenBy` opcional) añade la hoja "Consolidado" con todos los grupos. "Resumen": toneladas y acumulado por mes, cantidades por unidad, líneas sin conversión y última actualización.',
+    badRequest: `${RANGE_ERRORS}, \`thenBy\` sin \`groupBy\` o igual a él`,
+  })
+  async export(@Query() query: ForecastReportExportQueryDto, @Req() request: AppRequest, @Res() response: Response): Promise<void> {
+    const ctx = await this.contexts.fromRequest(request);
+    await streamReportExport(response, this.logger, ctx.correlationId, (download) => this.exports.exportForecast(ctx, query, download));
+  }
 
   @Get('summary')
   @ReportEndpoint({

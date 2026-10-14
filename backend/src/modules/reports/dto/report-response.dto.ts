@@ -4,6 +4,12 @@ import { PaginationMetaDto } from '@/common/dto/paginated-response.dto';
 import { ACTIVITY_CATEGORIES, type ActivityCategory, VISIT_CATEGORIES, type VisitCategory } from '@/modules/commercial-metrics/metric-definitions';
 import { FORECAST_GROUP_BY, type ForecastGroupBy } from '@/modules/commercial-metrics/ports/commercial-metrics-read-model.port';
 
+import {
+  FUNNEL_UNAVAILABLE_REASONS,
+  type FunnelUnavailableReason,
+  MONTHLY_SERIES_METRICS,
+  type MonthlySeriesMetric,
+} from '@/modules/commercial-metrics/commercial-metrics.service';
 import { LOCAL_REFERENCE_UNAVAILABLE_REASONS, type LocalReferenceUnavailableReason } from '../local-currency-reference';
 
 // ---------------------------------------------------------------------------
@@ -404,4 +410,115 @@ export class ReportFilterOptionsDto {
   @ApiProperty({ type: ReportFilterCatalogsDto }) catalogs!: ReportFilterCatalogsDto;
   @ApiProperty({ type: [ReportNamedRefDto], description: 'Familias de producto activas' }) productFamilies!: ReportNamedRefDto[];
   @ApiProperty({ enum: ['OWN', 'TEAM', 'COUNTRY', 'ORGANIZATION'], description: 'Alcance de `reportes.ver`' }) scope!: 'OWN' | 'TEAM' | 'COUNTRY' | 'ORGANIZATION';
+}
+
+// ---------------------------------------------------------------------------
+// F-40 Dashboard comercial
+// ---------------------------------------------------------------------------
+
+export class ReportPeriodDto {
+  @ApiProperty({ format: 'date', example: '2025-10-01' }) from!: string;
+  @ApiProperty({ format: 'date', example: '2026-10-31', description: 'Incluido' }) to!: string;
+}
+
+export class DashboardPhaseRefDto extends ReportLabelRefDto {
+  @ApiProperty({ example: 'DISENO' }) code!: string;
+  @ApiProperty({ description: '`metadata.order`' }) order!: number;
+}
+
+export class DashboardPhaseCountDto {
+  @ApiProperty({ type: DashboardPhaseRefDto }) phase!: DashboardPhaseRefDto;
+  @ApiProperty() count!: number;
+}
+
+export class DashboardActiveProjectsDto {
+  @ApiProperty({ description: 'Proyectos activos (fase no final, RN-05.15). Estado actual: el período no aplica y no hay tendencia (D-05.13)' }) count!: number;
+  @ApiProperty({ type: [DashboardPhaseCountDto], description: 'Fases no finales activas en `metadata.order` (también con 0)' }) byPhase!: DashboardPhaseCountDto[];
+}
+
+export class DashboardWonLostMonthDto {
+  @ApiProperty() year!: number;
+  @ApiProperty({ minimum: 1, maximum: 12 }) month!: number;
+  @ApiProperty({ description: 'Ganadas = WON + PARTIAL (DM-15), por `decision_date`' }) won!: number;
+  @ApiProperty({ description: 'Solo WON (barra base del apilado)' }) wonFull!: number;
+  @ApiProperty({ description: 'PARTIAL (apilado sobre `wonFull`)' }) partial!: number;
+  @ApiProperty() lost!: number;
+}
+
+export class DashboardForecastMonthDto {
+  @ApiProperty() year!: number;
+  @ApiProperty({ minimum: 1, maximum: 12 }) month!: number;
+  @ApiProperty({ example: '12.5000', description: 'Toneladas de las líneas con conversión' }) tonnage!: string;
+  @ApiProperty({ example: '40.0000', description: 'Acumulado en el orden de los meses devueltos' }) cumulative!: string;
+  @ApiProperty() lineCount!: number;
+  @ApiProperty() linesWithoutConversion!: number;
+}
+
+export class DashboardOwnerDto {
+  @ApiProperty({ type: ReportUserRefDto, nullable: true, description: '`null` = "Otros" (asesores fuera del top 10)' }) owner!: ReportUserRefDto | null;
+  @ApiProperty({ description: 'Abiertas entre las identificadas en el período (mismo conjunto que "Oportunidades por etapa")' }) openOpportunities!: number;
+  @ApiProperty({ description: 'Ganadas (WON + PARTIAL) con `decision_date` en el período' }) won!: number;
+  @ApiProperty({ example: '35.0000', description: 'Toneladas de forecast del rango de "Forecast por mes"' }) forecastTonnage!: string;
+}
+
+export class DashboardActivityVisitMonthDto {
+  @ApiProperty() year!: number;
+  @ApiProperty({ minimum: 1, maximum: 12 }) month!: number;
+  @ApiProperty({ description: 'Actividades completadas por `completed_at`' }) activitiesCompleted!: number;
+  @ApiProperty({ description: 'Visitas realizadas + confirmadas por `actual_start_at`' }) visitsCompleted!: number;
+  @ApiProperty({ description: 'Visitas canceladas por `cancelled_at`' }) visitsCancelled!: number;
+}
+
+export class CommercialDashboardDto {
+  @ApiProperty({ type: ReportPeriodDto }) period!: ReportPeriodDto;
+  @ApiProperty({ type: DashboardActiveProjectsDto }) activeProjects!: DashboardActiveProjectsDto;
+  @ApiProperty({ type: [ReportStageCountDto], description: 'Etapa vigente de las oportunidades identificadas en el período (`IDENTIFIED`)' })
+  opportunitiesByStage!: ReportStageCountDto[];
+  @ApiProperty({ type: [DashboardWonLostMonthDto], description: 'Cada mes del período (también en 0)' }) wonLostByMonth!: DashboardWonLostMonthDto[];
+  @ApiProperty({ type: ForecastRangeDto, description: 'Meses del período ∪ M+1…M+H' }) forecastRange!: ForecastRangeDto;
+  @ApiProperty({ type: [DashboardForecastMonthDto] }) forecastByMonth!: DashboardForecastMonthDto[];
+  @ApiProperty({ example: 'TON', description: '`crm.forecast.unidad_tonelaje`' }) tonnageUnit!: string;
+  @ApiProperty({ type: [DashboardOwnerDto], description: 'Top 10 por abiertas + ganadas (después toneladas y nombre) + "Otros"' }) byOwner!: DashboardOwnerDto[];
+  @ApiProperty({ type: [DashboardActivityVisitMonthDto], description: 'Cada mes del período (también en 0)' }) activityVisitByMonth!: DashboardActivityVisitMonthDto[];
+}
+
+export class TrendPointDto {
+  @ApiProperty() year!: number;
+  @ApiProperty({ minimum: 1, maximum: 12 }) month!: number;
+  @ApiProperty() value!: number;
+}
+
+export class TrendSeriesDto {
+  @ApiProperty({ enum: MONTHLY_SERIES_METRICS, description: 'RN-05.52: identificadas (`opportunity_date`), ganadas y perdidas (`decision_date`), actividades (`completed_at`), visitas (`actual_start_at`)' })
+  metric!: MonthlySeriesMetric;
+  @ApiProperty({ type: [TrendPointDto], description: 'Cada mes del período (también en 0)' }) points!: TrendPointDto[];
+}
+
+export class CommercialTrendsDto {
+  @ApiProperty({ type: ReportPeriodDto }) period!: ReportPeriodDto;
+  @ApiProperty({ type: [TrendSeriesDto] }) series!: TrendSeriesDto[];
+}
+
+// ---------------------------------------------------------------------------
+// F-41 Embudo comercial
+// ---------------------------------------------------------------------------
+
+export class FunnelStageRefDto extends ReportLabelRefDto {
+  @ApiProperty({ example: 'COTIZANDO' }) code!: string;
+  @ApiProperty({ description: '`metadata.order`' }) order!: number;
+}
+
+export class FunnelStageDto {
+  @ApiProperty({ type: FunnelStageRefDto }) stage!: FunnelStageRefDto;
+  @ApiProperty({ description: 'Oportunidades cuya etapa **vigente** es esta (RN-05.53)' }) count!: number;
+  @ApiProperty({ type: String, nullable: true, example: '42.86', description: '% del total en etapas del embudo; `null` si es 0 (RN-05.54)' }) shareOfTotal!: string | null;
+  @ApiProperty({ type: String, nullable: true, example: '60.00', description: 'Conversión acumulada (RN-05.55); `null` con motivo' }) cumulativeConversion!: string | null;
+  @ApiProperty({ enum: FUNNEL_UNAVAILABLE_REASONS, nullable: true, description: 'Motivo del porcentaje `null` (`NO_DATA` si ninguno es calculable)' })
+  unavailableReason!: FunnelUnavailableReason | null;
+}
+
+export class SalesFunnelDto {
+  @ApiProperty({ type: [FunnelStageDto], description: 'Etapas activas `inFunnel` en `metadata.order` (filtradas por `stageId` si se pidió)' }) stages!: FunnelStageDto[];
+  @ApiProperty({ description: 'Oportunidades del conjunto en etapas del embudo (sin el filtro de etapa)' }) totalInFunnel!: number;
+  @ApiProperty({ example: 5, description: '`MIN_FUNNEL_SAMPLE` (D-05.9)' }) sampleMinimum!: number;
 }

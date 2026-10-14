@@ -3,6 +3,7 @@ import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
 import { ROUTE_PATHS } from '@/routes/route-paths';
 
 import { COMMERCIAL_ACTIVITY_ROUTES } from './commercial-activity/commercial-activity-routes';
+import { REPORT_ROUTES } from './reports/reports-routes';
 import { FORECAST_PERMISSIONS, OPPORTUNITY_PERMISSIONS, PROJECT_PERMISSIONS } from './projects/projects.permissions';
 
 /**
@@ -98,4 +99,6 @@ export const CRM_ROUTES: readonly CrmRoute[] = [
   },
   // Actividad comercial (04 E.1): `commercial-activity/commercial-activity-routes.ts`.
   ...COMMERCIAL_ACTIVITY_ROUTES,
+  // Reportes (05 E.1): `reports/reports-routes.ts`.
+  ...REPORT_ROUTES,
 ];

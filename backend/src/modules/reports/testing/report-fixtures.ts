@@ -15,6 +15,7 @@ export const REPORT_CONTEXT: ReportContext = {
   now: new Date('2026-10-13T18:00:00Z'),
   businessTimeZone: 'America/Guatemala',
   correlationId: 'corr-1',
+  audit: { correlationId: 'corr-1', actorId: 'user-1', actorEmail: null, ipAddress: null },
 };
 
 export const METRIC_CONTEXT: MetricContext = REPORT_CONTEXT;

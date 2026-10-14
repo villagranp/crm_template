@@ -1,13 +1,17 @@
-import { Controller, Get, Query, Req } from '@nestjs/common';
+import { Controller, Get, Query, Req, Res } from '@nestjs/common';
+import type { Response } from 'express';
 
 import { PaginatedResponseDto } from '@/common/dto/paginated-response.dto';
 import type { AppRequest } from '@/common/types/request-context';
+import { AppLogger } from '@/infrastructure/logging/app-logger.service';
 
 import { ActivityReportService } from './activity-report.service';
-import { ActivityReportFilterDto, ActivityReportQueryDto } from './dto/report-query.dto';
+import { ActivityReportExportQueryDto, ActivityReportFilterDto, ActivityReportQueryDto } from './dto/report-query.dto';
 import { type ActivityReportRowDto, ActivityReportSummaryDto, PaginatedActivityReportDto } from './dto/report-response.dto';
-import { ReportEndpoint, ReportsController } from './report-api.decorators';
+import { ReportEndpoint, ReportExportEndpoint, ReportsController } from './report-api.decorators';
 import { ReportContextResolver } from './report-context';
+import { streamReportExport } from './report-download';
+import { ReportExportService } from './report-export.service';
 import { toActivityReportRowDto, toActivityReportSummaryDto } from './report.mapper';
 
 const PERIOD_ERRORS = '`from`/`to` sueltos, `from > to`';
@@ -19,7 +23,20 @@ export class ActivityReportController {
   constructor(
     private readonly reports: ActivityReportService,
     private readonly contexts: ReportContextResolver,
+    private readonly exports: ReportExportService,
+    private readonly logger: AppLogger,
   ) {}
+
+  @Get('export')
+  @ReportExportEndpoint({
+    summary: 'Exportación XLSX del reporte de actividades (F-38/F-39)',
+    description: 'Columnas de la pantalla (E.6). "Resumen": pendientes, vencidas, realizadas, canceladas, total y próximas a vencer.',
+    badRequest: PERIOD_ERRORS,
+  })
+  async export(@Query() query: ActivityReportExportQueryDto, @Req() request: AppRequest, @Res() response: Response): Promise<void> {
+    const ctx = await this.contexts.fromRequest(request);
+    await streamReportExport(response, this.logger, ctx.correlationId, (download) => this.exports.exportActivities(ctx, query, download));
+  }
 
   @Get('summary')
   @ReportEndpoint({

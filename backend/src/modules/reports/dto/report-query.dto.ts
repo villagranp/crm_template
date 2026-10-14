@@ -379,3 +379,115 @@ export class ActivityReportQueryDto extends ActivityReportFilterDto {
   sortOrder?: 'asc' | 'desc';
 }
 
+
+// ---------------------------------------------------------------------------
+// F-39 Exportación: los filtros del reporte, el orden de la pantalla y `format`; SIN
+// paginación (enviar `page` o `pageSize` → 400 por `forbidNonWhitelisted`, F.5).
+// ---------------------------------------------------------------------------
+
+export const EXPORT_FORMATS = ['xlsx'] as const;
+export type ExportFormat = (typeof EXPORT_FORMATS)[number];
+
+function ExportFormatField(): PropertyDecorator {
+  return applyDecorators(
+    ApiPropertyOptional({ enum: EXPORT_FORMATS, default: 'xlsx', description: 'Único formato en v1 (ADR-022)' }),
+    IsOptional(),
+    IsIn(EXPORT_FORMATS),
+  );
+}
+
+function SortOrderField(): PropertyDecorator {
+  return applyDecorators(
+    ApiPropertyOptional({ enum: ['asc', 'desc'], description: 'Sin `sortBy`, se usa el orden por defecto de la pantalla' }),
+    IsOptional(),
+    IsIn(['asc', 'desc']),
+  );
+}
+
+export class ProjectReportExportQueryDto extends ProjectReportFilterDto {
+  @ApiPropertyOptional({ enum: PROJECT_REPORT_SORT_FIELDS, description: 'Mismo orden que la pantalla (por defecto `lastActivityAt` descendente)' })
+  @IsOptional()
+  @IsIn(PROJECT_REPORT_SORT_FIELDS)
+  sortBy?: ProjectReportSortField;
+
+  @SortOrderField() sortOrder?: 'asc' | 'desc';
+  @ExportFormatField() format?: ExportFormat;
+}
+
+export class OpportunityReportExportQueryDto extends OpportunityReportFilterDto {
+  @ApiPropertyOptional({ enum: OPPORTUNITY_REPORT_SORT_FIELDS, description: 'Mismo orden que la pantalla (por defecto `updatedAt` descendente)' })
+  @IsOptional()
+  @IsIn(OPPORTUNITY_REPORT_SORT_FIELDS)
+  sortBy?: OpportunityReportSortField;
+
+  @SortOrderField() sortOrder?: 'asc' | 'desc';
+  @ExportFormatField() format?: ExportFormat;
+}
+
+export class ForecastReportExportQueryDto extends ForecastReportFilterDto {
+  @ApiPropertyOptional({ enum: FORECAST_REPORT_SORT_FIELDS, description: 'Mismo orden que la pantalla (por defecto `period` ascendente)' })
+  @IsOptional()
+  @IsIn(FORECAST_REPORT_SORT_FIELDS)
+  sortBy?: ForecastReportSortField;
+
+  @SortOrderField() sortOrder?: 'asc' | 'desc';
+
+  @ApiPropertyOptional({ enum: FORECAST_GROUP_BY, description: 'Con `groupBy`, el libro añade la hoja "Consolidado" (todos los grupos)' })
+  @IsOptional()
+  @IsIn(FORECAST_GROUP_BY)
+  groupBy?: ForecastGroupBy;
+
+  @ApiPropertyOptional({ enum: FORECAST_GROUP_BY, description: 'Segundo nivel de "Consolidado"; exige `groupBy` y distinto de él' })
+  @IsOptional()
+  @IsIn(FORECAST_GROUP_BY)
+  thenBy?: ForecastGroupBy;
+
+  @ExportFormatField() format?: ExportFormat;
+}
+
+export class VisitReportExportQueryDto extends VisitReportFilterDto {
+  @ApiPropertyOptional({ enum: VISIT_REPORT_SORT_FIELDS, description: 'Mismo orden que la pantalla (por defecto `scheduledStartAt` descendente)' })
+  @IsOptional()
+  @IsIn(VISIT_REPORT_SORT_FIELDS)
+  sortBy?: VisitReportSortField;
+
+  @SortOrderField() sortOrder?: 'asc' | 'desc';
+  @ExportFormatField() format?: ExportFormat;
+}
+
+export class ActivityReportExportQueryDto extends ActivityReportFilterDto {
+  @ApiPropertyOptional({ enum: ACTIVITY_REPORT_SORT_FIELDS, description: 'Mismo orden que la pantalla (por defecto `activityDate` descendente)' })
+  @IsOptional()
+  @IsIn(ACTIVITY_REPORT_SORT_FIELDS)
+  sortBy?: ActivityReportSortField;
+
+  @SortOrderField() sortOrder?: 'asc' | 'desc';
+  @ExportFormatField() format?: ExportFormat;
+}
+
+// ---------------------------------------------------------------------------
+// F-40 Dashboard y F-41 Embudo
+// ---------------------------------------------------------------------------
+
+export class DashboardQueryDto {
+  @CalendarDateField(
+    'Desde. `from` y `to` juntos o ninguno; `from ≤ to`; como mucho 24 meses de calendario (`422 PERIOD_TOO_LONG`). Sin período: los 12 meses cerrados anteriores + el mes en curso (zona del negocio)',
+  )
+  from?: string;
+
+  @CalendarDateField('Hasta (incluido)') to?: string;
+
+  @UuidList('País (del proyecto en oportunidades, proyectos y forecast; del cliente en visitas y actividades)') countryId?: string[];
+  @UuidList('Asesor (responsable del registro de cada panel)') ownerId?: string[];
+}
+
+export class FunnelQueryDto {
+  @CalendarDateField(`Desde (cohorte por fecha de identificación, \`opportunity_date\`). ${PERIOD_DESCRIPTION}`) from?: string;
+  @CalendarDateField('Hasta (incluido)') to?: string;
+
+  @UuidList('Etapas a mostrar (RN-05.56: los porcentajes se calculan siempre sobre el embudo completo del resto de filtros)') stageId?: string[];
+  @UuidList('Cliente del proyecto') customerId?: string[];
+  @UuidList('Tipo de cliente (`crm.tipo_empresa` del cliente del proyecto, D-05.8)') companyTypeId?: string[];
+  @UuidList('Asesor de la oportunidad') ownerId?: string[];
+  @UuidList('País del proyecto') countryId?: string[];
+}

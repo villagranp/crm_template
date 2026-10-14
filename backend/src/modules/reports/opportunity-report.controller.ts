@@ -1,13 +1,17 @@
-import { Controller, Get, Query, Req } from '@nestjs/common';
+import { Controller, Get, Query, Req, Res } from '@nestjs/common';
+import type { Response } from 'express';
 
 import { PaginatedResponseDto } from '@/common/dto/paginated-response.dto';
 import type { AppRequest } from '@/common/types/request-context';
+import { AppLogger } from '@/infrastructure/logging/app-logger.service';
 
-import { OpportunityReportFilterDto, OpportunityReportQueryDto } from './dto/report-query.dto';
+import { OpportunityReportExportQueryDto, OpportunityReportFilterDto, OpportunityReportQueryDto } from './dto/report-query.dto';
 import { type OpportunityReportRowDto, OpportunityReportSummaryDto, PaginatedOpportunityReportDto } from './dto/report-response.dto';
 import { OpportunityReportService } from './opportunity-report.service';
-import { ReportEndpoint, ReportsController } from './report-api.decorators';
+import { ReportEndpoint, ReportExportEndpoint, ReportsController } from './report-api.decorators';
 import { ReportContextResolver } from './report-context';
+import { streamReportExport } from './report-download';
+import { ReportExportService } from './report-export.service';
 import { toOpportunityReportRowDto, toOpportunityReportSummaryDto } from './report.mapper';
 
 const PERIOD_ERRORS = '`from`/`to` sueltos, `from > to`';
@@ -19,7 +23,20 @@ export class OpportunityReportController {
   constructor(
     private readonly reports: OpportunityReportService,
     private readonly contexts: ReportContextResolver,
+    private readonly exports: ReportExportService,
+    private readonly logger: AppLogger,
   ) {}
+
+  @Get('export')
+  @ReportExportEndpoint({
+    summary: 'Exportación XLSX del reporte de oportunidades (F-39)',
+    description: 'Columnas de la pantalla (E.3) con la estimación desglosada según RN-05.59: monto original, moneda, tipo de cambio, fecha del tipo de cambio (vacía en USD), monto en USD y toneladas. "Resumen" con los conteos, distribuciones y el total **solo en USD** (más la fila referencial separada si aplica RN-05.58).',
+    badRequest: PERIOD_ERRORS,
+  })
+  async export(@Query() query: OpportunityReportExportQueryDto, @Req() request: AppRequest, @Res() response: Response): Promise<void> {
+    const ctx = await this.contexts.fromRequest(request);
+    await streamReportExport(response, this.logger, ctx.correlationId, (download) => this.exports.exportOpportunities(ctx, query, download));
+  }
 
   @Get('summary')
   @ReportEndpoint({

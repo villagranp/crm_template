@@ -72,6 +72,8 @@ export interface OpportunityCriteria {
   /** D-05.10: con `EXISTS` sobre `project_products` no eliminados (nunca un `JOIN`). */
   readonly productIds: readonly string[];
   readonly productFamilyIds: readonly string[];
+  /** Tipo de cliente (`customers.company_type_id`, `crm.tipo_empresa`, D-05.8, RN-05.57): filtro del embudo. */
+  readonly companyTypeIds?: readonly string[];
 }
 
 export const PROJECT_DATE_BASES = ['DECISION_ESTIMATED', 'UPDATED', 'CREATED'] as const;
@@ -279,6 +281,62 @@ export interface ActivityCountsRecord {
   readonly dueSoon: number;
 }
 
+/** Fase con su conteo (dashboard, panel "Proyectos activos", E.7). */
+export interface PhaseCountRecord {
+  readonly phaseId: string;
+  readonly count: number;
+}
+
+/** Oportunidades por mes de la columna del período (`period.basis`): identificadas o decididas (RN-05.52). */
+export interface OpportunityMonthRecord {
+  readonly year: number;
+  readonly month: number;
+  readonly total: number;
+  readonly wonFull: number;
+  readonly partial: number;
+  readonly lost: number;
+}
+
+/** Conteo de un mes. */
+export interface MonthCountRecord {
+  readonly year: number;
+  readonly month: number;
+  readonly count: number;
+}
+
+/** Visitas realizadas (`actual_start_at`, realizadas + confirmadas) y canceladas (`cancelled_at`) por mes. */
+export interface VisitMonthRecord {
+  readonly year: number;
+  readonly month: number;
+  readonly completed: number;
+  readonly cancelled: number;
+}
+
+/** Toneladas de forecast por asesor de la línea (dashboard, "Distribución por asesor"). */
+export interface OwnerTonnageRecord {
+  readonly owner: UserRef;
+  /** Σ `tonnage` de las líneas con conversión (4 decimales). */
+  readonly tonnage: DecimalString;
+}
+
+/** Etapa del embudo con su orden (RN-05.53). */
+export interface FunnelStageRef {
+  readonly stageId: string;
+  readonly order: number;
+}
+
+/**
+ * Alcance de cada oportunidad del conjunto (RN-05.55): mayor `order` entre las etapas
+ * del embudo presentes en su historial (incluida la vigente), agrupado.
+ */
+export interface FunnelReachRecord {
+  /** `null` = nunca estuvo en una etapa del embudo. */
+  readonly maxOrder: number | null;
+  /** ¿Tiene al menos una fila en `opportunity_stage_history`? */
+  readonly hasHistory: boolean;
+  readonly count: number;
+}
+
 export interface CommercialMetricsReadModel {
   opportunityTotals(criteria: OpportunityCriteria): Promise<OpportunityTotalsRecord>;
   /** Conteo por etapa vigente; solo etapas con al menos una oportunidad. */
@@ -290,4 +348,14 @@ export interface CommercialMetricsReadModel {
   forecastGroups(criteria: ForecastCriteria, grouping: ForecastGrouping, page: { page: number; pageSize: number }): Promise<ForecastGroupsRecord>;
   visitCounts(criteria: VisitCriteria, now: Date, upcomingUntil: Date | null): Promise<VisitCountsRecord>;
   activityCounts(criteria: ActivityCriteria, dueSoonUntil: Date | null): Promise<ActivityCountsRecord>;
+  /** Conteo por fase (solo fases con proyectos). */
+  projectPhaseCounts(criteria: ProjectCriteria): Promise<PhaseCountRecord[]>;
+  /** Exige `criteria.period`: agrupa por mes de su columna (`IDENTIFIED`, `DECIDED`; `UPDATED` en `timeZone`). */
+  opportunityMonthlyCounts(criteria: OpportunityCriteria, timeZone: string): Promise<OpportunityMonthRecord[]>;
+  /** Actividades completadas por mes de `completed_at` en `timeZone` (exige `period.basis = COMPLETED`). */
+  activityMonthlyCounts(criteria: ActivityCriteria, timeZone: string): Promise<MonthCountRecord[]>;
+  /** `criteria.period` se ignora: cada serie usa su columna dentro de `window`. */
+  visitMonthlyCounts(criteria: VisitCriteria, window: BusinessDateWindow, timeZone: string): Promise<VisitMonthRecord[]>;
+  forecastOwnerTonnage(criteria: ForecastCriteria): Promise<OwnerTonnageRecord[]>;
+  opportunityFunnelReach(criteria: OpportunityCriteria, funnelStages: readonly FunnelStageRef[]): Promise<FunnelReachRecord[]>;
 }

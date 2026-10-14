@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 
 import { PermissionDeniedError } from '@/common/errors/application-error';
+import type { AuditContext } from '@/modules/audit/audit.service';
 import type { AppRequest } from '@/common/types/request-context';
 import { AccessService } from '@/modules/access/access.service';
 import type { DataScope } from '@/modules/access/ports/access.repository.port';
@@ -22,6 +23,7 @@ export const REPORT_PARAMETERS = {
   tonnageUnit: 'crm.forecast.unidad_tonelaje',
   dueSoonHours: 'crm.alertas.actividad_por_vencer_horas',
   upcomingVisitDays: 'crm.inicio.visitas_proximas_dias',
+  maxExportRows: 'crm.reportes.max_filas_exportacion',
 } as const;
 
 /** Contexto de una consulta de reportes: alcance de `reportes.ver`, reloj del negocio y correlación. */
@@ -30,6 +32,8 @@ export interface ReportContext extends MetricContext {
   /** Alcance efectivo de `reportes.ver` (Propios / Equipo / País / Organización). */
   readonly dataScope: DataScope;
   readonly correlationId: string;
+  /** Quién consulta y desde dónde (auditoría de la exportación, RN-05.43). */
+  readonly audit: AuditContext;
 }
 
 /**
@@ -54,6 +58,6 @@ export class ReportContextResolver {
     const scope = await this.scopes.resolve(userId, REPORT_PERMISSIONS.view);
     if (userId === null || scope.dataScope === 'NONE') throw new PermissionDeniedError(REPORT_PERMISSIONS.view);
     const businessTimeZone = await this.parameters.get<string>(REPORT_PARAMETERS.timeZone);
-    return { userId, scope, dataScope: scope.dataScope, now: this.clock.now(), businessTimeZone, correlationId: audit.correlationId };
+    return { userId, scope, dataScope: scope.dataScope, now: this.clock.now(), businessTimeZone, correlationId: audit.correlationId, audit };
   }
 }

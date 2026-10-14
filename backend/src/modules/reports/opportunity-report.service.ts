@@ -3,7 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { CalendarDate } from '@/common/calendar-date';
 import type { DecimalString } from '@/common/decimal';
 import type { Page } from '@/infrastructure/database/ports/pagination';
-import { CommercialMetricsService, type StageCount } from '@/modules/commercial-metrics/commercial-metrics.service';
+import { CommercialMetricsService, type MetricCatalogItem, type StageCount } from '@/modules/commercial-metrics/commercial-metrics.service';
 import { isClosedStage, type OpportunityCounts } from '@/modules/commercial-metrics/metric-definitions';
 import type { OwnerOpportunityCountsRecord } from '@/modules/commercial-metrics/ports/commercial-metrics-read-model.port';
 import { CurrencyConversionService } from '@/modules/exchange-rates/currency-conversion.service';
@@ -54,6 +54,20 @@ export function decisionDateOf(record: Pick<OpportunityReportRecord, 'result' | 
   return { decisionDate: null, decisionDateKind: null };
 }
 
+/** Registro → fila del reporte (pantalla y exportación, RN-05.44). */
+export function opportunityView(
+  { stage, result, projectEstimatedDecisionDate, ...row }: OpportunityReportRecord,
+  stages: ReadonlyMap<string, MetricCatalogItem>,
+): OpportunityReportView {
+  const semantic = stages.get(stage.id);
+  return {
+    ...row,
+    stage: { ...stage, isClosed: semantic ? isClosedStage(semantic) : false },
+    result: result ? { outcome: result.outcome, reason: result.reason, awardedPercent: result.awardedPercent } : null,
+    ...decisionDateOf({ result, projectEstimatedDecisionDate }),
+  };
+}
+
 /**
  * Reporte de oportunidades (05 F-35, E.3, AC-05.5–AC-05.11, AC-05.44, AC-05.45). Una
  * fila por oportunidad; conteos, distribuciones y totales en USD del servicio compartido
@@ -78,15 +92,7 @@ export class OpportunityReportService {
     const stages = new Map(semantics.stages.map((stage) => [stage.id, stage]));
     return {
       ...page,
-      items: page.items.map(({ stage, result, projectEstimatedDecisionDate, ...row }) => {
-        const semantic = stages.get(stage.id);
-        return {
-          ...row,
-          stage: { ...stage, isClosed: semantic ? isClosedStage(semantic) : false },
-          result: result ? { outcome: result.outcome, reason: result.reason, awardedPercent: result.awardedPercent } : null,
-          ...decisionDateOf({ result, projectEstimatedDecisionDate }),
-        };
-      }),
+      items: page.items.map((record) => opportunityView(record, stages)),
     };
   }
 

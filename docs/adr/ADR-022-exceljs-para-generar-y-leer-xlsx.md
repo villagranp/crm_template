@@ -117,3 +117,22 @@ Durante la lectura (los tamaños declarados pueden mentir):
   registra en logs; las incidencias guardan códigos, no valores.
 - Exportar exige `reportes.exportar` y respeta el alcance del usuario: la
   librería no cambia ninguna decisión de autorización.
+
+## Addendum 2026-10-14 — Versión incorporada y resultado del gate
+
+- **Versión:** `exceljs` **4.4.0** (última estable publicada; la línea 4.x es la aceptada),
+  fijada exacta en `backend/package.json` (`"exceljs": "4.4.0"`) y en `pnpm-lock.yaml`.
+  Licencia MIT verificada en el paquete.
+- **Gate `pnpm audit --audit-level=high`:** ningún aviso alto ni crítico en `exceljs` ni en sus
+  dependencias de ZIP (`archiver`, `jszip`, `unzipper`) y XML (`saxes`). Un aviso **moderado**
+  en `uuid@8.3.2` (transitiva, la usa `exceljs` para identificadores internos del libro; no
+  recibe datos del usuario): se acepta y se revisa en cada `pnpm audit` del pipeline. El
+  `pnpm audit` global del monorepo tiene avisos altos y críticos **previos** y ajenos a esta
+  dependencia (herramientas de prueba y build); no cambian esta decisión y se tratan aparte.
+- **Uso implementado (Reportes, F-39):** solo escritura en *streaming* desde
+  `backend/src/common/xlsx.ts` (`XlsxStreamWriter`); ninguna otra pieza de producción importa la
+  librería. Las pruebas la usan para **leer** los archivos generados. La lectura de archivos no
+  confiables (carga masiva, 06) sigue pendiente con las guardas de este ADR.
+- **Prueba de memoria:** exportar 100 000 filas (5,8 MB) tarda ~27 s con un pico de ~180 MB
+  sobre el reposo del proceso (05 P-05.17).
+

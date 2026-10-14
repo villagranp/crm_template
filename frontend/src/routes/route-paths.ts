@@ -49,4 +49,14 @@ export const ROUTE_PATHS = {
     activityNew: '/actividad/actividades/nueva',
     activityDetail: '/actividad/actividades/:activityId',
   },
+  /** Reportes (05 E.1, H.3): las siete opciones del módulo `reportes`, todas con `reportes.ver`. */
+  reports: {
+    projects: '/reportes/proyectos',
+    opportunities: '/reportes/oportunidades',
+    forecast: '/reportes/forecast',
+    visits: '/reportes/visitas',
+    activities: '/reportes/actividades',
+    dashboard: '/reportes/dashboard',
+    funnel: '/reportes/embudo',
+  },
 } as const;

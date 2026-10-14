@@ -469,12 +469,12 @@ de la transacción de un alta o edición, el proyecto vinculado se bloquea con
 (`CustomerReferenceGuard.assertUsableCustomer`) recibe los alcances resueltos antes de la
 transacción (`accessScopes`), como exige ahora con `tx`.
 
-## Endpoints del CRM — Módulo 5 · Reportes (primera etapa: F-34 a F-38 y opciones)
+## Endpoints del CRM — Módulo 5 · Reportes (F-34 a F-41)
 
 Especificación: [`05-reportes.md`](../implementation-plans/crm/05-reportes.md) §F.1–§F.5 y
-"Precisiones de implementación (2026-10-13)". Etiqueta OpenAPI `reports`. **Solo lectura**
-(RN-05.1): todo es `GET` y ningún endpoint escribe en tablas comerciales. La exportación XLSX
-(F-39), el dashboard (F-40) y el embudo (F-41) llegan en la siguiente etapa.
+"Precisiones de implementación (2026-10-13)" (P-05.1–P-05.17). Etiqueta OpenAPI `reports`.
+**Solo lectura** (RN-05.1): todo es `GET` y ningún endpoint escribe en tablas comerciales; la
+única escritura del módulo es la auditoría de la exportación (`crm.report.exported`).
 
 Reglas comunes:
 
@@ -508,6 +508,14 @@ Reglas comunes:
 | GET | `/reports/visits/summary` | `reportes.ver` | mismos filtros → `VisitReportSummaryDto` | `400`, `422` |
 | GET | `/reports/activities` | `reportes.ver` | `ActivityReportQueryDto` (`from`, `to`, `dateBasis`, `ownerId[]`, `customerId[]`, `countryId[]` del cliente, `typeId[]`, `statusCategory[]`, `statusId[]`, `priorityId[]`) → `PaginatedActivityReportDto` | `400`, `422` |
 | GET | `/reports/activities/summary` | `reportes.ver` | mismos filtros → `ActivityReportSummaryDto` (con `dueSoonHours`) | `400`, `422` |
+| GET | `/reports/projects/export` | `reportes.ver` **y** `reportes.exportar` | filtros de la lista + `sortBy`, `sortOrder`, `format=xlsx` (sin `page`/`pageSize`) → `.xlsx` | `400`, `403`, `422 EXPORT_TOO_LARGE` / `PERIOD_TOO_LONG` / `INVALID_CATALOG_SEMANTICS`, `429`, `503` |
+| GET | `/reports/opportunities/export` | `reportes.ver` **y** `reportes.exportar` | ídem (`OpportunityReportExportQueryDto`) → `.xlsx` con las columnas de monto de RN-05.59 | ídem |
+| GET | `/reports/forecast/export` | `reportes.ver` **y** `reportes.exportar` | ídem + `groupBy`/`thenBy` opcionales (añaden la hoja "Consolidado") → `.xlsx` | ídem + `400` si `thenBy` sin `groupBy` o igual a él |
+| GET | `/reports/visits/export` | `reportes.ver` **y** `reportes.exportar` | ídem (`VisitReportExportQueryDto`) → `.xlsx` | ídem |
+| GET | `/reports/activities/export` | `reportes.ver` **y** `reportes.exportar` | ídem (`ActivityReportExportQueryDto`) → `.xlsx` | ídem |
+| GET | `/reports/dashboard` | `reportes.ver` | `DashboardQueryDto` (`from`, `to`, `countryId[]`, `ownerId[]`; por defecto 12 meses cerrados + mes en curso, máximo 24 meses) → `CommercialDashboardDto` (`period`, `activeProjects`, `opportunitiesByStage`, `wonLostByMonth`, `forecastRange`, `forecastByMonth`, `tonnageUnit`, `byOwner`, `activityVisitByMonth`) | `400`, `422 PERIOD_TOO_LONG` (`maxMonths: 24`) / `INVALID_CATALOG_SEMANTICS` |
+| GET | `/reports/dashboard/trends` | `reportes.ver` | `DashboardQueryDto` → `CommercialTrendsDto` (`period`, `series[{ metric, points[{ year, month, value }] }]`) | ídem |
+| GET | `/reports/funnel` | `reportes.ver` | `FunnelQueryDto` (`from`, `to` por `opportunity_date`, `stageId[]`, `customerId[]`, `companyTypeId[]`, `ownerId[]`, `countryId[]`) → `SalesFunnelDto` (`stages[{ stage, count, shareOfTotal, cumulativeConversion, unavailableReason }]`, `totalInFunnel`, `sampleMinimum`) | `400`, `422 PERIOD_TOO_LONG` / `INVALID_CATALOG_SEMANTICS` |
 
 Listas blancas de `sortBy` (y orden por defecto): proyectos `code`, `name`, `customerName`,
 `countryName`, `ownerName`, `phaseOrder`, `phaseProgress`, `estimatedDecisionDate`,
@@ -520,7 +528,31 @@ forecast `period`, `projectName`, `productSku`, `familyName`, `ownerName`, `tonn
 (`activityDate desc`). Con `sortBy` y sin `sortOrder`, ascendente.
 
 Todos pueden responder además `503 REPORT_TIMEOUT` (la consulta superó el `statement_timeout`
-de 10 s; acotar los filtros).
+de 10 s en pantallas y 60 s en exportación; acotar los filtros).
+
+### Exportación XLSX (F-39, ADR-022)
+
+- Exige `reportes.ver` **y** `reportes.exportar` (`403` con uno solo). Mismos filtros, alcance y
+  orden que la pantalla, sin paginación; enviar `page` o `pageSize` → `400`.
+- Respuesta `200` binaria: `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`,
+  `Content-Disposition: attachment; filename="reporte-<proyectos|oportunidades|forecast|visitas|actividades>-YYYYMMDD-HHmm.xlsx"`
+  (hora del negocio), `X-Export-Rows`, `X-Export-Truncated: false`, `Cache-Control: no-store`,
+  `X-Content-Type-Options: nosniff`.
+- Hojas "Datos", ["Consolidado" en forecast con `groupBy`], "Resumen" y "Filtros". Celdas tipadas
+  (fechas de Excel en la hora del negocio, cantidades `#,##0.0000` con su unidad al lado,
+  toneladas `#,##0.000`, montos `#,##0.00` con su moneda, porcentajes `0.00 %`); ninguna
+  fórmula y todo texto neutralizado con apóstrofo (`=`, `+`, `-`, `@`, tabulador, CR).
+- Conjunto completo o nada: por encima de `crm.reportes.max_filas_exportacion` (100 000)
+  responde `422 EXPORT_TOO_LARGE` antes de escribir el archivo. Conteo y volcado (lotes
+  *keyset* de 1 000) van en una transacción `REPEATABLE READ READ ONLY` con
+  `statement_timeout` de 60 s.
+- Como mucho 5 exportaciones por minuto **por usuario** (todas las rutas `/export` juntas;
+  cuentan también las rechazadas por validación): `429 RATE_LIMIT_EXCEEDED` con `Retry-After`.
+- Cada exportación correcta deja `crm.report.exported` en `audit_logs` (`resourceType =
+  crm.report`, `resourceId` = reporte, `metadata` = reporte, formato, filtros en JSON, alcance,
+  filas y duración; nunca los datos) y un log `report_exported` sin PII. Un fallo con el archivo
+  ya empezado corta la conexión (nunca un archivo truncado que parezca válido) y se registra
+  como `report_export_aborted`.
 
 ### Códigos de error nuevos (05 F.5)
 
@@ -528,11 +560,15 @@ de 10 s; acotar los filtros).
 |---|---|---|
 | 422 | `PERIOD_TOO_LONG` | Período de más de 5 años (`details[0] = { field: "to", code, message, maxYears: 5 }`) o rango de forecast de más de 24 meses (`{ field: "toMonth", …, maxMonths: 24 }`) |
 | 422 | `INVALID_CATALOG_SEMANTICS` | Un elemento de `crm.etapa_oportunidad`, `crm.fase_cliente`, `crm.estado_visita` o `crm.estado_actividad` no cumple su esquema de 00 §3.3 (`details[] = { field: <catalog>, code, itemCode, message }`) |
+| 422 | `EXPORT_TOO_LARGE` | El conjunto supera `crm.reportes.max_filas_exportacion` (`details[0] = { rows, maxRows }`) |
+| 429 | `RATE_LIMIT_EXCEEDED` | Más de 5 exportaciones en un minuto por usuario (`Retry-After`) |
 | 503 | `REPORT_TIMEOUT` | La consulta superó el tiempo máximo (nueva clase `ServiceUnavailableError` → `503`) |
 
 `400 VALIDATION_FAILED` (DC-6) cubre además: `from`/`to` sueltos o `from > to`, período sin
 `dateBasis` en proyectos, `fromMonth`/`toMonth` sueltos o invertidos, `thenBy = groupBy` y
-`commercialStatus` mal formado.
+`commercialStatus` mal formado, `page`/`pageSize`/`format ≠ xlsx` en `/export`, `thenBy` sin
+`groupBy` en la exportación de forecast y el período del dashboard (`from`/`to` sueltos o invertidos).
+`PERIOD_TOO_LONG` del dashboard lleva `maxMonths: 24`.
 
 ### Servicio compartido de indicadores (05 G.3, 01 F.2)
 
@@ -542,7 +578,8 @@ implementa `prisma-commercial-metrics.repository.ts`. Es la fuente única de las
 Inicio y Reportes: los métodos de 01 F.2 (`countActiveProjects`, `countOpenOpportunities`,
 `countWonOpportunities`, `countLostOpportunities`, `forecastWindow`, `countVisits`,
 `countActivities`, `resolvePeriod`, `forecastWindowMonths`) y las agregaciones con filtros de
-Reportes. Sin endpoints propios.
+Reportes, incluidas `funnel` (embudo, RN-05.53–RN-05.56) y `monthlySeries` / `monthlyCounts`
+(series del dashboard, RN-05.52). Sin endpoints propios.
 
 ## Contract rules
 

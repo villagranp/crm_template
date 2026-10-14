@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 
 import type { Page } from '@/infrastructure/database/ports/pagination';
-import { CommercialMetricsService } from '@/modules/commercial-metrics/commercial-metrics.service';
+import { CommercialMetricsService, type MetricCatalogItem } from '@/modules/commercial-metrics/commercial-metrics.service';
 import { activityCategory, type ActivityCategory } from '@/modules/commercial-metrics/metric-definitions';
 import type { ActivityCountsRecord } from '@/modules/commercial-metrics/ports/commercial-metrics-read-model.port';
 import { ParameterReader } from '@/modules/parameters/parameter-reader';
@@ -25,6 +25,13 @@ export interface ActivityReportSummary extends ActivityCountsRecord {
 
 export const ACTIVITY_REPORT_DEFAULT_SORT = { sortBy: 'activityDate', sortOrder: 'desc' } as const;
 
+/** Registro → fila del reporte (pantalla y exportación, RN-05.44); "ahora" = instante del servidor. */
+export function activityView(row: ActivityReportRecord, statuses: ReadonlyMap<string, MetricCatalogItem>, now: Date): ActivityReportView {
+  const semantic = statuses.get(row.status.id);
+  const category = semantic ? activityCategory(semantic, row.dueAt, now) : 'CANCELLED';
+  return { ...row, status: { ...row.status, category }, isOverdue: category === 'OVERDUE' };
+}
+
 /**
  * Reporte de actividades (05 F-38, E.6, AC-05.20–AC-05.22): pendientes y vencidas
  * disjuntas (D-05.5); "ahora" es el instante del servidor (RN-05.7).
@@ -43,11 +50,7 @@ export class ActivityReportService {
     const statuses = new Map(semantics.activityStatuses.map((status) => [status.id, status]));
     return {
       ...page,
-      items: page.items.map((row) => {
-        const semantic = statuses.get(row.status.id);
-        const category = semantic ? activityCategory(semantic, row.dueAt, ctx.now) : 'CANCELLED';
-        return { ...row, status: { ...row.status, category }, isOverdue: category === 'OVERDUE' };
-      }),
+      items: page.items.map((row) => activityView(row, statuses, ctx.now)),
     };
   }
 

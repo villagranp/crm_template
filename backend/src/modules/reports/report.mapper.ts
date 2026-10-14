@@ -1,9 +1,12 @@
-import type { ForecastAggregate, ForecastGroup, StageCount } from '@/modules/commercial-metrics/commercial-metrics.service';
+import type { ForecastAggregate, ForecastGroup, SalesFunnel, StageCount } from '@/modules/commercial-metrics/commercial-metrics.service';
 
 import type { ActivityReportSummary, ActivityReportView } from './activity-report.service';
+import type { CommercialDashboard, CommercialTrends } from './dashboard.service';
 import type {
   ActivityReportRowDto,
   ActivityReportSummaryDto,
+  CommercialDashboardDto,
+  CommercialTrendsDto,
   ForecastGroupDto,
   ForecastReportRowDto,
   ForecastReportSummaryDto,
@@ -14,6 +17,7 @@ import type {
   ProjectReportRowDto,
   ReportFilterOptionsDto,
   ReportStageCountDto,
+  SalesFunnelDto,
   VisitReportRowDto,
   VisitReportSummaryDto,
 } from './dto/report-response.dto';
@@ -224,5 +228,45 @@ export function toReportFilterOptionsDto(options: ReportFilterOptions): ReportFi
     },
     productFamilies: [...options.productFamilies],
     scope: options.scope,
+  };
+}
+
+export function toCommercialDashboardDto(dashboard: CommercialDashboard): CommercialDashboardDto {
+  return {
+    period: dashboard.period,
+    activeProjects: {
+      count: dashboard.activeProjects.count,
+      byPhase: dashboard.activeProjects.byPhase.map((phase) => ({ phase: { id: phase.phaseId, code: phase.code, label: phase.label, order: phase.order }, count: phase.count })),
+    },
+    opportunitiesByStage: dashboard.opportunitiesByStage.map(toStageCountDto),
+    wonLostByMonth: dashboard.wonLostByMonth.map((month) => ({ ...month })),
+    forecastRange: { from: { ...dashboard.forecastRange.from }, to: { ...dashboard.forecastRange.to } },
+    forecastByMonth: dashboard.forecastByMonth.map((month) => ({ ...month })),
+    tonnageUnit: dashboard.tonnageUnit,
+    byOwner: dashboard.byOwner.map((row) => ({
+      owner: row.owner ? { id: row.owner.id, displayName: row.owner.displayName } : null,
+      openOpportunities: row.openOpportunities,
+      won: row.won,
+      forecastTonnage: row.forecastTonnage,
+    })),
+    activityVisitByMonth: dashboard.activityVisitByMonth.map((month) => ({ ...month })),
+  };
+}
+
+export function toCommercialTrendsDto(trends: CommercialTrends): CommercialTrendsDto {
+  return { period: trends.period, series: trends.series.map((series) => ({ metric: series.metric, points: series.points.map((point) => ({ ...point })) })) };
+}
+
+export function toSalesFunnelDto(funnel: SalesFunnel): SalesFunnelDto {
+  return {
+    stages: funnel.stages.map((stage) => ({
+      stage: { ...stage.stage },
+      count: stage.count,
+      shareOfTotal: stage.shareOfTotal,
+      cumulativeConversion: stage.cumulativeConversion,
+      unavailableReason: stage.unavailableReason,
+    })),
+    totalInFunnel: funnel.totalInFunnel,
+    sampleMinimum: funnel.sampleMinimum,
   };
 }

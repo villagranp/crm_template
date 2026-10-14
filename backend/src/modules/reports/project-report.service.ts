@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 
 import type { Page } from '@/infrastructure/database/ports/pagination';
-import { CommercialMetricsService } from '@/modules/commercial-metrics/commercial-metrics.service';
+import { CommercialMetricsService, type MetricCatalogItem } from '@/modules/commercial-metrics/commercial-metrics.service';
 import { type CommercialStatus, isFinalPhase } from '@/modules/commercial-metrics/metric-definitions';
 import { commercialStatusFromAggregate } from '@/modules/projects/project-commercial-status';
 
@@ -19,6 +19,12 @@ export interface ProjectReportView extends Omit<ProjectReportRecord, 'phase' | '
 }
 
 export const PROJECT_REPORT_DEFAULT_SORT = { sortBy: 'lastActivityAt', sortOrder: 'desc' } as const;
+
+/** Registro → fila del reporte (pantalla y exportación, RN-05.44). */
+export function projectView({ commercial, phase, ...row }: ProjectReportRecord, phases: ReadonlyMap<string, MetricCatalogItem>): ProjectReportView {
+  const semantic = phases.get(phase.id);
+  return { ...row, phase: { ...phase, isFinal: semantic ? isFinalPhase(semantic) : false }, commercialStatus: commercialStatusFromAggregate(commercial) };
+}
 
 /**
  * Reporte de proyectos (05 F-34, E.2, AC-05.1–AC-05.3). Una fila por proyecto: el estado
@@ -38,14 +44,7 @@ export class ProjectReportService {
     const phases = new Map(semantics.phases.map((phase) => [phase.id, phase]));
     return {
       ...page,
-      items: page.items.map(({ commercial, phase, ...row }) => {
-        const semantic = phases.get(phase.id);
-        return {
-          ...row,
-          phase: { ...phase, isFinal: semantic ? isFinalPhase(semantic) : false },
-          commercialStatus: commercialStatusFromAggregate(commercial),
-        };
-      }),
+      items: page.items.map((record) => projectView(record, phases)),
     };
   }
 }

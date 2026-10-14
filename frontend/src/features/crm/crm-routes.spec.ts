@@ -6,7 +6,7 @@ import { COMMERCIAL_ACTIVITY_ROUTES } from './commercial-activity/commercial-act
 import { CRM_ROUTES } from './crm-routes';
 import { opportunityDetailPath, projectDetailPath } from './projects';
 
-describe('CRM_ROUTES (02 §E.1, 03 §E.1, 04 §E.1)', () => {
+describe('CRM_ROUTES (02 §E.1, 03 §E.1, 04 §E.1, 05 §E.1)', () => {
   it('protege cada ruta con el permiso de su opción de menú o de su operación (nombres del catálogo sembrado)', () => {
     const permissionByPath = Object.fromEntries(CRM_ROUTES.map((route) => [route.path, route.permission]));
 
@@ -31,6 +31,13 @@ describe('CRM_ROUTES (02 §E.1, 03 §E.1, 04 §E.1)', () => {
       [ROUTE_PATHS.activity.activities]: 'actividades.ver',
       [ROUTE_PATHS.activity.activityNew]: 'actividades.crear',
       [ROUTE_PATHS.activity.activityDetail]: 'actividades.ver',
+      '/reportes/proyectos': 'reportes.ver',
+      '/reportes/oportunidades': 'reportes.ver',
+      '/reportes/forecast': 'reportes.ver',
+      '/reportes/visitas': 'reportes.ver',
+      '/reportes/actividades': 'reportes.ver',
+      '/reportes/dashboard': 'reportes.ver',
+      '/reportes/embudo': 'reportes.ver',
     });
   });
 

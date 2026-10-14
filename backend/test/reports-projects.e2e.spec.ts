@@ -18,7 +18,8 @@ import { closeTestContext, createTestContext, type TestContext, tokenWithRoles }
 
 /**
  * Módulo 5 · Reporte de proyectos (05 F-34): PF-05.7, PF-05.33, AC-05.1–AC-05.3, y
- * PF-05.20 (401/403/200) para **todos** los endpoints de esta etapa. Países propios `K5`, `K6`.
+ * PF-05.20 (401/403/200) para **todos** los endpoints de lectura del módulo (los `/export`, en
+ * `reports-export.e2e.spec.ts`). Países propios `K5`, `K6`.
  */
 
 let context: TestContext;
@@ -28,7 +29,7 @@ let k6: string;
 const NOW = Date.now();
 const DAY = 86_400_000;
 
-/** Endpoints de lectura de la etapa (F-34…F-38 + opciones de filtro). */
+/** Endpoints de lectura del módulo (F-34…F-38, opciones de filtro, dashboard F-40 y embudo F-41). */
 const READ_ENDPOINTS = [
   '/reports/filter-options',
   '/reports/projects',
@@ -41,6 +42,9 @@ const READ_ENDPOINTS = [
   '/reports/visits/summary',
   '/reports/activities',
   '/reports/activities/summary',
+  '/reports/dashboard',
+  '/reports/dashboard/trends',
+  '/reports/funnel',
 ];
 
 beforeAll(async () => {

@@ -8,6 +8,14 @@ export interface ReportPageQuery<TSort extends string> {
   readonly sortOrder?: SortOrder;
 }
 
+/** Orden efectivo sin paginación (exportación, RN-05.44): mismas reglas que `reportPage`. */
+export function reportSort<TSort extends string>(
+  query: { readonly sortBy?: TSort; readonly sortOrder?: SortOrder },
+  defaults: { readonly sortBy: TSort; readonly sortOrder: SortOrder },
+): { sortBy: TSort; sortOrder: SortOrder } {
+  return { sortBy: query.sortBy ?? defaults.sortBy, sortOrder: query.sortOrder ?? (query.sortBy ? 'asc' : defaults.sortOrder) };
+}
+
 /**
  * Orden efectivo (RN-05.14, E.2–E.6): sin `sortBy`, el campo y el sentido por defecto del
  * reporte (o el `sortOrder` pedido); con `sortBy`, el `sortOrder` pedido o ascendente.

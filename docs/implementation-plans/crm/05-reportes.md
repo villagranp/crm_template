@@ -984,7 +984,7 @@ las de Reportes se llaman `countVisitCategories(criteria, now, upcomingDays | nu
 `stageDistribution(criteria, semantics)`, `ownerDistribution(criteria)`, `countProjects(criteria)`,
 `forecastTotals(criteria)`, `forecastConsolidation(criteria, grouping, page)` y `semantics()`
 (catálogos validados y resueltos a ids, sin caché). `funnel` y `monthlySeries` llegan con el
-embudo y el dashboard. El `filter` genérico de G.3 se concreta en un criterio tipado por entidad
+embudo y el dashboard (P-05.14, P-05.15). El `filter` genérico de G.3 se concreta en un criterio tipado por entidad
 (`OpportunityCriteria`, `ProjectCriteria`, `ForecastCriteria`, `VisitCriteria`,
 `ActivityCriteria`), que comparten el servicio de métricas y `ReportingRepository`.
 
@@ -1076,7 +1076,136 @@ Unitarias: `metric-definitions.reports.spec.ts` (PF-05.1, PF-05.2), `commercial-
 (PF-05.22, PF-05.23), `reports-read-only.e2e.spec.ts` (PF-05.29) y
 `commercial-metrics-consistency.e2e.spec.ts` (PF-05.30, PF-05.31, solo lectura y timeout).
 Pendientes de la etapa siguiente: PF-05.5, PF-05.6, PF-05.21, PF-05.24–28 (exportación y
-`429`), PF-05.32 y las de frontend y Playwright.
+`429`), PF-05.32 y las de frontend y Playwright (las de backend, cubiertas en P-05.18).
+
+---
+
+## Precisiones de implementación — segunda etapa del backend (2026-10-14)
+
+K.2 pasos 5–7, parte backend: exportación XLSX (F-39), dashboard (F-40), embudo (F-41), menú y
+rutas. Sin cambios de esquema ni migraciones. Dependencia nueva: `exceljs` (ADR-022).
+
+### P-05.11 `exceljs` 4.4.0 y el gate de `pnpm audit`
+
+ADR-022 no fijaba versión: se incorpora la última estable (`4.4.0`, `--save-exact`) en
+`@app/backend` (addendum de ADR-022). `pnpm audit --audit-level=high` sobre `exceljs` y sus
+dependencias de ZIP y XML: **ninguna alta ni crítica**; un único aviso **moderado** (`uuid`
+< 11.1.1, vía `exceljs` → `uuid@8.3.2`; `exceljs` solo lo usa para identificadores internos del
+libro, sin entradas del usuario). El `pnpm audit` **global** del monorepo sigue en rojo por
+avisos **previos** ajenos a este cambio (`vite`/`vitest`/`tinypool` del frontend, `jest`/
+`braces`, `ts-jest`/`handlebars`, `prisma`/`deepmerge-ts`); se reporta como pendiente.
+
+### P-05.12 Exportación (F-39): piezas y comportamiento
+
+- `common/xlsx.ts` es la única pieza que importa `exceljs` (las pruebas lo usan para **leer**
+  el archivo). Escritor en *streaming*; textos como celda de texto (formato `@`) y
+  neutralizados con `neutralizeFormula` de `common/csv.ts` (ahora exportada); números con más
+  de 15 dígitos significativos → texto, contados en la hoja "Filtros". Los instantes se
+  escriben en la hora local de `crm.zona_horaria_negocio`.
+- `ReportingRepository.export*Rows(criteria, sort, sink)`: **misma** consulta (SELECT, FROM,
+  WHERE, orden) que la lista. Conteo → `sink.begin(rowCount)` (tope) → lotes *keyset* de 1 000
+  (`ORDER BY expr NULLS LAST, id`; la última clave viaja como texto y se vuelve a convertir a su
+  tipo SQL, sin perder microsegundos ni decimales), en una transacción `REPEATABLE READ READ
+  ONLY` con `statement_timeout` de 60 s (`EXPORT_STATEMENT_TIMEOUT_MS`).
+- Hojas: "Datos" (columnas de `report-columns.ts`), "Consolidado" (forecast con `groupBy`;
+  todos los grupos, `thenBy` opcional y exige `groupBy`), "Resumen" (los mismos servicios que
+  `/summary`) y "Filtros". El reporte de proyectos no tiene resumen en pantalla: su "Resumen"
+  lleva proyectos, activos y finalizados del conjunto (AC-05.24 pide la hoja en los cinco).
+- "Resumen" y "Datos" se leen en transacciones distintas: con escrituras concurrentes pueden
+  diferir en un registro; `X-Export-Rows` y la fila "Filas" son siempre las del archivo.
+- Columnas (RN-05.50, opción más restrictiva): **no** se exportan `resultSummary` (visitas) ni
+  `resultNotes` (actividades), texto libre que la pantalla resume como "Resultado". En forecast,
+  "Tonelaje (t)" vacío = sin conversión (la columna sigue siendo numérica; el conteo va en
+  "Resumen"). El resultado de la oportunidad usa las etiquetas fijas Ganado / Parcial / Perdido.
+- "Filtros" en texto legible solo con las etiquetas **del alcance** (opciones de filtro
+  autorizadas: asesores, países, catálogos, familias). Clientes, proyectos y productos se
+  muestran por su id: resolver su nombre revelaría registros fuera del alcance (RN-05.4).
+- Auditoría `crm.report.exported` (`resourceType = crm.report`, `resourceId` = reporte,
+  `metadata = { report, format, filters (JSON, ≤ 4 000 caracteres), scope, rows, durationMs }`) al
+  completar el volcado y **antes** de cerrar el ZIP: toda extracción completa queda registrada.
+  Log `report_exported` (ids, filas, duración; sin PII).
+- Un error **antes** de empezar el archivo llega con el formato estándar (`422`, `503`…). Si ya
+  se enviaron las cabeceras, se corta la conexión (nunca un archivo truncado que parezca
+  válido) y se registra `report_export_aborted`.
+- Cabeceras: además de las de F.4, `Cache-Control: no-store` y `X-Content-Type-Options: nosniff`.
+
+### P-05.13 Límite de exportaciones (F.4)
+
+`ReportExportThrottleGuard` (guard de ruta, después de autenticación y permisos): ventana
+deslizante de 60 s sobre el almacenamiento del `ThrottlerModule`, clave = proveedor + sujeto del
+token. "5 por minuto por usuario" se aplica a **todas** las rutas `/export` juntas y cuenta
+también las peticiones que después rechaza la validación (opción más restrictiva). Exceso →
+`429 RATE_LIMIT_EXCEEDED` con `Retry-After`. El almacenamiento es en memoria por instancia (como
+el limitador global).
+
+### P-05.14 Dashboard (F-40)
+
+- Período: `from`/`to` juntos o ninguno, `from ≤ to`; por defecto del 1 de M-12 al último día
+  de M (zona del negocio); máximo 24 meses **de calendario** (`422 PERIOD_TOO_LONG`,
+  `maxMonths: 24`). Series con **todos** los meses del período (también en 0).
+- Paneles: proyectos activos por fase (fases no finales; estado actual, sin período ni
+  tendencia, D-05.13); oportunidades **identificadas** en el período por etapa vigente
+  (`stageDistribution` con `IDENTIFIED`); ganadas/parciales/perdidas por mes de
+  `decision_date` (`wonLostByMonth` añade `wonFull`: `won` = WON + PARTIAL, DM-15, y el apilado
+  usa `wonFull` + `partial`); forecast de los meses del período ∪ M+1…M+H con acumulado sobre
+  los meses devueltos (`forecastRange` y `tonnageUnit` añadidos); actividades completadas
+  (`completed_at`), visitas realizadas + confirmadas (`actual_start_at`) y canceladas
+  (`cancelled_at`) por mes.
+- "Distribución por asesor": abiertas entre las identificadas en el período, ganadas decididas
+  en el período y toneladas del rango de forecast; top 10 por abiertas + ganadas (después
+  toneladas y nombre) y el resto en "Otros" (`owner: null`). Solo asesores con algún valor.
+- `CommercialMetricsService` añade `monthlyCounts`/`monthlySeries` (G.3), `activeProjectsByPhase`,
+  `forecastOwnerTonnage` y los criterios del dashboard; el puerto, `projectPhaseCounts`,
+  `opportunityMonthlyCounts`, `activityMonthlyCounts`, `visitMonthlyCounts` y
+  `forecastOwnerTonnage`. Meses en la zona del negocio (`AT TIME ZONE` para `timestamptz`).
+
+### P-05.15 Embudo (F-41)
+
+- `funnel(criteria, semantics, visibleStageIds)` en el servicio compartido; el filtro de etapa
+  **no** entra en el criterio (RN-05.56). `companyTypeIds` es un campo opcional nuevo de
+  `OpportunityCriteria` (`customers.company_type_id`, D-05.8).
+- Población de la conversión = todas las oportunidades del conjunto filtrado (cualquier etapa
+  vigente: una perdida que pasó por Cotizando cuenta como que alcanzó Cotizando). Alcance de
+  cada una = mayor `order` de las etapas `inFunnel` activas entre su historial y su etapa
+  vigente.
+- `unavailableReason` por etapa: `NO_DATA` si el total del embudo es 0; si no, el motivo de la
+  conversión (`INSUFFICIENT_HISTORY` antes que `INSUFFICIENT_SAMPLE`) o `null`.
+- Una etapa activa `inFunnel` sin `order` entero → `422 INVALID_CATALOG_SEMANTICS` (PF-05.32;
+  lo prueba una app de integración propia que sustituye la lectura de catálogos, sin tocar el
+  catálogo compartido).
+
+### P-05.16 Menú y rutas (DM-32, H.3)
+
+Las siete rutas `/reportes/*` quedan en `app-routes.registry.json`; con ello la semilla esencial
+crea las siete opciones ya declaradas (`reportes-*`, `reportes.ver`) para asesor, manager y
+responsable de país. El frontend registra las mismas rutas en
+`features/crm/reports/reports-routes.ts` con un componente **provisional**
+(`ReportsPendingPage`, "En construcción") hasta la etapa de frontend, y los iconos `bar_chart`,
+`insights` y `filter_alt` en `MaterialSymbol`.
+
+### P-05.17 Rendimiento e índices (PF-05.41, D.6)
+
+Medido en un esquema de integración con 1 000 proyectos, 50 000 oportunidades y 200 000 líneas
+de forecast (equipo de desarrollo, PostgreSQL en Docker; 3 ejecuciones): pantallas entre 0,1 y
+0,3 s (lista, resumen, forecast), consolidado de forecast ~0,9 s, dashboard ~0,5 s y embudo
+~1,2 s, todas < 2 s. Exportación de 50 000 oportunidades en ~16 s y de 100 000 líneas de forecast
+(5,8 MB) en ~27 s, < 60 s, con un pico de memoria del proceso de ~180 MB por encima del reposo
+(streaming). `EXPLAIN` de `opportunities.opportunity_date` en un mes: *seq scan* (selectividad
+~11 %; no hay índice y a este volumen no hace falta). `visits(confirmed_at)` y
+`activities(completed_at)` no se pudieron evaluar con volumen (sin datos ampliados de
+actividad). **No se cambia el esquema**; si el volumen real lo exige, se proponen en 00 como
+migración aditiva (D.6).
+
+### P-05.18 Pruebas de esta etapa
+
+Unitarias: `common/xlsx.spec.ts` (PF-05.6), `commercial-metrics.funnel.spec.ts` (PF-05.5,
+series mensuales), `dashboard.service.spec.ts`, `report-export.service.spec.ts`. Integración:
+`reports-export.e2e.spec.ts` (PF-05.21, PF-05.24–PF-05.28, PF-05.45, AC-05.25),
+`reports-dashboard-funnel.e2e.spec.ts` (AC-05.30–AC-05.39, PF-05.32), y ampliadas
+`reports-projects.e2e.spec.ts` (PF-05.20 en los 14 endpoints de lectura),
+`reports-read-only.e2e.spec.ts` (PF-05.29 con dashboard, embudo y exportación) y
+`seeds.e2e.spec.ts` (siete opciones de menú). Pendientes: las de frontend y Playwright
+(PF-05.34–PF-05.40, PF-05.46, PF-05.47).
 
 ---
 

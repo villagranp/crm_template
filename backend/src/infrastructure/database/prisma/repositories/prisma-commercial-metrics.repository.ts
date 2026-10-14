@@ -18,7 +18,13 @@ import type {
   ForecastGroupKey,
   ForecastGroupsRecord,
   ForecastTotalsRecord,
+  FunnelReachRecord,
+  FunnelStageRef,
+  MonthCountRecord,
   OpportunityCriteria,
+  OpportunityMonthRecord,
+  OwnerTonnageRecord,
+  PhaseCountRecord,
   OpportunityTotalsRecord,
   OwnerOpportunityCountsRecord,
   ProjectCountsRecord,
@@ -26,7 +32,9 @@ import type {
   StageCountRecord,
   VisitCountsRecord,
   VisitCriteria,
+  VisitMonthRecord,
 } from '@/modules/commercial-metrics/ports/commercial-metrics-read-model.port';
+import type { BusinessDateWindow } from '@/modules/commercial-metrics/commercial-period';
 
 import { PrismaService } from '../prisma.service';
 import { runReportRead } from '../report-read';
@@ -132,6 +140,7 @@ export function opportunityWhereSql(criteria: OpportunityCriteria): Prisma.Sql {
   if (criteria.customerIds.length) conditions.push(uuidInSql(Prisma.sql`p.customer_id`, criteria.customerIds));
   if (criteria.countryIds.length) conditions.push(uuidInSql(Prisma.sql`p.country_id`, criteria.countryIds));
   if (criteria.stageIds.length) conditions.push(uuidInSql(Prisma.sql`o.stage_id`, criteria.stageIds));
+  if (criteria.companyTypeIds?.length) conditions.push(uuidInSql(Prisma.sql`c.company_type_id`, criteria.companyTypeIds));
   if (criteria.statuses.length) {
     const categories = [...new Set(criteria.statuses.flatMap((status) => OPPORTUNITY_STATUS_CATEGORIES[status]))];
     conditions.push(orSql(categories.map((category) => opportunityCategorySql(category, criteria))));
@@ -630,5 +639,122 @@ export class PrismaCommercialMetricsRepository implements CommercialMetricsReadM
       cancelled: row?.cancelled ?? 0,
       dueSoon: row?.due_soon ?? 0,
     };
+  }
+  // -------------------------------------------------------------------------
+  // Dashboard (F-40) y embudo (F-41)
+  // -------------------------------------------------------------------------
+
+  async projectPhaseCounts(criteria: ProjectCriteria): Promise<PhaseCountRecord[]> {
+    const rows = await runReportRead(
+      this.prisma,
+      (db) => db.$queryRaw<{ phase_id: string; count: number }[]>`
+        SELECT p.phase_id, COUNT(*)::int AS count
+        ${projectFromSql(criteria)}
+        WHERE ${projectWhereSql(criteria)}
+        GROUP BY p.phase_id`,
+    );
+    return rows.map((row) => ({ phaseId: row.phase_id, count: row.count }));
+  }
+
+  async opportunityMonthlyCounts(criteria: OpportunityCriteria, timeZone: string): Promise<OpportunityMonthRecord[]> {
+    if (!criteria.period) throw new Error('opportunityMonthlyCounts requires a period');
+    const column =
+      criteria.period.basis === 'IDENTIFIED'
+        ? Prisma.sql`o.opportunity_date`
+        : criteria.period.basis === 'DECIDED'
+          ? Prisma.sql`r.decision_date`
+          : Prisma.sql`(o.updated_at AT TIME ZONE ${timeZone})`;
+    const rows = await runReportRead(
+      this.prisma,
+      (db) => db.$queryRaw<{ year: number; month: number; total: number; won_full: number; partial: number; lost: number }[]>`
+        SELECT EXTRACT(YEAR FROM ${column})::int AS year, EXTRACT(MONTH FROM ${column})::int AS month, COUNT(*)::int AS total,
+               (COUNT(*) FILTER (WHERE ${opportunityCategorySql('WON_FULL', criteria)}))::int AS won_full,
+               (COUNT(*) FILTER (WHERE ${opportunityCategorySql('PARTIAL', criteria)}))::int AS partial,
+               (COUNT(*) FILTER (WHERE ${opportunityCategorySql('LOST', criteria)}))::int AS lost
+        ${OPPORTUNITY_FROM_SQL}
+        WHERE ${opportunityWhereSql(criteria)}
+        GROUP BY 1, 2
+        ORDER BY 1, 2`,
+    );
+    return rows.map((row) => ({ year: row.year, month: row.month, total: row.total, wonFull: row.won_full, partial: row.partial, lost: row.lost }));
+  }
+
+  async activityMonthlyCounts(criteria: ActivityCriteria, timeZone: string): Promise<MonthCountRecord[]> {
+    const local = Prisma.sql`(a.completed_at AT TIME ZONE ${timeZone})`;
+    const rows = await runReportRead(
+      this.prisma,
+      (db) => db.$queryRaw<{ year: number; month: number; count: number }[]>`
+        SELECT EXTRACT(YEAR FROM ${local})::int AS year, EXTRACT(MONTH FROM ${local})::int AS month, COUNT(*)::int AS count
+        ${ACTIVITY_FROM_SQL}
+        WHERE ${activityWhereSql(criteria)} AND a.completed_at IS NOT NULL
+        GROUP BY 1, 2
+        ORDER BY 1, 2`,
+    );
+    return rows.map((row) => ({ year: row.year, month: row.month, count: row.count }));
+  }
+
+  async visitMonthlyCounts(criteria: VisitCriteria, window: BusinessDateWindow, timeZone: string): Promise<VisitMonthRecord[]> {
+    const base = visitWhereSql({ ...criteria, period: null });
+    const done = orSql([visitCategorySql('COMPLETED', criteria), visitCategorySql('CONFIRMED', criteria)]);
+    const cancelled = visitCategorySql('CANCELLED', criteria);
+    const actual = Prisma.sql`(v.actual_start_at AT TIME ZONE ${timeZone})`;
+    const cancelledAt = Prisma.sql`(v.cancelled_at AT TIME ZONE ${timeZone})`;
+    const rows = await runReportRead(
+      this.prisma,
+      (db) => db.$queryRaw<{ year: number; month: number; completed: number; cancelled: number }[]>`
+        SELECT year, month, SUM(completed)::int AS completed, SUM(cancelled)::int AS cancelled FROM (
+          SELECT EXTRACT(YEAR FROM ${actual})::int AS year, EXTRACT(MONTH FROM ${actual})::int AS month, 1 AS completed, 0 AS cancelled
+          ${VISIT_FROM_SQL}
+          WHERE ${base} AND ${done} AND ${instantWindowSql(Prisma.sql`v.actual_start_at`, window)}
+          UNION ALL
+          SELECT EXTRACT(YEAR FROM ${cancelledAt})::int, EXTRACT(MONTH FROM ${cancelledAt})::int, 0, 1
+          ${VISIT_FROM_SQL}
+          WHERE ${base} AND ${cancelled} AND ${instantWindowSql(Prisma.sql`v.cancelled_at`, window)}
+        ) AS monthly
+        GROUP BY year, month
+        ORDER BY year, month`,
+    );
+    return rows.map((row) => ({ year: row.year, month: row.month, completed: row.completed, cancelled: row.cancelled }));
+  }
+
+  async forecastOwnerTonnage(criteria: ForecastCriteria): Promise<OwnerTonnageRecord[]> {
+    const rows = await runReportRead(
+      this.prisma,
+      (db) => db.$queryRaw<{ owner_id: string; owner_name: string; tonnage: Prisma.Decimal | null }[]>`
+        SELECT ow.id AS owner_id, ow.display_name AS owner_name, SUM(fl.tonnage) AS tonnage
+        ${FORECAST_FROM_SQL}
+        WHERE ${forecastWhereSql(criteria)}
+        GROUP BY ow.id, ow.display_name
+        ORDER BY lower(ow.display_name) ASC, ow.id ASC`,
+    );
+    return rows.map((row) => ({ owner: { id: row.owner_id, displayName: row.owner_name }, tonnage: decimal(row.tonnage) }));
+  }
+
+  /**
+   * RN-05.55: por oportunidad, el mayor `order` de las etapas del embudo presentes en su
+   * historial **o** vigentes; agrupado (nunca un `JOIN` que multiplique la oportunidad).
+   */
+  async opportunityFunnelReach(criteria: OpportunityCriteria, funnelStages: readonly FunnelStageRef[]): Promise<FunnelReachRecord[]> {
+    const ids = funnelStages.map((stage) => stage.stageId);
+    const orders = funnelStages.map((stage) => stage.order);
+    const rows = await runReportRead(
+      this.prisma,
+      (db) => db.$queryRaw<{ max_order: number | null; has_history: boolean; count: number }[]>`
+        WITH base AS (
+          SELECT o.id, o.stage_id ${OPPORTUNITY_FROM_SQL} WHERE ${opportunityWhereSql(criteria)}
+        ), funnel AS (
+          SELECT f.stage_id, f.ord FROM unnest(${ids}::uuid[], ${orders}::int[]) AS f(stage_id, ord)
+        ), reach AS (
+          SELECT b.id,
+                 (SELECT MAX(fs.ord) FROM (
+                    SELECT h.to_stage_id AS stage_id FROM opportunity_stage_history h WHERE h.opportunity_id = b.id
+                    UNION ALL SELECT b.stage_id
+                  ) visited JOIN funnel fs ON fs.stage_id = visited.stage_id) AS max_order,
+                 EXISTS (SELECT 1 FROM opportunity_stage_history h WHERE h.opportunity_id = b.id) AS has_history
+          FROM base b
+        )
+        SELECT max_order, has_history, COUNT(*)::int AS count FROM reach GROUP BY max_order, has_history`,
+    );
+    return rows.map((row) => ({ maxOrder: row.max_order, hasHistory: row.has_history, count: row.count }));
   }
 }

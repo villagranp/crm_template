@@ -208,12 +208,48 @@ export interface CountryOptionRecord extends NamedRef {
   readonly currencyCode: string;
 }
 
+// ---------------------------------------------------------------------------
+// Exportación (F-39, RN-05.44–RN-05.46)
+// ---------------------------------------------------------------------------
+
+/** Orden del volcado: el mismo de la pantalla (RN-05.14, RN-05.44), sin paginación. */
+export interface ReportSortRequest<TSort extends string> {
+  readonly sortBy: TSort;
+  readonly sortOrder: SortOrder;
+}
+
+export interface OpportunityExportRequest extends ReportSortRequest<OpportunityReportSortField> {
+  readonly stageRanking: readonly string[];
+}
+
+/**
+ * Destino del volcado. El adaptador cuenta el conjunto y llama a `begin(rowCount)`
+ * **antes** de leer filas (ahí se aplica el tope, RN-05.45: si lanza, no se lee ni se
+ * escribe nada); después entrega las filas por lotes, en orden. Conteo y lotes van en
+ * **una** transacción `REPEATABLE READ READ ONLY` (RN-05.46): el archivo contiene
+ * exactamente las filas contadas.
+ */
+export interface ReportExportSink<TRecord> {
+  begin(rowCount: number): Promise<void> | void;
+  write(rows: readonly TRecord[]): Promise<void> | void;
+}
+
 export interface ReportingRepository {
   projectRows(criteria: ProjectCriteria, page: ReportPageRequest<ProjectReportSortField>): Promise<Page<ProjectReportRecord>>;
   opportunityRows(criteria: OpportunityCriteria, page: OpportunityRowsRequest): Promise<Page<OpportunityReportRecord>>;
   forecastRows(criteria: ForecastCriteria, page: ReportPageRequest<ForecastReportSortField>): Promise<Page<ForecastReportRecord>>;
   visitRows(criteria: VisitCriteria, page: ReportPageRequest<VisitReportSortField>): Promise<Page<VisitReportRecord>>;
   activityRows(criteria: ActivityCriteria, page: ReportPageRequest<ActivityReportSortField>): Promise<Page<ActivityReportRecord>>;
+  /**
+   * Volcado completo con los **mismos** criterios, columnas y orden que la lista
+   * (RN-05.44), por lotes *keyset* (orden + `id`) y con el `statement_timeout` de
+   * exportación (D.3). Devuelve las filas entregadas.
+   */
+  exportProjectRows(criteria: ProjectCriteria, sort: ReportSortRequest<ProjectReportSortField>, sink: ReportExportSink<ProjectReportRecord>): Promise<number>;
+  exportOpportunityRows(criteria: OpportunityCriteria, sort: OpportunityExportRequest, sink: ReportExportSink<OpportunityReportRecord>): Promise<number>;
+  exportForecastRows(criteria: ForecastCriteria, sort: ReportSortRequest<ForecastReportSortField>, sink: ReportExportSink<ForecastReportRecord>): Promise<number>;
+  exportVisitRows(criteria: VisitCriteria, sort: ReportSortRequest<VisitReportSortField>, sink: ReportExportSink<VisitReportRecord>): Promise<number>;
+  exportActivityRows(criteria: ActivityCriteria, sort: ReportSortRequest<ActivityReportSortField>, sink: ReportExportSink<ActivityReportRecord>): Promise<number>;
   /**
    * Responsables de algún registro comercial **visible** con `scope` (proyectos,
    * oportunidades, líneas de forecast, visitas y actividades vigentes), por nombre.

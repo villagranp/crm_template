@@ -18,8 +18,8 @@ import {
 import { closeTestContext, createTestContext, type TestContext } from './support/test-app';
 
 /**
- * Módulo 5 · Solo lectura (05 RN-05.1, PF-05.29, AC-05.43): ningún endpoint de la etapa
- * modifica filas comerciales. Se comparan conteos y `max(updated_at)` de las tablas
+ * Módulo 5 · Solo lectura (05 RN-05.1, PF-05.29, AC-05.43): ningún endpoint del módulo
+ * (incluida la exportación, cuya única escritura es la auditoría) modifica filas comerciales. Se comparan conteos y `max(updated_at)` de las tablas
  * comerciales **del país propio `J4`** (otras suites escriben a la vez en las suyas) y los
  * eventos de auditoría de los usuarios de la prueba, antes y después de llamar a todo.
  */
@@ -78,6 +78,9 @@ describe('Ningún endpoint modifica datos comerciales (PF-05.29, AC-05.43)', () 
       '/reports/visits/summary',
       '/reports/activities',
       '/reports/activities/summary',
+      '/reports/dashboard',
+      '/reports/dashboard/trends',
+      '/reports/funnel',
     ];
     for (const user of [owner, admin]) {
       for (const path of paths) {
@@ -87,5 +90,12 @@ describe('Ningún endpoint modifica datos comerciales (PF-05.29, AC-05.43)', () 
     }
     expect(await snapshot(context.prisma, j4)).toEqual(before);
     expect(await context.prisma.auditLog.count({ where: { subjectId: { in: [owner.id, admin.id] } } })).toBe(auditBefore);
+
+    // F-39: la exportación tampoco escribe en tablas comerciales; su única escritura es la auditoría (RN-05.1, RN-05.43).
+    const exports = ['projects', 'opportunities', 'forecast', 'visits', 'activities'];
+    for (const report of exports) await api(context, admin.token).get(`/reports/${report}/export?countryId=${j4}`).expect(200);
+    expect(await snapshot(context.prisma, j4)).toEqual(before);
+    expect(await context.prisma.auditLog.count({ where: { subjectId: admin.id, event: 'crm.report.exported' } })).toBe(exports.length);
+    expect(await context.prisma.auditLog.count({ where: { subjectId: { in: [owner.id, admin.id] } } })).toBe(auditBefore + exports.length);
   });
 });

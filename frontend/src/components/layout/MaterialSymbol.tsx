@@ -1,6 +1,7 @@
 import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
 import ApartmentOutlinedIcon from '@mui/icons-material/ApartmentOutlined';
 import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined';
+import BarChartOutlinedIcon from '@mui/icons-material/BarChartOutlined';
 import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined';
 import CalendarMonthOutlinedIcon from '@mui/icons-material/CalendarMonthOutlined';
 import CallOutlinedIcon from '@mui/icons-material/CallOutlined';
@@ -10,9 +11,11 @@ import EventBusyOutlinedIcon from '@mui/icons-material/EventBusyOutlined';
 import EventNoteOutlinedIcon from '@mui/icons-material/EventNoteOutlined';
 import EventRepeatOutlinedIcon from '@mui/icons-material/EventRepeatOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
+import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
 import HandshakeOutlinedIcon from '@mui/icons-material/HandshakeOutlined';
 import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
+import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import ListAltOutlinedIcon from '@mui/icons-material/ListAltOutlined';
 import LocationOnOutlinedIcon from '@mui/icons-material/LocationOnOutlined';
@@ -85,6 +88,11 @@ const ICON_REGISTRY: Record<string, SvgIconComponent> = {
   event_busy: EventBusyOutlinedIcon,
   attach_file: AttachFileOutlinedIcon,
   view_list: ViewListOutlinedIcon,
+  // Reportes: módulo `reportes` y opciones `reportes-dashboard` / `reportes-embudo` (05 H.3;
+  // el resto de opciones reutiliza iconos ya registrados).
+  bar_chart: BarChartOutlinedIcon,
+  insights: InsightsOutlinedIcon,
+  filter_alt: FilterAltOutlinedIcon,
 };
 
 export function MaterialSymbol({ name, size = 22 }: MaterialSymbolProps) {

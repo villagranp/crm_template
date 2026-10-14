@@ -1,12 +1,16 @@
-import { Controller, Get, Query, Req } from '@nestjs/common';
+import { Controller, Get, Query, Req, Res } from '@nestjs/common';
+import type { Response } from 'express';
 
 import { PaginatedResponseDto } from '@/common/dto/paginated-response.dto';
 import type { AppRequest } from '@/common/types/request-context';
+import { AppLogger } from '@/infrastructure/logging/app-logger.service';
 
-import { VisitReportFilterDto, VisitReportQueryDto } from './dto/report-query.dto';
+import { VisitReportExportQueryDto, VisitReportFilterDto, VisitReportQueryDto } from './dto/report-query.dto';
 import { PaginatedVisitReportDto, type VisitReportRowDto, VisitReportSummaryDto } from './dto/report-response.dto';
-import { ReportEndpoint, ReportsController } from './report-api.decorators';
+import { ReportEndpoint, ReportExportEndpoint, ReportsController } from './report-api.decorators';
 import { ReportContextResolver } from './report-context';
+import { streamReportExport } from './report-download';
+import { ReportExportService } from './report-export.service';
 import { toVisitReportRowDto, toVisitReportSummaryDto } from './report.mapper';
 import { VisitReportService } from './visit-report.service';
 
@@ -19,7 +23,20 @@ export class VisitReportController {
   constructor(
     private readonly reports: VisitReportService,
     private readonly contexts: ReportContextResolver,
+    private readonly exports: ReportExportService,
+    private readonly logger: AppLogger,
   ) {}
+
+  @Get('export')
+  @ReportExportEndpoint({
+    summary: 'Exportación XLSX del reporte de visitas (F-37/F-39)',
+    description: 'Columnas de la pantalla (E.5); una fila por visita (las reprogramadas, una vez). "Resumen": categorías e informativos.',
+    badRequest: PERIOD_ERRORS,
+  })
+  async export(@Query() query: VisitReportExportQueryDto, @Req() request: AppRequest, @Res() response: Response): Promise<void> {
+    const ctx = await this.contexts.fromRequest(request);
+    await streamReportExport(response, this.logger, ctx.correlationId, (download) => this.exports.exportVisits(ctx, query, download));
+  }
 
   @Get('summary')
   @ReportEndpoint({

@@ -188,8 +188,26 @@ describe('semilla esencial (00 §8.2)', () => {
     const administrator = await prisma.role.findUniqueOrThrow({ where: { code: 'administrador' }, select: { _count: { select: { permissions: true } } } });
     expect(administrator._count.permissions).toBe(afterFirstRun.permissions);
 
-    // DM-32: ninguna opción del CRM sin pantalla registrada (Reportes y tipos de cambio aún no).
-    expect(await prisma.menuOption.count({ where: { key: { in: ['reportes-visitas', 'admin-tipos-cambio'] } } })).toBe(0);
+    // DM-32: ninguna opción del CRM sin pantalla registrada (tipos de cambio aún no).
+    expect(await prisma.menuOption.count({ where: { key: { in: ['admin-tipos-cambio'] } } })).toBe(0);
+    // Módulo 5 registró sus rutas (05 H.3): sus siete opciones existen con `reportes.ver` y llegan a los roles del CRM.
+    const reportOptions = await prisma.menuOption.findMany({
+      where: { module: { key: 'reportes' } },
+      orderBy: { sortOrder: 'asc' },
+      select: { key: true, path: true, requiredPermission: { select: { code: true } }, roles: { select: { role: { select: { code: true } } } } },
+    });
+    expect(reportOptions.map((option) => [option.key, option.path, option.requiredPermission?.code])).toEqual([
+      ['reportes-proyectos', '/reportes/proyectos', 'reportes.ver'],
+      ['reportes-oportunidades', '/reportes/oportunidades', 'reportes.ver'],
+      ['reportes-forecast', '/reportes/forecast', 'reportes.ver'],
+      ['reportes-visitas', '/reportes/visitas', 'reportes.ver'],
+      ['reportes-actividades', '/reportes/actividades', 'reportes.ver'],
+      ['reportes-dashboard', '/reportes/dashboard', 'reportes.ver'],
+      ['reportes-embudo', '/reportes/embudo', 'reportes.ver'],
+    ]);
+    for (const option of reportOptions) {
+      expect(option.roles.map((r) => r.role.code)).toEqual(expect.arrayContaining(['asesor', 'manager', 'responsable-pais']));
+    }
     // Módulo 4 registró sus rutas (04 E.1): sus seis opciones existen con su permiso y llegan a los roles del CRM.
     const activityOptions = await prisma.menuOption.findMany({
       where: { key: { startsWith: 'actividad-' } },

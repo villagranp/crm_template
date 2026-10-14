@@ -166,6 +166,8 @@ describe('ReportContextResolver (05 H.1)', () => {
       now: new Date('2026-10-13T00:00:00Z'),
       businessTimeZone: 'America/Guatemala',
       correlationId: 'corr-9',
+      // Contexto de auditoría del actor (exportación, RN-05.43).
+      audit: { correlationId: 'corr-9' },
     });
     expect(scopes.resolve).toHaveBeenCalledWith('user-1', 'reportes.ver');
   });

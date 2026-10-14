@@ -1,13 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 
-import { type DecimalString, sumDecimals } from '@/common/decimal';
+import { type DecimalString, divideDecimal, sumDecimals } from '@/common/decimal';
 import type { Page } from '@/infrastructure/database/ports/pagination';
 import { CatalogLookupService } from '@/modules/catalogs/catalog-lookup.service';
 import { itemRuleViolations, semanticsFor, validateMetadata } from '@/modules/catalogs/catalog-semantics.registry';
 import { openStageRanking } from '@/modules/projects/project-commercial-status';
 
 import { type CatalogSemanticsIssue, invalidCatalogSemanticsError } from './commercial-metrics-errors';
-import { type DateRange, monthsBetween, type PeriodKind, resolvePeriod, toBusinessWindow } from './commercial-period';
+import { type DateRange, monthsBetween, parseYearMonth, type PeriodKind, resolvePeriod, toBusinessWindow } from './commercial-period';
 import {
   activityStatusIdsByGroup,
   catalogOrder,
@@ -16,6 +16,8 @@ import {
   finalPhaseIds,
   forecastWindowMonths,
   isClosedStage,
+  isFinalPhase,
+  isFunnelStage,
   nonFinalPhaseIds,
   type OpportunityCounts,
   openStageIds,
@@ -34,10 +36,12 @@ import {
   type ForecastCriteria,
   type ForecastGroupKey,
   type ForecastGrouping,
+  type FunnelReachRecord,
   type MetricContext,
   type OpportunityCriteria,
   type OpportunityTotalsRecord,
   type OwnerOpportunityCountsRecord,
+  type OwnerTonnageRecord,
   type ProjectCountsRecord,
   type ProjectCriteria,
   type UnitRef,
@@ -54,6 +58,7 @@ export const METRIC_CATALOGS = {
 } as const;
 
 const QUANTITY_DECIMALS = 4;
+const PERCENT_DECIMALS = 2;
 const ZERO = (0).toFixed(QUANTITY_DECIMALS);
 
 /** Elemento de catálogo con su semántica, estado y orden de presentación. */
@@ -224,6 +229,133 @@ function monthsOf(cells: readonly ForecastCellRecord[], months: readonly YearMon
       units,
     ),
   }));
+}
+
+// --- Embudo (F-41) ---
+
+/** D-05.9: denominador mínimo de la conversión acumulada (constante; parámetro si el negocio lo pide). */
+export const MIN_FUNNEL_SAMPLE = 5;
+
+export const FUNNEL_UNAVAILABLE_REASONS = ['NO_DATA', 'INSUFFICIENT_HISTORY', 'INSUFFICIENT_SAMPLE'] as const;
+/** Motivo de un porcentaje `null` (RN-05.11, RN-05.54, RN-05.55). */
+export type FunnelUnavailableReason = (typeof FUNNEL_UNAVAILABLE_REASONS)[number];
+
+export interface SalesFunnelStage {
+  readonly stage: { readonly id: string; readonly code: string; readonly label: string; readonly order: number };
+  /** Oportunidades del conjunto cuya etapa **vigente** es esta (RN-05.53). */
+  readonly count: number;
+  /** % del total en etapas del embudo (2 decimales); `null` si el total es 0 (RN-05.54). */
+  readonly shareOfTotal: DecimalString | null;
+  /** % de las que alcanzaron la primera etapa que alcanzaron esta (RN-05.55); `null` con motivo. */
+  readonly cumulativeConversion: DecimalString | null;
+  /** Motivo del primer porcentaje `null` de la etapa (`NO_DATA` si ambos lo son). */
+  readonly unavailableReason: FunnelUnavailableReason | null;
+}
+
+export interface SalesFunnel {
+  readonly stages: readonly SalesFunnelStage[];
+  readonly totalInFunnel: number;
+  readonly sampleMinimum: number;
+}
+
+/** Etapas activas `inFunnel` en `metadata.order` (RN-05.53); sin `order` entero → `422 INVALID_CATALOG_SEMANTICS`. */
+export function funnelStagesOf(stages: readonly MetricCatalogItem[]): MetricCatalogItem[] {
+  const funnelStages = stages.filter((stage) => stage.isActive && isFunnelStage(stage));
+  const invalid = funnelStages.filter((stage) => !Number.isInteger(stage.metadata?.['order']));
+  if (invalid.length > 0) {
+    throw invalidCatalogSemanticsError(
+      invalid.map((stage) => ({ catalog: METRIC_CATALOGS.stage, itemCode: stage.code, issue: 'order: an inFunnel stage requires an integer order' })),
+    );
+  }
+  return [...funnelStages].sort(byOrder);
+}
+
+/** Porcentaje `part / whole × 100` con 2 decimales `HALF_UP` (aritmética decimal). */
+export function percentOf(part: number, whole: number): DecimalString {
+  return divideDecimal(String(part * 100), String(whole), PERCENT_DECIMALS);
+}
+
+/**
+ * RN-05.55, D-05.9: conversión acumulada calculable solo si **todas** las oportunidades
+ * del conjunto tienen historial y las que alcanzaron la primera etapa son ≥ `MIN_FUNNEL_SAMPLE`.
+ */
+export function funnelConversion(
+  reach: readonly FunnelReachRecord[],
+  funnelStages: readonly MetricCatalogItem[],
+): { readonly reason: FunnelUnavailableReason | null; readonly denominator: number; readonly reached: (order: number) => number } {
+  const reached = (order: number): number => reach.filter((row) => row.maxOrder !== null && row.maxOrder >= order).reduce((sum, row) => sum + row.count, 0);
+  const total = reach.reduce((sum, row) => sum + row.count, 0);
+  const first = funnelStages[0];
+  const denominator = first ? reached(catalogOrder(first)) : 0;
+  let reason: FunnelUnavailableReason | null = null;
+  if (total === 0 || !first) reason = 'NO_DATA';
+  else if (reach.some((row) => !row.hasHistory && row.count > 0)) reason = 'INSUFFICIENT_HISTORY';
+  else if (denominator < MIN_FUNNEL_SAMPLE) reason = 'INSUFFICIENT_SAMPLE';
+  return { reason, denominator, reached };
+}
+
+// --- Dashboard (F-40) ---
+
+/** Filtros del dashboard (E.7): período de calendario, asesor y país, dentro del alcance. */
+export interface CommercialDashboardCriteria extends MetricContext {
+  readonly period: DateRange;
+  readonly ownerIds: readonly string[];
+  readonly countryIds: readonly string[];
+}
+
+export const MONTHLY_SERIES_METRICS = ['OPPORTUNITIES_IDENTIFIED', 'WON', 'LOST', 'ACTIVITIES_COMPLETED', 'VISITS_COMPLETED'] as const;
+/** Indicadores con tendencia (RN-05.52); "proyectos activos" no tiene (D-05.13). */
+export type MonthlySeriesMetric = (typeof MONTHLY_SERIES_METRICS)[number];
+
+export interface MonthlyPoint {
+  readonly year: number;
+  readonly month: number;
+  readonly value: number;
+}
+
+/** Un mes del dashboard con cada indicador en su columna histórica (RN-05.52). */
+export interface MonthlyCounts {
+  readonly year: number;
+  readonly month: number;
+  /** `opportunity_date`. */
+  readonly identified: number;
+  /** `decision_date`: WON + PARTIAL (DM-15). */
+  readonly won: number;
+  readonly wonFull: number;
+  readonly partial: number;
+  readonly lost: number;
+  /** `completed_at`. */
+  readonly activitiesCompleted: number;
+  /** `actual_start_at`: realizadas + confirmadas. */
+  readonly visitsCompleted: number;
+  /** `cancelled_at`. */
+  readonly visitsCancelled: number;
+}
+
+export interface PhaseCount {
+  readonly phaseId: string;
+  readonly code: string;
+  readonly label: string;
+  readonly order: number;
+  readonly count: number;
+}
+
+/** Meses de calendario del período, ambos extremos incluidos. */
+export function periodMonths(period: DateRange): YearMonth[] {
+  const from = parseYearMonth(period.from.slice(0, 7));
+  const to = parseYearMonth(period.to.slice(0, 7));
+  return from && to ? monthsBetween(from, to) : [];
+}
+
+export function seriesOf(metric: MonthlySeriesMetric, rows: readonly MonthlyCounts[]): MonthlyPoint[] {
+  const pick: Record<MonthlySeriesMetric, (row: MonthlyCounts) => number> = {
+    OPPORTUNITIES_IDENTIFIED: (row) => row.identified,
+    WON: (row) => row.won,
+    LOST: (row) => row.lost,
+    ACTIVITIES_COMPLETED: (row) => row.activitiesCompleted,
+    VISITS_COMPLETED: (row) => row.visitsCompleted,
+  };
+  return rows.map((row) => ({ year: row.year, month: row.month, value: pick[metric](row) }));
 }
 
 /**
@@ -401,6 +533,123 @@ export class CommercialMetricsService {
       return { key, months: monthsOf(cells, months, units), total: aggregate(cells, units), subgroups };
     });
     return { ...record.keys, items: groups };
+  }
+
+  // -------------------------------------------------------------------------
+  // Embudo (F-41, RN-05.53–RN-05.56) y series mensuales (F-40, RN-05.52)
+  // -------------------------------------------------------------------------
+
+  /**
+   * RN-05.53–RN-05.56. `criteria` es el conjunto **completo** del resto de filtros (sin
+   * el de etapa): los porcentajes siempre se calculan sobre él; `visibleStageIds` solo
+   * limita las barras devueltas (RN-05.56). Una etapa `inFunnel` sin `order` válido →
+   * `422 INVALID_CATALOG_SEMANTICS` (PF-05.32).
+   */
+  async funnel(criteria: OpportunityCriteria, semantics: CommercialSemantics, visibleStageIds: readonly string[] = []): Promise<SalesFunnel> {
+    const funnelStages = funnelStagesOf(semantics.stages);
+    const [counts, reach] = await Promise.all([
+      this.readModel.opportunityStageCounts(criteria),
+      funnelStages.length === 0 ? Promise.resolve([]) : this.readModel.opportunityFunnelReach(criteria, funnelStages.map((stage) => ({ stageId: stage.id, order: catalogOrder(stage) }))),
+    ]);
+    const byStage = new Map(counts.map((row) => [row.stageId, row.count]));
+    const stageCounts = funnelStages.map((stage) => ({ stage, count: byStage.get(stage.id) ?? 0 }));
+    const totalInFunnel = stageCounts.reduce((sum, entry) => sum + entry.count, 0);
+    const conversion = funnelConversion(reach, funnelStages);
+    const visible = new Set(visibleStageIds);
+    return {
+      stages: stageCounts
+        .filter((entry) => visible.size === 0 || visible.has(entry.stage.id))
+        .map(({ stage, count }) => {
+          const shareOfTotal = totalInFunnel > 0 ? percentOf(count, totalInFunnel) : null;
+          const cumulative = totalInFunnel > 0 && conversion.reason === null ? percentOf(conversion.reached(catalogOrder(stage)), conversion.denominator) : null;
+          return {
+            stage: { id: stage.id, code: stage.code, label: stage.label, order: catalogOrder(stage) },
+            count,
+            shareOfTotal,
+            cumulativeConversion: cumulative,
+            unavailableReason: totalInFunnel === 0 ? 'NO_DATA' : (conversion.reason ?? null),
+          };
+        }),
+      totalInFunnel,
+      sampleMinimum: MIN_FUNNEL_SAMPLE,
+    };
+  }
+
+  /**
+   * Tabla mensual del dashboard (RN-05.52): cada indicador en su columna histórica y en la
+   * zona del negocio, con **todos** los meses del período (también en 0).
+   */
+  async monthlyCounts(criteria: CommercialDashboardCriteria, semantics: CommercialSemantics): Promise<MonthlyCounts[]> {
+    const window = toBusinessWindow(criteria.period, criteria.businessTimeZone);
+    const opportunity = { ...this.dashboardOpportunityCriteria(criteria, semantics) };
+    const [identified, decided, activities, visits] = await Promise.all([
+      this.readModel.opportunityMonthlyCounts({ ...opportunity, period: { basis: 'IDENTIFIED', window } }, criteria.businessTimeZone),
+      this.readModel.opportunityMonthlyCounts({ ...opportunity, period: { basis: 'DECIDED', window } }, criteria.businessTimeZone),
+      this.readModel.activityMonthlyCounts(
+        { ...this.dashboardActivityCriteria(criteria, semantics), period: { basis: 'COMPLETED', window }, categories: ['COMPLETED'] },
+        criteria.businessTimeZone,
+      ),
+      this.readModel.visitMonthlyCounts(this.dashboardVisitCriteria(criteria, semantics), window, criteria.businessTimeZone),
+    ]);
+    const keyOf = (row: { year: number; month: number }): string => `${row.year}-${row.month}`;
+    const identifiedBy = new Map(identified.map((row) => [keyOf(row), row]));
+    const decidedBy = new Map(decided.map((row) => [keyOf(row), row]));
+    const activitiesBy = new Map(activities.map((row) => [keyOf(row), row]));
+    const visitsBy = new Map(visits.map((row) => [keyOf(row), row]));
+    return periodMonths(criteria.period).map((month) => {
+      const key = keyOf(month);
+      const decidedRow = decidedBy.get(key);
+      return {
+        year: month.year,
+        month: month.month,
+        identified: identifiedBy.get(key)?.total ?? 0,
+        won: (decidedRow?.wonFull ?? 0) + (decidedRow?.partial ?? 0),
+        wonFull: decidedRow?.wonFull ?? 0,
+        partial: decidedRow?.partial ?? 0,
+        lost: decidedRow?.lost ?? 0,
+        activitiesCompleted: activitiesBy.get(key)?.count ?? 0,
+        visitsCompleted: visitsBy.get(key)?.completed ?? 0,
+        visitsCancelled: visitsBy.get(key)?.cancelled ?? 0,
+      };
+    });
+  }
+
+  /** Serie mensual de un indicador con fecha histórica fiable (05 G.3 `monthlySeries`, RN-05.52). */
+  async monthlySeries(metric: MonthlySeriesMetric, criteria: CommercialDashboardCriteria, semantics: CommercialSemantics): Promise<MonthlyPoint[]> {
+    return seriesOf(metric, await this.monthlyCounts(criteria, semantics));
+  }
+
+  /** Conteo por fase de los proyectos **activos** (RN-05.15); estado actual, sin período (D-05.13). */
+  async activeProjectsByPhase(criteria: CommercialDashboardCriteria, semantics: CommercialSemantics): Promise<{ count: number; byPhase: PhaseCount[] }> {
+    const projectCriteria: ProjectCriteria = {
+      ...this.projectCriteria(criteria, semantics),
+      ownerIds: criteria.ownerIds,
+      countryIds: criteria.countryIds,
+      situation: 'ACTIVE',
+    };
+    const counts = new Map((await this.readModel.projectPhaseCounts(projectCriteria)).map((row) => [row.phaseId, row.count]));
+    const byPhase = semantics.phases
+      .filter((phase) => !isFinalPhase(phase) && (phase.isActive || (counts.get(phase.id) ?? 0) > 0))
+      .map((phase) => ({ phaseId: phase.id, code: phase.code, label: phase.label, order: catalogOrder(phase), count: counts.get(phase.id) ?? 0 }));
+    return { count: byPhase.reduce((sum, phase) => sum + phase.count, 0), byPhase };
+  }
+
+  /** Toneladas de forecast por asesor de la línea (dashboard). */
+  forecastOwnerTonnage(criteria: ForecastCriteria): Promise<OwnerTonnageRecord[]> {
+    return this.readModel.forecastOwnerTonnage(criteria);
+  }
+
+  /** Criterio de oportunidades del dashboard: alcance + asesor + país, sin período. */
+  dashboardOpportunityCriteria(criteria: CommercialDashboardCriteria, semantics: CommercialSemantics): OpportunityCriteria {
+    return { ...this.opportunityCriteria(criteria, semantics), ownerIds: criteria.ownerIds, countryIds: criteria.countryIds };
+  }
+
+  dashboardActivityCriteria(criteria: CommercialDashboardCriteria, semantics: CommercialSemantics): ActivityCriteria {
+    return { ...this.activityCriteria(criteria, semantics), ownerIds: criteria.ownerIds, countryIds: criteria.countryIds };
+  }
+
+  dashboardVisitCriteria(criteria: CommercialDashboardCriteria, semantics: CommercialSemantics): VisitCriteria {
+    return { ...this.visitCriteria(criteria, semantics), ownerIds: criteria.ownerIds, countryIds: criteria.countryIds };
   }
 
   // -------------------------------------------------------------------------
