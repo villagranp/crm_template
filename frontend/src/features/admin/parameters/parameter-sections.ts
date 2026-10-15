@@ -3,11 +3,12 @@ import type { ParameterGroup, SystemParameter } from './parameters.api';
 /**
  * Agrupación **visual** de los parámetros (07 E.4). Se deriva del prefijo de la
  * clave; el `group` guardado en la base no cambia. El orden de las secciones es
- * el de la pantalla: Acceso, las del CRM y, al final, el resto por su `group`.
+ * el de la pantalla: Acceso, Interfaz, las del CRM y, al final, el resto por su `group`.
  */
 
 export type ParameterSectionId =
   | 'acceso'
+  | 'interfaz'
   | 'crm-duplicidad'
   | 'crm-campos'
   | 'crm-alertas'
@@ -33,6 +34,7 @@ interface SectionRule {
 /** El orden importa: gana la primera regla que encaja con la clave. */
 const SECTION_RULES: readonly SectionRule[] = [
   { id: 'acceso', label: 'Acceso', matches: ['seguridad.'] },
+  { id: 'interfaz', label: 'Interfaz', matches: ['ui.'] },
   {
     id: 'crm-duplicidad',
     label: 'CRM — Duplicidad',

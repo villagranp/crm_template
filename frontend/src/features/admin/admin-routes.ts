@@ -81,4 +81,12 @@ export const ADMIN_ROUTES: readonly AdminRoute[] = [
     permission: 'auditoria.ver',
     Page: lazy(() => import('./audit/AuditPage').then((module) => ({ default: module.AuditPage }))),
   },
+  // Ajustes 1 (AJ1-2): opción `admin-minuto-seguridad` de la semilla.
+  {
+    path: ROUTE_PATHS.admin.safetyMinutes,
+    permission: 'minuto_seguridad.ver',
+    Page: lazy(() =>
+      import('./safety-minutes/SafetyMinutesPage').then((module) => ({ default: module.SafetyMinutesPage })),
+    ),
+  },
 ];

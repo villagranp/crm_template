@@ -12,6 +12,7 @@ import type {
   PaginatedUpcomingVisits,
   ProjectIndicators,
   RecentActivityQuery,
+  SafetyMinuteResponse,
   TargetIndicators,
   VisitIndicators,
 } from './dashboard.types';
@@ -70,4 +71,9 @@ export function listAlerts(query: AlertsQuery): Promise<PaginatedAlerts> {
 
 export function getAlertsSummary(): Promise<AlertsSummary> {
   return httpClient.get<AlertsSummary>(`${BASE}/alerts/summary`);
+}
+
+/** `GET /me/safety-minute`: mensaje del día para toda sesión autenticada (sin permiso adicional). */
+export function getSafetyMinute(): Promise<SafetyMinuteResponse> {
+  return httpClient.get<SafetyMinuteResponse>('/me/safety-minute');
 }

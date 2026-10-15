@@ -1,3 +1,5 @@
+import type { DashboardComposition } from '@/services/ui-settings';
+
 /**
  * Metadatos de los editores estructurados de parámetros JSON (07 E.4).
  *
@@ -271,6 +273,35 @@ export function parseStringArray(raw: string): string[] | null {
   try {
     const value: unknown = JSON.parse(raw);
     return Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export const DASHBOARD_CARDS_DEFAULT_NOTE = 'Es la composición de quienes no personalizaron su panel';
+
+function isEntryList(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (item) =>
+        typeof item === 'object' &&
+        item !== null &&
+        typeof (item as { key?: unknown }).key === 'string' &&
+        typeof (item as { visible?: unknown }).visible === 'boolean',
+    )
+  );
+}
+
+/** Interpreta el valor como composición del panel; `null` si no tiene la forma esperada. */
+export function parseDashboardComposition(raw: string): DashboardComposition | null {
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (typeof value !== 'object' || value === null) {
+      return null;
+    }
+    const { blocks, kpis } = value as { blocks?: unknown; kpis?: unknown };
+    return isEntryList(blocks) && isEntryList(kpis) ? (value as DashboardComposition) : null;
   } catch {
     return null;
   }

@@ -102,12 +102,45 @@ const REQUIRED_FIELDS = parameter({
   editor: 'required-fields',
 });
 
+const DASHBOARD_CARDS_VALUE = JSON.stringify({
+  blocks: [
+    { key: 'safety-minute', visible: true },
+    { key: 'hero', visible: true },
+    { key: 'alerts', visible: true },
+  ],
+  kpis: [
+    { key: 'projects-active', visible: true },
+    { key: 'forecast', visible: true },
+  ],
+});
+
+const DASHBOARD_CARDS = parameter({
+  key: 'ui.inicio.tarjetas',
+  value: DASHBOARD_CARDS_VALUE,
+  type: 'JSON',
+  group: 'interfaz',
+  name: 'Tarjetas del panel de Inicio',
+  isPublic: false,
+  editor: 'dashboard-cards',
+});
+
+const SEARCH_BUTTON = parameter({
+  key: 'ui.barra_superior.buscar',
+  value: 'false',
+  type: 'BOOLEAN',
+  group: 'interfaz',
+  name: 'Botón de búsqueda',
+  isPublic: false,
+  editor: 'boolean',
+});
+
 const REMOVED = parameter({ key: 'crm.moneda_por_defecto', group: 'crm', name: 'Moneda por defecto (eliminado)' });
 
 const GROUPS: ParameterGroup[] = [
   { group: 'crm', parameters: [BASE_CURRENCY, RATE_AGE, CODE_UNIQUENESS, CUSTOMER_DUPLICATES, REQUIRED_FIELDS, REMOVED] },
   { group: 'general', parameters: [parameter({})] },
   { group: 'seguridad', parameters: [LOCKOUT] },
+  { group: 'interfaz', parameters: [DASHBOARD_CARDS, SEARCH_BUTTON] },
 ];
 
 const LOCAL_AUTH: AuthenticationSettings = {
@@ -310,5 +343,45 @@ describe('ParametersPage', () => {
 
     expect(await screen.findByText('No tienes permiso para realizar esta acción.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Reintentar' })).toBeInTheDocument();
+  });
+  it('agrupa los ui.* en «Interfaz» y resume la composición por defecto en lugar del JSON', async () => {
+    signInWith(['parametros.ver']);
+    api();
+
+    renderWithProviders(<ParametersPage />);
+
+    const section = await screen.findByRole('region', { name: 'Interfaz' });
+    expect(within(section).getByText('Botón de búsqueda')).toBeInTheDocument();
+    expect(within(section).getByLabelText('Valor de Tarjetas del panel de Inicio')).toHaveTextContent(
+      '3 bloques y 2 indicadores (0 ocultos)',
+    );
+  });
+
+  it('PF-AJ1.4c: edita la composición por defecto con DashboardCardsEditor y guarda el JSON', async () => {
+    signInWith(['parametros.ver', 'parametros.editar']);
+    const fetchMock = api({
+      'PATCH /parameters/ui.inicio.tarjetas': () => jsonResponse(DASHBOARD_CARDS),
+    });
+    const user = userEvent.setup();
+
+    renderWithProviders(<ParametersPage />);
+    await user.click(await screen.findByRole('button', { name: 'Editar Tarjetas del panel de Inicio' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Editar «Tarjetas del panel de Inicio»' });
+    expect(within(dialog).getByText(/composición de quienes no personalizaron su panel/i)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('checkbox', { name: 'Visible: Alertas y pendientes' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Bajar Saludo' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(callsTo(fetchMock, 'PATCH', '/parameters/ui.inicio.tarjetas')).toHaveLength(1));
+    const [call] = callsTo(fetchMock, 'PATCH', '/parameters/ui.inicio.tarjetas');
+    const sent = JSON.parse((JSON.parse(String(call?.body)) as { value: string }).value) as {
+      blocks: { key: string; visible: boolean }[];
+    };
+    expect(sent.blocks).toEqual([
+      { key: 'safety-minute', visible: true },
+      { key: 'alerts', visible: false },
+      { key: 'hero', visible: true },
+    ]);
   });
 });

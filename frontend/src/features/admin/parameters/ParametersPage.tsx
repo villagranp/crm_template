@@ -32,6 +32,7 @@ import { ROUTE_PATHS } from '@/routes/route-paths';
 
 import { AuthenticationSettingsCard } from './components/AuthenticationSettingsCard';
 import { ParameterEditDialog } from './components/ParameterEditDialog';
+import { parseDashboardComposition } from './components/editors/editor-metadata';
 import { toSections, type ParameterSection } from './parameter-sections';
 import type { SystemParameter } from './parameters.api';
 import { PARAMETER_PERMISSIONS } from './parameters.permissions';
@@ -48,6 +49,13 @@ const CONFIGURE_NOTE = 'Requiere el permiso de configuración (parametros.config
 function displayValue(parameter: SystemParameter): string {
   if (parameter.type === 'BOOLEAN') {
     return parameter.value === 'true' ? 'Sí' : 'No';
+  }
+  if (parameter.editor === 'dashboard-cards') {
+    const composition = parseDashboardComposition(parameter.value);
+    if (composition) {
+      const hidden = [...composition.blocks, ...composition.kpis].filter((entry) => !entry.visible).length;
+      return `${composition.blocks.length} bloques y ${composition.kpis.length} indicadores (${hidden} ocultos)`;
+    }
   }
   return parameter.value;
 }

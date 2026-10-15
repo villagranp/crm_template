@@ -3,10 +3,12 @@ import { create } from 'zustand';
 /**
  * Estado de interfaz del shell: modo de color y estado del menú lateral.
  *
- * Es estado de cliente puro, así que vive en Zustand. Se persiste en
- * `localStorage` porque es una preferencia por navegador, no un dato de
- * negocio: si la preferencia debe seguir al usuario entre dispositivos, se
- * mueve a `UserPreference` en la base de datos (ver docs/database).
+ * Es estado de cliente puro, así que vive en Zustand. `localStorage` es la
+ * caché del navegador: la usa la pantalla de acceso y el arranque, antes de
+ * conocer al usuario. El modo de color además sigue al usuario entre
+ * dispositivos (Ajustes 1, RN-AJ1.17): `useThemePreferenceSync` aplica el
+ * guardado en el servidor al iniciar sesión y guarda cada cambio manual. El
+ * menú lateral minificado sigue siendo sólo del navegador.
  */
 
 export type ThemeMode = 'light' | 'dark';
@@ -46,9 +48,13 @@ function persist(key: string, value: string): void {
 
 interface UiState {
   themeMode: ThemeMode;
+  /** Cuántas veces el usuario cambió el tema con el botón (no cuenta las aplicaciones del servidor). */
+  manualThemeChanges: number;
   sidebarMini: boolean;
   sidebarOpenMobile: boolean;
+  /** Cambio manual: aplica al instante; el guardado en el servidor lo lanza `useThemePreferenceSync`. */
   toggleThemeMode: () => void;
+  /** Aplica un modo sin contarlo como cambio manual (p. ej. el guardado en el servidor). */
   setThemeMode: (mode: ThemeMode) => void;
   toggleSidebarMini: () => void;
   setSidebarOpenMobile: (open: boolean) => void;
@@ -56,6 +62,7 @@ interface UiState {
 
 export const useUiStore = create<UiState>((set, get) => ({
   themeMode: readStoredTheme() ?? (prefersDark() ? 'dark' : 'light'),
+  manualThemeChanges: 0,
   sidebarMini: readStoredSidebarMini(),
   sidebarOpenMobile: false,
 
@@ -67,7 +74,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   toggleThemeMode: () => {
     const next: ThemeMode = get().themeMode === 'dark' ? 'light' : 'dark';
     persist(THEME_STORAGE_KEY, next);
-    set({ themeMode: next });
+    set({ themeMode: next, manualThemeChanges: get().manualThemeChanges + 1 });
   },
 
   toggleSidebarMini: () => {

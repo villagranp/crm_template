@@ -20,9 +20,10 @@ import {
   upcomingVisitsPage,
   visitIndicators,
 } from '@/features/dashboard/testing/dashboard-fixtures';
+import { uiSettings } from '@/features/dashboard/testing/ui-settings-fixtures';
 import type { MenuModule, Profile } from '@/services/access';
 import { useAuthStore } from '@/stores/auth.store';
-import { errorResponse, jsonResponse, mockApi, type RouteHandler } from '@/test/api-mocks';
+import { callsTo, errorResponse, jsonResponse, mockApi, type RouteHandler } from '@/test/api-mocks';
 import { renderWithProviders } from '@/test/render-with-providers';
 
 import { HomePage } from './HomePage';
@@ -224,7 +225,7 @@ describe('HomePage', () => {
     renderWithProviders(<HomePage />);
 
     expect(
-      await within(screen.getByRole('region', { name: 'Proyectos activos' })).findByText('42'),
+      await within(await screen.findByRole('region', { name: 'Proyectos activos' })).findByText('42'),
     ).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Metas y cumplimiento' })).toBeInTheDocument();
     expect(
@@ -255,7 +256,7 @@ describe('HomePage', () => {
     renderWithProviders(<HomePage />);
 
     expect(
-      await within(screen.getByRole('region', { name: 'Oportunidades abiertas' })).findByText('17'),
+      await within(await screen.findByRole('region', { name: 'Oportunidades abiertas' })).findByText('17'),
     ).toBeInTheDocument();
     await waitFor(() => expect(dashboardRequests(fetchMock).length).toBeGreaterThan(0));
     expect(screen.queryByRole('region', { name: 'Proyectos activos' })).not.toBeInTheDocument();
@@ -277,10 +278,10 @@ describe('HomePage', () => {
     });
     renderWithProviders(<HomePage />);
 
-    const quickAccess = screen.getByRole('region', { name: 'Accesos rápidos' });
+    const quickAccess = await screen.findByRole('region', { name: 'Accesos rápidos' });
     expect(await within(quickAccess).findByText(/no se pudo cargar tu menú/i)).toBeInTheDocument();
     expect(
-      await within(screen.getByRole('region', { name: 'Proyectos activos' })).findByText('42'),
+      await within(await screen.findByRole('region', { name: 'Proyectos activos' })).findByText('42'),
     ).toBeInTheDocument();
 
     await userEvent.click(within(quickAccess).getByRole('button', { name: 'Reintentar' }));
@@ -307,3 +308,220 @@ const DASHBOARD_ROUTES: Record<string, RouteHandler> = {
   'GET /dashboard/alerts': () => jsonResponse(alertsPage([dashboardAlert()])),
   'GET /dashboard/alerts/summary': () => jsonResponse(alertsSummary()),
 };
+
+/** `true` si `first` aparece antes que `second` en el documento. */
+function isBefore(first: HTMLElement, second: HTMLElement): boolean {
+  return Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
+}
+
+describe('HomePage: composición configurable (Ajustes 1, PF-AJ1.3)', () => {
+  const settingsRoute = (settings: ReturnType<typeof uiSettings>): Record<string, RouteHandler> => ({
+    'GET /me/ui-settings': () => jsonResponse(settings),
+  });
+
+  it('AC-AJ1.6: respeta el orden configurado y no pinta ni pide un bloque oculto', async () => {
+    setSessionPermissions(ALL_SOURCE_PERMISSIONS);
+    const fetchMock = mockApi({
+      ...BASE_ROUTES,
+      ...DASHBOARD_ROUTES,
+      ...settingsRoute(
+        uiSettings({
+          blocks: ['access', 'mine', 'kpis', 'hero', 'alerts', 'activity', 'safety-minute'],
+          hiddenBlocks: ['alerts', 'hero'],
+          isCustomized: true,
+        }),
+      ),
+    });
+    renderWithProviders(<HomePage />);
+
+    const quickAccess = await screen.findByRole('region', { name: 'Accesos rápidos' });
+    const indicators = await screen.findByRole('region', { name: 'Indicadores' });
+    const mine = screen.getByRole('region', { name: 'Mi acceso' });
+    expect(isBefore(quickAccess, mine)).toBe(true);
+    expect(isBefore(mine, indicators)).toBe(true);
+
+    expect(screen.queryByRole('region', { name: 'Alertas y pendientes' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: /, Javier\.$/ })).not.toBeInTheDocument();
+    expect(dashboardRequests(fetchMock).some((url) => url.startsWith('/dashboard/alerts'))).toBe(false);
+  });
+
+  it('un bloque con permiso pero oculto por la composición por defecto tampoco se pide', async () => {
+    setSessionPermissions(ALL_SOURCE_PERMISSIONS);
+    const fetchMock = mockApi({
+      ...BASE_ROUTES,
+      ...DASHBOARD_ROUTES,
+      ...settingsRoute(uiSettings({ hiddenBlocks: ['activity'] })),
+    });
+    renderWithProviders(<HomePage />);
+
+    expect(await screen.findByRole('region', { name: 'Alertas y pendientes' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Actividad reciente' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Próximas visitas' })).not.toBeInTheDocument();
+    expect(
+      dashboardRequests(fetchMock).some(
+        (url) => url.startsWith('/dashboard/recent-activity') || url.startsWith('/dashboard/upcoming-visits'),
+      ),
+    ).toBe(false);
+  });
+
+  it('AC-AJ1.3: indicadores en el orden configurado; un visible sin permiso no se pinta ni se pide', async () => {
+    setSessionPermissions(ALL_SOURCE_PERMISSIONS.filter((permission) => permission !== 'forecast.ver'));
+    const fetchMock = mockApi({
+      ...BASE_ROUTES,
+      ...DASHBOARD_ROUTES,
+      ...settingsRoute(
+        uiSettings({
+          kpis: ['visits-pending', 'forecast', 'projects-active', 'opportunities-open', 'opportunities-lost'],
+          hiddenKpis: ['opportunities-lost'],
+        }),
+      ),
+    });
+    renderWithProviders(<HomePage />);
+
+    const visits = await screen.findByRole('region', { name: 'Visitas pendientes' });
+    const projects = await screen.findByRole('region', { name: 'Proyectos activos' });
+    expect(isBefore(visits, projects)).toBe(true);
+    expect(screen.queryByRole('region', { name: 'Oportunidades perdidas' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /Forecast/ })).not.toBeInTheDocument();
+    expect(
+      dashboardRequests(fetchMock).some((url) => url.startsWith('/dashboard/indicators/forecast')),
+    ).toBe(false);
+  });
+
+  it('un indicador oculto no se pide (K7 y K8 ocultos: sin /indicators/activities)', async () => {
+    setSessionPermissions(ALL_SOURCE_PERMISSIONS);
+    const fetchMock = mockApi({
+      ...BASE_ROUTES,
+      ...DASHBOARD_ROUTES,
+      ...settingsRoute(uiSettings({ hiddenKpis: ['activities-pending', 'activities-overdue'] })),
+    });
+    renderWithProviders(<HomePage />);
+
+    await within(await screen.findByRole('region', { name: 'Proyectos activos' })).findByText('42');
+    await waitFor(() => expect(dashboardRequests(fetchMock).length).toBeGreaterThan(0));
+    expect(screen.queryByRole('region', { name: 'Actividades pendientes' })).not.toBeInTheDocument();
+    expect(
+      dashboardRequests(fetchMock).some((url) => url.startsWith('/dashboard/indicators/activities')),
+    ).toBe(false);
+  });
+
+  it('con todos los indicadores ocultos el bloque Indicadores no se pinta', async () => {
+    setSessionPermissions(ALL_SOURCE_PERMISSIONS);
+    mockApi({
+      ...BASE_ROUTES,
+      ...DASHBOARD_ROUTES,
+      ...settingsRoute(
+        uiSettings({
+          hiddenKpis: [
+            'projects-active',
+            'opportunities-open',
+            'opportunities-won',
+            'opportunities-lost',
+            'forecast',
+            'visits-pending',
+            'activities-pending',
+            'activities-overdue',
+            'targets',
+          ],
+        }),
+      ),
+    });
+    renderWithProviders(<HomePage />);
+
+    await screen.findByRole('region', { name: 'Accesos rápidos' });
+    expect(screen.queryByRole('region', { name: 'Indicadores' })).not.toBeInTheDocument();
+  });
+
+  it('AC-AJ1.11: el minuto de seguridad aparece en su posición cuando hay mensaje hoy', async () => {
+    mockApi({
+      ...BASE_ROUTES,
+      ...settingsRoute(
+        uiSettings({ blocks: ['access', 'safety-minute', 'hero', 'mine', 'kpis', 'alerts', 'activity'] }),
+      ),
+      'GET /me/safety-minute': () =>
+        jsonResponse({ safetyMinute: { displayDate: '2026-10-14', message: 'Casco puesto.' } }),
+    });
+    renderWithProviders(<HomePage />);
+
+    const minute = await screen.findByRole('region', { name: 'Minuto de seguridad' });
+    expect(minute).toHaveTextContent('Casco puesto.');
+    expect(isBefore(screen.getByRole('region', { name: 'Accesos rápidos' }), minute)).toBe(true);
+  });
+
+  it('sin mensaje hoy no hay bloque ni hueco del minuto de seguridad', async () => {
+    mockApi({
+      ...BASE_ROUTES,
+      ...settingsRoute(uiSettings()),
+      'GET /me/safety-minute': () => jsonResponse({ safetyMinute: null }),
+    });
+    renderWithProviders(<HomePage />);
+
+    await screen.findByRole('region', { name: 'Accesos rápidos' });
+    expect(screen.queryByRole('region', { name: 'Minuto de seguridad' })).not.toBeInTheDocument();
+  });
+
+  it('AC-AJ1.5: sin nada visible, estado vacío con «Restablecer» que borra la preferencia', async () => {
+    const fetchMock = mockApi({
+      ...BASE_ROUTES,
+      ...settingsRoute(
+        uiSettings({
+          hiddenBlocks: ['hero', 'mine', 'kpis', 'alerts', 'activity', 'access'],
+          isCustomized: true,
+        }),
+      ),
+      'GET /me/safety-minute': () => jsonResponse({ safetyMinute: null }),
+      'DELETE /me/preferences/dashboard-cards': () => new Response(null, { status: 204 }),
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<HomePage />);
+
+    expect(await screen.findByText('Tu panel no tiene bloques visibles')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Restablecer' }));
+
+    await waitFor(() =>
+      expect(callsTo(fetchMock, 'DELETE', '/me/preferences/dashboard-cards')).toHaveLength(1),
+    );
+  });
+
+  it('AC-AJ1.5: si queda el minuto de seguridad (no ocultable) no hay estado vacío', async () => {
+    mockApi({
+      ...BASE_ROUTES,
+      ...settingsRoute(
+        uiSettings({
+          hiddenBlocks: ['hero', 'mine', 'kpis', 'alerts', 'activity', 'access'],
+          isCustomized: true,
+        }),
+      ),
+      'GET /me/safety-minute': () =>
+        jsonResponse({ safetyMinute: { displayDate: '2026-10-14', message: 'Casco puesto.' } }),
+    });
+    renderWithProviders(<HomePage />);
+
+    expect(await screen.findByRole('region', { name: 'Minuto de seguridad' })).toBeInTheDocument();
+    expect(screen.queryByText('Tu panel no tiene bloques visibles')).not.toBeInTheDocument();
+  });
+
+  it('si ui-settings falla, el panel usa el orden por defecto sin bloquearse', async () => {
+    mockApi({ ...BASE_ROUTES, 'GET /me/ui-settings': () => errorResponse(500, 'INTERNAL_ERROR') });
+    renderWithProviders(<HomePage />);
+
+    expect(await screen.findByRole('region', { name: 'Accesos rápidos' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Mi acceso' })).toBeInTheDocument();
+  });
+
+  it('«Personalizar panel» abre el diálogo y devuelve el foco al botón al cerrarlo', async () => {
+    setSessionPermissions(ALL_SOURCE_PERMISSIONS);
+    mockApi({ ...BASE_ROUTES, ...DASHBOARD_ROUTES, ...settingsRoute(uiSettings()) });
+    const user = userEvent.setup();
+    renderWithProviders(<HomePage />);
+
+    const trigger = screen.getByRole('button', { name: 'Personalizar panel' });
+    await user.click(trigger);
+    const dialog = await screen.findByRole('dialog', { name: 'Personalizar panel' });
+    expect(await within(dialog).findByRole('list', { name: 'Bloques' })).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+  });
+});

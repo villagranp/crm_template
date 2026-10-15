@@ -23,6 +23,8 @@ export const ROUTE_PATHS = {
     exchangeRates: '/administracion/tipos-cambio',
     products: '/administracion/productos',
     conversions: '/administracion/conversiones',
+    /** Ajustes 1 (AJ1-2): mantenimiento del minuto de seguridad. */
+    safetyMinutes: '/administracion/minuto-seguridad',
   },
   crm: {
     customers: '/clientes',

@@ -49,6 +49,7 @@ export type ParameterEditor =
   | 'progress-rules'
   | 'duplicate-rules'
   | 'mime-types'
+  | 'dashboard-cards'
   | (string & {});
 
 /** Proveedor de autenticación del despliegue (`AUTH_PROVIDER`, ADR-019). */

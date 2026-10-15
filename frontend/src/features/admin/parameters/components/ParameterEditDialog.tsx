@@ -19,8 +19,14 @@ import type { SystemParameter } from '../parameters.api';
 import { useUpdateParameter } from '../parameters.queries';
 import { parameterFormSchema, rangeOf, type ParameterFormValues } from '../parameters.schemas';
 import { CatalogDefaultsEditor } from './editors/CatalogDefaultsEditor';
+import { DashboardCardsEditor } from './editors/DashboardCardsEditor';
 import { DuplicateRulesEditor } from './editors/DuplicateRulesEditor';
-import { DUPLICATE_RULE_FIELDS, parseJsonObject, parseStringArray } from './editors/editor-metadata';
+import {
+  DUPLICATE_RULE_FIELDS,
+  parseDashboardComposition,
+  parseJsonObject,
+  parseStringArray,
+} from './editors/editor-metadata';
 import { MimeTypesEditor } from './editors/MimeTypesEditor';
 import { PriorityMapEditor } from './editors/PriorityMapEditor';
 import { ProgressRulesEditor } from './editors/ProgressRulesEditor';
@@ -46,6 +52,7 @@ type ControlKind =
   | 'progress-rules'
   | 'duplicate-rules'
   | 'mime-types'
+  | 'dashboard-cards'
   | 'text';
 
 const OBJECT_EDITORS = new Set<ControlKind>([
@@ -76,6 +83,9 @@ function controlKindOf(parameter: SystemParameter): ControlKind {
   }
   if (editor === 'duplicate-rules') {
     return DUPLICATE_RULE_FIELDS[parameter.key] && parseJsonObject(value) ? 'duplicate-rules' : 'text';
+  }
+  if (editor === 'dashboard-cards') {
+    return parseDashboardComposition(value) ? 'dashboard-cards' : 'text';
   }
   if (editor === 'mime-types') {
     return parameter.allowedValues && parseStringArray(value) ? 'mime-types' : 'text';
@@ -242,6 +252,13 @@ export function ParameterEditDialog({ parameter, onClose }: ParameterEditDialogP
                 return (
                   <>
                     <MimeTypesEditor {...structured} allowedValues={parameter.allowedValues ?? []} />
+                    {structuredError}
+                  </>
+                );
+              case 'dashboard-cards':
+                return (
+                  <>
+                    <DashboardCardsEditor {...structured} />
                     {structuredError}
                   </>
                 );

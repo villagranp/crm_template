@@ -78,6 +78,12 @@ export const ADMIN_ERROR_CODES = {
   invalidExchangeRate: 'INVALID_EXCHANGE_RATE',
   /** 07 D-07.3: un rol comercial exige código de colaborador y país. */
   crmProfileIncomplete: 'CRM_PROFILE_INCOMPLETE',
+  /** AJ1 RN-AJ1.8: ya hay un mensaje de minuto de seguridad para esa fecha. */
+  safetyMinuteDuplicate: 'SAFETY_MINUTE_DUPLICATE',
+  /** AJ1 RN-AJ1.10/11: un mensaje de hoy o pasado no se edita (pasado) ni se borra. */
+  safetyMinuteLocked: 'SAFETY_MINUTE_LOCKED',
+  /** AJ1 RN-AJ1.12: la fecha de visualización no puede ser pasada. */
+  safetyMinutePastDate: 'SAFETY_MINUTE_PAST_DATE',
 } as const;
 
 /**
@@ -119,6 +125,9 @@ const ADMIN_MESSAGES_BY_CODE: Readonly<Record<string, string>> = {
     'El tipo de cambio no es válido: la moneda debe existir, estar activa y no ser USD, y la tasa debe ser mayor que 0.',
   [ADMIN_ERROR_CODES.crmProfileIncomplete]:
     'Para asignar un rol comercial el usuario necesita código de colaborador y país.',
+  [ADMIN_ERROR_CODES.safetyMinuteDuplicate]: 'Ya hay un mensaje para esa fecha. Elige otra o edita el existente.',
+  [ADMIN_ERROR_CODES.safetyMinuteLocked]: 'El mensaje ya no se puede modificar por su fecha. Actualiza la lista.',
+  [ADMIN_ERROR_CODES.safetyMinutePastDate]: 'La fecha de visualización no puede ser anterior a hoy.',
 };
 
 /**

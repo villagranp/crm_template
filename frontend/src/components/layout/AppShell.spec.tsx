@@ -217,6 +217,14 @@ describe('AppShell en escritorio', () => {
     );
   });
 
+  it('el pie dice © año Grupo AG', async () => {
+    renderShell('/');
+
+    expect(await screen.findByRole('contentinfo')).toHaveTextContent(
+      `© ${new Date().getFullYear()} Grupo AG`,
+    );
+  });
+
   it('el menú de usuario ofrece cambiar la contraseña y cerrar sesión', async () => {
     const user = userEvent.setup();
     renderShell('/');

@@ -5,6 +5,7 @@ import { BottomNav } from '@/components/layout/BottomNav';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Topbar } from '@/components/layout/Topbar';
 import { useAuth } from '@/hooks/use-auth';
+import { useThemePreferenceSync } from '@/services/preferences';
 import { brandIdentity, layout } from '@/theme/tokens';
 
 /**
@@ -25,6 +26,8 @@ const gutterVar = `var(${APP_GUTTER_VAR})`;
  */
 export function AppShell() {
   const { isAuthenticated } = useAuth();
+  // Tema por usuario: aplica el guardado en el servidor y guarda los cambios (RN-AJ1.17).
+  useThemePreferenceSync();
 
   return (
     <Box
@@ -85,7 +88,7 @@ export function AppShell() {
             }}
           >
             <Typography variant="caption" color="text.secondary">
-              © {new Date().getFullYear()} {brandIdentity.productName}
+              © {new Date().getFullYear()} {brandIdentity.companyName}
             </Typography>
           </Box>
         </Box>
