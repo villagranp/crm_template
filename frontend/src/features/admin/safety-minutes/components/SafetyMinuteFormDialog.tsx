@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Alert, TextField } from '@mui/material';
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 
 import { AdminDialog, DialogFooter, FormSection, FullRow } from '@/features/admin/common';
@@ -10,9 +10,8 @@ import { describeSafetyMinuteError, isDuplicateDate } from '../safety-minutes.er
 import { formatDisplayDate } from '../safety-minutes-format';
 import { useCreateSafetyMinute, useUpdateSafetyMinute } from '../safety-minutes.queries';
 import {
-  createSafetyMinuteFormSchema,
   MESSAGE_MAX,
-  todayIso,
+  safetyMinuteFormSchema,
   type SafetyMinuteFormValues,
 } from '../safety-minutes.schemas';
 
@@ -38,9 +37,6 @@ export function SafetyMinuteFormDialog({ open, minute, onClose }: SafetyMinuteFo
   const updateMutation = useUpdateSafetyMinute();
   const mutation = minute ? updateMutation : createMutation;
   const originalDate = minute?.displayDate.slice(0, 10);
-  // Hoy se fija al abrir el diálogo (no en cada render).
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const schema = useMemo(() => createSafetyMinuteFormSchema(todayIso(), originalDate), [open, originalDate]);
   const {
     register,
     control,
@@ -48,7 +44,7 @@ export function SafetyMinuteFormDialog({ open, minute, onClose }: SafetyMinuteFo
     reset,
     setError,
     formState: { errors },
-  } = useForm<SafetyMinuteFormValues>({ resolver: zodResolver(schema), defaultValues: defaults(minute) });
+  } = useForm<SafetyMinuteFormValues>({ resolver: zodResolver(safetyMinuteFormSchema), defaultValues: defaults(minute) });
   const { reset: resetCreate } = createMutation;
   const { reset: resetUpdate } = updateMutation;
   const message = useWatch({ control, name: 'message' });

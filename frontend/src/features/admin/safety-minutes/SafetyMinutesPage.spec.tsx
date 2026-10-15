@@ -175,7 +175,7 @@ describe('SafetyMinutesPage (PF-AJ1.8, AC-AJ1.13, AC-AJ1.14)', () => {
     expect(listQueries(fetchMock)).toHaveLength(before);
   });
 
-  it('registra un mensaje recortado y valida mensaje vacío, exceso y fecha pasada', async () => {
+  it('registra un mensaje recortado y valida mensaje vacío, exceso y formato de fecha (la fecha pasada la decide el servidor)', async () => {
     signInWith(ALL);
     const fetchMock = api({ 'POST /safety-minutes': () => jsonResponse(FUTURE, 201) });
     const user = userEvent.setup();
@@ -187,10 +187,10 @@ describe('SafetyMinutesPage (PF-AJ1.8, AC-AJ1.13, AC-AJ1.14)', () => {
     const date = within(dialog).getByLabelText(/Fecha de visualización/);
 
     fireEvent.change(message, { target: { value: '   ' } });
-    fireEvent.change(date, { target: { value: '2000-01-01' } });
+    fireEvent.change(date, { target: { value: '' } });
     await user.click(within(dialog).getByRole('button', { name: 'Registrar' }));
     expect(await within(dialog).findByText('Escribe el mensaje.')).toBeInTheDocument();
-    expect(within(dialog).getByText('La fecha no puede ser anterior a hoy.')).toBeInTheDocument();
+    expect(within(dialog).getByText('Elige la fecha de visualización.')).toBeInTheDocument();
 
     fireEvent.change(message, { target: { value: 'a'.repeat(1001) } });
     await user.click(within(dialog).getByRole('button', { name: 'Registrar' }));

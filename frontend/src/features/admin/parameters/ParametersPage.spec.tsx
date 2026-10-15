@@ -24,6 +24,7 @@ function parameter(overrides: Partial<SystemParameter>): SystemParameter {
     readOnly: false,
     allowedValues: null,
     editor: null,
+    editorOptions: null,
     range: null,
     updatedAt: '2026-10-08T10:00:00.000Z',
     ...overrides,
@@ -383,5 +384,41 @@ describe('ParametersPage', () => {
       { key: 'alerts', visible: false },
       { key: 'hero', visible: true },
     ]);
+  });
+
+  it('el editor del panel completa con editorOptions las claves nuevas y las envía visibles al final', async () => {
+    signInWith(['parametros.ver', 'parametros.editar']);
+    const withOptions = {
+      ...DASHBOARD_CARDS,
+      editorOptions: {
+        blocks: ['safety-minute', 'hero', 'alerts', 'future-block'],
+        kpis: ['projects-active', 'forecast', 'future-kpi'],
+        lockedVisibleBlocks: ['safety-minute'],
+      },
+    };
+    const fetchMock = api({
+      'GET /parameters': () =>
+        jsonResponse({ data: [{ group: 'interfaz', parameters: [withOptions] }] }),
+      'PATCH /parameters/ui.inicio.tarjetas': () => jsonResponse(withOptions),
+    });
+    const user = userEvent.setup();
+
+    renderWithProviders(<ParametersPage />);
+    await user.click(await screen.findByRole('button', { name: 'Editar Tarjetas del panel de Inicio' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Editar «Tarjetas del panel de Inicio»' });
+    expect(within(within(dialog).getByRole('list', { name: 'Bloques por defecto' })).getAllByRole('listitem')).toHaveLength(4);
+    expect(within(dialog).getByRole('checkbox', { name: 'Visible: future-block' })).toBeChecked();
+    await user.click(within(dialog).getByRole('checkbox', { name: 'Visible: Alertas y pendientes' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(callsTo(fetchMock, 'PATCH', '/parameters/ui.inicio.tarjetas')).toHaveLength(1));
+    const [call] = callsTo(fetchMock, 'PATCH', '/parameters/ui.inicio.tarjetas');
+    const sent = JSON.parse((JSON.parse(String(call?.body)) as { value: string }).value) as {
+      blocks: { key: string }[];
+      kpis: { key: string; visible: boolean }[];
+    };
+    expect(sent.blocks.map((entry) => entry.key)).toEqual(['safety-minute', 'hero', 'alerts', 'future-block']);
+    expect(sent.kpis.at(-1)).toEqual({ key: 'future-kpi', visible: true });
   });
 });

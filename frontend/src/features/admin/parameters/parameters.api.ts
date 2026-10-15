@@ -27,6 +27,11 @@ export interface SystemParameter {
   allowedValues: string[] | null;
   /** Editor sugerido por el registro de reglas del backend (`parameter-rules.registry.ts`). */
   editor: ParameterEditor | null;
+  /**
+   * Listas cerradas que necesita el editor (`GET /parameters`). Hoy sólo `ui.inicio.tarjetas`:
+   * `blocks`, `kpis` y `lockedVisibleBlocks` (los bloques que no se pueden ocultar).
+   */
+  editorOptions: Record<string, string[]> | null;
   /** Rango numérico admitido, si lo hay. */
   range: { min: number; max: number } | null;
   updatedAt: string;

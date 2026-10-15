@@ -258,7 +258,7 @@ export function ParameterEditDialog({ parameter, onClose }: ParameterEditDialogP
               case 'dashboard-cards':
                 return (
                   <>
-                    <DashboardCardsEditor {...structured} />
+                    <DashboardCardsEditor {...structured} editorOptions={parameter.editorOptions} />
                     {structuredError}
                   </>
                 );

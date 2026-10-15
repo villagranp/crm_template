@@ -1,7 +1,7 @@
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import { Box, FormControlLabel, IconButton, Stack, Switch, Typography } from '@mui/material';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 
 import type { DashboardCardEntry } from '@/services/ui-settings';
 import { fontSizes, layout } from '@/theme/tokens';
@@ -19,6 +19,8 @@ export interface DashboardCardsListProps<TKey extends string> {
   /** Nota bajo la etiqueta de los elementos bloqueados. */
   lockedNote?: string;
   disabled?: boolean;
+  /** Anuncia la nueva posición tras mover; el padre pinta UNA región compartida (`AnnouncementRegion`). */
+  onAnnounce: (message: string) => void;
   /** Recibe la lista completa mostrada con el nuevo orden o visibilidad. */
   onChange: (items: DashboardCardEntry<TKey>[]) => void;
 }
@@ -26,10 +28,33 @@ export interface DashboardCardsListProps<TKey extends string> {
 type Direction = 'up' | 'down';
 
 /**
+ * Única región `aria-live` de un grupo de listas. Va dentro de un contenedor `position: relative`,
+ * porque su caja visualmente oculta es `position: absolute`.
+ */
+export function AnnouncementRegion({ message }: { message: string }) {
+  return (
+    <Box
+      role="status"
+      aria-live="polite"
+      sx={{
+        position: 'absolute',
+        width: 0,
+        height: 0,
+        overflow: 'hidden',
+        clipPath: 'inset(50%)',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {message}
+    </Box>
+  );
+}
+
+/**
  * Lista reordenable compartida por «Personalizar panel» y por el editor del parámetro por defecto.
  * Sin arrastrar y soltar (exigiría una librería y un ADR): cada fila tiene un interruptor «Visible»
  * y botones subir/bajar con nombre accesible. Tras mover, el foco se queda en el botón de la fila
- * movida y un aviso `aria-live` anuncia la nueva posición.
+ * movida y se anuncia la nueva posición por la región `aria-live` del padre.
  */
 export function DashboardCardsList<TKey extends string>({
   label,
@@ -38,11 +63,11 @@ export function DashboardCardsList<TKey extends string>({
   lockedKeys = [],
   lockedNote,
   disabled = false,
+  onAnnounce,
   onChange,
 }: DashboardCardsListProps<TKey>) {
   const listRef = useRef<HTMLUListElement>(null);
   const pendingFocus = useRef<{ key: TKey; direction: Direction } | null>(null);
-  const [announcement, setAnnouncement] = useState('');
 
   useEffect(() => {
     const pending = pendingFocus.current;
@@ -67,7 +92,7 @@ export function DashboardCardsList<TKey extends string>({
     }
     const next = moveEntry(items, index, direction === 'up' ? -1 : 1);
     pendingFocus.current = { key: entry.key, direction };
-    setAnnouncement(
+    onAnnounce(
       `«${labels[entry.key]}» en la posición ${next.indexOf(entry) + 1} de ${next.length}`,
     );
     onChange(next);
@@ -144,20 +169,6 @@ export function DashboardCardsList<TKey extends string>({
             </Stack>
           );
         })}
-      </Box>
-      <Box
-        role="status"
-        aria-live="polite"
-        sx={{
-          position: 'absolute',
-          width: 0,
-          height: 0,
-          overflow: 'hidden',
-          clipPath: 'inset(50%)',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {announcement}
       </Box>
     </Box>
   );

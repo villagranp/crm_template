@@ -44,7 +44,6 @@ export function AppShell() {
         {isAuthenticated ? <Sidebar /> : null}
 
         <Box
-          component="main"
           sx={{
             flexGrow: 1,
             minWidth: 0,
@@ -58,22 +57,25 @@ export function AppShell() {
             },
           }}
         >
-          <Box
-            sx={{
-              flex: 1,
-              width: '100%',
-              maxWidth: layout.contentMaxWidth,
-              mx: 'auto',
-              px: gutterVar,
-              pt: gutterVar,
-              // Deja sitio a la barra inferior de móvil y a la safe area de iOS.
-              pb: {
-                xs: `calc(${layout.bottomNavHeight}px + env(safe-area-inset-bottom, 0px) + ${gutterVar})`,
-                md: gutterVar,
-              },
-            }}
-          >
-            <Outlet />
+          {/* El pie queda fuera de `main` para exponer el landmark `contentinfo`. */}
+          <Box component="main" sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <Box
+              sx={{
+                flex: 1,
+                width: '100%',
+                maxWidth: layout.contentMaxWidth,
+                mx: 'auto',
+                px: gutterVar,
+                pt: gutterVar,
+                // Deja sitio a la barra inferior de móvil y a la safe area de iOS.
+                pb: {
+                  xs: `calc(${layout.bottomNavHeight}px + env(safe-area-inset-bottom, 0px) + ${gutterVar})`,
+                  md: gutterVar,
+                },
+              }}
+            >
+              <Outlet />
+            </Box>
           </Box>
 
           <Box

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 import { ApiError } from '@/services/api/api-error';
 import { configureHttpClient } from '@/services/api/http-client';
+import { queryClient } from '@/services/api/query-client';
 import type {
   AuthProvider,
   AuthSession,
@@ -31,6 +32,12 @@ interface AuthState {
    */
   passwordChangeRequired: boolean;
   errorMessage: string | null;
+  /**
+   * El usuario cerró sesión él mismo. `RequireAuth` lo usa para no guardar la ruta actual como
+   * destino de retorno: quien entre después (otro usuario, otros permisos) empieza en el inicio.
+   * Una sesión caducada no lo activa y sí vuelve al sitio donde estaba.
+   */
+  signedOutByUser: boolean;
   initialize: () => Promise<void>;
   /** Rejects with the provider error so the form can explain it. */
   signIn: (credentials?: SignInCredentials) => Promise<void>;
@@ -69,6 +76,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   passwordChangeRequired: false,
   errorMessage: null,
+  signedOutByUser: false,
 
   initialize: async () => {
     const authProvider = getProvider();
@@ -90,7 +98,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   signIn: async (credentials) => {
     try {
       const session = await getProvider().signIn(credentials);
-      set(sessionState(session));
+      set({ ...sessionState(session), signedOutByUser: false });
     } catch (error) {
       // API errors are expected answers (wrong password, disabled account) and
       // the form explains them; anything else is a provider failure.
@@ -108,7 +116,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   signOut: async () => {
     await getProvider().signOut();
-    set(sessionState(null));
+    set({ ...sessionState(null), signedOutByUser: true });
   },
 
   changePassword: async (input) => {
@@ -120,6 +128,18 @@ export const useAuthStore = create<AuthState>((set) => ({
     set(sessionState(session));
   },
 }));
+
+/**
+ * Aislamiento entre usuarios: la caché de TanStack Query es del proceso, no del usuario, y claves
+ * como `['me','preferences']` (`staleTime: Infinity`) no llevan el id. Se vacía entera cada vez que
+ * cambia la identidad (cierre de sesión voluntario o caducado, o inicio de otro usuario sin
+ * recargar). Renovar el token o cambiar la contraseña conserva el id y no la toca.
+ */
+useAuthStore.subscribe((state, previous) => {
+  if ((state.user?.id ?? null) !== (previous.user?.id ?? null)) {
+    queryClient.clear();
+  }
+});
 
 /** Test-only seam: resets the memoised provider between test cases. */
 export function resetAuthProviderForTests(): void {

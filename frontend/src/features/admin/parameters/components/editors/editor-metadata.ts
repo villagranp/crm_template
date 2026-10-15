@@ -6,10 +6,12 @@ import type { DashboardComposition } from '@/services/ui-settings';
  * Reflejan el registro de reglas del backend
  * (`backend/src/modules/parameters/parameter-rules.registry.ts`): la lista
  * blanca de campos obligatorios, los campos con valor por defecto y su
- * catálogo, los tipos de alerta y las acciones de duplicidad. La API no los
- * expone, así que se copian aquí; si cambian allí y no aquí, el backend
+ * catálogo, los tipos de alerta y las acciones de duplicidad. Esos NO los
+ * expone la API, así que se copian aquí; si cambian allí y no aquí, el backend
  * responde `422 INVALID_PARAMETER_VALUE` con el motivo, que el diálogo muestra.
- * Los nombres legibles son de presentación.
+ * La excepción es `dashboard-cards`: sus listas cerradas llegan en
+ * `editorOptions` de `GET /parameters` y no se copian. Los nombres legibles
+ * son de presentación.
  */
 
 export interface RequiredFieldsEntity {
@@ -305,4 +307,50 @@ export function parseDashboardComposition(raw: string): DashboardComposition | n
   } catch {
     return null;
   }
+}
+
+/** Entrada del editor del panel: la clave es texto libre porque una versión futura puede traer claves nuevas. */
+export interface DashboardEditorEntry {
+  key: string;
+  visible: boolean;
+}
+
+/** Listas cerradas de `editorOptions` ya interpretadas (siempre listas; vacías si faltan). */
+export interface DashboardEditorLists {
+  blocks: readonly string[];
+  kpis: readonly string[];
+  lockedVisibleBlocks: readonly string[];
+}
+
+/** Lee `editorOptions` de `GET /parameters` con tolerancia: lo que no sea una lista de textos se ignora. */
+export function readDashboardEditorLists(
+  editorOptions: Readonly<Record<string, readonly string[]>> | null | undefined,
+  fallbackLocked: readonly string[],
+): DashboardEditorLists {
+  const list = (name: string): readonly string[] => {
+    const value: unknown = editorOptions?.[name];
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  };
+  return {
+    blocks: list('blocks'),
+    kpis: list('kpis'),
+    lockedVisibleBlocks: editorOptions?.lockedVisibleBlocks ? list('lockedVisibleBlocks') : fallbackLocked,
+  };
+}
+
+/**
+ * Completa una lista con las claves del servidor que el valor sembrado no trae (p. ej. un bloque
+ * nuevo de una versión futura): se añaden al final y visibles, para que el `PATCH` no dé
+ * `422 missing_key`. Las claves bloqueadas se fuerzan visibles. No quita ni reordena nada.
+ */
+export function completeEntries(
+  entries: readonly DashboardEditorEntry[],
+  serverKeys: readonly string[],
+  lockedKeys: readonly string[] = [],
+): DashboardEditorEntry[] {
+  const present = new Set(entries.map((entry) => entry.key));
+  const missing = serverKeys.filter((key) => !present.has(key)).map((key) => ({ key, visible: true }));
+  return [...entries, ...missing].map((entry) =>
+    lockedKeys.includes(entry.key) && !entry.visible ? { ...entry, visible: true } : entry,
+  );
 }

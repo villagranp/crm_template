@@ -20,7 +20,8 @@ import {
   mergeSubset,
 } from '../dashboard-layout';
 import type { DashboardAccess } from '../dashboard.permissions';
-import { DashboardCardsList } from './DashboardCardsList';
+import { AnnouncementRegion, DashboardCardsList } from './DashboardCardsList';
+import { useAnnouncement } from './use-announcement';
 
 export const SAFETY_MINUTE_LOCKED_NOTE = 'Mensaje institucional: siempre visible';
 
@@ -56,6 +57,7 @@ export function DashboardCustomizeDialog({ open, onClose, access }: DashboardCus
   const reset = useResetDashboardComposition();
   const [draft, setDraft] = useState<DashboardComposition | null>(null);
   const [confirmingReset, setConfirmingReset] = useState(false);
+  const { message: announcement, announce } = useAnnouncement();
 
   const working: DashboardComposition = draft ?? settings.dashboard;
   const pending = save.isPending || reset.isPending;
@@ -105,9 +107,9 @@ export function DashboardCustomizeDialog({ open, onClose, access }: DashboardCus
   if (isLoading) {
     body = (
       <Stack spacing={1} aria-busy="true" aria-label="Cargando tu configuración">
-        <Skeleton variant="rounded" height={48} />
-        <Skeleton variant="rounded" height={48} />
-        <Skeleton variant="rounded" height={48} />
+        <Skeleton variant="rounded" sx={{ height: (theme) => theme.spacing(6) }} />
+        <Skeleton variant="rounded" sx={{ height: (theme) => theme.spacing(6) }} />
+        <Skeleton variant="rounded" sx={{ height: (theme) => theme.spacing(6) }} />
       </Stack>
     );
   } else if (!isLoaded) {
@@ -118,7 +120,7 @@ export function DashboardCustomizeDialog({ open, onClose, access }: DashboardCus
     );
   } else {
     body = (
-      <Stack spacing={3}>
+      <Stack spacing={3} sx={{ position: 'relative' }}>
         <DialogContentText variant="body2">
           Elige qué ver en tu panel y en qué orden. Sólo aparece lo que tu acceso permite.
         </DialogContentText>
@@ -132,6 +134,7 @@ export function DashboardCustomizeDialog({ open, onClose, access }: DashboardCus
             lockedKeys={LOCKED_BLOCK_KEYS}
             lockedNote={SAFETY_MINUTE_LOCKED_NOTE}
             disabled={pending}
+            onAnnounce={announce}
             onChange={(subset) =>
               setDraft({ ...working, blocks: mergeSubset(working.blocks, subset) })
             }
@@ -146,6 +149,7 @@ export function DashboardCustomizeDialog({ open, onClose, access }: DashboardCus
               items={kpis}
               labels={KPI_LABELS}
               disabled={pending}
+              onAnnounce={announce}
               onChange={(subset) =>
                 setDraft({ ...working, kpis: mergeSubset(working.kpis, subset) })
               }
@@ -167,6 +171,7 @@ export function DashboardCustomizeDialog({ open, onClose, access }: DashboardCus
         ) : null}
 
         {saveError ? <Alert severity="error">{saveError.message}</Alert> : null}
+        <AnnouncementRegion message={announcement} />
       </Stack>
     );
   }

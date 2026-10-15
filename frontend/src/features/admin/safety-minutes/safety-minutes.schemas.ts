@@ -8,31 +8,19 @@ import { z } from 'zod';
 export const MESSAGE_MAX = 1000;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Hoy en la zona del navegador como `YYYY-MM-DD` (el backend usa la zona de negocio y decide). */
-export function todayIso(now: Date = new Date()): string {
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${now.getFullYear()}-${month}-${day}`;
-}
-
 /**
- * Esquema del formulario. `minDate` es hoy; `originalDate` es la fecha que ya
- * tiene el mensaje que se edita: conservarla es válido aunque sea hoy.
+ * Esquema del formulario. De la fecha sólo se valida el formato: «no anterior a hoy» lo decide el
+ * servidor con `crm.zona_horaria_negocio` (`422 SAFETY_MINUTE_PAST_DATE`), no la zona del navegador.
  */
-export function createSafetyMinuteFormSchema(minDate: string, originalDate?: string) {
-  return z.object({
-    message: z
-      .string()
-      .trim()
-      .min(1, 'Escribe el mensaje.')
-      .max(MESSAGE_MAX, `Usa como máximo ${MESSAGE_MAX} caracteres.`),
-    displayDate: z
-      .string()
-      .regex(ISO_DATE, 'Elige la fecha de visualización.')
-      .refine((value) => value === originalDate || value >= minDate, 'La fecha no puede ser anterior a hoy.'),
-  });
-}
-export type SafetyMinuteFormValues = z.infer<ReturnType<typeof createSafetyMinuteFormSchema>>;
+export const safetyMinuteFormSchema = z.object({
+  message: z
+    .string()
+    .trim()
+    .min(1, 'Escribe el mensaje.')
+    .max(MESSAGE_MAX, `Usa como máximo ${MESSAGE_MAX} caracteres.`),
+  displayDate: z.string().regex(ISO_DATE, 'Elige la fecha de visualización.'),
+});
+export type SafetyMinuteFormValues = z.infer<typeof safetyMinuteFormSchema>;
 
 /** Rango de fechas del filtro: `Desde ≤ Hasta`. `null` si es válido. */
 export function dateRangeError(from: string | undefined, to: string | undefined): string | null {
