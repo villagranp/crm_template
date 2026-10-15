@@ -296,6 +296,31 @@ function isEntryList(value: unknown): boolean {
 }
 
 /** Interpreta el valor como composición del panel; `null` si no tiene la forma esperada. */
+/**
+ * Resumen de una línea de `crm.campos_obligatorios` para el listado de Parámetros: cuántos campos
+ * exige cada entidad (con los de base). `null` si el valor no tiene la forma esperada.
+ */
+export function summarizeRequiredFields(raw: string): string | null {
+  const parsed = parseJsonObject(raw);
+  if (!parsed) {
+    return null;
+  }
+  const parts = Object.entries(REQUIRED_FIELDS_ENTITIES)
+    .filter(([entity]) => Array.isArray(parsed[entity]))
+    .map(([entity, { label }]) => `${label} ${(parsed[entity] as unknown[]).length}`);
+  return parts.length > 0 ? `${parts.join(' · ')} campos` : null;
+}
+
+/** Resumen de una línea de `crm.valores_por_defecto`: cuántos valores por defecto hay definidos. */
+export function summarizeCatalogDefaults(raw: string): string | null {
+  const parsed = parseJsonObject(raw);
+  if (!parsed) {
+    return null;
+  }
+  const count = Object.keys(parsed).length;
+  return `${count} ${count === 1 ? 'valor por defecto' : 'valores por defecto'}`;
+}
+
 export function parseDashboardComposition(raw: string): DashboardComposition | null {
   try {
     const value: unknown = JSON.parse(raw);

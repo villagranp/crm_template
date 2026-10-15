@@ -358,6 +358,20 @@ describe('ParametersPage', () => {
     );
   });
 
+  it('resume los campos obligatorios por entidad en vez de volcar el JSON y deja el valor completo en el title', async () => {
+    signInWith(['parametros.ver']);
+    api();
+
+    renderWithProviders(<ParametersPage />);
+
+    const section = await screen.findByRole('region', { name: 'Campos y valores por defecto' });
+    const value = within(section).getByLabelText('Valor de Campos obligatorios');
+    expect(value).toHaveTextContent('Cliente 4 · Proyecto 4 · Visita 4 · Actividad 5 campos');
+    expect(value).not.toHaveTextContent('legalName');
+    // El JSON completo sigue disponible al pasar el cursor.
+    expect(value).toHaveAttribute('title', expect.stringContaining('"legalName"'));
+  });
+
   it('PF-AJ1.4c: edita la composición por defecto con DashboardCardsEditor y guarda el JSON', async () => {
     signInWith(['parametros.ver', 'parametros.editar']);
     const fetchMock = api({

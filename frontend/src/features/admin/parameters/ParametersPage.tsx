@@ -32,7 +32,11 @@ import { ROUTE_PATHS } from '@/routes/route-paths';
 
 import { AuthenticationSettingsCard } from './components/AuthenticationSettingsCard';
 import { ParameterEditDialog } from './components/ParameterEditDialog';
-import { parseDashboardComposition } from './components/editors/editor-metadata';
+import {
+  parseDashboardComposition,
+  summarizeCatalogDefaults,
+  summarizeRequiredFields,
+} from './components/editors/editor-metadata';
 import { toSections, type ParameterSection } from './parameter-sections';
 import type { SystemParameter } from './parameters.api';
 import { PARAMETER_PERMISSIONS } from './parameters.permissions';
@@ -56,6 +60,12 @@ function displayValue(parameter: SystemParameter): string {
       const hidden = [...composition.blocks, ...composition.kpis].filter((entry) => !entry.visible).length;
       return `${composition.blocks.length} bloques y ${composition.kpis.length} indicadores (${hidden} ocultos)`;
     }
+  }
+  if (parameter.editor === 'required-fields') {
+    return summarizeRequiredFields(parameter.value) ?? parameter.value;
+  }
+  if (parameter.editor === 'catalog-defaults') {
+    return summarizeCatalogDefaults(parameter.value) ?? parameter.value;
   }
   return parameter.value;
 }
@@ -101,7 +111,13 @@ function ParameterRow({
           </Typography>
         ) : null}
       </Box>
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+      {/* Ancho acotado: un valor largo no le quita el espacio al nombre y la descripción. */}
+      <Stack
+        direction="row"
+        spacing={1}
+        alignItems="center"
+        sx={{ minWidth: 0, flex: { sm: '0 1 45%' } }}
+      >
         {parameter.isPublic ? <Chip size="small" label="Público" /> : null}
         {parameter.readOnly ? <Chip size="small" variant="outlined" label="Sólo lectura" /> : null}
         <Typography
@@ -110,8 +126,17 @@ function ParameterRow({
             fontFamily: parameter.type === 'JSON' ? 'monospace' : undefined,
             overflowWrap: 'anywhere',
             flex: 1,
+            minWidth: 0,
             textAlign: { sm: 'right' },
+            // Un JSON largo ocupa como mucho tres líneas; el valor completo va en el `title`.
+            ...(parameter.type === 'JSON' && {
+              display: '-webkit-box',
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            }),
           }}
+          title={parameter.type === 'JSON' ? parameter.value : undefined}
           aria-label={`Valor de ${parameter.name}`}
         >
           {displayValue(parameter)}
