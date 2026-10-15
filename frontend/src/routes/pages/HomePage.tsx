@@ -1,53 +1,37 @@
-import { Alert, Box, Stack } from '@mui/material';
-import type { ReactNode } from 'react';
+import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
+import { Alert, Box, Button, Skeleton, Stack, type Theme } from '@mui/material';
+import { useState, type ReactNode } from 'react';
 
 import { PageHeader } from '@/components/layout/PageHeader';
 import { AccessSummary } from '@/features/dashboard/components/AccessSummary';
 import { AlertsPanel } from '@/features/dashboard/components/AlertsPanel';
+import { DashboardCustomizeDialog } from '@/features/dashboard/components/DashboardCustomizeDialog';
 import { HeroCard } from '@/features/dashboard/components/HeroCard';
 import { KpiGrid } from '@/features/dashboard/components/KpiGrid';
 import { QuickAccess } from '@/features/dashboard/components/QuickAccess';
 import { RecentActivityPanel } from '@/features/dashboard/components/RecentActivityPanel';
+import { SafetyMinuteCard } from '@/features/dashboard/components/SafetyMinuteCard';
 import { UpcomingVisitsList } from '@/features/dashboard/components/UpcomingVisitsList';
-import { useDashboardAccess } from '@/features/dashboard/dashboard.queries';
-import { menuEntries } from '@/features/dashboard/quick-access';
+import {
+  buildGridAreas,
+  visibleBlockKeys,
+  visibleKpiKeys,
+  type BlockAvailability,
+} from '@/features/dashboard/dashboard-layout';
+import { useDashboardAccess, useSafetyMinute } from '@/features/dashboard/dashboard.queries';
 import { useAuth } from '@/hooks/use-auth';
 import { useHealth } from '@/hooks/use-health';
 import { useMenu } from '@/hooks/use-menu';
 import { useProfile } from '@/hooks/use-profile';
+import {
+  useResetDashboardComposition,
+  useUiSettings,
+  type DashboardBlockKey,
+} from '@/services/ui-settings';
 
-type Area = 'hero' | 'mine' | 'kpis' | 'alerts' | 'activity' | 'access';
+const skeletonSx = { height: (theme: Theme) => theme.spacing(20) };
 
-/** Orden en una columna (`xs`): Hero, Alertas, Indicadores, Actividad, Accesos, Mi acceso (01 §E.1). */
-const MOBILE_ORDER: readonly Area[] = ['hero', 'alerts', 'kpis', 'activity', 'access', 'mine'];
-
-/**
- * `grid-template-areas` de la disposición de 01 §E.1 con sólo los bloques
- * presentes (un bloque sin permiso no deja hueco).
- */
-function gridAreas(present: ReadonlySet<Area>) {
-  const rows = (lines: (Area | Area[])[]) =>
-    lines
-      .map((line) =>
-        Array.isArray(line)
-          ? line.filter((area) => present.has(area))
-          : present.has(line)
-            ? [line]
-            : [],
-      )
-      .filter((line) => line.length > 0)
-      .map((line) => `"${line.length === 1 ? `${line[0]} ${line[0]}` : line.join(' ')}"`)
-      .join(' ');
-
-  return {
-    xs: MOBILE_ORDER.filter((area) => present.has(area))
-      .map((area) => `"${area}"`)
-      .join(' '),
-    lg: rows([['hero', 'mine'], 'kpis', ['alerts', 'activity'], 'access']),
-  };
-}
-
-function GridArea({ area, children }: { area: Area; children: ReactNode }) {
+function GridArea({ area, children }: { area: DashboardBlockKey; children: ReactNode }) {
   return <Box sx={{ gridArea: area, minWidth: 0 }}>{children}</Box>;
 }
 
@@ -68,25 +52,72 @@ export function HomePage() {
   const profile = useProfile();
   const menu = useMenu();
   const access = useDashboardAccess();
+  const { settings, isLoaded, isError, isLoading } = useUiSettings();
+  // Sólo la primera carga muestra el marcador: si falla, un observador nuevo (p. ej. `KpiGrid`) la
+  // reintenta y volvería a ponerla en «cargando», desmontando y montando los bloques en bucle.
+  const [settingsSettled, setSettingsSettled] = useState(false);
+  if (!settingsSettled && (isLoaded || isError)) {
+    setSettingsSettled(true);
+  }
+  const settingsLoading = !settingsSettled && isLoading;
+  const safetyMinute = useSafetyMinute();
+  const resetComposition = useResetDashboardComposition();
+  const [customizing, setCustomizing] = useState(false);
 
-  const entries = menu.data ? menuEntries(menu.data) : undefined;
-  const moduleCount = entries ? new Set(entries.map((entry) => entry.module.key)).size : undefined;
   const showActivity = access.visits || access.recentActivity;
 
-  const present = new Set<Area>(['hero', 'mine', 'kpis', 'access']);
-  if (access.alerts) {
-    present.add('alerts');
-  }
-  if (showActivity) {
-    present.add('activity');
-  }
-  const areas = gridAreas(present);
+  // Qué bloques tienen algo que pintar: el permiso y, para el minuto de seguridad, el mensaje de
+  // hoy (sin mensaje no se reserva hueco, D-AJ1.3). Indicadores: o el aviso de RN-01.7 o alguno
+  // visible y permitido.
+  const available: BlockAvailability = {
+    'safety-minute': Boolean(safetyMinute.data?.safetyMinute),
+    hero: true,
+    mine: true,
+    kpis:
+      !access.anyCommercialSource || visibleKpiKeys(settings.dashboard.kpis, access).length > 0,
+    alerts: access.alerts,
+    activity: showActivity,
+    access: true,
+  };
+  const order = visibleBlockKeys(settings.dashboard.blocks, available);
+  const areas = buildGridAreas(order);
+
+  const blocks: Record<DashboardBlockKey, ReactNode> = {
+    'safety-minute': <SafetyMinuteCard />,
+    hero: (
+      <HeroCard
+        profile={profile}
+        sessionDisplayName={user?.displayName}
+      />
+    ),
+    mine: <AccessSummary profile={profile} />,
+    kpis: <KpiGrid access={access} />,
+    alerts: <AlertsPanel />,
+    activity: (
+      <Stack spacing={2}>
+        {access.visits ? <UpcomingVisitsList /> : null}
+        {access.recentActivity ? <RecentActivityPanel access={access} /> : null}
+      </Stack>
+    ),
+    access: <QuickAccess menu={menu} />,
+  };
 
   return (
     <>
       <PageHeader
         title="Panel de control"
         breadcrumbs={[{ label: 'Inicio', to: '/' }, { label: 'Panel de control' }]}
+        actions={
+          <Button
+            variant="outlined"
+            color="inherit"
+            startIcon={<TuneOutlinedIcon />}
+            onClick={() => setCustomizing(true)}
+            sx={{ borderColor: 'divider' }}
+          >
+            Personalizar panel
+          </Button>
+        }
       />
 
       {health.isError ? (
@@ -96,50 +127,65 @@ export function HomePage() {
         </Alert>
       ) : null}
 
-      <Box
-        sx={{
-          display: 'grid',
-          gap: { xs: 2, md: 3 },
-          gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(0, 1fr) minmax(0, 1fr)' },
-          gridTemplateAreas: areas,
-        }}
-      >
-        <GridArea area="hero">
-          <HeroCard
-            profile={profile}
-            sessionDisplayName={user?.displayName}
-            optionCount={entries?.length}
-            moduleCount={moduleCount}
-          />
-        </GridArea>
+      {settingsLoading ? (
+        // Hasta conocer la composición no se monta ningún bloque: así no se piden datos de lo que el
+        // usuario tiene oculto ni la pantalla se recompone al llegar su preferencia.
+        <Box
+          role="status"
+          aria-busy="true"
+          aria-label="Cargando tu panel"
+          sx={{ display: 'grid', gap: { xs: 2, md: 3 }, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}
+        >
+          <Skeleton variant="rounded" sx={skeletonSx} />
+          <Skeleton variant="rounded" sx={skeletonSx} />
+          <Skeleton variant="rounded" sx={{ ...skeletonSx, gridColumn: { md: '1 / -1' } }} />
+        </Box>
+      ) : order.length === 0 ? (
+        <Alert
+          severity="info"
+          action={
+            settings.dashboard.isCustomized ? (
+              <Button
+                color="inherit"
+                size="small"
+                disabled={resetComposition.isPending}
+                onClick={() => resetComposition.mutate()}
+              >
+                Restablecer
+              </Button>
+            ) : undefined
+          }
+        >
+          Tu panel no tiene bloques visibles
+        </Alert>
+      ) : (
+        <Box
+          sx={{
+            display: 'grid',
+            gap: { xs: 2, md: 3 },
+            gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) minmax(0, 1fr)' },
+            gridTemplateAreas: areas,
+          }}
+        >
+          {order.map((key) => (
+            <GridArea key={key} area={key}>
+              {blocks[key]}
+            </GridArea>
+          ))}
+        </Box>
+      )}
 
-        <GridArea area="mine">
-          <AccessSummary profile={profile} />
-        </GridArea>
+      {resetComposition.isError ? (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          No se pudo restablecer el panel. Inténtalo de nuevo.
+        </Alert>
+      ) : null}
 
-        <GridArea area="kpis">
-          <KpiGrid access={access} />
-        </GridArea>
-
-        {access.alerts ? (
-          <GridArea area="alerts">
-            <AlertsPanel />
-          </GridArea>
-        ) : null}
-
-        {showActivity ? (
-          <GridArea area="activity">
-            <Stack spacing={2}>
-              {access.visits ? <UpcomingVisitsList /> : null}
-              {access.recentActivity ? <RecentActivityPanel access={access} /> : null}
-            </Stack>
-          </GridArea>
-        ) : null}
-
-        <GridArea area="access">
-          <QuickAccess menu={menu} />
-        </GridArea>
-      </Box>
+      <DashboardCustomizeDialog
+        open={customizing}
+        onClose={() => setCustomizing(false)}
+        access={access}
+      />
     </>
   );
 }

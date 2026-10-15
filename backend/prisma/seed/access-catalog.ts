@@ -12,6 +12,8 @@
  *   asignarla a un rol (`roles[].menuOptions`) o directamente al usuario.
  */
 
+import { DEFAULT_DASHBOARD_CARDS } from '../../src/modules/parameters/dashboard-cards';
+
 import { CRM_MENU_OPTIONS, CRM_MODULES, CRM_PERMISSIONS, CRM_ROLES } from './crm-access';
 import { CRM_PARAMETERS } from './crm-parameters';
 
@@ -146,6 +148,13 @@ const CORE_PERMISSIONS: PermissionSeed[] = [
     moduleKey: 'administracion',
     actions: ['ver', 'aprobar'],
   },
+  // Ajustes 1 (AJ1-2): mantenimiento del minuto de seguridad. Verlo en Inicio no exige permiso (D-AJ1.9).
+  {
+    resource: 'minuto_seguridad',
+    resourceLabel: 'minutos de seguridad',
+    moduleKey: 'administracion',
+    actions: ['ver', 'crear', 'editar', 'eliminar'],
+  },
 ];
 
 /** Opciones de menú del núcleo. `inicio` es pública: la ve cualquier sesión. */
@@ -222,6 +231,15 @@ const CORE_MENU_OPTIONS: MenuOptionSeed[] = [
     path: '/administracion/auditoria',
     sortOrder: 80,
     requiredPermission: 'auditoria.ver',
+  },
+  {
+    key: 'admin-minuto-seguridad',
+    moduleKey: 'administracion',
+    label: 'Minuto de seguridad',
+    icon: 'health_and_safety',
+    path: '/administracion/minuto-seguridad',
+    sortOrder: 90,
+    requiredPermission: 'minuto_seguridad.ver',
   },
 ];
 
@@ -351,6 +369,44 @@ const CORE_SYSTEM_PARAMETERS: SystemParameterSeed[] = [
     name: 'Tamaño de página por defecto',
     description: 'Debe coincidir con DEFAULT_PAGE_SIZE de la API.',
     isPublic: true,
+  },
+  // Ajustes 1 (AJ1-1, AJ1-6). La semilla no pisa un valor ya editado por un administrador.
+  {
+    key: 'ui.inicio.tarjetas',
+    value: JSON.stringify(DEFAULT_DASHBOARD_CARDS),
+    type: 'JSON',
+    group: 'interfaz',
+    name: 'Composición por defecto de Inicio',
+    description:
+      'Visibilidad y orden de los bloques y de los indicadores K1–K9 de Inicio para quien no personalizó su panel. El minuto de seguridad no se puede ocultar.',
+    isPublic: false,
+  },
+  {
+    key: 'ui.barra_superior.buscar',
+    value: 'false',
+    type: 'BOOLEAN',
+    group: 'interfaz',
+    name: 'Botón de búsqueda en la barra superior',
+    description: 'Muestra el botón de buscar. Aún no tiene función: déjalo apagado hasta que exista la búsqueda global.',
+    isPublic: false,
+  },
+  {
+    key: 'ui.barra_superior.pantalla_completa',
+    value: 'true',
+    type: 'BOOLEAN',
+    group: 'interfaz',
+    name: 'Botón de pantalla completa en la barra superior',
+    description: 'Muestra el botón de pantalla completa (solo en navegadores compatibles y pantallas grandes).',
+    isPublic: false,
+  },
+  {
+    key: 'ui.barra_superior.notificaciones',
+    value: 'false',
+    type: 'BOOLEAN',
+    group: 'interfaz',
+    name: 'Botón de notificaciones en la barra superior',
+    description: 'Muestra el botón de notificaciones. Aún no tiene función: déjalo apagado hasta que existan las notificaciones.',
+    isPublic: false,
   },
 ];
 

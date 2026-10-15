@@ -5,7 +5,7 @@ import { IsOptional, IsString, IsUUID, Length, MaxLength, ValidateIf } from 'cla
 import { toLowerCaseUuid } from '@/common/dto/uuid-transform';
 import { PaginationMetaDto } from '@/common/dto/paginated-response.dto';
 import { CatalogValueDto, CountryRefDto, UserRefDto } from '@/modules/customers/dto/customer.dto';
-import { isPresent, trim } from '@/modules/customers/dto/dto-transforms';
+import { isPresent, trim } from '@/common/dto/dto-transforms';
 import { UnitRefDto } from '@/modules/products/dto/product.dto';
 
 import { IsCalendarDateString } from './dto-helpers';

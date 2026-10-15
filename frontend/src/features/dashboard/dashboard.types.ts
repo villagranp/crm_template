@@ -247,3 +247,15 @@ export interface RecentActivityQuery {
 export type PaginatedUpcomingVisits = PaginatedResponse<UpcomingVisit>;
 export type PaginatedRecentActivity = PaginatedResponse<RecentActivityItem>;
 export type PaginatedAlerts = PaginatedResponse<DashboardAlert>;
+
+/** `GET /me/safety-minute` (Ajustes 1, §6.3): mensaje institucional de hoy o `null`. */
+export interface SafetyMinuteOfTheDay {
+  /** Fecha sin hora, `YYYY-MM-DD`. */
+  displayDate: string;
+  /** Texto plano con saltos de línea; nunca se interpreta como HTML. */
+  message: string;
+}
+
+export interface SafetyMinuteResponse {
+  safetyMinute: SafetyMinuteOfTheDay | null;
+}

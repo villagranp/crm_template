@@ -59,7 +59,64 @@ aplicaciones es una convención, no un control.
 
 Las migraciones de Prisma se ejecutan con ese mismo usuario, que es dueño de la
 base y por tanto puede crear y alterar tablas. No hace falta un usuario
-privilegiado aparte.
+privilegiado aparte, salvo para la bitácora de auditoría en QA y producción
+(siguiente apartado).
+
+### Bitácora de auditoría (`audit_logs`)
+
+La migración `20261014100000_audit_logs_append_only` protege `audit_logs` con
+disparadores: la base rechaza `UPDATE` y `TRUNCATE` siempre y `DELETE` dentro de
+`auditoria.dias_retencion` ([ADR-025](../adr/ADR-025-inmutabilidad-de-la-auditoria-con-disparadores.md),
+[`data-model.md`](../database/data-model.md) §6). Los disparadores bastan contra
+errores de la aplicación, pero **el propietario de la tabla o un superusuario
+puede desactivarlos** (`ALTER TABLE … DISABLE TRIGGER`). Por eso, en QA y
+producción se recomienda separar tres roles:
+
+| Rol | Para qué | Sobre `audit_logs` |
+|---|---|---|
+| Migraciones (propietario de los objetos) | `prisma migrate deploy` desde el pipeline | Dueño; nunca lo usa la aplicación en ejecución |
+| `<rol_app>` (`mi_cliente_ag_qa`, `…_prod`) | La aplicación en ejecución | Solo `SELECT` e `INSERT` |
+| `<rol_purga>` | Purga periódica de lo vencido | `SELECT` y `DELETE` (el disparador sigue impidiendo borrar dentro de la retención) |
+
+```sql
+-- 1. Nadie hereda privilegios sobre la bitácora: ni PUBLIC ni la aplicación.
+REVOKE ALL ON audit_logs FROM PUBLIC, <rol_app>;
+-- 2. Lo justo para cada rol.
+GRANT SELECT, INSERT ON audit_logs TO <rol_app>;
+GRANT SELECT, DELETE ON audit_logs TO <rol_purga>;
+-- 3. La función del disparador es SECURITY INVOKER: corre con los privilegios de
+--    quien borra y lee la retención (auditoria.dias_retencion) de system_parameters.
+--    Sin este permiso, la purga falla en el disparador.
+GRANT SELECT ON system_parameters TO <rol_purga>;
+```
+
+`REVOKE ALL … FROM PUBLIC, <rol_app>` (y no solo `UPDATE, DELETE, TRUNCATE`)
+quita también `REFERENCES`, `TRIGGER` y cualquier privilegio heredado de
+`PUBLIC`; después se conceden explícitamente los que cada rol necesita.
+
+**Privilegios por defecto del rol de migraciones.** Para que la aplicación pueda
+usar las tablas nuevas que creen las migraciones, el rol de migraciones suele
+llevar privilegios por defecto. Deben ser **acotados** (nunca `ALL`, que incluye
+`TRUNCATE`, `REFERENCES` y `TRIGGER`):
+
+```sql
+ALTER DEFAULT PRIVILEGES FOR ROLE <rol_migraciones> IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO <rol_app>;
+ALTER DEFAULT PRIVILEGES FOR ROLE <rol_migraciones> IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO <rol_app>;
+```
+
+Esos privilegios por defecto se aplican a **toda** tabla nueva, también a
+`audit_logs` si una migración la recrea: tras cualquier migración que cree o
+recree `audit_logs`, vuelve a ejecutar el bloque anterior (`REVOKE ALL` +
+`GRANT`). Compruébalo con `\dp audit_logs` en `psql`: `<rol_app>` solo debe
+tener `ar` (`SELECT`, `INSERT`) y `<rol_purga>`, `rd` (`SELECT`, `DELETE`).
+
+Es decir: la aplicación **no** debe ser propietaria de `audit_logs`; las
+migraciones se ejecutan con otro rol y la purga con uno propio. Si el entorno
+mantiene un único usuario dueño de la base (como en local), los disparadores
+siguen protegiendo, pero esa credencial podría desactivarlos. Desactivar un
+disparador queda en los logs de PostgreSQL.
 
 ## Credenciales
 

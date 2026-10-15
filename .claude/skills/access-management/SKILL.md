@@ -31,7 +31,11 @@ Historia de usuario con sus actores, y qué debe poder hacer cada uno.
 ## Standards
 
 1. **Un permiso es `recurso.accion`**, en español y en minúsculas
-   (`cotizaciones.aprobar`).
+   (`cotizaciones.aprobar`). Acciones del catálogo (`ACTIONS` en
+   `access-catalog.ts`): `ver`, `crear`, `editar`, `eliminar`, `exportar`,
+   `aprobar`, `configurar`, `cerrar` y `administrar`. `administrar` es operar
+   sobre registros **ajenos** dentro del alcance (DM-34), no el acceso al módulo
+   de Administración.
 2. **Todo endpoint declara permiso.** La única excepción es `@AuthenticatedOnly`
    para autoservicio (el recurso es el propio usuario), y lleva razón escrita.
 3. **Las opciones de menú son datos.** Se dan de alta en el catálogo o desde la
@@ -43,6 +47,12 @@ Historia de usuario con sus actores, y qué debe poder hacer cada uno.
 7. **Los permisos nunca salen de los claims del token.**
 8. La comprobación de permisos en el frontend es sólo de experiencia de usuario.
    El backend verifica siempre.
+9. **Cambiar qué acceso tiene alguien es exclusivo del administrador**
+   ([ADR-020](../../../docs/adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md)
+   y su addendum de 2026-10-10): roles, permisos y opciones directas, el país del
+   usuario y sus equipos, y la composición de un equipo (miembros, responsable,
+   equipo padre, borrar uno con miembros o subequipos). Además del permiso del
+   endpoint, responden `403 ADMIN_ONLY` a quien no lo es.
 
 ## Process
 

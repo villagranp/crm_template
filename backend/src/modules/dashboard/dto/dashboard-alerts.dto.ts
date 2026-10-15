@@ -3,7 +3,7 @@ import { Transform, Type } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 
 import { PaginationMetaDto } from '@/common/dto/paginated-response.dto';
-import { toOptionalBoolean } from '@/modules/customers/dto/dto-transforms';
+import { toOptionalBoolean } from '@/common/dto/dto-transforms';
 import { ALERT_TYPES } from '@/modules/parameters/parameter-rules.registry';
 import { MAX_FILTER_VALUES, toList } from '@/modules/projects/dto/dto-helpers';
 

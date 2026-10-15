@@ -1,5 +1,15 @@
 import { z } from 'zod';
 
+import { LOGIN_SECURITY_PARAMETERS } from './authentication-settings';
+import {
+  canonicalDashboardCards,
+  DASHBOARD_ALWAYS_VISIBLE_BLOCKS,
+  DASHBOARD_BLOCK_KEYS,
+  DASHBOARD_KPI_KEYS,
+  DASHBOARD_PARAMETER_KEY,
+  dashboardCardsSchema,
+  DEFAULT_DASHBOARD_CARDS,
+} from './dashboard-cards';
 import type { ParameterValueType } from './ports/parameters.repository.port';
 
 /**
@@ -35,7 +45,8 @@ export type ParameterEditor =
   | 'stage-transitions'
   | 'progress-rules'
   | 'duplicate-rules'
-  | 'mime-types';
+  | 'mime-types'
+  | 'dashboard-cards';
 
 export interface CatalogReference {
   /** Ruta dentro del valor, para `details[].field` (`value.customer.statusId`). */
@@ -56,6 +67,12 @@ export interface ParameterRule {
   readOnly: boolean;
   editor: ParameterEditor;
   allowedValues?: readonly string[];
+  /**
+   * Listas cerradas que el editor necesita y que se definen una sola vez en el backend
+   * (`GET /parameters` → `editorOptions`). P. ej. `dashboard-cards`: `blocks`, `kpis` y
+   * `lockedVisibleBlocks`.
+   */
+  editorOptions?: Readonly<Record<string, readonly string[]>>;
   range?: { min: number; max: number };
   /** Catálogos cuyos códigos puede referenciar (para RN-07.26). */
   referencedCatalogs?: readonly string[];
@@ -391,10 +408,11 @@ const contactDuplicateRulesSchema = z
 
 const RULES: readonly ParameterRule[] = [
   // Existentes (PLAN-ADMIN D10). Rangos iguales a PARAMETER_RANGES de parameter-value.ts.
-  numberRule('seguridad.intentos_fallidos_maximos', 5, 1, 20, { requiresConfigure: true }),
-  numberRule('seguridad.minutos_bloqueo', 15, 1, 1440, { requiresConfigure: true }),
-  numberRule('seguridad.dias_caducidad_password', 0, 0, 365, { requiresConfigure: true }),
-  numberRule('auditoria.dias_retencion', 365, 30, 3650),
+  numberRule(LOGIN_SECURITY_PARAMETERS.maxFailedAttempts, 5, 1, 20, { requiresConfigure: true }),
+  numberRule(LOGIN_SECURITY_PARAMETERS.lockoutMinutes, 15, 1, 1440, { requiresConfigure: true }),
+  numberRule(LOGIN_SECURITY_PARAMETERS.passwordExpiryDays, 0, 0, 365, { requiresConfigure: true }),
+  // Acorta la ventana de la bitácora: estructural (M-2 de seguridad, decisión de 2026-10-14).
+  numberRule('auditoria.dias_retencion', 365, 30, 3650, { requiresConfigure: true }),
   numberRule('ui.paginacion_default', 20, 1, 100),
 
   // CRM (00 §8.2)
@@ -508,6 +526,21 @@ const RULES: readonly ParameterRule[] = [
     { allowedValues: ATTACHMENT_MIME_TYPES },
   ),
   numberRule('crm.inicio.visitas_proximas_dias', 7, 1, 60),
+  // Ajustes 1 (AJ1-1, AJ1-6): interfaz. Ninguno exige `parametros.configurar` (ni estructurales ni de seguridad).
+  // Composición por defecto de Inicio (RN-AJ1.1, D-AJ1.11): el mismo esquema vale para la preferencia del usuario.
+  jsonRule(DASHBOARD_PARAMETER_KEY, DEFAULT_DASHBOARD_CARDS, dashboardCardsSchema, 'dashboard-cards', {
+    normalize: canonicalDashboardCards,
+    allowedValues: [...DASHBOARD_BLOCK_KEYS, ...DASHBOARD_KPI_KEYS],
+    editorOptions: {
+      blocks: DASHBOARD_BLOCK_KEYS,
+      kpis: DASHBOARD_KPI_KEYS,
+      lockedVisibleBlocks: DASHBOARD_ALWAYS_VISIBLE_BLOCKS,
+    },
+  }),
+  // Buscar y notificaciones aún no tienen función (D-AJ1.4): sembrados en `false`.
+  booleanRule('ui.barra_superior.buscar', false),
+  booleanRule('ui.barra_superior.pantalla_completa', true),
+  booleanRule('ui.barra_superior.notificaciones', false),
   // XLSX admite 1 048 576 filas por hoja.
   numberRule('crm.reportes.max_filas_exportacion', 100_000, 1, 1_000_000),
   booleanRule('sistema.permite_datos_demo', false, true),

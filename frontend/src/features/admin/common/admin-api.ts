@@ -64,6 +64,26 @@ export const ADMIN_ERROR_CODES = {
   invalidCatalogMetadata: 'INVALID_CATALOG_METADATA',
   /** 07 RN-07.24/25/26: invariante, conjunto cerrado o código usado por un parámetro. */
   catalogInvariant: 'CATALOG_INVARIANT',
+  /** 07 RN-07.37: la dimensión de una unidad ya referenciada no cambia. */
+  unitDimensionLocked: 'UNIT_DIMENSION_LOCKED',
+  /** 07 RN-07.36: la regla identidad o la unidad de tonelaje no se desactivan ni cambian de factor. */
+  conversionRuleProtected: 'CONVERSION_RULE_PROTECTED',
+  /** 07 RN-07.36: el ámbito y su referencia no son coherentes (`required` | `not_allowed`). */
+  invalidConversionScope: 'INVALID_CONVERSION_SCOPE',
+  /** 07 RN-07.36: el destino de una regla es la unidad de tonelaje configurada. */
+  invalidConversionTarget: 'INVALID_CONVERSION_TARGET',
+  /** 07 RN-07.44: ya hay una tasa para esa moneda y fecha de vigencia. */
+  exchangeRateDuplicate: 'EXCHANGE_RATE_DUPLICATE',
+  /** 07 RN-07.44: moneda USD, inexistente o inactiva, o tasa ≤ 0. */
+  invalidExchangeRate: 'INVALID_EXCHANGE_RATE',
+  /** 07 D-07.3: un rol comercial exige código de colaborador y país. */
+  crmProfileIncomplete: 'CRM_PROFILE_INCOMPLETE',
+  /** AJ1 RN-AJ1.8: ya hay un mensaje de minuto de seguridad para esa fecha. */
+  safetyMinuteDuplicate: 'SAFETY_MINUTE_DUPLICATE',
+  /** AJ1 RN-AJ1.10/11: un mensaje de hoy o pasado no se edita (pasado) ni se borra. */
+  safetyMinuteLocked: 'SAFETY_MINUTE_LOCKED',
+  /** AJ1 RN-AJ1.12: la fecha de visualización no puede ser pasada. */
+  safetyMinutePastDate: 'SAFETY_MINUTE_PAST_DATE',
 } as const;
 
 /**
@@ -92,6 +112,22 @@ const ADMIN_MESSAGES_BY_CODE: Readonly<Record<string, string>> = {
   [ADMIN_ERROR_CODES.invalidCatalogMetadata]: 'Los datos adicionales no cumplen el formato de este catálogo.',
   [ADMIN_ERROR_CODES.catalogInvariant]:
     'El cambio dejaría el catálogo incoherente, es un conjunto cerrado o un parámetro usa este valor.',
+  [ADMIN_ERROR_CODES.unitDimensionLocked]:
+    'La unidad ya se usa en productos, reglas de conversión o líneas: su dimensión no se puede cambiar.',
+  [ADMIN_ERROR_CODES.conversionRuleProtected]:
+    'Está protegido: la unidad de tonelaje y su regla identidad no se pueden desactivar, y el factor de una regla identidad no cambia.',
+  [ADMIN_ERROR_CODES.invalidConversionScope]:
+    'El ámbito no es coherente: elige la familia, el producto o el tipo de proyecto sólo si el ámbito lo pide.',
+  [ADMIN_ERROR_CODES.invalidConversionTarget]: 'La unidad destino debe ser la unidad de tonelaje configurada.',
+  [ADMIN_ERROR_CODES.exchangeRateDuplicate]:
+    'Ya hay un tipo de cambio para esa moneda y fecha de vigencia. Corrige el existente.',
+  [ADMIN_ERROR_CODES.invalidExchangeRate]:
+    'El tipo de cambio no es válido: la moneda debe existir, estar activa y no ser USD, y la tasa debe ser mayor que 0.',
+  [ADMIN_ERROR_CODES.crmProfileIncomplete]:
+    'Para asignar un rol comercial el usuario necesita código de colaborador y país.',
+  [ADMIN_ERROR_CODES.safetyMinuteDuplicate]: 'Ya hay un mensaje para esa fecha. Elige otra o edita el existente.',
+  [ADMIN_ERROR_CODES.safetyMinuteLocked]: 'El mensaje ya no se puede modificar por su fecha. Actualiza la lista.',
+  [ADMIN_ERROR_CODES.safetyMinutePastDate]: 'La fecha de visualización no puede ser anterior a hoy.',
 };
 
 /**

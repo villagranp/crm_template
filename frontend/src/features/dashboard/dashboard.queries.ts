@@ -1,6 +1,7 @@
 import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
+import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-permission';
 import { createScopedQueryKeys } from '@/lib/query-keys';
 import type { ApiError } from '@/services/api';
@@ -11,6 +12,7 @@ import {
   getForecastIndicators,
   getOpportunityIndicators,
   getProjectIndicators,
+  getSafetyMinute,
   getTargetIndicators,
   getVisitIndicators,
   listAlerts,
@@ -30,6 +32,7 @@ import type {
   PaginatedUpcomingVisits,
   ProjectIndicators,
   RecentActivityQuery,
+  SafetyMinuteResponse,
   TargetIndicators,
   VisitIndicators,
 } from './dashboard.types';
@@ -172,5 +175,20 @@ export function useAlertsSummary(enabled: boolean) {
     queryFn: getAlertsSummary,
     enabled,
     ...FRESHNESS,
+  });
+}
+
+const SAFETY_MINUTE_STALE_TIME_MS = 5 * 60_000;
+
+export const SAFETY_MINUTE_QUERY_KEY = ['me', 'safety-minute'] as const;
+
+/** Minuto de seguridad de hoy; el mensaje cambia como mucho una vez al día, de ahí el `staleTime`. */
+export function useSafetyMinute() {
+  const { isAuthenticated } = useAuth();
+  return useQuery<SafetyMinuteResponse, ApiError>({
+    queryKey: SAFETY_MINUTE_QUERY_KEY,
+    queryFn: getSafetyMinute,
+    enabled: isAuthenticated,
+    staleTime: SAFETY_MINUTE_STALE_TIME_MS,
   });
 }

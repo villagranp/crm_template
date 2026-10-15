@@ -3,7 +3,7 @@ import { Transform, Type } from 'class-transformer';
 import { IsOptional, IsString, IsUUID, MaxLength, ValidateNested } from 'class-validator';
 
 import { toLowerCaseUuid } from '@/common/dto/uuid-transform';
-import { trimToNull } from '@/modules/customers/dto/dto-transforms';
+import { trimToNull } from '@/common/dto/dto-transforms';
 
 import { OpportunityResultInputDto } from './opportunity-result.dto';
 

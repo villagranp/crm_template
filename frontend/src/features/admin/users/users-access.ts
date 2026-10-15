@@ -27,3 +27,43 @@ export function holdsAdministrador(user: Pick<UserDetail, 'roles'>, now: Date = 
 export function grantsNoPermissions(role: Pick<RoleOption, 'permissionCodes'>): boolean {
   return role.permissionCodes.length === 0;
 }
+
+/**
+ * Recursos de permisos del CRM (00 §5.2). Copia de experiencia de usuario de
+ * `CRM_PERMISSION_RESOURCES` (`backend/src/modules/access/crm-profile.ts`):
+ * sólo sirve para avisar antes de enviar; quien decide es el backend con
+ * `422 CRM_PROFILE_INCOMPLETE` (07 D-07.3).
+ */
+const CRM_PERMISSION_RESOURCES: ReadonlySet<string> = new Set([
+  'clientes',
+  'contactos',
+  'proyectos',
+  'oportunidades',
+  'productos',
+  'forecast',
+  'visitas',
+  'actividades',
+  'reportes',
+  'importaciones',
+  'metas',
+]);
+
+/** El rol concede algún permiso del CRM y no es `administrador` (07 D-07.3). */
+export function isCommercialRole(role: Pick<RoleOption, 'code' | 'permissionCodes'>): boolean {
+  if (role.code === ADMINISTRATOR_ROLE_CODE) {
+    return false;
+  }
+  return role.permissionCodes.some((code) => CRM_PERMISSION_RESOURCES.has(code.split('.')[0] ?? ''));
+}
+
+/** Nota bajo el alta y en el panel de roles cuando algún rol elegido es comercial. */
+export const CRM_PROFILE_HINT =
+  'Los roles comerciales exigen código de colaborador y país: sin ellos el servidor rechazará la asignación.';
+
+/** Explicación junto al país cuando quien mira no es administrador (07 RN-07.5). */
+export const COUNTRY_ADMIN_ONLY_NOTE =
+  'Sólo un administrador puede asignar o cambiar el país: con alcance «Su país» cambia lo que el usuario ve (ADR-020).';
+
+/** Explicación de los equipos cuando quien mira no es administrador (07 RN-07.10). */
+export const TEAMS_ADMIN_ONLY_NOTE =
+  'Sólo un administrador puede asignar equipos: con alcance «Su equipo» cambia lo que el usuario ve (ADR-020).';

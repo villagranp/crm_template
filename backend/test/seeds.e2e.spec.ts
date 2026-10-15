@@ -188,8 +188,6 @@ describe('semilla esencial (00 §8.2)', () => {
     const administrator = await prisma.role.findUniqueOrThrow({ where: { code: 'administrador' }, select: { _count: { select: { permissions: true } } } });
     expect(administrator._count.permissions).toBe(afterFirstRun.permissions);
 
-    // DM-32: ninguna opción del CRM sin pantalla registrada (tipos de cambio aún no).
-    expect(await prisma.menuOption.count({ where: { key: { in: ['admin-tipos-cambio'] } } })).toBe(0);
     // Módulo 5 registró sus rutas (05 H.3): sus siete opciones existen con `reportes.ver` y llegan a los roles del CRM.
     const reportOptions = await prisma.menuOption.findMany({
       where: { module: { key: 'reportes' } },
@@ -207,6 +205,22 @@ describe('semilla esencial (00 §8.2)', () => {
     ]);
     for (const option of reportOptions) {
       expect(option.roles.map((r) => r.role.code)).toEqual(expect.arrayContaining(['asesor', 'manager', 'responsable-pais']));
+    }
+    // Módulo 7 registró sus pantallas (07 E.5): sus opciones existen y solo llegan al administrador.
+    const adminCrmOptions = await prisma.menuOption.findMany({
+      where: { key: { in: ['admin-tipos-cambio', 'admin-productos', 'admin-conversiones'] } },
+      orderBy: { sortOrder: 'asc' },
+      select: { key: true, path: true, requiredPermission: { select: { code: true } }, roles: { select: { role: { select: { code: true } } } } },
+    });
+    expect(adminCrmOptions.map((option) => [option.key, option.path, option.requiredPermission?.code])).toEqual([
+      ['admin-tipos-cambio', '/administracion/tipos-cambio', 'parametros.ver'],
+      ['admin-productos', '/administracion/productos', 'productos.ver'],
+      ['admin-conversiones', '/administracion/conversiones', 'productos.ver'],
+    ]);
+    for (const option of adminCrmOptions) {
+      const roleCodes = option.roles.map((r) => r.role.code);
+      expect(roleCodes).toContain('administrador');
+      expect(roleCodes).not.toEqual(expect.arrayContaining(['asesor']));
     }
     // Módulo 4 registró sus rutas (04 E.1): sus seis opciones existen con su permiso y llegan a los roles del CRM.
     const activityOptions = await prisma.menuOption.findMany({
@@ -259,6 +273,61 @@ describe('semilla esencial (00 §8.2)', () => {
     expect(importsOption?.roles.map((r) => r.role.code)).not.toEqual(expect.arrayContaining(['asesor']));
     expect(importsOption?.roles.map((r) => r.role.code)).not.toEqual(expect.arrayContaining(['manager']));
 
+    // Ajustes 1 (AJ1-2, PF-AJ1.23): minuto de seguridad: cuatro permisos del núcleo (el catálogo del CRM sigue en 41)
+    // y su opción de menú, con la ruta registrada, solo para el administrador.
+    const safetyPermissions = await prisma.permission.findMany({
+      where: { resource: 'minuto_seguridad' },
+      orderBy: { code: 'asc' },
+      select: { code: true, isSystem: true, module: { select: { key: true } } },
+    });
+    expect(safetyPermissions).toEqual(
+      ['crear', 'editar', 'eliminar', 'ver'].map((action) => ({ code: `minuto_seguridad.${action}`, isSystem: true, module: { key: 'administracion' } })),
+    );
+    const safetyOption = await prisma.menuOption.findUnique({
+      where: { key: 'admin-minuto-seguridad' },
+      include: { module: { select: { key: true } }, requiredPermission: { select: { code: true } }, roles: { include: { role: { select: { code: true } } } } },
+    });
+    expect(safetyOption).toMatchObject({
+      label: 'Minuto de seguridad',
+      icon: 'health_and_safety',
+      path: '/administracion/minuto-seguridad',
+      module: { key: 'administracion' },
+      requiredPermission: { code: 'minuto_seguridad.ver' },
+    });
+    expect(safetyOption?.roles.map((r) => r.role.code)).toEqual(['administrador']);
+
+    // Ajustes 1 (AJ1-1, AJ1-6): parámetros de interfaz con la composición actual y la barra superior apagada (D-AJ1.4).
+    const interfaceParameters = await prisma.systemParameter.findMany({
+      where: { group: 'interfaz' },
+      orderBy: { key: 'asc' },
+      select: { key: true, type: true, value: true, isSystem: true, isPublic: true },
+    });
+    expect(interfaceParameters.map((parameter) => [parameter.key, parameter.type, parameter.isSystem, parameter.isPublic])).toEqual([
+      ['ui.barra_superior.buscar', 'BOOLEAN', true, false],
+      ['ui.barra_superior.notificaciones', 'BOOLEAN', true, false],
+      ['ui.barra_superior.pantalla_completa', 'BOOLEAN', true, false],
+      ['ui.inicio.tarjetas', 'JSON', true, false],
+      ['ui.paginacion_default', 'NUMBER', true, true],
+    ]);
+    const interfaceValues = Object.fromEntries(interfaceParameters.map((parameter) => [parameter.key, parameter.value]));
+    expect(interfaceValues['ui.barra_superior.buscar']).toBe('false');
+    expect(interfaceValues['ui.barra_superior.pantalla_completa']).toBe('true');
+    expect(interfaceValues['ui.barra_superior.notificaciones']).toBe('false');
+    const composition = JSON.parse(interfaceValues['ui.inicio.tarjetas']!) as { blocks: { key: string; visible: boolean }[]; kpis: { key: string; visible: boolean }[] };
+    expect(composition.blocks.map((entry) => entry.key)).toEqual(['safety-minute', 'hero', 'mine', 'kpis', 'alerts', 'activity', 'access']);
+    expect(composition.kpis.map((entry) => entry.key)).toEqual([
+      'projects-active',
+      'opportunities-open',
+      'opportunities-won',
+      'opportunities-lost',
+      'forecast',
+      'visits-pending',
+      'activities-pending',
+      'activities-overdue',
+      'targets',
+    ]);
+    expect([...composition.blocks, ...composition.kpis].every((entry) => entry.visible)).toBe(true);
+
     const parameters = await prisma.systemParameter.findMany({
       where: { key: { in: ['crm.moneda_base', 'crm.importaciones.habilitada', 'sistema.permite_datos_demo', 'crm.clientes.reglas_duplicidad'] } },
       select: { key: true, value: true },
@@ -277,6 +346,10 @@ describe('semilla esencial (00 §8.2)', () => {
     const priority = await prisma.catalogItem.findFirstOrThrow({ where: { code: 'BAJA', catalog: { key: 'crm.prioridad' } } });
     await prisma.catalogItem.update({ where: { id: priority.id }, data: { label: 'Baja (editada)', isActive: false } });
     await prisma.sequence.update({ where: { key: 'crm.cliente' }, data: { currentValue: 12 } });
+    // Ajustes 1: los parámetros de interfaz editados por un administrador tampoco se pisan.
+    await prisma.systemParameter.update({ where: { key: 'ui.barra_superior.buscar' }, data: { value: 'true' } });
+    const editedComposition = '{"blocks":[{"key":"hero","visible":false}],"kpis":[]}';
+    await prisma.systemParameter.update({ where: { key: 'ui.inicio.tarjetas' }, data: { value: editedComposition } });
 
     const second = run('prisma/seed.ts');
     expect(second.status).toBe(0);
@@ -286,6 +359,8 @@ describe('semilla esencial (00 §8.2)', () => {
     expect((await prisma.systemParameter.findUniqueOrThrow({ where: { key: 'crm.alertas.proyecto_sin_actualizar_dias' } })).value).toBe('45');
     expect(await prisma.catalogItem.findUniqueOrThrow({ where: { id: priority.id } })).toMatchObject({ label: 'Baja (editada)', isActive: false });
     expect((await prisma.sequence.findUniqueOrThrow({ where: { key: 'crm.cliente' } })).currentValue).toBe(12);
+    expect((await prisma.systemParameter.findUniqueOrThrow({ where: { key: 'ui.barra_superior.buscar' } })).value).toBe('true');
+    expect((await prisma.systemParameter.findUniqueOrThrow({ where: { key: 'ui.inicio.tarjetas' } })).value).toBe(editedComposition);
   });
 });
 

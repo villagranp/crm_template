@@ -50,6 +50,16 @@ export class ParameterResponseDto {
   @ApiProperty({ type: String, nullable: true, example: 'number', description: 'Editor sugerido para la interfaz (registro de reglas)' })
   editor!: string | null;
 
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: { type: 'array', items: { type: 'string' } },
+    nullable: true,
+    example: { blocks: ['safety-minute', 'hero'], kpis: ['projects-active'], lockedVisibleBlocks: ['safety-minute'] },
+    description:
+      'Listas cerradas que necesita el editor, definidas una sola vez en el backend (hoy solo `ui.inicio.tarjetas`: `blocks`, `kpis` y `lockedVisibleBlocks`, los bloques que no se pueden ocultar)',
+  })
+  editorOptions!: Record<string, string[]> | null;
+
   @ApiProperty({ type: ParameterRangeDto, nullable: true, description: 'Rango numérico admitido' })
   range!: ParameterRangeDto | null;
 
@@ -78,4 +88,20 @@ export class UpdateParameterDto {
   @IsString()
   @MaxLength(MAX_JSON_LENGTH)
   value!: string;
+}
+
+export class AuthenticationSettingsResponseDto {
+  @ApiProperty({ enum: ['local', 'entra', 'hybrid'], description: 'Proveedor vigente (`AUTH_PROVIDER`). Solo lectura: cambiarlo es un despliegue (ADR-019)' })
+  provider!: 'local' | 'entra' | 'hybrid';
+
+  @ApiProperty({ description: '`false` con `entra`: los parámetros de login local no aplican' })
+  localLoginEnabled!: boolean;
+
+  @ApiProperty({
+    type: [String],
+    example: ['seguridad.intentos_fallidos_maximos', 'seguridad.minutos_bloqueo', 'seguridad.dias_caducidad_password'],
+    description:
+      'Claves de los parámetros de login local. Se editan con `PATCH /parameters/{key}`, que exige `parametros.editar` y además `parametros.configurar` (como todo `seguridad.*` y los estructurales)',
+  })
+  securityParameterKeys!: string[];
 }

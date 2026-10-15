@@ -49,3 +49,6 @@ secrets/
 # Cache de Python (scripts de skills de terceros)
 __pycache__/
 *.pyc
+
+# Informes de la carga inicial por scripts (solo filas y motivos, pero son artefactos de cada ejecucion)
+informe-carga-*.csv

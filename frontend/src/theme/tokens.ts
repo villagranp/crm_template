@@ -415,6 +415,8 @@ export const fonts = {
 /** Identidad textual del producto: cambia con el cliente igual que los logotipos. */
 export const brandIdentity = {
   productName: 'Mi Cliente AG',
+  /** Razón social que firma el pie de página («© {año} Grupo AG»). */
+  companyName: 'Grupo AG',
 } as const;
 
 export const brandAssets = {

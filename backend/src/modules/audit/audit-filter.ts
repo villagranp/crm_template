@@ -13,7 +13,12 @@ export interface AuditLogFilterInput {
   /** ISO 8601: fecha (`2026-10-08`) o fecha y hora. */
   from?: string;
   to?: string;
+  /** Nombre de campo de `changes` (D-07.10): solo eventos que lo cambiaron. */
+  field?: string;
 }
+
+/** Nombre de campo admitido en el filtro `field` (1–100 caracteres `[A-Za-z0-9_.]`). */
+export const AUDIT_FIELD_PATTERN = /^[A-Za-z0-9_.]{1,100}$/;
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const PREFIX_WILDCARD = '*';
@@ -40,6 +45,7 @@ function parseDate(raw: string, field: string): Date {
  * - `from` es inclusivo. `to` con sólo fecha incluye ese día entero (UTC); con
  *   hora, es inclusivo hasta ese instante.
  * - `from` posterior a `to` → `400`.
+ * - `field` → solo eventos cuyo `changes` tiene esa clave (D-07.10).
  */
 export function buildAuditFilter(input: AuditLogFilterInput): AuditLogFilter {
   const filter: AuditLogFilter = {};
@@ -68,6 +74,14 @@ export function buildAuditFilter(input: AuditLogFilterInput): AuditLogFilter {
   if (resourceId) filter.resourceId = resourceId;
   const correlationId = clean(input.correlationId);
   if (correlationId) filter.correlationId = correlationId;
+  const field = clean(input.field);
+  if (field) {
+    // El DTO ya lo valida; se repite aquí porque el filtro también se usa fuera de HTTP.
+    if (!AUDIT_FIELD_PATTERN.test(field)) {
+      throw new BadRequestException(['field must be 1-100 characters [A-Za-z0-9_.]']);
+    }
+    filter.changedField = field;
+  }
 
   const from = clean(input.from);
   const to = clean(input.to);

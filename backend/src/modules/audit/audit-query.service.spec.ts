@@ -46,7 +46,7 @@ describe('AuditQueryService.export', () => {
     expect(auditService.record).toHaveBeenCalledWith('audit_log.exported', CONTEXT, {
       resourceType: 'audit_log',
       resourceId: '*',
-      metadata: { 'filter.event': 'role.', 'filter.search': 'ana', rows: 1, truncated: false },
+      metadata: { 'filter.event': 'role.', 'filter.search': 'ana', layout: 'events', rows: 1, truncated: false },
     });
   });
 
@@ -59,7 +59,41 @@ describe('AuditQueryService.export', () => {
     expect(auditService.record).toHaveBeenCalledWith(
       'audit_log.exported',
       CONTEXT,
-      expect.objectContaining({ metadata: { rows: MAX_EXPORT_ROWS, truncated: true } }),
+      expect.objectContaining({ metadata: { layout: 'events', rows: MAX_EXPORT_ROWS, truncated: true } }),
     );
+  });
+
+  it('layout=fields: una fila por campo con sus columnas; el tope sigue contando eventos', async () => {
+    const event: AuditLogRecord = {
+      ...row(1),
+      subjectEmail: 'ana@example.com',
+      changes: { name: { before: 'A', after: 'B' }, isActive: { before: true, after: false } },
+    };
+    const { service, auditService } = setup([event]);
+
+    const result = await service.export({ field: 'name' }, CONTEXT, 'fields');
+
+    const lines = result.csv.replace(/^\uFEFF/, '').trim().split('\r\n');
+    expect(lines[0]).toBe('Fecha (UTC),Usuario,Entidad,Registro,Acción,Campo,Valor anterior,Valor nuevo');
+    // Con `field`, solo la fila de ese campo.
+    expect(lines.slice(1)).toEqual(['2026-10-08T10:00:00.000Z,ana@example.com,role,r,role.updated,name,A,B']);
+    expect(result).toMatchObject({ rows: 1, truncated: false });
+    expect(auditService.record).toHaveBeenCalledWith(
+      'audit_log.exported',
+      CONTEXT,
+      expect.objectContaining({ metadata: { 'filter.field': 'name', layout: 'fields', rows: 1, truncated: false } }),
+    );
+  });
+
+  it('layout=fields sin `field`: todos los campos del evento', async () => {
+    const event: AuditLogRecord = { ...row(1), changes: { name: { before: 'A', after: 'B' }, isActive: { before: true, after: false } } };
+    const { service } = setup([event]);
+
+    const result = await service.export({}, CONTEXT, 'fields');
+
+    const lines = result.csv.replace(/^\uFEFF/, '').trim().split('\r\n');
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toContain(',name,A,B');
+    expect(lines[2]).toContain(',isActive,true,false');
   });
 });

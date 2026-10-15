@@ -153,7 +153,8 @@ recorrer la jerarquía, no sólo el equipo directo.
 | Tabla | Para qué | Nota |
 |---|---|---|
 | `system_parameters` | Configuración editable en caliente | **Nunca secretos**; van al almacén de secretos |
-| `user_preferences` | Preferencias que siguen al usuario entre dispositivos | El tema del shell vive en `localStorage`; esto es para cuando eso no baste |
+| `user_preferences` | Preferencias que siguen al usuario entre dispositivos | Desde Ajustes 1 guarda `ui.tema` y `ui.inicio.tarjetas` (§11.2); `localStorage` es solo la caché del navegador para el acceso y el arranque |
+| `safety_minutes` | Mensaje institucional por fecha de visualización (Ajustes 1) | Ver §11.1 |
 | `catalogs` / `catalog_items` | Listas cortas y estables (motivos, tipos) | Si necesita columnas propias, deja de ser catálogo |
 | `sequences` | Folios (`COT-2026-00042`) | Asignar **en transacción con bloqueo de fila**, nunca con `MAX(n)+1` |
 | `stored_files` | Metadatos de adjuntos | El binario vive en el almacenamiento de objetos |
@@ -171,6 +172,36 @@ sensibles ni contraseñas.
 La retención está en `system_parameters` (`auditoria.dias_retencion`, 365 días
 por defecto) y debe cuadrar con la política del proyecto
 (`docs/security/retention.md`).
+
+**Solo inserción, también en la base** ([ADR-025](../adr/ADR-025-inmutabilidad-de-la-auditoria-con-disparadores.md),
+migración `20261014100000_audit_logs_append_only`). La función
+`audit_logs_append_only()` y tres disparadores, en SQL escrito a mano (Prisma no
+gestiona disparadores ni los ve como deriva):
+
+| Disparador | Momento | Efecto |
+|---|---|---|
+| `trg_audit_logs_no_update` | `BEFORE UPDATE`, por fila | Siempre rechaza |
+| `trg_audit_logs_no_truncate` | `BEFORE TRUNCATE`, por sentencia | Siempre rechaza |
+| `trg_audit_logs_delete_after_retention` | `BEFORE DELETE`, por fila | Rechaza las filas con `occurred_at` dentro de la retención; permite purgar las vencidas |
+
+- El rechazo usa el SQLSTATE propio `AU001` y un mensaje que no revela datos de
+  la fila.
+- La retención se lee en cada `DELETE` de `system_parameters` del **mismo
+  esquema** que la tabla (`TG_TABLE_SCHEMA`, no el `search_path`). Si falta, no
+  es un entero o es menor que 30, se usa 365: nunca queda más permisivo.
+- Un propietario de la tabla o un superusuario puede desactivar los
+  disparadores: protegen contra la aplicación y los errores, no contra un
+  administrador de base. Reparto de roles recomendado en
+  [`docs/deployment/environments.md`](../deployment/environments.md).
+- Rollback: `backend/prisma/rollbacks/20261014100000_audit_logs_append_only.down.sql`
+  (retira disparadores y función; no toca datos). Probado en
+  `backend/test/audit-immutability.e2e.spec.ts` y `crm-rollbacks.e2e.spec.ts`.
+
+**Filtro por campo** (`GET /audit-logs?field=`, Módulo 7): `changes ? 'campo'`
+sobre los índices existentes, combinado con fecha y tipo. Sin índice nuevo: un
+índice GIN sobre `changes` queda como **mejora medida**, solo si el volumen lo
+exige, y sería una migración aditiva en SQL (Prisma no lo expresa; mismo riesgo
+de deriva que PLAN-ADMIN §10).
 
 ---
 
@@ -253,7 +284,7 @@ seeds y servicios del CRM llegan después; la Fase 0 solo crea el esquema.
 | Bloque | Tablas | Notas |
 |---|---|---|
 | Monedas y países | `currencies`, `exchange_rates`, `countries` | Moneda base USD (ADR-024). `currencies` usa el código ISO 4217 como PK. Una tasa por moneda y fecha de vigencia; el USD no tiene tasa |
-| Usuarios (extensión) | `users.employee_code` (único), `users.country_id` | Ambos nulos en la base (DM-30). Defaults de usuarios **nuevos**: `es-GT` / `America/Guatemala` (DM-2) |
+| Usuarios (extensión) | `users.employee_code` (único), `users.country_id` | Ambos nulos en la base (DM-30). Defaults de usuarios **nuevos**: `es-GT` / `America/Guatemala` (DM-2). Desde el Módulo 7: el código se guarda recortado y en mayúsculas; el país solo lo fija un administrador; con un rol comercial ambos son obligatorios en la aplicación (`CRM_PROFILE_INCOMPLETE`), no en la base |
 | Productos | `units_of_measure`, `product_families`, `products`, `unit_conversion_rules` | Regla única por (origen, destino, `scope_key`); `scope_key` = `GLOBAL` o el UUID del ámbito |
 | Clientes | `customers`, `contacts` | Código de cliente único por país; **NIT sin único** (DM-4: establecimientos que comparten NIT) |
 | Proyectos | `projects`, `project_phase_history`, `opportunities`, `opportunity_stage_history`, `opportunity_results`, `opportunity_result_history`, `project_products`, `forecast_lines` | Resultado 0..1 por oportunidad; forecast único por proyecto, producto, año y mes |
@@ -303,9 +334,11 @@ Todo ello está probado contra PostgreSQL en `backend/test/crm-schema.e2e.spec.t
 | `20261010100500_crm_commercial_activity` | Visitas, eventos, actividades, participantes |
 | `20261010100600_crm_attachments_imports_targets` | Adjuntos, importaciones, metas; FK `customers.source_import_id` |
 | `20261010100700_crm_interactions_view` | Vista `crm_interactions_v` |
+| `20261014100000_audit_logs_append_only` | Paso 9 de 00 §9, entregado por el Módulo 7: función y disparadores de `audit_logs` (ADR-025, ver §6) |
+| `20261015100000_safety_minutes` | Ajustes 1: tabla `safety_minutes`, índice único por fecha y `CHECK` del mensaje (ver §11.1) |
 
 El SQL de tablas, índices y FK lo generó `prisma migrate diff`; los CHECK, la
-vista y el `RENAME VALUE` se escribieron a mano. Prisma no genera *down*: cada
+vista, el `RENAME VALUE` y los disparadores se escribieron a mano. Prisma no genera *down*: cada
 migración tiene su inverso en `backend/prisma/rollbacks/<migración>.down.sql`.
 
 **Procedimiento de rollback** (desde `backend/`, con `DATABASE_URL` apuntando a
@@ -332,17 +365,23 @@ a aplicar lo retirado.
 > (comprobado con Prisma 6.19). Por eso el paso 2 borra la fila del historial.
 
 Verificado por `backend/test/crm-rollbacks.e2e.spec.ts`: en un esquema propio
-aplica las ocho, ejecuta los ocho `.down.sql` en orden inverso con
-`prisma db execute`, retira sus filas y comprueba que no queda ninguna tabla ni
-la vista del CRM, que `data_scope` vuelve a `TERRITORY` y que `users` pierde
-`employee_code` y `country_id`; después `migrate deploy` las aplica de nuevo.
+aplica todas las del CRM (las ocho de la Fase 0 y las posteriores), ejecuta sus
+`.down.sql` en orden inverso con `prisma db execute`, retira sus filas y
+comprueba que no queda ninguna tabla ni la vista del CRM, que `data_scope`
+vuelve a `TERRITORY`, que `users` pierde `employee_code` y `country_id` y que
+`audit_logs` pierde sus disparadores y la función; después `migrate deploy` las
+aplica de nuevo. Toda migración nueva desde la primera del CRM necesita su
+`.down.sql` (la prueba lo exige).
 
 > **Revertir los pasos 2–8 borra datos comerciales.** Mientras no haya datos
 > del CRM es inocuo; tras el primer uso real queda **prohibido sin respaldo
 > previo** de la base y de `ATTACHMENTS_STORAGE_PATH`.
 
-La migración 9 de 00 §9 (disparadores de inmutabilidad de `audit_logs`,
-ADR-025) la entrega el Módulo 7, no la Fase 0.
+Revertir `20261014100000_audit_logs_append_only` no pierde datos: solo retira
+la protección de la bitácora en la base.
+
+Revertir `20261015100000_safety_minutes` elimina la tabla y sus mensajes (respaldo previo
+si hay que conservarlos) y no limpia permisos, menú ni parámetros sembrados (§11.1).
 
 ### 10.4 Datos sensibles
 
@@ -350,3 +389,79 @@ ADR-025) la entrega el Módulo 7, no la Fase 0.
 `customer_import_rows.raw_data` contienen datos personales de terceros:
 no se registran en logs, se enmascaran en `audit_logs` (DM-29) y `raw_data` se
 purga a los `crm.importaciones.dias_retencion_filas` días (90, DM-28).
+
+---
+
+## 11. Ajustes 1 (minuto de seguridad, preferencias y parámetros de interfaz)
+
+Plan: [`AJUSTES-1.md`](../implementation-plans/AJUSTES-1.md) §5. Una tabla nueva, ninguna tabla
+modificada; el resto reutiliza `user_preferences` y `system_parameters`.
+
+### 11.1 `safety_minutes`
+
+Un mensaje institucional por fecha de visualización. Sin datos personales (clasificación:
+interno): el mensaje es texto institucional y el rastro de quién lo escribió vive en `audit_logs`.
+
+| Columna | Tipo | Nota |
+|---|---|---|
+| `id` | `uuid` PK | Lo genera Prisma (`@default(uuid())`), sin valor por defecto en la base |
+| `message` | `varchar(1000)` NOT NULL | Texto plano, 1 a 1000 caracteres; las reglas de contenido (sin control ni bidi, al menos un carácter visible) las aplica la API |
+| `display_date` | `date` NOT NULL | Fecha de calendario sin hora, en la zona `crm.zona_horaria_negocio` (DM-31) |
+| `created_at` | `timestamptz(6)` NOT NULL | Defecto `CURRENT_TIMESTAMP` |
+| `updated_at` | `timestamptz(6)` NOT NULL | `@updatedAt` |
+| `created_by_id` | `uuid` NULL | **Sin FK**, como `exchange_rates` y el resto de columnas `created_by_id` |
+| `updated_by_id` | `uuid` NULL | **Sin FK**; el servicio resuelve el nombre al leer (`updatedBy`) |
+
+- **Índice único** `uq_safety_minutes_display_date` sobre `display_date`: como máximo un mensaje
+  por fecha (`409 SAFETY_MINUTE_DUPLICATE` si la carrera llega a la base). Sirve también al filtro
+  por rango y al orden por fecha.
+- **CHECK** `ck_safety_minutes_message_not_blank`: `btrim(message) <> ''`. Escrito a mano en la
+  migración (Prisma no modela `CHECK`); es la última defensa si algo salta la validación de la API.
+- **Sin FK en `created_by_id`/`updated_by_id`**: decisión aceptada (ver §16 del plan). El usuario
+  puede desactivarse o, en el futuro, anonimizarse sin que la tabla lo impida; `updatedBy` es
+  `null` si el usuario ya no existe.
+- **Borrado físico** solo de fechas futuras; el estado previo queda en `audit_logs`
+  (`safety_minute.deleted`). No hay `deleted_at`.
+- **Rollback**: `backend/prisma/rollbacks/20261015100000_safety_minutes.down.sql` hace `DROP TABLE`
+  (pierde los mensajes programados: respaldo previo si hay que conservarlos). **No limpia la
+  semilla**: tras revertir quedan los permisos `minuto_seguridad.*`, la opción de menú
+  `admin-minuto-seguridad` y los parámetros `ui.*`, y la pantalla de mantenimiento respondería
+  `500` hasta limpiarlos o reaplicar la migración. Los eventos `safety_minute.*` de `audit_logs`
+  no se tocan. Lo verifica `backend/test/crm-rollbacks.e2e.spec.ts`.
+
+### 11.2 `user_preferences`: claves de Ajustes 1
+
+Tabla existente (`user_id`, `key`, `value` JSON, único por `(user_id, key)`, `ON DELETE CASCADE`).
+Ajustes 1 es su primer uso. El acceso lo cierra `UserPreferencesService`: el usuario siempre sale
+de la sesión.
+
+| Clave | `value` | Quién la escribe |
+|---|---|---|
+| `ui.tema` | `"light"` o `"dark"` (sin fila = el navegador decide con `prefers-color-scheme`) | `PUT /me/preferences/theme` |
+| `ui.inicio.tarjetas` | `{ blocks: [{ key, visible }], kpis: [{ key, visible }] }`, lista completa en orden de pantalla | `PUT`/`DELETE /me/preferences/dashboard-cards` |
+
+Son datos personales de configuración: no se auditan ni se registran en logs. Un valor guardado
+ilegible o que quedó desfasado (clave retirada o añadida después) se lee con el lector tolerante
+(RN-AJ1.4): se normaliza o se trata como inexistente y deja un aviso sin el valor ni el usuario.
+
+### 11.3 `system_parameters`: grupo `interfaz`
+
+Sembrados por `backend/prisma/seed/access-catalog.ts` (la semilla no pisa un valor editado), todos
+con `is_public = false` y sin `parametros.configurar`:
+
+| Clave | Tipo | Defecto |
+|---|---|---|
+| `ui.inicio.tarjetas` | `JSON` | Composición con todo visible, en el orden de `dashboard-cards.ts` (la composición por defecto de quien no personalizó su panel) |
+| `ui.barra_superior.buscar` | `BOOLEAN` | `false` |
+| `ui.barra_superior.pantalla_completa` | `BOOLEAN` | `true` |
+| `ui.barra_superior.notificaciones` | `BOOLEAN` | `false` |
+
+La misma clave `ui.inicio.tarjetas` nombra el parámetro (global) y la preferencia (por usuario): son
+filas de tablas distintas. El usuario nunca lee el parámetro directamente: `GET /me/ui-settings`
+devuelve solo la composición efectiva y los tres booleanos de la barra.
+
+### 11.4 Permisos y menú sembrados
+
+Recurso `minuto_seguridad` (módulo `administracion`) con las acciones `ver`, `crear`, `editar` y
+`eliminar`, y la opción de menú `admin-minuto-seguridad` (`/administracion/minuto-seguridad`,
+requiere `minuto_seguridad.ver`). Ver el mensaje de hoy en Inicio no exige permiso.

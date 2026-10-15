@@ -8,6 +8,8 @@ import {
   getUser,
   getUserAccess,
   listAssignableRoles,
+  listAssignableTeams,
+  listCountryOptions,
   listMenuOptionCatalog,
   listPermissionCatalog,
   listUsers,
@@ -15,16 +17,20 @@ import {
   replaceUserMenuOptions,
   replaceUserPermissions,
   replaceUserRoles,
+  replaceUserTeams,
   resetUserPassword,
   suspendUser,
   updateUser,
   type CreateUserRequest,
   type DirectAssignmentRequest,
   type UpdateUserRequest,
+  type UserTeamAssignment,
 } from './users.api';
 import { saveFile } from '@/lib/save-file';
 
 export const userKeys = createQueryKeys('users');
+/** Claves del área Equipos (`createQueryKeys('teams').all`), sin importar de otra área. */
+const TEAMS_AREA_KEY = createQueryKeys('teams').all;
 const accessKey = (id: string) => [...userKeys.detail(id), 'access'] as const;
 const catalogKey = (name: string) => [...userKeys.all, 'catalog', name] as const;
 
@@ -42,6 +48,22 @@ export function useUserAccess(id: string, enabled = true) {
 
 export function useAssignableRoles(enabled = true) {
   return useQuery({ queryKey: catalogKey('roles'), queryFn: listAssignableRoles, enabled });
+}
+
+export function useAssignableTeams(enabled = true) {
+  return useQuery({ queryKey: catalogKey('teams'), queryFn: listAssignableTeams, enabled });
+}
+
+/** Países activos (los de `GET /customers/form-options`). Cambian muy poco: se cachean 5 minutos. */
+const COUNTRIES_STALE_MS = 5 * 60_000;
+
+export function useCountryOptions(enabled = true) {
+  return useQuery({
+    queryKey: catalogKey('countries'),
+    queryFn: listCountryOptions,
+    enabled,
+    staleTime: COUNTRIES_STALE_MS,
+  });
 }
 
 export function usePermissionCatalog(enabled = true) {
@@ -91,6 +113,20 @@ export function useResetUserPassword(id: string) {
 export function useReplaceUserRoles(id: string) {
   const invalidate = useInvalidateUsers();
   return useMutation({ mutationFn: (roleIds: string[]) => replaceUserRoles(id, roleIds), onSuccess: invalidate });
+}
+
+/**
+ * `PUT /users/{id}/teams` (07 F.2). Invalida también los equipos: su número de
+ * miembros cambia y la pantalla de Equipos debe mostrar lo mismo (AC-07.8).
+ */
+export function useReplaceUserTeams(id: string) {
+  const invalidate = useInvalidateUsers();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (teams: UserTeamAssignment[]) => replaceUserTeams(id, teams),
+    onSuccess: () =>
+      Promise.all([invalidate(), queryClient.invalidateQueries({ queryKey: TEAMS_AREA_KEY })]),
+  });
 }
 
 export function useReplaceUserPermissions(id: string) {

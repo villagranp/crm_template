@@ -13,17 +13,11 @@ import {
   onBrand,
 } from '@/theme/tokens';
 
-export interface AuthFeature {
-  icon: ReactNode;
-  label: string;
-}
-
 interface AuthLayoutProps {
   /** Título del panel de marca (visible desde `lg`). */
   panelTitle: string;
-  panelDescription: string;
-  /** Viñetas del panel de marca: sólo capacidades que existen hoy. */
-  features?: AuthFeature[];
+  /** Texto bajo el título del panel; opcional (el acceso no lo usa, el cambio de contraseña sí). */
+  panelDescription?: string;
   /** Título de la tarjeta: es el `h1` accesible de la pantalla. */
   title: string;
   subtitle?: ReactNode;
@@ -40,7 +34,6 @@ interface AuthLayoutProps {
 export function AuthLayout({
   panelTitle,
   panelDescription,
-  features = [],
   title,
   subtitle,
   children,
@@ -123,7 +116,16 @@ export function AuthLayout({
           >
             <BrandLogo onDark height={authLayout.logoHeightPanel} />
 
-            <Box sx={{ mt: 'auto', pb: 3 }}>
+            <Box
+              sx={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                textAlign: 'center',
+              }}
+            >
               <Typography
                 component="p"
                 sx={{
@@ -131,52 +133,21 @@ export function AuthLayout({
                   fontWeight: 700,
                   fontSize: fontSizes.authAsideTitle,
                   lineHeight: 1.2,
-                  mb: 1.5,
+                  mb: panelDescription ? 1.5 : 0,
                 }}
               >
                 {panelTitle}
               </Typography>
-              <Typography
-                sx={{
-                  color: onBrand.textMuted,
-                  fontSize: fontSizes.nav,
-                  maxWidth: authLayout.asideTextMaxWidth,
-                  mb: 3,
-                }}
-              >
-                {panelDescription}
-              </Typography>
-
-              {features.length > 0 ? (
-                <Box
-                  component="ul"
+              {panelDescription ? (
+                <Typography
                   sx={{
-                    listStyle: 'none',
-                    p: 0,
-                    m: 0,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 1.25,
+                    color: onBrand.textMuted,
+                    fontSize: fontSizes.nav,
+                    maxWidth: authLayout.asideTextMaxWidth,
                   }}
                 >
-                  {features.map((feature) => (
-                    <Box
-                      component="li"
-                      key={feature.label}
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1.25,
-                        fontSize: fontSizes.topnav,
-                        color: onBrand.text,
-                        '& .MuiSvgIcon-root': { color: brand[200] },
-                      }}
-                    >
-                      {feature.icon}
-                      {feature.label}
-                    </Box>
-                  ))}
-                </Box>
+                  {panelDescription}
+                </Typography>
               ) : null}
             </Box>
           </Box>
@@ -237,7 +208,7 @@ export function AuthLayout({
           color: authLayout.footerText,
         })}
       >
-        © {new Date().getFullYear()} {brandIdentity.productName}
+        © {new Date().getFullYear()} {brandIdentity.companyName}
       </Box>
     </Box>
   );

@@ -43,13 +43,14 @@ donde se indica. Detalle de reglas y códigos de error:
 
 | Método | Ruta | Permiso | Qué hace |
 |---|---|---|---|
-| GET | `/users` | `usuarios.ver` | Lista con filtros (`status`, `roleCode`, `teamId`, `search`) |
-| GET | `/users/export` | `usuarios.exportar` | CSV con los filtros activos (máx. 10 000; `X-Export-Truncated`) |
-| GET | `/users/:id` | `usuarios.ver` | Detalle: roles, equipos, asignaciones directas |
-| POST | `/users` | `usuarios.crear` | Alta (`INVITED`, con `AUTH_DEFAULT_PASSWORD` si está configurada) |
-| PATCH | `/users/:id` | `usuarios.editar` | Datos personales. **No** cambia el estado |
+| GET | `/users` | `usuarios.ver` | Lista con filtros (`status`, `roleCode`, `teamId`, `countryId`, `search` en nombre, correo y código de colaborador); cada fila con `employeeCode` y `country` (`{ id, isoCode, name }` o `null`) |
+| GET | `/users/export` | `usuarios.exportar` | CSV con los filtros activos (máx. 10 000; `X-Export-Truncated`). Columnas: Código de colaborador, Correo, Nombre, País, Puesto, Estado, Roles, Equipos, Último acceso, Alta |
+| GET | `/users/:id` | `usuarios.ver` | Detalle: código de colaborador, país, roles, equipos, asignaciones directas |
+| POST | `/users` | `usuarios.crear` (+ `equipos.editar` con `teamIds`) | Alta (`INVITED`, con `AUTH_DEFAULT_PASSWORD` si está configurada). `employeeCode?`; `countryId?` y `teamIds` no vacío, solo administrador (`403 ADMIN_ONLY`) |
+| PATCH | `/users/:id` | `usuarios.editar` | Datos personales y `employeeCode`; cambiar `countryId`, solo administrador (enviar el actual no es un cambio). **No** cambia el estado |
 | POST | `/users/:id/suspend` · `/reactivate` | `usuarios.editar` | Suspender (cierra sesiones) · reactivar |
-| PUT | `/users/:id/roles` | `usuarios.editar` | Reemplaza sus roles |
+| PUT | `/users/:id/roles` | `usuarios.editar` | Reemplaza sus roles; un rol comercial exige código y país (`422 CRM_PROFILE_INCOMPLETE`) |
+| PUT | `/users/:id/teams` | `equipos.editar` + administrador | Reemplaza sus equipos (≤ 50, como mucho un principal, lista vacía permitida) → `{ teams: [{ id, name, isPrimary }] }`. Lo sirve el módulo `teams` (07 F.2). Audita `team.members_replaced` por equipo afectado y `user.teams_replaced` |
 | PUT | `/users/:id/permissions` | `usuarios.editar` | Excepciones de permiso (razón ≥ 10, caducidad opcional) |
 | PUT | `/users/:id/menu-options` | `opciones.configurar` | Excepciones de menú |
 | GET | `/users/:id/access` · `/menu` | `usuarios.ver` | Acceso efectivo con el origen de cada permiso · menú |
@@ -76,16 +77,17 @@ donde se indica. Detalle de reglas y códigos de error:
 
 | Método | Ruta | Permiso | Qué hace |
 |---|---|---|---|
-| GET · POST | `/teams` | `equipos.ver` · `equipos.crear` | Lista · alta |
-| GET · PATCH · DELETE | `/teams/:id` | `equipos.ver` · `equipos.editar` · `equipos.eliminar` | Sin ciclos; borrar solo sin miembros ni subequipos |
-| PUT | `/teams/:id/members` | `equipos.editar` | Reemplaza miembros; un equipo principal por usuario |
+| GET · POST | `/teams` | `equipos.ver` · `equipos.crear` | Lista · alta (con `managerId` o `parentId`, solo administrador) |
+| GET · PATCH · DELETE | `/teams/:id` | `equipos.ver` · `equipos.editar` · `equipos.eliminar` | Sin ciclos; borrar solo sin miembros ni subequipos. Cambiar `managerId`/`parentId` o borrar con miembros o subequipos, solo administrador (RN-07.45; al administrador, `409 HAS_CHILDREN`). Cambiar `isActive` de un equipo con miembros o subequipos, solo administrador (`403 ADMIN_ONLY`); un equipo vacío lo activa o desactiva cualquiera con `equipos.editar` (D1, decisión del responsable 2026-10-14) |
+| PUT | `/teams/:id/members` | `equipos.editar` + administrador | Reemplaza miembros; un equipo principal por usuario |
 | GET · POST | `/catalogs` | `catalogos.ver` · `catalogos.crear` | Lista · alta |
 | GET · PATCH · DELETE | `/catalogs/:id` | `catalogos.ver` · `catalogos.editar` · `catalogos.eliminar` | Borrar solo si no es de sistema y está vacío |
 | POST · PATCH | `/catalogs/:id/items[/:itemId]` | `catalogos.editar` | Elementos: se desactivan, nunca se borran |
-| GET | `/parameters` | `parametros.ver` | Agrupados (sin paginar) |
-| PATCH | `/parameters/:key` | `parametros.editar` (+ `parametros.configurar` en `seguridad.*` y estructurales) | Solo el valor, validado por tipo, rango y registro de reglas. `crm.forecast.unidad_tonelaje` exige una unidad activa de masa con regla identidad `GLOBAL` activa (RN-07.33): si no, `422 INVALID_PARAMETER_VALUE` con `details[].reason` |
-| GET | `/audit-logs` · `/audit-logs/events` | `auditoria.ver` | Bitácora con filtros · nombres de evento |
-| GET | `/audit-logs/export` | `auditoria.exportar` | CSV (la exportación también se audita) |
+| GET | `/parameters` | `parametros.ver` | Agrupados (sin paginar); cada parámetro trae `editorOptions` (Ajustes 1) |
+| GET | `/parameters/authentication` | `parametros.ver` | Solo lectura: `{ provider: local\|entra\|hybrid, localLoginEnabled, securityParameterKeys[] }` desde `AUTH_PROVIDER` (D-07.8, RN-07.34). Sin secretos, tenant ni configuración de JWT |
+| PATCH | `/parameters/:key` | `parametros.editar` (+ `parametros.configurar` en `seguridad.*` y estructurales, incluido `auditoria.dias_retencion` desde la decisión del responsable 2026-10-14, D2, RN-07.32) | Solo el valor, validado por tipo, rango y registro de reglas. `crm.forecast.unidad_tonelaje` exige una unidad activa de masa con regla identidad `GLOBAL` activa (RN-07.33): si no, `422 INVALID_PARAMETER_VALUE` con `details[].reason` |
+| GET | `/audit-logs` · `/audit-logs/events` | `auditoria.ver` | Bitácora con filtros (incluido `field`: eventos cuyo `changes` contiene ese campo) · nombres de evento |
+| GET | `/audit-logs/export` | `auditoria.exportar` | CSV con los mismos filtros y `layout=events\|fields` (la exportación también se audita). Ver "Módulo 7 · Administración" |
 | GET | `/approvals` · `/approvals/:id` | `aprobaciones.ver` | Bandeja de solo lectura |
 
 **Asignación de accesos (ADR-020).** Además del permiso de cada endpoint,
@@ -94,6 +96,11 @@ permisos, opciones, alcance o activación, restablecer la contraseña de cualqui
 reactivar a un administrador exigen el rol `administrador`
 (`403 ADMIN_ONLY`). En el alta, un no administrador solo asigna roles sin
 permisos. Ver [ADR-020](../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md).
+Su addendum de 2026-10-10 suma el país del usuario (`countryId` en el alta y en
+la edición), sus equipos (`teamIds` en el alta, `PUT /users/:id/teams`) y la
+composición de los equipos: miembros, responsable, equipo padre y borrar un
+equipo con miembros o subequipos (RN-07.5, RN-07.10, RN-07.45). Crear un equipo
+sin responsable ni padre y editar su nombre o descripción no la exigen.
 
 Los endpoints de `/auth` son públicos por diseño: o no hay sesión todavía
 (`login`) o la credencial es la cookie y no el access token (`refresh`,
@@ -227,9 +234,12 @@ como cadena; fechas de calendario `YYYY-MM-DD`. Filtros de ids repetibles por co
 
 | Método | Ruta | Permiso | Request → respuesta |
 |---|---|---|---|
-| GET | `/products` | `productos.ver` | `ProductsQueryDto` (`search`, `familyId`, `isActive` = `true`) → `PaginatedProductsDto` |
-| GET | `/product-families` | `productos.ver` | → `ProductFamiliesDto` (activas) |
-| GET | `/units-of-measure` | `proyectos.ver` | → `UnitsOfMeasureDto` (activas) |
+| GET | `/products` | `productos.ver` | `ProductsQueryDto` (`search`, `familyId`, `isActive` = `true` por defecto) → `PaginatedProductsDto` |
+| GET | `/product-families` | `productos.ver` | → `{ data, pagination }` (activas por defecto, `pageSize` 100) |
+| GET | `/units-of-measure` | `productos.ver` **o** `proyectos.ver` | → `{ data, pagination }` (activas por defecto, `pageSize` 100) |
+
+Desde el Módulo 7 son también las listas de mantenimiento de maestros (filtros, orden y forma en
+"Módulo 7 · Administración"); los formularios de Proyectos siguen leyendo `data` sin cambios.
 | GET | `/unit-conversions/resolve` | `proyectos.ver` | `fromUnitId`, `productId?`, `projectTypeId?` → `ConversionPreviewDto` (`rule` o `null`) |
 
 ### Códigos de error nuevos (03 §L.6, E2a)
@@ -666,6 +676,188 @@ confirmar), `IMPORT_INTERRUPTED`, `CREATE_FAILED`; y las del Módulo 2 sin cambi
 `INVALID_PHONE_FORMAT`, `INVALID_TAX_ID_FORMAT`, `VALIDATION_FAILED`, `CUSTOMER_CODE_TAKEN`,
 `DUPLICATE_BLOCKED`, `POSSIBLE_DUPLICATE`). `field` es la clave de la columna de la plantilla
 (`legalName`, `country`, `salesOwner`…) o `row`.
+
+## Endpoints del CRM — Módulo 7 · Administración
+
+Contrato: [`07-administracion.md`](../implementation-plans/crm/07-administracion.md) §F. Todos bajo
+`/api/v1`, con `@RequirePermission` (o `@RequireAnyPermission` donde se indica). Responden además
+`401 UNAUTHENTICATED`, `403 PERMISSION_DENIED` y `429`; un id de ruta que no es UUID → `400
+BAD_REQUEST`; un cuerpo o consulta que no cumple el DTO (incluidos campos no admitidos) → `400
+VALIDATION_FAILED`. Los cambios en usuarios, equipos, parámetros y auditoría están en las tablas
+del núcleo de gestión (arriba).
+
+**Precisiones de implementación respecto de la especificación** (la fuente es el código):
+
+- Los maestros (familias, productos, unidades, reglas) viven en el módulo `products`, no en un
+  módulo `crm-masters`; tipos de cambio y `/currencies`, en `exchange-rates` (mismo controlador).
+- Las listas de maestros y de tipos de cambio ordenan con `sortBy` + `sortOrder`
+  (API-STANDARDS), no con `sort`. En los maestros `sortOrder` es `asc` por defecto; en
+  `GET /exchange-rates` es `desc` y `sortBy` por defecto `effectiveDate` (lo más reciente
+  primero). En los maestros, `isActive` = `true` (defecto) \| `false` \| `all`.
+- `GET /product-families` y `GET /units-of-measure` devuelven `{ data, pagination }` con
+  `pageSize` 100 por defecto (antes `{ data }`; compatible con el Módulo 3).
+- `GET /units-of-measure` acepta `productos.ver` **o** `proyectos.ver` (`@RequireAnyPermission`);
+  su detalle y las escrituras siguen la regla del resto de maestros.
+- `GET /currencies` devuelve `{ data: [...] }`, no un arreglo suelto.
+- Código nuevo `422 INVALID_CONVERSION_SCOPE` (ámbito incoherente con sus referencias).
+- No existe `GET /exchange-rates/:id`.
+
+### Maestros comerciales (`Maestros comerciales · …`, 07 F.7)
+
+Sin `DELETE`: se desactiva con `PATCH isActive`. Toda alta y edición se audita
+(`crm.product_family`, `crm.product`, `crm.unit_of_measure`, `crm.unit_conversion_rule` +
+`.created` / `.updated`, con antes/después; sin cambios no hay registro). Las altas devuelven
+`201` + `Location`.
+
+| Método | Ruta | Permiso | Request → respuesta | Errores propios |
+|---|---|---|---|---|
+| GET | `/product-families` | `productos.ver` | `search` (código o nombre), `isActive`, `sortBy ∈ code\|name\|sortOrder\|createdAt\|updatedAt` (sin él: `sortOrder` y nombre), paginación → `{ data: ProductFamilyDetailDto[], pagination }` | `400` |
+| GET | `/product-families/:id` | `productos.ver` | → `ProductFamilyDetailDto` (activa o no) | `404` |
+| POST · PATCH | `/product-families[/:id]` | `productos.configurar` | `code` único (mayúsculas), inmutable en `PATCH` (`400`) | `404`, `409 RESOURCE_CONFLICT` (`field = code`) |
+| GET | `/products` | `productos.ver` | `search` (SKU o descripción), `familyId`, `isActive`, `sortBy ∈ sku\|createdAt\|updatedAt` (sin él: `sku`) → `PaginatedProductsDto` | `400` |
+| GET | `/products/:id` | `productos.ver` | → `ProductDetailDto` (activo o no) | `404` |
+| POST · PATCH | `/products[/:id]` | `productos.configurar` | SKU único (recortado, mayúsculas); familia y unidad base nuevas deben estar activas (la actual se conserva aunque se haya desactivado) | `404`, `409 RESOURCE_CONFLICT` (`field = sku`), `422 UNKNOWN_REFERENCE` (`familyId`, `baseUnitId`; `issue` `not_found`\|`inactive`) |
+| GET | `/units-of-measure` | `productos.ver` **o** `proyectos.ver` | `search` (código, nombre o símbolo), `isActive`, `sortBy ∈ code\|name\|sortOrder\|dimension` (sin él: `sortOrder` y código) → `{ data: UnitOfMeasureDetailDto[], pagination }` | `400` |
+| GET | `/units-of-measure/:id` | `productos.ver` | → `UnitOfMeasureDetailDto` | `404` |
+| POST · PATCH | `/units-of-measure[/:id]` | `productos.configurar` | `code` único e inmutable; `dimension` inmutable si la usa un producto, una regla o una línea; la unidad de tonelaje no se desactiva | `404`, `409 RESOURCE_CONFLICT` (`code`), `409 UNIT_DIMENSION_LOCKED`, `409 CONVERSION_RULE_PROTECTED` (`tonnage_unit`) |
+| GET | `/unit-conversion-rules` | `productos.ver` | `scope`, `fromUnitId`, `isActive`, `search` (descripción o unidad de origen), `sortBy ∈ createdAt\|updatedAt\|scope\|factor` → paginada de `UnitConversionRuleDto` (`factor` cadena de 8 decimales, `isIdentity`, `isProtected`) | `400` |
+| GET | `/unit-conversion-rules/:id` | `productos.ver` | → `UnitConversionRuleDto` | `404` |
+| POST | `/unit-conversion-rules` | `productos.configurar` | Destino = unidad de tonelaje (la usa si se omite `toUnitId`); `scope` (defecto `GLOBAL`) con exactamente su referencia; única por (origen, destino, ámbito) | `409 RESOURCE_CONFLICT` (`fromUnitId`, `toUnitId`, `scope`), `409 CONVERSION_RULE_PROTECTED` (`identity_factor`), `422 INVALID_CONVERSION_TARGET` / `INVALID_CONVERSION_SCOPE` / `UNKNOWN_REFERENCE` |
+| PATCH | `/unit-conversion-rules/:id` | `productos.configurar` | Solo `factor`, `description`, `isActive` (origen, destino o ámbito → `400`). Cambiar el factor no reescribe las líneas existentes | `404`, `409 CONVERSION_RULE_PROTECTED` (`identity_factor` \| `tonnage_identity`) |
+
+`GET /unit-conversions/resolve` (Módulo 3) no cambia.
+
+### Tipos de cambio y monedas (`Administración · Tipos de cambio`, 07 F.7, ADR-024)
+
+Sin `DELETE` ni `isActive` (RN-07.44). `ratePerUsd` como cadena decimal; `effectiveDate`
+`YYYY-MM-DD`. Corregir o añadir una tasa no recalcula las oportunidades guardadas.
+
+| Método | Ruta | Permiso | Request → respuesta | Errores propios |
+|---|---|---|---|---|
+| GET | `/exchange-rates` | `parametros.ver` | `currencyCode?`, `from?`/`to?` (sobre `effectiveDate`, incluidos), paginación, `sortBy ∈ effectiveDate\|currencyCode\|createdAt\|updatedAt` (defecto `effectiveDate desc`) → paginada de `ExchangeRateResponseDto` (`updatedBy: { id, displayName } \| null`) | `400` (`from` > `to`, `sortBy`) |
+| POST | `/exchange-rates` | `parametros.configurar` | `CreateExchangeRateDto` → `201` + `Location`. Audita `crm.exchange_rate.created` | `409 EXCHANGE_RATE_DUPLICATE`, `422 INVALID_EXCHANGE_RATE` |
+| PATCH | `/exchange-rates/:id` | `parametros.configurar` | `{ ratePerUsd?, source?, notes? }`; `currencyCode` o `effectiveDate` → `400`. Audita `crm.exchange_rate.updated` (sin cambios no hay registro) | `404`, `422 INVALID_EXCHANGE_RATE` (`non_positive_rate`) |
+| GET | `/currencies` | `parametros.ver` | → `{ data: [{ code, name, symbol, decimals, isActive }] }` (todas, por código, sin paginar) | — |
+
+### Auditoría: vista por campo (07 F.6, D-07.10)
+
+- `field` (1–100, `[A-Za-z0-9_.]`) en `GET /audit-logs` y en la exportación: solo eventos cuyo
+  `changes` contiene esa clave.
+- `GET /audit-logs/export?layout=events|fields` (defecto `events`, formato histórico). Con
+  `fields`, una fila por campo: Fecha, Usuario, Entidad, Registro, Acción, Campo, Valor anterior,
+  Valor nuevo (con `field`, solo la fila de ese campo). El tope de 10 000 cuenta **eventos**.
+- Presentación por campo (RN-07.42): `{ before, after }` → una fila por campo, en el orden
+  guardado; un valor con otra forma (registros antiguos) → anterior vacío y el valor como JSON en
+  nuevo; un evento sin `changes` utilizable → una fila sin campo (no desaparece).
+- El evento `audit_log.exported` añade `layout` a su metadato.
+- No hay `PUT`/`PATCH`/`DELETE` sobre `/audit-logs` (`404`); además la base rechaza modificar la
+  bitácora (ADR-025, [`data-model.md`](../database/data-model.md) §6).
+
+### Códigos de error nuevos (07 F.8)
+
+| Status | Código | Cuándo | `details` |
+|---|---|---|---|
+| 409 | `UNIT_DIMENSION_LOCKED` | Cambiar la dimensión de una unidad referenciada (RN-07.37) | `[{ field: "dimension", reason: "referenced" }]` |
+| 409 | `CONVERSION_RULE_PROTECTED` | Regla o unidad protegida (RN-07.36) | `[{ field, reason }]`, `reason` ∈ `identity_factor` (`field = factor`: factor ≠ 1 en una identidad), `tonnage_identity` (`isActive`: desactivar la identidad de la unidad de tonelaje), `tonnage_unit` (`isActive`: desactivar la unidad de tonelaje) |
+| 409 | `EXCHANGE_RATE_DUPLICATE` | Ya hay tasa para esa moneda y fecha de vigencia (RN-07.44) | `[{ field: "effectiveDate", issue: "duplicated", currencyCode, effectiveDate }]` |
+| 422 | `INVALID_CONVERSION_TARGET` | Destino distinto de la unidad de tonelaje configurada | `[{ field: "toUnitId", issue: "not_tonnage_unit", tonnageUnitCode }]` |
+| 422 | `INVALID_CONVERSION_SCOPE` | Ámbito sin su referencia o con referencias de otro ámbito | `[{ field, issue: "required"\|"not_allowed" }]` |
+| 422 | `INVALID_EXCHANGE_RATE` | Moneda `USD`, inexistente o inactiva, o tasa ≤ 0 | `[{ field, issue, currencyCode? }]`, `issue` ∈ `base_currency`, `unknown_currency`, `inactive_currency`, `non_positive_rate` |
+| 422 | `CRM_PROFILE_INCOMPLETE` | Rol comercial (concede algún permiso del CRM; no cuenta `administrador`) sin código de colaborador o sin país: en el alta, en `PUT /users/:id/roles` o al vaciarlos con `PATCH` (D-07.3) | `[{ field: "employeeCode"\|"countryId", issue: "required" }]` |
+
+Reutilizados: `RESOURCE_CONFLICT` (también `employeeCode` repetido), `UNKNOWN_REFERENCE` (país
+inexistente o inactivo, con `issue`), `ADMIN_ONLY`, `PERMISSION_DENIED`, `INVALID_PARAMETER_VALUE`,
+`SYSTEM_RESOURCE_READ_ONLY`.
+
+## Endpoints — Ajustes 1
+
+Plan: [`AJUSTES-1.md`](../implementation-plans/AJUSTES-1.md) §6. Todos bajo `/api/v1`. Responden
+además `401 UNAUTHENTICATED` y `429`; un cuerpo o consulta que no cumple el DTO (incluidos campos no
+admitidos) → `400 VALIDATION_FAILED`; un id de ruta que no es UUID → `400 BAD_REQUEST`. Los
+recursos `/me/*` toman el usuario de la sesión: no hay `{userId}` en la ruta y no existe forma de
+leer o escribir lo de otro usuario.
+
+### Minuto de seguridad (`Administración · Minuto de seguridad`, AJ1-2)
+
+Un mensaje institucional por fecha de visualización (`displayDate`, `YYYY-MM-DD`). «Hoy» se decide
+en la zona `crm.zona_horaria_negocio`. `editable` y `deletable` los calcula el servidor: hoy y
+futuros se editan; solo los futuros se borran; los pasados son de solo lectura.
+
+| Método | Ruta | Permiso | Request → respuesta | Errores propios |
+|---|---|---|---|---|
+| GET | `/safety-minutes` | `minuto_seguridad.ver` | `from?`/`to?` (sobre `displayDate`, incluidos, `from` ≤ `to`), `page`, `pageSize` (≤ 100), `sortBy ∈ displayDate\|createdAt\|updatedAt` (defecto `displayDate`), `sortOrder` (defecto `desc`) → `{ data: SafetyMinuteResponseDto[], pagination }` | `400` (fechas, `from` > `to`, `sortBy`) |
+| GET | `/safety-minutes/:id` | `minuto_seguridad.ver` | → `SafetyMinuteResponseDto` | `404 RESOURCE_NOT_FOUND` |
+| POST | `/safety-minutes` | `minuto_seguridad.crear` | `{ message, displayDate }` → `201` + `Location`. Audita `safety_minute.created` | `400`, `409 SAFETY_MINUTE_DUPLICATE`, `422 SAFETY_MINUTE_PAST_DATE` |
+| PATCH | `/safety-minutes/:id` | `minuto_seguridad.editar` | `{ message?, displayDate? }` → `SafetyMinuteResponseDto`. Audita `safety_minute.updated` con antes/después (sin cambios no hay registro) | `400`, `404`, `409 SAFETY_MINUTE_DUPLICATE`, `409 SAFETY_MINUTE_LOCKED` (`reason = past`), `422 SAFETY_MINUTE_PAST_DATE` |
+| DELETE | `/safety-minutes/:id` | `minuto_seguridad.eliminar` | → `204`. Borrado físico; el rastro queda en `safety_minute.deleted` con el estado previo | `404`, `409 SAFETY_MINUTE_LOCKED` (`reason = today\|past`) |
+| GET | `/me/safety-minute` | `@AuthenticatedOnly` (cualquier sesión; mensaje institucional, D-AJ1.9) | → `{ safetyMinute: { displayDate, message } \| null }`. Sin mensaje hoy responde `200` con `null`: la ausencia no es un error. Sin autor ni identificadores | — |
+
+`SafetyMinuteResponseDto`: `id`, `message`, `displayDate`, `editable`, `deletable`, `createdAt`,
+`updatedAt`, `updatedBy: { id, displayName } | null`.
+
+**Validación del mensaje** (contrato; `400 VALIDATION_FAILED` si no se cumple):
+
+- Texto plano de **1 a 1000 caracteres** tras recortar los espacios de los extremos; admite saltos
+  de línea y tabulaciones; `\r\n` (y `\r` suelto) se normaliza a `\n` antes de contar y de guardar.
+- Sin caracteres de control (salvo salto de línea y tabulación, incluido `U+0000`) ni de formato o bidireccionales (por
+  ejemplo U+200B, U+202E, U+2066).
+- Debe tener al menos un carácter visible: un mensaje solo de espacios o de caracteres invisibles
+  se rechaza.
+- No se admite HTML: se guarda tal cual y la interfaz lo muestra siempre como texto (RN-AJ1.7).
+- En `PATCH` la misma regla aplica a `message` cuando viene.
+
+### Configuración y preferencias del usuario (`Acceso`, AJ1-1, AJ1-6, AJ1-7)
+
+Todas son `@AuthenticatedOnly` (el recurso es el propio usuario de la sesión). Son personales: no se
+auditan ni se registran en logs (RN-AJ1.6b, RN-AJ1.18).
+
+| Método | Ruta | Request → respuesta | Errores propios |
+|---|---|---|---|
+| GET | `/me/ui-settings` | → `UiSettingsResponseDto`: `dashboard { isCustomized, blocks[], kpis[] }` (composición efectiva: la preferencia propia o, si no hay, el parámetro `ui.inicio.tarjetas`; normalizada, `safety-minute` siempre visible; **no filtra por permisos**, el cliente combina visibilidad y permiso) y `topbar { search, fullscreen, notifications }`. No expone ningún otro parámetro | — |
+| GET | `/me/preferences` | → `{ theme: 'light'\|'dark' \| null, dashboardCards: { blocks[], kpis[] } \| null }`: la preferencia propia sin resolver por defecto (`null` si no existe o es ilegible; `dashboardCards` sale normalizado) | — |
+| PUT | `/me/preferences/theme` | `{ value: 'light'\|'dark' }` → `{ theme }`. Crea o reemplaza `ui.tema` | `400` (valor distinto de `light`/`dark`, campos extra) |
+| PUT | `/me/preferences/dashboard-cards` | `{ blocks[], kpis[] }` (lista **completa**, cada elemento `{ key, visible }`, en orden de pantalla) → la composición guardada | `400` (cuerpo mal formado, campos extra), `422 INVALID_DASHBOARD_CARDS` |
+| DELETE | `/me/preferences/dashboard-cards` | → `204`. «Restablecer»: borra la preferencia; sin preferencia previa también responde `204` | — |
+
+Claves cerradas (única definición en `backend/src/modules/parameters/dashboard-cards.ts`).
+Bloques: `safety-minute`, `hero`, `mine`, `kpis`, `alerts`, `activity`, `access`. Indicadores:
+`projects-active`, `opportunities-open`, `opportunities-won`, `opportunities-lost`, `forecast`,
+`visits-pending`, `activities-pending`, `activities-overdue`, `targets`. `safety-minute` no se
+puede ocultar: se guarda con `visible = true`. Cada lista debe traer cada clave exactamente una vez.
+
+`GET /me/safety-minute` vive en `safety-minutes/me-safety-minute.controller.ts` (no en
+`MeController`) para que `AccessModule` no dependa de `SafetyMinutesModule`, que ya depende de él.
+
+### Parámetros `ui.*` y `editorOptions` (`Parámetros`)
+
+Grupo `interfaz`, todos con `isPublic = false`; ninguno es estructural ni de seguridad, así que
+basta `parametros.editar`. La semilla no pisa un valor ya editado.
+
+| Clave | Tipo | Defecto | Efecto |
+|---|---|---|---|
+| `ui.inicio.tarjetas` | JSON | todo visible, en el orden de las listas | Composición por defecto de Inicio para quien no personalizó su panel. Editor `dashboard-cards` |
+| `ui.barra_superior.buscar` | BOOLEAN | `false` | Botón de buscar (aún sin función) |
+| `ui.barra_superior.pantalla_completa` | BOOLEAN | `true` | Botón de pantalla completa |
+| `ui.barra_superior.notificaciones` | BOOLEAN | `false` | Botón de notificaciones (aún sin función) |
+
+- `GET /parameters` añade a cada parámetro `editorOptions: Record<string, string[]> | null`: las
+  listas cerradas que necesita el editor, definidas una sola vez en el backend. Hoy solo
+  `ui.inicio.tarjetas` (`blocks`, `kpis`, `lockedVisibleBlocks`); el resto devuelve `null`.
+  `allowedValues` de ese parámetro trae la unión de bloques e indicadores.
+- `PATCH /parameters/ui.inicio.tarjetas` valida el mismo esquema que la preferencia y guarda el
+  valor normalizado; un valor inválido responde `422 INVALID_PARAMETER_VALUE` (código existente).
+
+### Códigos de error nuevos (Ajustes 1)
+
+| Status | Código | Cuándo | `details` |
+|---|---|---|---|
+| 409 | `SAFETY_MINUTE_DUPLICATE` | Ya hay un mensaje para esa fecha (al crear o al mover la fecha) | `[{ field: "displayDate", issue: "duplicated", displayDate }]` |
+| 409 | `SAFETY_MINUTE_LOCKED` | Editar o borrar lo que ya no admite el cambio (RN-AJ1.10, RN-AJ1.11) | `[{ field: "displayDate", reason: "past"\|"today", displayDate }]`: `past` = fecha anterior a hoy (ni editar ni borrar), `today` = el de hoy no se borra |
+| 422 | `SAFETY_MINUTE_PAST_DATE` | La fecha de alta, o la nueva fecha en una edición, es anterior a hoy | `[{ field: "displayDate", issue: "past", displayDate }]` |
+| 422 | `INVALID_DASHBOARD_CARDS` | La composición enviada tiene claves desconocidas, repetidas o faltantes; no se guarda nada | `[{ field, issue, key }]`, `issue` ∈ `unknown_key`, `duplicated_key`, `missing_key`; `field` es `blocks.<i>.key` / `kpis.<i>.key` (posición enviada) o, si la clave falta, `blocks` / `kpis` |
+
+Reutilizados: `RESOURCE_NOT_FOUND`, `VALIDATION_FAILED`, `PERMISSION_DENIED`,
+`INVALID_PARAMETER_VALUE`.
 
 ## Contract rules
 

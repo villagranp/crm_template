@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Alert, FormControlLabel, MenuItem, Switch, TextField } from '@mui/material';
+import { Alert, FormControl, FormControlLabel, FormHelperText, MenuItem, Switch, TextField } from '@mui/material';
 import { useEffect, useMemo } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 
@@ -10,7 +10,7 @@ import {
   FormSection,
   FullRow,
 } from '@/features/admin/common';
-import { usePermission } from '@/hooks/use-permission';
+import { useIsAdministrador, usePermission } from '@/hooks/use-permission';
 
 import { buildTeamTree, teamWithDescendants } from '../team-tree';
 import type { Team, TeamDetail } from '../teams.api';
@@ -19,7 +19,11 @@ import { useCreateTeam, useTeamHierarchy, useUpdateTeam } from '../teams.queries
 import { teamFormSchema, type TeamFormValues } from '../teams.schemas';
 
 import { UserPicker } from './UserPicker';
-import { TEAM_FORM_ERRORS } from '../teams.errors';
+import {
+  TEAM_ACTIVE_ADMIN_ONLY_NOTE,
+  TEAM_FORM_ERRORS,
+  TEAM_HIERARCHY_ADMIN_ONLY_NOTE,
+} from '../teams.errors';
 
 /** Mensajes propios de esta pantalla (ganan sobre los comunes de `describeApiError`). */
 
@@ -43,10 +47,25 @@ function defaults(team: Team | null): TeamFormValues {
   };
 }
 
-/** Alta y edición de un equipo. El código sólo se escribe en el alta: después es inmutable. */
+/**
+ * Alta y edición de un equipo. El código sólo se escribe en el alta: después es inmutable.
+ *
+ * 07 RN-07.45: fijar o cambiar el responsable o el equipo padre es asignación de
+ * acceso, sólo del administrador. A los demás se les muestran deshabilitados con
+ * la explicación y nunca se envían cambios en ellos (crear sin responsable ni
+ * padre y editar nombre o descripción sí pueden).
+ *
+ * Decisión del responsable 2026-10-14 (D1): activar o desactivar un equipo con
+ * miembros o subequipos también es sólo del administrador; un equipo vacío lo
+ * activa o desactiva cualquiera con `equipos.editar`. `isActive` sólo viaja si cambia.
+ */
 export function TeamFormDialog({ open, team, onClose }: TeamFormDialogProps) {
+  const isAdministrador = useIsAdministrador();
   const canSearchUsers = usePermission(TEAM_PERMISSIONS.searchUsers);
   const isEdit = team !== null;
+  /** D1: equipo con miembros o subequipos → sólo el administrador cambia `isActive`. */
+  const isActiveLocked =
+    isEdit && !isAdministrador && (team.memberCount > 0 || team.childCount > 0);
   const hierarchy = useTeamHierarchy(open);
   const createMutation = useCreateTeam();
   const updateMutation = useUpdateTeam();
@@ -81,22 +100,47 @@ export function TeamFormDialog({ open, team, onClose }: TeamFormDialogProps) {
   }, [hierarchy.data, team]);
 
   const submit = handleSubmit((values) => {
-    const common = {
-      name: values.name,
-      description: values.description || null,
-      parentId: values.parentId || null,
-      managerId: values.manager?.id ?? null,
-      isActive: values.isActive,
-    };
+    const parentId = values.parentId || null;
+    const managerId = values.manager?.id ?? null;
     const onSuccess = () => onClose();
     if (team) {
-      updateMutation.mutate({ teamId: team.id, body: common }, { onSuccess });
+      // Responsable y padre sólo viajan si cambian: así editar el nombre no
+      // exige ser administrador (RN-07.45).
+      updateMutation.mutate(
+        {
+          teamId: team.id,
+          body: {
+            name: values.name,
+            description: values.description || null,
+            ...(values.isActive !== team.isActive ? { isActive: values.isActive } : {}),
+            ...(parentId !== (team.parentId ?? null) ? { parentId } : {}),
+            ...(managerId !== (team.manager?.id ?? null) ? { managerId } : {}),
+          },
+        },
+        { onSuccess },
+      );
     } else {
-      createMutation.mutate({ code: values.code, ...common }, { onSuccess });
+      createMutation.mutate(
+        {
+          code: values.code,
+          name: values.name,
+          description: values.description || null,
+          parentId: isAdministrador ? parentId : null,
+          managerId: isAdministrador ? managerId : null,
+          isActive: values.isActive,
+        },
+        { onSuccess },
+      );
     }
   });
 
   const error = mutation.isError ? describeApiError(mutation.error, TEAM_FORM_ERRORS) : null;
+  let parentHelper = 'Un equipo no puede depender de sí mismo ni de sus subequipos.';
+  if (!isAdministrador) {
+    parentHelper = TEAM_HIERARCHY_ADMIN_ONLY_NOTE;
+  } else if (hierarchy.isError) {
+    parentHelper = 'No se pudo cargar la lista de equipos.';
+  }
   const isPending = mutation.isPending;
 
   return (
@@ -159,13 +203,9 @@ export function TeamFormDialog({ open, team, onClose }: TeamFormDialogProps) {
               label="Equipo padre"
               value={field.value}
               onChange={field.onChange}
-              disabled={isPending || hierarchy.isPending}
-              helperText={
-                hierarchy.isError
-                  ? 'No se pudo cargar la lista de equipos.'
-                  : 'Un equipo no puede depender de sí mismo ni de sus subequipos.'
-              }
-              error={hierarchy.isError}
+              disabled={!isAdministrador || isPending || hierarchy.isPending}
+              helperText={parentHelper}
+              error={isAdministrador && hierarchy.isError}
             >
               <MenuItem value="">Ninguno (equipo raíz)</MenuItem>
               {parentOptions.map(({ team: option, depth }) => (
@@ -180,14 +220,18 @@ export function TeamFormDialog({ open, team, onClose }: TeamFormDialogProps) {
           control={control}
           name="manager"
           render={({ field }) =>
-            canSearchUsers ? (
+            canSearchUsers && isAdministrador ? (
               <UserPickerField value={field.value} onChange={field.onChange} disabled={isPending} />
             ) : (
               <TextField
                 label="Responsable"
                 value={field.value?.displayName ?? 'Sin responsable'}
                 disabled
-                helperText="Necesitas permiso para consultar usuarios para cambiar el responsable."
+                helperText={
+                  isAdministrador
+                    ? 'Necesitas permiso para consultar usuarios para cambiar el responsable.'
+                    : TEAM_HIERARCHY_ADMIN_ONLY_NOTE
+                }
               />
             )
           }
@@ -197,16 +241,25 @@ export function TeamFormDialog({ open, team, onClose }: TeamFormDialogProps) {
             control={control}
             name="isActive"
             render={({ field }) => (
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={field.value}
-                    onChange={(event) => field.onChange(event.target.checked)}
-                  />
-                }
-                label="Activo"
-                disabled={isPending}
-              />
+              <FormControl disabled={isPending || isActiveLocked}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={field.value}
+                      onChange={(event) => field.onChange(event.target.checked)}
+                      inputProps={
+                        isActiveLocked ? { 'aria-describedby': 'team-active-admin-only' } : undefined
+                      }
+                    />
+                  }
+                  label="Activo"
+                />
+                {isActiveLocked ? (
+                  <FormHelperText id="team-active-admin-only">
+                    {TEAM_ACTIVE_ADMIN_ONLY_NOTE}
+                  </FormHelperText>
+                ) : null}
+              </FormControl>
             )}
           />
         </FullRow>

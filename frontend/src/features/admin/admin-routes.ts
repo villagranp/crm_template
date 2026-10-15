@@ -53,6 +53,24 @@ export const ADMIN_ROUTES: readonly AdminRoute[] = [
     permission: 'parametros.ver',
     Page: lazy(() => import('./parameters/ParametersPage').then((module) => ({ default: module.ParametersPage }))),
   },
+  // Módulo 7 (07 E.5): opciones `admin-tipos-cambio`, `admin-productos` y `admin-conversiones` de la semilla.
+  {
+    path: ROUTE_PATHS.admin.exchangeRates,
+    permission: 'parametros.ver',
+    Page: lazy(() =>
+      import('./exchange-rates/ExchangeRatesPage').then((module) => ({ default: module.ExchangeRatesPage })),
+    ),
+  },
+  {
+    path: ROUTE_PATHS.admin.products,
+    permission: 'productos.ver',
+    Page: lazy(() => import('./products/ProductsPage').then((module) => ({ default: module.ProductsPage }))),
+  },
+  {
+    path: ROUTE_PATHS.admin.conversions,
+    permission: 'productos.ver',
+    Page: lazy(() => import('./conversions/ConversionsPage').then((module) => ({ default: module.ConversionsPage }))),
+  },
   {
     path: ROUTE_PATHS.admin.approvals,
     permission: 'aprobaciones.ver',
@@ -62,5 +80,13 @@ export const ADMIN_ROUTES: readonly AdminRoute[] = [
     path: ROUTE_PATHS.admin.audit,
     permission: 'auditoria.ver',
     Page: lazy(() => import('./audit/AuditPage').then((module) => ({ default: module.AuditPage }))),
+  },
+  // Ajustes 1 (AJ1-2): opción `admin-minuto-seguridad` de la semilla.
+  {
+    path: ROUTE_PATHS.admin.safetyMinutes,
+    permission: 'minuto_seguridad.ver',
+    Page: lazy(() =>
+      import('./safety-minutes/SafetyMinutesPage').then((module) => ({ default: module.SafetyMinutesPage })),
+    ),
   },
 ];

@@ -1,10 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsISO8601, IsOptional, IsString, Max, Min, MaxLength } from 'class-validator';
+import { IsIn, IsInt, IsISO8601, IsOptional, IsString, Matches, Max, Min, MaxLength } from 'class-validator';
 
 import { MAX_PAGE_SIZE } from '@/common/dto/pagination-query.dto';
 import { PaginationMetaDto } from '@/common/dto/paginated-response.dto';
 
+import { AUDIT_EXPORT_LAYOUTS, type AuditExportLayout } from '../audit-field-rows';
+import { AUDIT_FIELD_PATTERN } from '../audit-filter';
 import { AUDIT_SORTABLE_FIELDS, type AuditSortField } from '../ports/audit-query.repository.port';
 
 /** Filtros comunes a la consulta y a la exportación. */
@@ -57,6 +59,30 @@ export class AuditLogFilterQueryDto {
   @IsOptional()
   @IsISO8601({ strict: true })
   to?: string;
+
+  @ApiPropertyOptional({
+    example: 'phaseId',
+    minLength: 1,
+    maxLength: 100,
+    pattern: '^[A-Za-z0-9_.]+$',
+    description: 'Nombre de campo: solo eventos cuyo `changes` contiene esa clave (D-07.10)',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(AUDIT_FIELD_PATTERN, { message: 'field must be 1-100 characters [A-Za-z0-9_.]' })
+  field?: string;
+}
+
+export class ExportAuditLogsQueryDto extends AuditLogFilterQueryDto {
+  @ApiPropertyOptional({
+    enum: AUDIT_EXPORT_LAYOUTS,
+    default: 'events',
+    description:
+      '`events`: una fila por evento (formato histórico). `fields`: una fila por campo cambiado (Fecha, Usuario, Entidad, Registro, Acción, Campo, Valor anterior, Valor nuevo)',
+  })
+  @IsOptional()
+  @IsIn(AUDIT_EXPORT_LAYOUTS)
+  layout: AuditExportLayout = 'events';
 }
 
 export class ListAuditLogsQueryDto extends AuditLogFilterQueryDto {

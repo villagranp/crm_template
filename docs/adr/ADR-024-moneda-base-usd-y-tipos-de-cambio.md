@@ -151,3 +151,13 @@ implementación (2026-10-11)").
 **Consecuencias.** Cualquier módulo que calcule importes o tonelajes usa `common/decimal.ts`; una
 prueba unitaria fija los casos límite (factores de 8 decimales, cantidades de 15 dígitos,
 mitades negativas). El frontend no calcula conversiones (03 AC-03.35).
+
+## Estado de implementación (2026-10-14)
+
+El Módulo 7 añadió el mantenimiento de tipos de cambio en el mismo módulo
+`exchange-rates`, sin cambiar la decisión: puerto de escritura `ExchangeRateRepository`
+(token `EXCHANGE_RATE_REPOSITORY`), `GET/POST /exchange-rates`,
+`PATCH /exchange-rates/{id}` (solo tasa, fuente y notas) y `GET /currencies`
+(solo lectura), con `parametros.ver` / `parametros.configurar`. Contrato en
+`docs/api/README.md` ("Módulo 7 · Administración"). Las lecturas de otros módulos
+siguen por `ExchangeRateReader`.

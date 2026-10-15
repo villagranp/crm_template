@@ -68,6 +68,14 @@ describe('readSheetRows (ADR-022, 06 RN-06.11, RN-06.31, PF-06.6, PF-06.53)', ()
     expect(result.rows.map((row) => row.rowNumber)).toEqual([1, 4]);
   });
 
+  it('con exactSheet no recurre a la primera hoja visible con datos (carga inicial por scripts)', async () => {
+    const buffer = await xlsxFile([['x']], { headers: ['a'], extraSheets: [{ name: 'Otra', rows: [['y']] }] });
+    // Sin exactSheet: la primera hoja visible con datos (las hojas extra van primero en el fixture).
+    expect((await readSheetRows(buffer, { ...OPTIONS, preferredSheet: 'Inexistente' })).sheetName).toBe('Otra');
+    expect(await issueOf(readSheetRows(buffer, { ...OPTIONS, preferredSheet: 'Inexistente', exactSheet: true }))).toBe('SHEET_NOT_FOUND');
+    expect((await readSheetRows(buffer, { ...OPTIONS, preferredSheet: 'otra', exactSheet: true })).sheetName).toBe('Otra');
+  });
+
   it('SHEET_NOT_FOUND si no hay hoja Clientes ni hoja visible con datos', async () => {
     const workbook = new ExcelJS.Workbook();
     workbook.addWorksheet('Vacia');

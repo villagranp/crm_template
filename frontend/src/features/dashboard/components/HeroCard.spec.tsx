@@ -40,7 +40,7 @@ afterEach(() => {
 
 describe('HeroCard (PF-01.1)', () => {
   it('muestra nombre, roles, ámbito, fecha y hora, y la hora cambia sin recargar', () => {
-    renderWithProviders(<HeroCard profile={profileQuery({})} optionCount={3} moduleCount={2} />);
+    renderWithProviders(<HeroCard profile={profileQuery({})} />);
 
     expect(
       screen.getByRole('heading', { level: 2, name: 'Buenos días, Ana.' }),
@@ -50,9 +50,7 @@ describe('HeroCard (PF-01.1)', () => {
     expect(screen.getByText('Ámbito: País')).toBeInTheDocument();
     expect(screen.getByText(/Martes, 13 de octubre de 2026/)).toBeInTheDocument();
     expect(screen.getByTestId('home-clock')).toHaveTextContent('09:59');
-    expect(screen.getByText(/Tienes acceso a/)).toHaveTextContent(
-      'Tienes acceso a 3 opciones en 2 módulos',
-    );
+    expect(screen.queryByText(/Tienes acceso a/)).not.toBeInTheDocument();
 
     act(() => {
       vi.advanceTimersByTime(30_000);
@@ -65,7 +63,7 @@ describe('HeroCard (PF-01.1)', () => {
     expect(screen.getByTestId('home-clock')).toHaveTextContent('10:01');
   });
 
-  it('mientras /me carga saluda con el nombre de la sesión y avisa de que los accesos cargan', () => {
+  it('mientras /me carga saluda con el nombre de la sesión', () => {
     renderWithProviders(
       <HeroCard
         profile={profileQuery({ data: undefined, isPending: true })}
@@ -76,7 +74,7 @@ describe('HeroCard (PF-01.1)', () => {
     expect(
       screen.getByRole('heading', { level: 2, name: 'Buenos días, Luis.' }),
     ).toBeInTheDocument();
-    expect(screen.getByText('Estamos cargando tus accesos.')).toBeInTheDocument();
+    expect(screen.queryByText('Estamos cargando tus accesos.')).not.toBeInTheDocument();
   });
 
   it('sin nombre, sólo el saludo', () => {

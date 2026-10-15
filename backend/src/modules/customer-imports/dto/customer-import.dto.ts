@@ -5,7 +5,7 @@ import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsISO8601, IsOptional, I
 import { PaginationMetaDto } from '@/common/dto/paginated-response.dto';
 import { PaginationQueryDto } from '@/common/dto/pagination-query.dto';
 import { toLowerCaseUuid } from '@/common/dto/uuid-transform';
-import { toOptionalBoolean } from '@/modules/customers/dto/dto-transforms';
+import { toOptionalBoolean } from '@/common/dto/dto-transforms';
 import { MAX_FILTER_VALUES, toList } from '@/modules/projects/dto/dto-helpers';
 
 import { IMPORT_ROW_STATUSES, IMPORT_STATUSES, type ImportRowStatus, type ImportStatus } from '../import-status';

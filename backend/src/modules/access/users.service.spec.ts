@@ -10,6 +10,7 @@ import { adminOnlyError } from './admin-only';
 import type {
   AccessRepository,
   DirectAssignmentInput,
+  UpdateUserInput,
   UserAccessSnapshot,
   UserDetailRecord,
 } from './ports/access.repository.port';
@@ -18,12 +19,23 @@ import { UsersService } from './users.service';
 const ADMIN_ROLE = { id: 'role-admin', code: 'administrador', name: 'Administrador', isSystem: true, expiresAt: null };
 const USER_ROLE = { id: 'role-user', code: 'usuario', name: 'Usuario', isSystem: true, expiresAt: null };
 const ACCESS_MANAGER_ROLE = { id: 'role-gestor', code: 'gestor-accesos', name: 'Gestor', isSystem: true, expiresAt: null };
-const ROLES_BY_ID = new Map([ADMIN_ROLE, USER_ROLE, ACCESS_MANAGER_ROLE].map((role) => [role.id, role]));
+const ADVISOR_ROLE = { id: 'role-asesor', code: 'asesor', name: 'Asesor', isSystem: true, expiresAt: null };
+const ROLES_BY_ID = new Map([ADMIN_ROLE, USER_ROLE, ACCESS_MANAGER_ROLE, ADVISOR_ROLE].map((role) => [role.id, role]));
+
+const GT = { id: 'country-gt', isoCode: 'GT', name: 'Guatemala' };
+const SV = { id: 'country-sv', isoCode: 'SV', name: 'El Salvador' };
+/** Países del doble: `country-off` existe pero está inactivo. */
+const COUNTRIES = new Map([
+  [GT.id, { ...GT, isActive: true }],
+  [SV.id, { ...SV, isActive: true }],
+  ['country-off', { id: 'country-off', isoCode: 'NI', name: 'Nicaragua', isActive: false }],
+]);
 
 /** Permisos que trae cada rol en este doble de pruebas. */
 const ROLE_PERMISSIONS: Record<string, string[]> = {
   administrador: ['usuarios.editar', 'roles.editar', 'equipos.editar'],
   'gestor-accesos': ['usuarios.editar', 'roles.editar'],
+  asesor: ['clientes.ver', 'visitas.crear'],
   usuario: [],
 };
 
@@ -45,6 +57,8 @@ function detail(overrides: Partial<UserDetailRecord> = {}): UserDetailRecord {
     displayName: 'Persona Prueba',
     jobTitle: null,
     phone: null,
+    employeeCode: null,
+    country: null,
     status: 'ACTIVE',
     lastLoginAt: null,
     createdAt: new Date(),
@@ -136,6 +150,28 @@ function setup(user: UserDetailRecord, others: UserDetailRecord[] = [detail({ id
       ids.filter((id) => (ROLE_PERMISSIONS[ROLES_BY_ID.get(id)?.code ?? ''] ?? []).length > 0),
     ),
     findUserByEmail: jest.fn(async () => null),
+    findUserIdByEmployeeCode: jest.fn(
+      async (code: string) => [...users.values()].find((item) => item.employeeCode === code)?.id ?? null,
+    ),
+    findCountry: jest.fn(async (id: string) => COUNTRIES.get(id) ?? null),
+    findRoleGrants: jest.fn(async (ids: string[]) =>
+      ids
+        .map((id) => ROLES_BY_ID.get(id))
+        .filter((role) => role !== undefined)
+        .map((role) => ({ id: role.id, code: role.code, permissionCodes: ROLE_PERMISSIONS[role.code] ?? [] })),
+    ),
+    updateUser: jest.fn(async (id: string, input: UpdateUserInput) => {
+      const changes: Partial<UserDetailRecord> = {};
+      if (input.jobTitle !== undefined) changes.jobTitle = input.jobTitle;
+      if (input.phone !== undefined) changes.phone = input.phone;
+      if (input.employeeCode !== undefined) changes.employeeCode = input.employeeCode;
+      if (input.countryId !== undefined) {
+        const country = input.countryId ? COUNTRIES.get(input.countryId) : undefined;
+        changes.country = country ? { id: country.id, isoCode: country.isoCode, name: country.name } : null;
+      }
+      patch(id, changes);
+      return snapshotOf(users.get(id)!).user;
+    }),
     createUser: jest.fn(async () => ({
       id: 'nuevo',
       email: 'nuevo@example.test',
@@ -549,5 +585,239 @@ describe('UsersService · ADR-020 la asignación de accesos es exclusiva del adm
       expect(repository.findRoleIdsGrantingPermissions).not.toHaveBeenCalled();
       expect(repository.createUser).toHaveBeenCalled();
     });
+  });
+});
+
+describe('UsersService · Módulo 7 (código de colaborador, país y perfil comercial)', () => {
+  const base = { email: 'nuevo@example.test', firstName: 'Nuevo', lastName: 'Usuario' };
+
+  async function captured(promise: Promise<unknown>): Promise<{ code?: string; details?: unknown }> {
+    try {
+      await promise;
+    } catch (error) {
+      return error as { code?: string; details?: unknown };
+    }
+    throw new Error('No lanzó');
+  }
+
+  describe('alta', () => {
+    it('el administrador crea con código, país y rol comercial; la auditoría lleva código y país ISO', async () => {
+      const created = detail({ id: 'nuevo', roles: [ADVISOR_ROLE], employeeCode: 'E-001', country: GT });
+      const { service, repository, audit } = setup(created);
+      // El doble ya guarda el usuario "creado"; antes del alta el código está libre.
+      repository.findUserIdByEmployeeCode.mockResolvedValueOnce(null);
+
+      await service.create({ ...base, employeeCode: 'E-001', countryId: GT.id, roleIds: ['role-asesor'] }, actor('admin'));
+
+      expect(repository.createUser).toHaveBeenCalledWith(
+        expect.objectContaining({ employeeCode: 'E-001', countryId: GT.id }),
+      );
+      expect(audit.record).toHaveBeenCalledWith(
+        'user.created',
+        expect.anything(),
+        expect.objectContaining({
+          after: expect.objectContaining({ employeeCode: 'E-001', countryId: GT.id, countryIsoCode: 'GT' }),
+        }),
+      );
+    });
+
+    it('un no administrador no fija el país: 403 ADMIN_ONLY sin escribir', async () => {
+      const { service, repository, actorState } = setup(detail({ roles: [USER_ROLE] }));
+      actorState.isAdministrador = false;
+
+      expect(await captured(service.create({ ...base, countryId: GT.id, roleIds: ['role-user'] }, actor('gestor')))).toMatchObject({
+        code: 'ADMIN_ONLY',
+      });
+      expect(repository.createUser).not.toHaveBeenCalled();
+    });
+
+    it('un no administrador con equipos.editar no asigna equipos: 403 ADMIN_ONLY', async () => {
+      const { service, repository, actorState, actorPermissions } = setup(detail({ roles: [USER_ROLE] }));
+      actorState.isAdministrador = false;
+      actorPermissions.add('equipos.editar');
+
+      expect(
+        await captured(service.create({ ...base, roleIds: ['role-user'], teamIds: ['team-1'] }, actor('gestor'))),
+      ).toMatchObject({ code: 'ADMIN_ONLY' });
+      expect(repository.createUser).not.toHaveBeenCalled();
+    });
+
+    it('un no administrador sí da de alta con código de colaborador y sin país', async () => {
+      const { service, repository, actorState } = setup(detail({ id: 'nuevo', roles: [USER_ROLE] }));
+      actorState.isAdministrador = false;
+
+      await service.create({ ...base, employeeCode: 'G-7', roleIds: ['role-user'] }, actor('gestor'));
+      expect(repository.createUser).toHaveBeenCalledWith(expect.objectContaining({ employeeCode: 'G-7', countryId: null }));
+    });
+
+    it.each([
+      ['inexistente', 'country-x', 'not_found'],
+      ['inactivo', 'country-off', 'inactive'],
+    ])('país %s: 422 UNKNOWN_REFERENCE', async (_label, countryId, issue) => {
+      const { service, repository } = setup(detail({ roles: [USER_ROLE] }));
+
+      expect(await captured(service.create({ ...base, countryId, roleIds: ['role-user'] }, actor('admin')))).toMatchObject({
+        code: 'UNKNOWN_REFERENCE',
+        details: [expect.objectContaining({ field: 'countryId', issue })],
+      });
+      expect(repository.createUser).not.toHaveBeenCalled();
+    });
+
+    it('rol comercial sin código o sin país: 422 CRM_PROFILE_INCOMPLETE', async () => {
+      const { service, repository } = setup(detail({ roles: [USER_ROLE] }));
+
+      expect(await captured(service.create({ ...base, countryId: GT.id, roleIds: ['role-asesor'] }, actor('admin')))).toMatchObject({
+        code: 'CRM_PROFILE_INCOMPLETE',
+        details: [{ field: 'employeeCode', issue: 'required' }],
+      });
+      expect(repository.createUser).not.toHaveBeenCalled();
+    });
+
+    it('código de colaborador ya usado: 409 RESOURCE_CONFLICT con field employeeCode', async () => {
+      const { service, repository } = setup(detail({ roles: [USER_ROLE] }), [detail({ id: 'otro', employeeCode: 'E-001' })]);
+
+      const error = await captured(service.create({ ...base, employeeCode: 'E-001', roleIds: ['role-user'] }, actor('admin')));
+      expect(error).toBeInstanceOf(ResourceConflictError);
+      expect(error).toMatchObject({ code: 'RESOURCE_CONFLICT', details: [{ field: 'employeeCode', issue: 'duplicated' }] });
+      expect(repository.createUser).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('edición', () => {
+    it('un no administrador edita el código de colaborador y el teléfono', async () => {
+      const { service, actorState } = setup(detail({ roles: [USER_ROLE] }));
+      actorState.isAdministrador = false;
+
+      const after = await service.update('target', { employeeCode: 'E-9', phone: '+502 5555 5555' }, actor('gestor'));
+      expect(after).toMatchObject({ employeeCode: 'E-9', phone: '+502 5555 5555' });
+    });
+
+    it.each([
+      ['fijar', null, GT.id],
+      ['cambiar', GT, SV.id],
+      ['quitar', GT, null],
+    ])('un no administrador no puede %s el país: 403 ADMIN_ONLY', async (_label, country, countryId) => {
+      const { service, repository, actorState } = setup(detail({ roles: [USER_ROLE], country }));
+      actorState.isAdministrador = false;
+
+      expect(await captured(service.update('target', { countryId }, actor('gestor')))).toMatchObject({ code: 'ADMIN_ONLY' });
+      expect(repository.updateUser).not.toHaveBeenCalled();
+    });
+
+    it('reenviar el país actual no es un cambio: un no administrador puede guardar', async () => {
+      const { service, repository, actorState } = setup(detail({ roles: [USER_ROLE], country: GT }));
+      actorState.isAdministrador = false;
+
+      await service.update('target', { countryId: GT.id, jobTitle: 'Analista' }, actor('gestor'));
+      expect(repository.updateUser).toHaveBeenCalledWith('target', expect.objectContaining({ countryId: undefined }));
+      expect(repository.findCountry).not.toHaveBeenCalled();
+    });
+
+    it('el administrador cambia el país, y la auditoría registra id e ISO', async () => {
+      const { service, audit } = setup(detail({ roles: [USER_ROLE], country: GT }));
+
+      await service.update('target', { countryId: SV.id }, actor('admin'));
+      expect(audit.record).toHaveBeenCalledWith(
+        'user.updated',
+        expect.anything(),
+        expect.objectContaining({
+          before: expect.objectContaining({ countryId: GT.id, countryIsoCode: 'GT' }),
+          after: expect.objectContaining({ countryId: SV.id, countryIsoCode: 'SV' }),
+        }),
+      );
+    });
+
+    it('el administrador no asigna un país inactivo; un usuario cuyo país se desactivó lo conserva al editar otros datos', async () => {
+      const { service } = setup(detail({ roles: [USER_ROLE], country: GT }));
+      expect(await captured(service.update('target', { countryId: 'country-off' }, actor('admin')))).toMatchObject({
+        code: 'UNKNOWN_REFERENCE',
+      });
+
+      const kept = setup(detail({ roles: [USER_ROLE], country: { id: 'country-off', isoCode: 'NI', name: 'Nicaragua' } }));
+      await expect(kept.service.update('target', { countryId: 'country-off', jobTitle: 'X' }, actor('admin'))).resolves.toBeDefined();
+    });
+
+    it.each([
+      ['el país', { countryId: null }, 'countryId'],
+      ['el código', { employeeCode: null }, 'employeeCode'],
+    ])('a un asesor no se le vacía %s: 422 CRM_PROFILE_INCOMPLETE', async (_label, dto, field) => {
+      const { service, repository } = setup(detail({ roles: [ADVISOR_ROLE], employeeCode: 'E-1', country: GT }));
+
+      expect(await captured(service.update('target', dto, actor('admin')))).toMatchObject({
+        code: 'CRM_PROFILE_INCOMPLETE',
+        details: [{ field, issue: 'required' }],
+      });
+      expect(repository.updateUser).not.toHaveBeenCalled();
+    });
+
+    it('a quien no tiene rol comercial sí se le vacía el código', async () => {
+      const { service } = setup(detail({ roles: [USER_ROLE], employeeCode: 'E-1' }));
+      expect((await service.update('target', { employeeCode: null }, actor('admin'))).employeeCode).toBeNull();
+    });
+
+    it('código de otro usuario: 409; el suyo propio no es conflicto', async () => {
+      const { service } = setup(detail({ roles: [USER_ROLE], employeeCode: 'MIO' }), [detail({ id: 'otro', employeeCode: 'AJENO' })]);
+
+      expect(await captured(service.update('target', { employeeCode: 'AJENO' }, actor('admin')))).toMatchObject({
+        code: 'RESOURCE_CONFLICT',
+        details: [{ field: 'employeeCode', issue: 'duplicated' }],
+      });
+      await expect(service.update('target', { employeeCode: 'MIO' }, actor('admin'))).resolves.toBeDefined();
+    });
+  });
+
+  describe('asignar roles', () => {
+    it('asignar asesor sin código o sin país: 422 CRM_PROFILE_INCOMPLETE, sin escribir', async () => {
+      const { service, repository } = setup(detail({ roles: [USER_ROLE], employeeCode: 'E-1' }));
+
+      expect(await captured(service.replaceRoles('target', ['role-asesor'], actor('admin')))).toMatchObject({
+        code: 'CRM_PROFILE_INCOMPLETE',
+        details: [{ field: 'countryId', issue: 'required' }],
+      });
+      expect(repository.replaceUserRoles).not.toHaveBeenCalled();
+    });
+
+    it('con código y país se asigna', async () => {
+      const { service, repository } = setup(detail({ roles: [USER_ROLE], employeeCode: 'E-1', country: GT }));
+
+      await service.replaceRoles('target', ['role-asesor'], actor('admin'));
+      expect(repository.replaceUserRoles).toHaveBeenCalledWith('target', ['role-asesor'], 'admin');
+    });
+
+    it('roles no comerciales (incluido administrador) no exigen el perfil', async () => {
+      const { service, repository } = setup(detail({ roles: [USER_ROLE] }));
+
+      await service.replaceRoles('target', ['role-admin', 'role-gestor'], actor('admin'));
+      expect(repository.replaceUserRoles).toHaveBeenCalled();
+    });
+  });
+
+  it('la exportación incluye las columnas Código de colaborador y País', async () => {
+    const { service, repository } = setup(detail());
+    (repository as unknown as { listUsers: jest.Mock }).listUsers = jest.fn(async () => ({
+      items: [
+        {
+          id: 'u1',
+          email: 'a@example.test',
+          displayName: 'A',
+          status: 'ACTIVE',
+          jobTitle: null,
+          teams: [],
+          employeeCode: 'E-001',
+          country: GT,
+          roles: ['asesor'],
+          lastLoginAt: null,
+          createdAt: new Date('2026-01-01T00:00:00Z'),
+        },
+      ],
+      totalItems: 1,
+    }));
+
+    const result = await service.export({ countryId: GT.id, sortOrder: 'asc' }, actor('admin'));
+    const [header, row] = result.csv.replace(/^\uFEFF/, '').split('\r\n');
+    expect(header).toContain('Código de colaborador');
+    expect(header).toContain('País');
+    expect(row).toContain('E-001');
+    expect(row).toContain('Guatemala');
   });
 });

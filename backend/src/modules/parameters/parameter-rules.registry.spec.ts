@@ -6,6 +6,11 @@ import {
   ruleFor,
   rulesReferencingCatalog,
 } from './parameter-rules.registry';
+import {
+  DASHBOARD_BLOCK_KEYS,
+  DASHBOARD_KPI_KEYS,
+  DEFAULT_DASHBOARD_CARDS,
+} from './dashboard-cards';
 import { PARAMETER_RANGES } from './parameter-value';
 
 function rule(key: string) {
@@ -202,12 +207,90 @@ describe('registro de reglas de parámetros', () => {
         'crm.importaciones.habilitada',
         'crm.moneda_base',
         'crm.zona_horaria_negocio',
+        'auditoria.dias_retencion',
         'seguridad.dias_caducidad_password',
         'seguridad.intentos_fallidos_maximos',
         'seguridad.minutos_bloqueo',
         'sistema.permite_datos_demo',
       ].sort(),
     );
+  });
+
+  describe('Ajustes 1 · parámetros de interfaz (§5.3, RN-AJ1.14)', () => {
+    const COMPOSITION = JSON.stringify(DEFAULT_DASHBOARD_CARDS);
+
+    it('registra los cuatro parámetros ui.* y ninguno exige parametros.configurar', () => {
+      for (const key of ['ui.inicio.tarjetas', 'ui.barra_superior.buscar', 'ui.barra_superior.pantalla_completa', 'ui.barra_superior.notificaciones']) {
+        expect(rule(key).requiresConfigure).toBe(false);
+        expect(rule(key).readOnly).toBe(false);
+      }
+    });
+
+    it.each([
+      ['ui.barra_superior.buscar', 'false'],
+      ['ui.barra_superior.pantalla_completa', 'true'],
+      ['ui.barra_superior.notificaciones', 'false'],
+    ])('%s: booleano sembrado en %s (D-AJ1.4)', (key, seeded) => {
+      expect(rule(key)).toMatchObject({ type: 'BOOLEAN', editor: 'boolean', defaultValue: seeded });
+      expect(applyRule(rule(key), seeded)).toMatchObject({ ok: true });
+      expect(applyRule(rule(key), 'yes').ok).toBe(false);
+      expect(applyRule(rule(key), '1').ok).toBe(false);
+    });
+
+    it('PF-AJ1.1: ui.inicio.tarjetas es JSON con el editor dashboard-cards y publica sus listas cerradas', () => {
+      const composition = rule('ui.inicio.tarjetas');
+      expect(composition).toMatchObject({ type: 'JSON', editor: 'dashboard-cards', defaultValue: COMPOSITION });
+      expect(composition.editorOptions).toEqual({
+        blocks: DASHBOARD_BLOCK_KEYS,
+        kpis: DASHBOARD_KPI_KEYS,
+        lockedVisibleBlocks: ['safety-minute'],
+      });
+      expect(composition.allowedValues).toEqual([...DASHBOARD_BLOCK_KEYS, ...DASHBOARD_KPI_KEYS]);
+    });
+
+    it('PF-AJ1.1: el valor por defecto sembrado es válido y estable (RN-AJ1.6)', () => {
+      const result = applyRule(rule('ui.inicio.tarjetas'), COMPOSITION);
+      expect(result).toMatchObject({ ok: true, stored: COMPOSITION });
+    });
+
+    it('PF-AJ1.1: un orden distinto y ocultar un indicador es válido', () => {
+      const edited = {
+        blocks: [...DEFAULT_DASHBOARD_CARDS.blocks].reverse(),
+        kpis: DEFAULT_DASHBOARD_CARDS.kpis.map((entry) => (entry.key === 'forecast' ? { key: entry.key, visible: false } : entry)),
+      };
+      const result = applyRule(rule('ui.inicio.tarjetas'), JSON.stringify(edited));
+      expect(result).toMatchObject({ ok: true, stored: JSON.stringify(edited) });
+    });
+
+    it('RN-AJ1.3: el minuto de seguridad se guarda siempre visible', () => {
+      const hidden = {
+        blocks: DEFAULT_DASHBOARD_CARDS.blocks.map((entry) => (entry.key === 'safety-minute' ? { key: entry.key, visible: false } : entry)),
+        kpis: DEFAULT_DASHBOARD_CARDS.kpis,
+      };
+      const result = applyRule(rule('ui.inicio.tarjetas'), JSON.stringify(hidden));
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect((result.value as typeof hidden).blocks[0]).toEqual({ key: 'safety-minute', visible: true });
+      }
+    });
+
+    it.each([
+      ['clave desconocida', { blocks: [...DEFAULT_DASHBOARD_CARDS.blocks, { key: 'nueva', visible: true }], kpis: DEFAULT_DASHBOARD_CARDS.kpis }, 'value.blocks.7.key'],
+      ['clave repetida', { blocks: DEFAULT_DASHBOARD_CARDS.blocks, kpis: [...DEFAULT_DASHBOARD_CARDS.kpis, { key: 'forecast', visible: true }] }, 'value.kpis.9.key'],
+      ['clave faltante', { blocks: DEFAULT_DASHBOARD_CARDS.blocks.slice(1), kpis: DEFAULT_DASHBOARD_CARDS.kpis }, 'value.blocks'],
+      ['campo extra', { blocks: DEFAULT_DASHBOARD_CARDS.blocks, kpis: DEFAULT_DASHBOARD_CARDS.kpis, otro: [] }, 'value.otro'],
+      ['visible no booleano', { blocks: [{ key: 'hero', visible: 'sí' }], kpis: [] }, 'value.blocks.0.visible'],
+    ])('PF-AJ1.19: rechaza %s con la ruta del campo', (_name, value, field) => {
+      const result = applyRule(rule('ui.inicio.tarjetas'), JSON.stringify(value));
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.issues.map((issue) => issue.field)).toContain(field);
+      }
+    });
+
+    it.each(['[]', '"texto"', '{"blocks":[]}', 'no es json'])('rechaza el valor ilegible %s', (value) => {
+      expect(applyRule(rule('ui.inicio.tarjetas'), value).ok).toBe(false);
+    });
   });
 
   describe('referencias a catálogos', () => {

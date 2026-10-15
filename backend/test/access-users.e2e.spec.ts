@@ -362,3 +362,326 @@ describe('GET /users/export (D13)', () => {
     await api().get('/api/v1/users/export').expect(401);
   });
 });
+
+/**
+ * Módulo 7 · Usuarios (07 B.1, F.1; RN-07.1–RN-07.11; PF-07.1, PF-07.2, PF-07.5,
+ * PF-07.19–PF-07.23, PF-07.39). Códigos de colaborador únicos por prueba: los
+ * archivos corren en paralelo sobre el mismo esquema.
+ */
+describe('Módulo 7 · código de colaborador, país y perfil comercial', () => {
+  let gestorToken: string;
+  let guatemala: { id: string; isoCode: string; name: string };
+  let elSalvador: { id: string };
+  let inactiveCountryId: string;
+
+  const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
+  const employeeCode = () => `E-${randomUUID().slice(0, 8).toUpperCase()}`;
+  const email = () => `m7-${randomUUID()}@integration.test`;
+
+  beforeAll(async () => {
+    gestorToken = (await tokenWithRoles(ctx, ['gestor-accesos'])).token;
+    guatemala = await ctx.prisma.country.findUniqueOrThrow({
+      where: { isoCode: 'GT' },
+      select: { id: true, isoCode: true, name: true },
+    });
+    elSalvador = await ctx.prisma.country.findUniqueOrThrow({ where: { isoCode: 'SV' }, select: { id: true } });
+    // Código ISO del rango de uso privado (QM–QZ): nunca choca con un país sembrado.
+    inactiveCountryId = (
+      await ctx.prisma.country.upsert({
+        where: { isoCode: 'QZ' },
+        create: { isoCode: 'QZ', name: 'País inactivo de prueba', currencyCode: 'USD', isActive: false },
+        update: { isActive: false },
+      })
+    ).id;
+  });
+
+  async function userWith(data: { employeeCode?: string | null; countryId?: string | null; roleCodes?: string[] }) {
+    const user = await createTestUser(ctx.prisma, { roleCodes: data.roleCodes ?? ['usuario'] });
+    await ctx.prisma.user.update({
+      where: { id: user.id },
+      data: { employeeCode: data.employeeCode ?? null, countryId: data.countryId ?? null },
+    });
+    return user;
+  }
+
+  it('PF-07.1: el administrador da de alta un usuario comercial completo; detalle y user.created con código y país', async () => {
+    const code = employeeCode();
+    const team = await ctx.prisma.team.create({ data: { code: `m7-${randomUUID().slice(0, 8)}`, name: 'Ventas M7' } });
+
+    const created = await api()
+      .post('/api/v1/users')
+      .set(auth(adminToken))
+      .send({
+        email: email(),
+        firstName: 'Ana',
+        lastName: 'Comercial',
+        phone: '+502 5555 1234',
+        employeeCode: `  ${code.toLowerCase()} `,
+        countryId: guatemala.id,
+        roleIds: [await roleId('asesor')],
+        teamIds: [team.id],
+      })
+      .expect(201);
+    expect(created.body).toMatchObject({ status: 'INVITED', roles: ['asesor'] });
+    // El 201 trae el perfil completo (misma forma que un elemento de GET /users).
+    expect(created.body).toMatchObject({
+      employeeCode: code,
+      country: { id: guatemala.id, isoCode: guatemala.isoCode, name: guatemala.name },
+      lastLoginAt: null,
+      teams: [expect.objectContaining({ id: team.id })],
+    });
+    expect(typeof created.body.createdAt).toBe('string');
+
+    const detailResponse = await api().get(`/api/v1/users/${created.body.id}`).set(auth(adminToken)).expect(200);
+    expect(detailResponse.body).toMatchObject({
+      employeeCode: code,
+      country: guatemala,
+      phone: '+502 5555 1234',
+      teams: [{ id: team.id, name: 'Ventas M7', isPrimary: true }],
+    });
+
+    const row = await auditRow('user.created', created.body.id);
+    expect(row?.changes).toMatchObject({
+      employeeCode: { before: null, after: code },
+      countryId: { before: null, after: guatemala.id },
+      countryIsoCode: { before: null, after: 'GT' },
+    });
+    const stored = await ctx.prisma.user.findUniqueOrThrow({ where: { id: created.body.id } });
+    expect(stored).toMatchObject({ locale: 'es-GT', timeZone: 'America/Guatemala' });
+  });
+
+  it('PF-07.19: código repetido con otro caso y espacios → 409 RESOURCE_CONFLICT field employeeCode (alta y edición)', async () => {
+    const code = employeeCode();
+    await userWith({ employeeCode: code });
+
+    const onCreate = await api()
+      .post('/api/v1/users')
+      .set(auth(adminToken))
+      .send({
+        email: email(),
+        firstName: 'A',
+        lastName: 'B',
+        employeeCode: ` ${code.toLowerCase()}  `,
+        roleIds: [await roleId('usuario')],
+      })
+      .expect(409);
+    expect(onCreate.body.code).toBe('RESOURCE_CONFLICT');
+    expect(onCreate.body.details).toContainEqual(expect.objectContaining({ field: 'employeeCode' }));
+
+    const other = await userWith({});
+    const onUpdate = await api()
+      .patch(`/api/v1/users/${other.id}`)
+      .set(auth(adminToken))
+      .send({ employeeCode: code.toLowerCase() })
+      .expect(409);
+    expect(onUpdate.body.details).toContainEqual(expect.objectContaining({ field: 'employeeCode' }));
+  });
+
+  it('400 con un código fuera de patrón o de longitud, o un countryId que no es UUID', async () => {
+    const base = { email: email(), firstName: 'A', lastName: 'B', roleIds: [await roleId('usuario')] };
+    await api().post('/api/v1/users').set(auth(adminToken)).send({ ...base, employeeCode: 'E 01' }).expect(400);
+    await api().post('/api/v1/users').set(auth(adminToken)).send({ ...base, employeeCode: 'Ñ-01' }).expect(400);
+    await api().post('/api/v1/users').set(auth(adminToken)).send({ ...base, employeeCode: 'X'.repeat(41) }).expect(400);
+    await api().post('/api/v1/users').set(auth(adminToken)).send({ ...base, countryId: 'gt' }).expect(400);
+  });
+
+  it('PF-07.2: el gestor de accesos edita el código y el teléfono', async () => {
+    const target = await userWith({});
+    const code = employeeCode();
+
+    const response = await api()
+      .patch(`/api/v1/users/${target.id}`)
+      .set(auth(gestorToken))
+      .send({ employeeCode: code, phone: '+503 7777 0000' })
+      .expect(200);
+
+    expect(response.body).toMatchObject({ employeeCode: code, phone: '+503 7777 0000' });
+    expect((await auditRow('user.updated', target.id))?.changes).toMatchObject({ employeeCode: { before: null, after: code } });
+  });
+
+  describe('PF-07.21: el país y los equipos son asignación de acceso (403 ADMIN_ONLY a un no administrador)', () => {
+    it('alta con countryId', async () => {
+      const address = email();
+      const response = await api()
+        .post('/api/v1/users')
+        .set(auth(gestorToken))
+        .send({ email: address, firstName: 'A', lastName: 'B', countryId: guatemala.id, roleIds: [await roleId('usuario')] })
+        .expect(403);
+      expect(response.body.code).toBe('ADMIN_ONLY');
+      expect(await ctx.prisma.user.count({ where: { emailNormalized: address } })).toBe(0);
+    });
+
+    it('alta con teamIds no vacío', async () => {
+      const team = await ctx.prisma.team.create({ data: { code: `m7-${randomUUID().slice(0, 8)}`, name: 'Equipo' } });
+      const address = email();
+      const response = await api()
+        .post('/api/v1/users')
+        .set(auth(gestorToken))
+        .send({ email: address, firstName: 'A', lastName: 'B', teamIds: [team.id], roleIds: [await roleId('usuario')] })
+        .expect(403);
+      expect(response.body.code).toBe('ADMIN_ONLY');
+      expect(await ctx.prisma.user.count({ where: { emailNormalized: address } })).toBe(0);
+    });
+
+    it('edición que cambia o quita el país; reenviar el país actual sí se acepta', async () => {
+      const target = await userWith({ countryId: guatemala.id });
+
+      for (const countryId of [elSalvador.id, null]) {
+        const response = await api().patch(`/api/v1/users/${target.id}`).set(auth(gestorToken)).send({ countryId }).expect(403);
+        expect(response.body.code).toBe('ADMIN_ONLY');
+      }
+      const unchanged = await ctx.prisma.user.findUniqueOrThrow({ where: { id: target.id } });
+      expect(unchanged.countryId).toBe(guatemala.id);
+
+      await api()
+        .patch(`/api/v1/users/${target.id}`)
+        .set(auth(gestorToken))
+        .send({ countryId: guatemala.id, jobTitle: 'Analista' })
+        .expect(200);
+    });
+
+    it('edición que fija el país a quien no tenía', async () => {
+      const target = await userWith({});
+      const response = await api()
+        .patch(`/api/v1/users/${target.id}`)
+        .set(auth(gestorToken))
+        .send({ countryId: guatemala.id })
+        .expect(403);
+      expect(response.body.code).toBe('ADMIN_ONLY');
+    });
+
+    it('el administrador sí cambia el país, y queda auditado con el código ISO', async () => {
+      const target = await userWith({ countryId: guatemala.id });
+
+      const response = await api()
+        .patch(`/api/v1/users/${target.id}`)
+        .set(auth(adminToken))
+        .send({ countryId: elSalvador.id })
+        .expect(200);
+
+      expect(response.body.country).toMatchObject({ id: elSalvador.id, isoCode: 'SV' });
+      expect((await auditRow('user.updated', target.id))?.changes).toMatchObject({
+        countryIsoCode: { before: 'GT', after: 'SV' },
+      });
+    });
+  });
+
+  it('PF-07.22: país inexistente o inactivo → 422 UNKNOWN_REFERENCE', async () => {
+    const base = { firstName: 'A', lastName: 'B', roleIds: [await roleId('usuario')] };
+
+    const missing = await api()
+      .post('/api/v1/users')
+      .set(auth(adminToken))
+      .send({ ...base, email: email(), countryId: randomUUID() })
+      .expect(422);
+    expect(missing.body.code).toBe('UNKNOWN_REFERENCE');
+    expect(missing.body.details).toContainEqual(expect.objectContaining({ field: 'countryId', issue: 'not_found' }));
+
+    const inactive = await api()
+      .post('/api/v1/users')
+      .set(auth(adminToken))
+      .send({ ...base, email: email(), countryId: inactiveCountryId })
+      .expect(422);
+    expect(inactive.body.details).toContainEqual(expect.objectContaining({ field: 'countryId', issue: 'inactive' }));
+
+    const target = await userWith({});
+    await api().patch(`/api/v1/users/${target.id}`).set(auth(adminToken)).send({ countryId: inactiveCountryId }).expect(422);
+  });
+
+  describe('PF-07.23: perfil comercial (D-07.3) → 422 CRM_PROFILE_INCOMPLETE', () => {
+    it('asignar asesor sin código o sin país; con ambos se asigna', async () => {
+      const withoutCode = await userWith({ countryId: guatemala.id });
+      const noCode = await api()
+        .put(`/api/v1/users/${withoutCode.id}/roles`)
+        .set(auth(adminToken))
+        .send({ ids: [await roleId('asesor')] })
+        .expect(422);
+      expect(noCode.body.code).toBe('CRM_PROFILE_INCOMPLETE');
+      expect(noCode.body.details).toEqual([expect.objectContaining({ field: 'employeeCode', issue: 'required' })]);
+
+      const withoutCountry = await userWith({ employeeCode: employeeCode() });
+      const noCountry = await api()
+        .put(`/api/v1/users/${withoutCountry.id}/roles`)
+        .set(auth(adminToken))
+        .send({ ids: [await roleId('asesor')] })
+        .expect(422);
+      expect(noCountry.body.details).toEqual([expect.objectContaining({ field: 'countryId', issue: 'required' })]);
+      const roles = await ctx.prisma.userRole.findMany({ where: { userId: withoutCountry.id }, include: { role: true } });
+      expect(roles.map((assignment) => assignment.role.code)).toEqual(['usuario']);
+
+      const complete = await userWith({ employeeCode: employeeCode(), countryId: guatemala.id });
+      await api()
+        .put(`/api/v1/users/${complete.id}/roles`)
+        .set(auth(adminToken))
+        .send({ ids: [await roleId('asesor')] })
+        .expect(204);
+    });
+
+    it('alta con rol comercial sin código ni país', async () => {
+      const response = await api()
+        .post('/api/v1/users')
+        .set(auth(adminToken))
+        .send({ email: email(), firstName: 'A', lastName: 'B', roleIds: [await roleId('manager')] })
+        .expect(422);
+      expect(response.body.code).toBe('CRM_PROFILE_INCOMPLETE');
+      expect(response.body.details).toHaveLength(2);
+    });
+
+    it('vaciar el país o el código de un asesor; a un usuario no comercial sí se le vacían', async () => {
+      const advisor = await userWith({ employeeCode: employeeCode(), countryId: guatemala.id, roleCodes: ['asesor'] });
+      for (const body of [{ countryId: null }, { employeeCode: null }, { employeeCode: '   ' }]) {
+        const response = await api().patch(`/api/v1/users/${advisor.id}`).set(auth(adminToken)).send(body).expect(422);
+        expect(response.body.code).toBe('CRM_PROFILE_INCOMPLETE');
+      }
+
+      const plain = await userWith({ employeeCode: employeeCode(), countryId: guatemala.id });
+      const response = await api()
+        .patch(`/api/v1/users/${plain.id}`)
+        .set(auth(adminToken))
+        .send({ employeeCode: null, countryId: null })
+        .expect(200);
+      expect(response.body).toMatchObject({ employeeCode: null, country: null });
+    });
+  });
+
+  it('PF-07.5: filtro por país, búsqueda por código y CSV con las columnas nuevas', async () => {
+    const code = employeeCode();
+    const target = await userWith({ employeeCode: code, countryId: elSalvador.id });
+    await userWith({ employeeCode: employeeCode(), countryId: guatemala.id });
+
+    const bySearch = await api().get('/api/v1/users').query({ search: code.toLowerCase() }).set(auth(adminToken)).expect(200);
+    expect(bySearch.body.data).toEqual([
+      expect.objectContaining({ id: target.id, employeeCode: code, country: expect.objectContaining({ isoCode: 'SV' }) }),
+    ]);
+
+    const byCountry = await api()
+      .get('/api/v1/users')
+      .query({ countryId: elSalvador.id, search: code })
+      .set(auth(adminToken))
+      .expect(200);
+    expect(byCountry.body.data.map((user: { id: string }) => user.id)).toEqual([target.id]);
+    const otherCountry = await api()
+      .get('/api/v1/users')
+      .query({ countryId: guatemala.id, search: code })
+      .set(auth(adminToken))
+      .expect(200);
+    expect(otherCountry.body.data).toEqual([]);
+
+    const csv = await api()
+      .get('/api/v1/users/export')
+      .query({ countryId: elSalvador.id, search: code })
+      .set(auth(adminToken))
+      .expect(200);
+    const [header, row] = csv.text.replace(/^﻿/, '').split('\r\n');
+    expect(header).toContain('Código de colaborador');
+    expect(header).toContain('País');
+    expect(row).toContain(code);
+    expect(row).toContain('El Salvador');
+  });
+
+  it('PF-07.39: la lista con filtros exige sesión (401) y usuarios.ver (403); 400 con un countryId no UUID', async () => {
+    await api().get('/api/v1/users').query({ countryId: guatemala.id }).expect(401);
+    await api().get('/api/v1/users').query({ countryId: guatemala.id }).set(auth(userToken)).expect(403);
+    await api().get('/api/v1/users').query({ countryId: 'gt' }).set(auth(adminToken)).expect(400);
+  });
+});

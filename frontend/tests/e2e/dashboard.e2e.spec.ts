@@ -197,7 +197,7 @@ test.describe.serial('Inicio · Panel de control (asesor)', () => {
     const greeting = (await hero.getByRole('heading', { level: 2 }).innerText()).trim();
     expect(greeting.match(GREETING)?.[2]).toBe(displayName.split(/\s+/)[0]);
     await expect(hero.getByText(displayName, { exact: true })).toBeVisible();
-    await expect(hero.getByText(/^Tienes acceso a \d+ opci/)).toBeVisible();
+    await expect(hero.getByText(/^Tienes acceso a /)).toHaveCount(0);
 
     // K1–K8 (AC-01.16): cada tarjeta, sin error, con la cifra que devolvió la API.
     for (const label of Object.values(KPI)) {

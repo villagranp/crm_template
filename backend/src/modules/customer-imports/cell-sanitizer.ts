@@ -3,7 +3,7 @@ import type { CustomerDraft } from '@/modules/customers/customer-validation.serv
 import { startsWithFormula } from '@/modules/customers/customer-normalization';
 
 import { IMPORT_ISSUE_CODES, importIssue, type StoredImportIssue } from './import-issues';
-import { IMPORT_COLUMNS, type ImportColumn, type ImportColumnKey } from './import-template';
+import { IMPORT_COLUMNS, type ImportColumnKey } from './import-template';
 
 /**
  * Lectura de celdas como texto (06 RN-06.11): recorte de espacios (incluido el
@@ -22,6 +22,17 @@ const EDGE_SPACES = /^[\s\u00a0\ufeff]+|[\s\u00a0\ufeff]+$/g;
  */
 const NEUTRALIZED_PREFIX = /^'(?=[=+\-@\t\r])/;
 
+/**
+ * Lo que el saneamiento necesita de una columna. `ImportColumn` lo cumple; la carga inicial por
+ * scripts (`initial-data-load`) lo reutiliza con sus propias columnas.
+ */
+export interface SanitizableColumn {
+  readonly key: string;
+  readonly maxLength: number | null;
+  readonly kind: 'code' | 'text';
+  readonly isFreeText: boolean;
+}
+
 export interface SanitizedCell {
   /**
    * Texto leído. Se conserva aunque tenga una incidencia de texto (empieza por
@@ -34,11 +45,11 @@ export interface SanitizedCell {
   readonly issue: StoredImportIssue | null;
 }
 
-function cellIssue(column: ImportColumn, code: string, value: string | null = null): SanitizedCell {
+function cellIssue(column: SanitizableColumn, code: string, value: string | null = null): SanitizedCell {
   return { value, issue: importIssue(column.key, code) };
 }
 
-function sanitizeText(column: ImportColumn, input: string): SanitizedCell {
+function sanitizeText(column: SanitizableColumn, input: string): SanitizedCell {
   const raw = input.replace(NEUTRALIZED_PREFIX, '');
   const value = raw.replace(EDGE_SPACES, '');
   // La regla de fórmulas mira el valor crudo (el tabulador inicial es justo lo que se busca, 02 RN-02.32).
@@ -48,7 +59,7 @@ function sanitizeText(column: ImportColumn, input: string): SanitizedCell {
   return { value, issue: null };
 }
 
-function sanitizeNumber(column: ImportColumn, value: number): SanitizedCell {
+function sanitizeNumber(column: SanitizableColumn, value: number): SanitizedCell {
   if (Number.isInteger(value)) {
     // Un entero mayor que 2^53 ya perdió dígitos en Excel: no se puede leer como texto fiable.
     if (!Number.isSafeInteger(value)) return cellIssue(column, IMPORT_ISSUE_CODES.invalidCellType);
@@ -58,7 +69,7 @@ function sanitizeNumber(column: ImportColumn, value: number): SanitizedCell {
   return sanitizeText(column, String(value));
 }
 
-export function sanitizeCell(column: ImportColumn, cell: XlsxCellValue): SanitizedCell {
+export function sanitizeCell(column: SanitizableColumn, cell: XlsxCellValue): SanitizedCell {
   switch (cell.kind) {
     case 'empty':
       return { value: null, issue: null };

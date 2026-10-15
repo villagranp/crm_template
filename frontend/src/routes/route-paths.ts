@@ -19,6 +19,12 @@ export const ROUTE_PATHS = {
     parameters: '/administracion/parametros',
     approvals: '/administracion/aprobaciones',
     audit: '/administracion/auditoria',
+    /** Módulo 7 (07 E.5): maestros comerciales y tipos de cambio. */
+    exchangeRates: '/administracion/tipos-cambio',
+    products: '/administracion/productos',
+    conversions: '/administracion/conversiones',
+    /** Ajustes 1 (AJ1-2): mantenimiento del minuto de seguridad. */
+    safetyMinutes: '/administracion/minuto-seguridad',
   },
   crm: {
     customers: '/clientes',
