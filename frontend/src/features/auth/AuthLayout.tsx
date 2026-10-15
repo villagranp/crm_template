@@ -116,7 +116,16 @@ export function AuthLayout({
           >
             <BrandLogo onDark height={authLayout.logoHeightPanel} />
 
-            <Box sx={{ mt: 'auto', pb: 3 }}>
+            <Box
+              sx={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                textAlign: 'center',
+              }}
+            >
               <Typography
                 component="p"
                 sx={{
