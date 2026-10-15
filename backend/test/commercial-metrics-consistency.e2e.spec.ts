@@ -24,11 +24,11 @@ import {
 import { closeTestContext, createTestContext, type TestContext } from './support/test-app';
 
 /**
- * Indicadores compartidos Inicio ↔ Reportes (05 G.3, 01 F.2): PF-05.30 y PF-05.31
- * (AC-05.42). Inicio aún no tiene pantallas en esta rama: se comparan los métodos del
- * servicio con la firma de 01 F.2 (los que llamarán sus tarjetas) con el reporte
- * equivalente por HTTP, con el mismo alcance y el mismo período (D-05.7). Además, el
- * contrato de la lectura de reportes: solo lectura y `503 REPORT_TIMEOUT`. País propio `J3`.
+ * Indicadores compartidos Inicio ↔ Reportes (05 G.3, 01 F.2, RN-01.10): PF-05.30 y PF-05.31
+ * (AC-05.42). Se comparan con el reporte equivalente por HTTP, con el mismo alcance y el mismo
+ * período (D-05.7), tanto los métodos del servicio con la firma de 01 F.2 como las tarjetas de
+ * Inicio por HTTP (`/dashboard/indicators/*`, Módulo 1). Además, el contrato de la lectura de
+ * reportes: solo lectura y `503 REPORT_TIMEOUT`. País propio `T3`.
  *
  * El administrador no se compara: su alcance incluye los datos que otras suites escriben a la vez.
  */
@@ -55,7 +55,7 @@ beforeAll(async () => {
   metrics = context.app.get(CommercialMetricsService);
   scopes = context.app.get(VisibilityScopeResolver);
   const { prisma } = context;
-  j3 = await testCountry(prisma, 'J3', { name: 'Prueba Consistencia' });
+  j3 = await testCountry(prisma, 'T3', { name: 'Prueba Consistencia' });
   users.a = await crmUser(context, { roleCodes: ['asesor'], countryId: j3 });
   users.b = await crmUser(context, { roleCodes: ['asesor'], countryId: j3 });
   users.manager = await crmUser(context, { roleCodes: ['manager'], countryId: j3 });
@@ -147,9 +147,45 @@ describe('Consistencia Inicio ↔ Reportes (PF-05.30, AC-05.42)', () => {
     expect(visits.upcoming).toBe(key === 'a' ? 1 : 2);
 
     // KPI-08/09 = pendientes, por vencer y vencidas del reporte de actividades.
-    const activities = await metrics.countActivities(ctx, 48);
     const activitySummary = await client.get('/reports/activities/summary').expect(200);
-    expect(activities).toEqual({ pending: activitySummary.body.pending, dueSoon: activitySummary.body.dueSoon, overdue: activitySummary.body.overdue });
+    const activities = await metrics.countActivities(ctx, activitySummary.body.dueSoonHours);
+    expect({ pending: activities.pending, dueSoon: activities.dueSoon, overdue: activities.overdue }).toEqual({
+      pending: activitySummary.body.pending,
+      dueSoon: activitySummary.body.dueSoon,
+      overdue: activitySummary.body.overdue,
+    });
+
+    // Las tarjetas de Inicio por HTTP (01 F.1, con el alcance del permiso de cada fuente, que en
+    // estos roles es el mismo que el de `reportes.ver`) dan las mismas cifras que el reporte.
+    const inicioProjects = await client.get('/dashboard/indicators/projects').expect(200);
+    expect(inicioProjects.body.activeProjects).toBe(projects.body.pagination.totalItems);
+    const inicioOpportunities = await client.get('/dashboard/indicators/opportunities?period=MONTH').expect(200);
+    expect(inicioOpportunities.body.period).toMatchObject({ from: month.from, to: month.to });
+    expect({
+      open: inicioOpportunities.body.open.count,
+      won: inicioOpportunities.body.won.count,
+      wonFull: inicioOpportunities.body.won.wonCount,
+      partial: inicioOpportunities.body.won.partialCount,
+      lost: inicioOpportunities.body.lost.count,
+    }).toEqual({ open: summary.body.open, won: decided.body.won, wonFull: decided.body.wonFull, partial: decided.body.partial, lost: decided.body.lost });
+    const inicioForecast = await client.get('/dashboard/indicators/forecast').expect(200);
+    expect(inicioForecast.body.totalTonnage).toBe(forecast.body.lineCount === 0 ? null : forecast.body.totals.tonnage);
+    expect(inicioForecast.body.months.map((entry: { tonnage: string }) => entry.tonnage)).toEqual(
+      forecast.body.months.map((entry: { tonnage: string }) => entry.tonnage),
+    );
+    expect(inicioForecast.body.unconvertedLines).toBe(forecast.body.totals.linesWithoutConversion);
+    const inicioVisits = await client.get('/dashboard/indicators/visits').expect(200);
+    expect({ pending: inicioVisits.body.pending.count, overdue: inicioVisits.body.pending.overdueCount }).toEqual({
+      pending: visitSummary.body.scheduled,
+      overdue: visitSummary.body.overduePending,
+    });
+    const inicioActivities = await client.get('/dashboard/indicators/activities').expect(200);
+    expect(inicioActivities.body.pending.dueSoonHours).toBe(activitySummary.body.dueSoonHours);
+    expect({
+      pending: inicioActivities.body.pending.count,
+      dueSoon: inicioActivities.body.pending.dueSoonCount,
+      overdue: inicioActivities.body.overdue.count,
+    }).toEqual({ pending: activitySummary.body.pending, dueSoon: activitySummary.body.dueSoon, overdue: activitySummary.body.overdue });
   });
 
   it('la suma de los asesores del equipo coincide con el manager (sin herencias cruzadas)', async () => {
@@ -186,14 +222,18 @@ describe('Un cambio de catálogo cambia Inicio y Reportes a la vez (PF-05.31)', 
       const report = await client.get('/reports/opportunities/summary').expect(200);
       expect(before.total).toBe(1);
       expect(report.body).toMatchObject({ total: 1, open: 1 });
-      expect(before.byStage.find((entry) => entry.stageId === stage.id)).toMatchObject({ count: 1, isActive: false, isClosed: false });
+      expect(before.byStage.find((entry) => entry.stageId === stage.id)).toMatchObject({ count: 1 });
       expect(report.body.byStage).toContainEqual({ stage: expect.objectContaining({ id: stage.id, isActive: false, isClosed: false }), count: 1 });
+      const inicioBefore = await client.get('/dashboard/indicators/opportunities').expect(200);
+      expect(inicioBefore.body.open).toMatchObject({ count: 1, byStage: [expect.objectContaining({ stageId: stage.id, count: 1 })] });
 
       await context.prisma.catalogItem.update({ where: { id: stage.id }, data: { metadata: { order: 2, isClosed: true, outcome: null, inFunnel: true } } });
       const after = await metrics.countOpenOpportunities(ctx);
       const reportAfter = await client.get('/reports/opportunities/summary').expect(200);
       expect(after.total).toBe(0);
       expect(reportAfter.body).toMatchObject({ total: 1, open: 0, closedWithoutResult: 1 });
+      const inicioAfter = await client.get('/dashboard/indicators/opportunities').expect(200);
+      expect(inicioAfter.body.open).toEqual({ count: 0, byStage: [] });
       expect(reportAfter.body.byStage).toContainEqual({ stage: expect.objectContaining({ id: stage.id, isClosed: true }), count: 1 });
     } finally {
       await context.prisma.opportunity.delete({ where: { id: opportunityId } });

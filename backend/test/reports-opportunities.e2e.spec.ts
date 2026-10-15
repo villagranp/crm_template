@@ -17,7 +17,7 @@ import { closeTestContext, createTestContext, type TestContext } from './support
 /**
  * Módulo 5 · Reporte de oportunidades (05 F-35): PF-05.8 a PF-05.12, PF-05.42, PF-05.43,
  * AC-05.5–AC-05.11, AC-05.44, AC-05.45 y la validación de PF-05.27. Países propios
- * `K1`…`K4` y moneda de prueba `XRA` (nunca los reales). Las cifras se comparan con el
+ * `K1`…`K3`, `T4` y moneda de prueba `XRA` (nunca los reales). Las cifras se comparan con el
  * conjunto de un asesor nuevo o filtrando por un país propio: otras suites escriben a la vez.
  */
 
@@ -47,7 +47,7 @@ beforeAll(async () => {
   k1 = await testCountry(prisma, 'K1', { name: 'Prueba Reportes Oportunidades' });
   k2 = await testCountry(prisma, 'K2', { name: 'Prueba Reportes Moneda local', currencyCode: RATE_CURRENCY });
   k3 = await testCountry(prisma, 'K3', { name: 'Prueba Reportes Moneda local bis', currencyCode: RATE_CURRENCY });
-  k4 = await testCountry(prisma, 'K4', { name: 'Prueba Reportes USD', currencyCode: 'USD' });
+  k4 = await testCountry(prisma, 'T4', { name: 'Prueba Reportes USD', currencyCode: 'USD' });
   admin = await crmUser(context, { roleCodes: ['administrador'] });
 });
 

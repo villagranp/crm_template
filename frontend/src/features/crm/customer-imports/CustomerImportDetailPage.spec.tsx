@@ -323,7 +323,11 @@ describe('CustomerImportDetailPage: estados (PF-06.47)', () => {
     await waitFor(() => expect(urlsTo(fetchMock, 'GET', ROWS).at(-1)?.searchParams.get('status')).toBe('REJECTED'));
 
     await userEvent.click(screen.getByRole('button', { name: 'Descargar archivo de errores' }));
-    await waitFor(() => expect(saveFile).toHaveBeenCalledWith(expect.any(Blob), 'errores-IMP-2026-0007.xlsx'));
+    // `expect.anything()` y no `expect.any(Blob)`: la respuesta trae el `Blob` nativo de Node y el
+    // global de jsdom es otra clase (mismo criterio que AttachmentsSection.spec.tsx).
+    await waitFor(() => expect(saveFile).toHaveBeenCalledWith(expect.anything(), 'errores-IMP-2026-0007.xlsx'));
+    const [blob] = vi.mocked(saveFile).mock.calls[0] as [Blob, string];
+    expect(blob.size).toBe('fila;error'.length);
   });
 
   it('FAILED por estructura lista los problemas', async () => {

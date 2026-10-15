@@ -19,7 +19,7 @@ import { closeTestContext, createTestContext, type TestContext, tokenWithRoles }
 /**
  * Módulo 5 · Reporte de proyectos (05 F-34): PF-05.7, PF-05.33, AC-05.1–AC-05.3, y
  * PF-05.20 (401/403/200) para **todos** los endpoints de lectura del módulo (los `/export`, en
- * `reports-export.e2e.spec.ts`). Países propios `K5`, `K6`.
+ * `reports-export.e2e.spec.ts`). Países propios `T5`, `K6`.
  */
 
 let context: TestContext;
@@ -49,7 +49,7 @@ const READ_ENDPOINTS = [
 
 beforeAll(async () => {
   context = await createTestContext();
-  k5 = await testCountry(context.prisma, 'K5', { name: 'Prueba Reportes Proyectos' });
+  k5 = await testCountry(context.prisma, 'T5', { name: 'Prueba Reportes Proyectos' });
   k6 = await testCountry(context.prisma, 'K6', { name: 'Prueba Reportes Proyectos bis' });
 });
 
@@ -107,7 +107,7 @@ describe('Autenticación y permiso en cada endpoint (PF-05.20, AC-05.40)', () =>
 describe('GET /reports/projects (PF-05.7, AC-05.1–AC-05.3)', () => {
   it('una fila por proyecto con 2 oportunidades y 4 productos; estado comercial = etapa abierta de mayor orden', async () => {
     const user = await crmUser(context, { roleCodes: ['asesor'], countryId: k5 });
-    const customer = await insertCustomer(context.prisma, { salesOwnerId: user.id, countryId: k5, legalName: 'Constructora Reportes K5' });
+    const customer = await insertCustomer(context.prisma, { salesOwnerId: user.id, countryId: k5, legalName: 'Constructora Reportes T5' });
     const typeId = await catalogItemId(context.prisma, 'crm.tipo_proyecto', 'EDIFICIO');
     const projectId = await insertProject(context.prisma, {
       customerId: customer.id,
@@ -137,7 +137,7 @@ describe('GET /reports/projects (PF-05.7, AC-05.1–AC-05.3)', () => {
       id: projectId,
       code: expect.stringMatching(/^TEST-PRY-/),
       name: 'Torre Reportes',
-      customer: { id: customer.id, name: 'Constructora Reportes K5' },
+      customer: { id: customer.id, name: 'Constructora Reportes T5' },
       country: { id: k5, name: 'Prueba Reportes Proyectos' },
       city: 'Quetzaltenango',
       owner: { id: user.id, displayName: 'Persona De prueba' },

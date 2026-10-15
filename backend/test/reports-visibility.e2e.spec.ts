@@ -20,9 +20,9 @@ import { closeTestContext, createTestContext, type TestContext } from './support
  * Módulo 5 · Visibilidad por alcance de `reportes.ver` (05 H.1, PF-05.22, PF-05.23,
  * AC-05.25, AC-05.41): asesores A y B (OWN, mismo equipo), C (OWN, subequipo), un
  * asesor ajeno X, el manager del equipo (TEAM con subequipos), un responsable de país
- * (COUNTRY de `J1`) y un administrador, sobre listas, resúmenes y opciones de filtro.
+ * (COUNTRY de `T1`) y un administrador, sobre listas, resúmenes y opciones de filtro.
  * Herencias DM-13 / DM-25: oportunidad de un proyecto visible, línea de forecast de un
- * proyecto visible y visita con proyecto visible. Países propios `J1` y `J2`.
+ * proyecto visible y visita con proyecto visible. Países propios `T1` y `T2`.
  */
 
 let context: TestContext;
@@ -39,14 +39,14 @@ const MONTH = '2030-06';
 beforeAll(async () => {
   context = await createTestContext();
   const { prisma } = context;
-  j1 = await testCountry(prisma, 'J1', { name: 'Prueba Visibilidad Uno' });
-  j2 = await testCountry(prisma, 'J2', { name: 'Prueba Visibilidad Dos' });
+  j1 = await testCountry(prisma, 'T1', { name: 'Prueba Visibilidad Uno' });
+  j2 = await testCountry(prisma, 'T2', { name: 'Prueba Visibilidad Dos' });
   users.a = await crmUser(context, { roleCodes: ['asesor'], countryId: j1, displayName: 'Asesora A' });
   users.b = await crmUser(context, { roleCodes: ['asesor'], countryId: j2, displayName: 'Asesor B' });
   users.c = await crmUser(context, { roleCodes: ['asesor'], countryId: j1, displayName: 'Asesor C' });
   users.x = await crmUser(context, { roleCodes: ['asesor'], countryId: j2, displayName: 'Asesor X' });
   users.manager = await crmUser(context, { roleCodes: ['manager'], countryId: j1, displayName: 'Manager' });
-  users.country = await crmUser(context, { roleCodes: ['responsable-pais'], countryId: j1, displayName: 'Responsable J1' });
+  users.country = await crmUser(context, { roleCodes: ['responsable-pais'], countryId: j1, displayName: 'Responsable T1' });
   users.admin = await crmUser(context, { roleCodes: ['administrador'] });
   const team = await insertTeam(prisma, { managerId: users.manager.id, memberIds: [users.a.id, users.b.id] });
   await insertTeam(prisma, { parentId: team, memberIds: [users.c.id] });
@@ -120,7 +120,7 @@ describe('Cada alcance ve y cuenta solo lo suyo (PF-05.22, AC-05.41)', () => {
     expect(summary.body.total).toBe(3);
   });
 
-  it('COUNTRY: los registros de su país (y los propios); nada de J2', async () => {
+  it('COUNTRY: los registros de su país (y los propios); nada de T2', async () => {
     const country = users.country;
     expect(await visibleIds(country, '/reports/projects')).toEqual(sorted(ids.pA, ids.pC));
     expect(await visibleIds(country, '/reports/opportunities')).toEqual(sorted(ids.oA, ids.oAX, ids.oC));

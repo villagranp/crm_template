@@ -1490,6 +1490,57 @@ esquema, permisos ni dependencias.
 - **Deuda conocida (sin cambios):** avisos previos de `pnpm audit` (P-05.11) y chip de producto
   «Seleccionado» tras recargar (P-05.28, requiere contrato del Módulo 3).
 
+## Precisiones de implementación — integración con los Módulos 1 y 6 (2026-10-14)
+
+Merge de `main` (Módulo 1 · Inicio, Módulo 6 · Integraciones, despliegue de QA) en
+`feature/crm-reportes`, como anticipaba P-05.1. Sin cambios de contrato, esquema, permisos ni
+dependencias.
+
+### P-05.36 Un solo `commercial-metrics` y un solo `common/xlsx.ts`
+
+- **Base: la implementación del Módulo 1** (ya en `main`, 01 P-1). `CommercialMetricsService`
+  conserva KPI-01…KPI-10 con su firma y su comportamiento (`countOutcomes`, `targetCompliance`,
+  `semanticCatalog`, `MetricContext.inheritedProjectScope` para la herencia de visitas y
+  actividades de 01 P-2, `forecastWindow(ctx, h, unidad)`) y Reportes añade encima sus
+  agregaciones de P-05.2 (`semantics`, `countOpportunities`, `stageDistribution`,
+  `ownerDistribution`, `countProjects`, `countVisitCategories`, `countActivityCategories`,
+  `forecastTotals`, `forecastConsolidation`, `funnel`, `monthlyCounts`/`monthlySeries`,
+  `activeProjectsByPhase`, `forecastOwnerTonnage` y los `*Criteria`). Las implementaciones de
+  KPI-01…09 que esta rama había escrito sobre las agregaciones se retiran: Inicio y la prueba de
+  consistencia usan las del Módulo 1.
+- Adaptaciones de Reportes a los nombres de 01: `METRIC_CATALOGS.opportunityStage`/`projectPhase`;
+  la etapa de la distribución pasa a `ReportStageCount` (`StageCount` de 01 + `isClosed`,
+  `isActive`); DEF-E `isDoneUnconfirmedVisit` con la firma de 01 (`{ isDone, confirmedAt }`);
+  `MetricContext` vive en el puerto y el servicio lo reexporta. El constructor recibe el lector de
+  catálogos (Reportes) y el logger (Inicio).
+- **Puerto y adaptador:** una sola interfaz con las dos familias de consultas (las de Inicio
+  reciben ids y alcance; las de Reportes, criterios por entidad). El adaptador del Módulo 1 tenía
+  su propia copia de `forecastLineVisibilitySql`; ahora usa la que exporta
+  `prisma-forecast.repository.ts` (P-05.3), un solo predicado.
+- **Definiciones:** `metric-definitions.ts` reúne las del Módulo 3, las del Módulo 1 (DEF-D, DEF-E,
+  DEF-F y los conjuntos `isPending`/`isDone`/`isConfirmed`/`isOpen`/`isCompleted`) y las de
+  Reportes (categorías disjuntas que delegan en el Módulo 4). Con un catálogo válido (un solo
+  indicador por estado, que impone el registro de semántica) dan los mismos conjuntos.
+- **PF-05.30/31 cubren las dos puertas:** `commercial-metrics-consistency.e2e.spec.ts` compara con
+  el reporte equivalente tanto los métodos del servicio como las tarjetas de Inicio por HTTP
+  (`/dashboard/indicators/projects|opportunities|forecast|visits|activities`), y el cambio de
+  semántica de una etapa se ve a la vez en el servicio, en Inicio y en el reporte.
+- **Diferencias de forma, no de negocio, que se mantienen:** KPI-03/04 de 01 cuentan las filas de
+  `opportunity_results` del período sin mirar la etapa, y RN-05.22/25 exigen etapa cerrada; como
+  reabrir una oportunidad anula su resultado (03, plan `REOPEN`), con datos válidos coinciden. En
+  KPI-05, el `lineCount` mensual de Inicio incluye las líneas con cantidad 0 (proyecciones
+  retiradas, que Reportes no cuenta, RN-05.33) y `totalTonnage` es `null` también con líneas sin
+  conversión (01 P-12), donde el reporte da `0.0000`; las toneladas y las líneas sin conversión
+  coinciden. Queda anotado para el responsable de negocio, sin cambiar ninguno de los dos.
+- **XLSX:** las dos ramas incorporaron `exceljs` 4.4.0 exacta (una sola entrada en
+  `backend/package.json` y en el *lockfile*). `common/xlsx.ts` es un único envoltorio con la
+  lectura y la escritura de texto del Módulo 6 y el `XlsxStreamWriter` de Reportes; ambos
+  neutralizan con `neutralizeFormula` de `common/csv.ts` (addendum de ADR-022).
+- `AllExceptionsFilter`/`httpStatusOf` traducen a la vez `ServiceUnavailableError` → `503`
+  (Reportes) y `UnsupportedMediaTypeError` → `415` (Módulo 6).
+- E2E: TESTING.md «Todas las suites E2E en un mismo stack» ordena las diez suites en cinco tandas
+  (un segundo `activate` con `E2E_ADMIN_PASSWORD` tras `auth-local`, para la carga masiva).
+
 ---
 
 ## Filas para la matriz

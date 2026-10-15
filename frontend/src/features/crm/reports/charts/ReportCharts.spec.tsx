@@ -16,7 +16,10 @@ import { LazyComboChart, LazyLineChart } from './LazyCharts';
  * los del tema. La primera importación de la librería en jsdom tarda varios segundos.
  */
 
-const IMPORT_TIMEOUT_MS = 30_000;
+// Con las 143 suites del frontend en paralelo (módulos 1 a 6), la primera importación en frío
+// llegó a 30 s; el margen evita fallos por carga de CPU sin ocultar un fallo real (la aserción
+// sigue esperando las barras concretas).
+const IMPORT_TIMEOUT_MS = 60_000;
 const WIDTH = 640;
 
 beforeEach(() => {
