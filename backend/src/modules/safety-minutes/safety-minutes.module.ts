@@ -23,5 +23,7 @@ import { SafetyMinutesService } from './safety-minutes.service';
     { provide: BUSINESS_CLOCK, useValue: systemBusinessClock },
     { provide: SAFETY_MINUTE_REPOSITORY, useClass: PrismaSafetyMinutesRepository },
   ],
+  // La carga inicial por scripts crea los minutos con este mismo caso de uso (CARGA-INICIAL.md).
+  exports: [SafetyMinutesService],
 })
 export class SafetyMinutesModule {}

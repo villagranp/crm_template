@@ -42,6 +42,6 @@ import { UnitsOfMeasureController } from './units-of-measure.controller';
     { provide: PRODUCT_CATALOG_READER, useClass: PrismaProductCatalogRepository },
     { provide: PRODUCT_MASTERS_REPOSITORY, useClass: PrismaProductMastersRepository },
   ],
-  exports: [ProductsService],
+  exports: [ProductsService, ProductMastersService],
 })
 export class ProductsModule {}

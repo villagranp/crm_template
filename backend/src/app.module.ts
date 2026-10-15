@@ -29,6 +29,7 @@ import { SafetyMinutesModule } from './modules/safety-minutes/safety-minutes.mod
 import { TeamsModule } from './modules/teams/teams.module';
 import { UnitConversionsModule } from './modules/unit-conversions/unit-conversions.module';
 import { HealthModule } from './modules/health/health.module';
+import { InitialDataLoadModule } from './modules/initial-data-load/initial-data-load.module';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { RequestLoggingInterceptor } from './common/interceptors/request-logging.interceptor';
@@ -86,6 +87,8 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     CustomerImportsModule,
     // Ajustes 1 (AJ1-2): minuto de seguridad (mantenimiento y lectura del día).
     SafetyMinutesModule,
+    // Carga inicial de datos por scripts (CARGA-INICIAL.md): sin rutas HTTP, solo para `scripts/load-initial-data.ts`.
+    InitialDataLoadModule,
     HealthModule,
   ],
   providers: [

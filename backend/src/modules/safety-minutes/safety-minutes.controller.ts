@@ -30,10 +30,10 @@ import {
   SafetyMinutesQueryDto,
   UpdateSafetyMinuteDto,
 } from './dto/safety-minute.dto';
+import { SAFETY_MINUTE_CREATE_PERMISSION } from './safety-minute-permissions';
 import { SafetyMinutesService, type SafetyMinuteActor, type SafetyMinuteView } from './safety-minutes.service';
 
 export const SAFETY_MINUTE_VIEW_PERMISSION = 'minuto_seguridad.ver';
-export const SAFETY_MINUTE_CREATE_PERMISSION = 'minuto_seguridad.crear';
 export const SAFETY_MINUTE_EDIT_PERMISSION = 'minuto_seguridad.editar';
 export const SAFETY_MINUTE_DELETE_PERMISSION = 'minuto_seguridad.eliminar';
 

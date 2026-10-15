@@ -78,6 +78,11 @@ export class XlsxReadError extends Error {
 export interface XlsxReadOptions {
   /** Hoja de datos por nombre (sin distinguir mayúsculas); si no existe, la primera hoja visible con datos. */
   readonly preferredSheet: string;
+  /**
+   * `true`: solo la hoja con ese nombre; si no existe, `SHEET_NOT_FOUND` (sin recurrir a la primera
+   * hoja visible). Lo usa la carga inicial por scripts, cuyos libros tienen varias hojas de datos.
+   */
+  readonly exactSheet?: boolean;
   /** Filas de datos no vacías admitidas. */
   readonly maxRows: number;
   readonly maxColumns: number;
@@ -122,10 +127,10 @@ function withTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
   return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
 }
 
-function pickSheet(workbook: ExcelJS.Workbook, preferred: string): ExcelJS.Worksheet | null {
+function pickSheet(workbook: ExcelJS.Workbook, preferred: string, exact = false): ExcelJS.Worksheet | null {
   const sheets = workbook.worksheets;
   const named = sheets.find((sheet) => sheet.name.trim().toLowerCase() === preferred.toLowerCase());
-  if (named) return named;
+  if (named || exact) return named ?? null;
   return sheets.find((sheet) => sheet.state === 'visible' && sheet.actualRowCount > 0) ?? null;
 }
 
@@ -195,7 +200,7 @@ async function readSheetRowsNow(buffer: Buffer, options: XlsxReadOptions): Promi
     throw new XlsxReadError('UNREADABLE');
   }
 
-  const sheet = pickSheet(workbook, options.preferredSheet);
+  const sheet = pickSheet(workbook, options.preferredSheet, options.exactSheet === true);
   if (!sheet) throw new XlsxReadError('SHEET_NOT_FOUND');
 
   const headerRow = sheet.getRow(1);
