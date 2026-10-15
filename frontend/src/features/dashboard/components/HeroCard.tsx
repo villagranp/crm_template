@@ -48,17 +48,13 @@ export interface HeroCardProps {
   profile: UseQueryResult<Profile, ApiError>;
   /** Nombre de la sesión, mientras `/me` carga. */
   sessionDisplayName?: string | null;
-  /** Opciones y módulos navegables de `/me/menu`; `undefined` mientras carga. */
-  optionCount?: number;
-  moduleCount?: number;
 }
 
 /**
  * Tarjeta de saludo (01 §E.2): fecha larga y hora en vivo, saludo según la
- * hora local, nombre completo, roles y ámbito de `/me`, y el resumen de accesos
- * del menú (texto de siempre).
+ * hora local, nombre completo, roles y ámbito de `/me`.
  */
-export function HeroCard({ profile, sessionDisplayName, optionCount, moduleCount }: HeroCardProps) {
+export function HeroCard({ profile, sessionDisplayName }: HeroCardProps) {
   const now = useMinuteClock();
   const displayName = profile.data?.displayName ?? sessionDisplayName ?? '';
   const firstName = firstNameOf(displayName);
@@ -149,18 +145,6 @@ export function HeroCard({ profile, sessionDisplayName, optionCount, moduleCount
           />
         </Stack>
       )}
-
-      <Typography sx={{ color: onBrand.text, fontSize: fontSizes.nav, maxWidth: '46ch' }}>
-        {optionCount === undefined || moduleCount === undefined ? (
-          'Estamos cargando tus accesos.'
-        ) : (
-          <>
-            Tienes acceso a <strong>{optionCount}</strong>{' '}
-            {optionCount === 1 ? 'opción' : 'opciones'} en <strong>{moduleCount}</strong>{' '}
-            {moduleCount === 1 ? 'módulo' : 'módulos'}, según los roles asignados a tu cuenta.
-          </>
-        )}
-      </Typography>
 
       <InsightsOutlinedIcon
         aria-hidden="true"

@@ -41,12 +41,15 @@ export function SafetyMinuteCard() {
       aria-labelledby={titleId}
       sx={{
         minWidth: 0,
+        // Mismo tamaño que la tarjeta de saludo: llena su celda y usa su relleno (HeroCard).
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
         borderLeft: (theme) => `${theme.spacing(0.5)} solid ${theme.palette.warning.main}`,
-        px: { xs: 2, md: 2.5 },
-        py: 2,
+        p: { xs: 2.75, sm: 4 },
       }}
     >
-      <Stack direction="row" spacing={1.5} alignItems="flex-start">
+      <Stack direction="row" spacing={1.5} alignItems="flex-start" sx={{ width: '100%' }}>
         <Box aria-hidden="true" sx={{ display: 'grid', color: 'warning.main', pt: 0.25 }}>
           <HealthAndSafetyOutlinedIcon />
         </Box>

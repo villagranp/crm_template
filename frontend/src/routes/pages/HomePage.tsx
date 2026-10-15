@@ -19,7 +19,6 @@ import {
   type BlockAvailability,
 } from '@/features/dashboard/dashboard-layout';
 import { useDashboardAccess, useSafetyMinute } from '@/features/dashboard/dashboard.queries';
-import { menuEntries } from '@/features/dashboard/quick-access';
 import { useAuth } from '@/hooks/use-auth';
 import { useHealth } from '@/hooks/use-health';
 import { useMenu } from '@/hooks/use-menu';
@@ -65,8 +64,6 @@ export function HomePage() {
   const resetComposition = useResetDashboardComposition();
   const [customizing, setCustomizing] = useState(false);
 
-  const entries = menu.data ? menuEntries(menu.data) : undefined;
-  const moduleCount = entries ? new Set(entries.map((entry) => entry.module.key)).size : undefined;
   const showActivity = access.visits || access.recentActivity;
 
   // Qué bloques tienen algo que pintar: el permiso y, para el minuto de seguridad, el mensaje de
@@ -91,8 +88,6 @@ export function HomePage() {
       <HeroCard
         profile={profile}
         sessionDisplayName={user?.displayName}
-        optionCount={entries?.length}
-        moduleCount={moduleCount}
       />
     ),
     mine: <AccessSummary profile={profile} />,

@@ -163,9 +163,7 @@ describe('HomePage', () => {
     expect(
       within(quickAccess).queryByRole('link', { name: /panel de control/i }),
     ).not.toBeInTheDocument();
-    expect(screen.getByText(/Tienes acceso a/)).toHaveTextContent(
-      'Tienes acceso a 2 opciones en 1 módulo',
-    );
+    expect(screen.queryByText(/Tienes acceso a/)).not.toBeInTheDocument();
   });
 
   it('avisa sin romper la página si el perfil no se puede cargar', async () => {
@@ -213,9 +211,7 @@ describe('HomePage', () => {
     expect(screen.queryByRole('region', { name: 'Alertas y pendientes' })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Actividad reciente' })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Próximas visitas' })).not.toBeInTheDocument();
-    expect(await screen.findByText(/Tienes acceso a/)).toHaveTextContent(
-      'Tienes acceso a 2 opciones',
-    );
+    expect(screen.queryByText(/Tienes acceso a/)).not.toBeInTheDocument();
     expect(dashboardRequests(fetchMock)).toEqual([]);
   });
 
