@@ -17,9 +17,9 @@ export interface CsvColumn<TRow> {
 const FORMULA_PREFIX = /^[=+\-@\t\r]/;
 
 /**
- * Neutraliza un texto que una hoja de cálculo ejecutaría como fórmula
- * (apóstrofo delante). La reutiliza el escritor XLSX (`xlsx.ts`, ADR-022): CSV y
- * XLSX aplican la misma regla.
+ * Neutraliza la inyección de fórmulas en un texto de usuario: si empieza por `=`, `+`,
+ * `-`, `@`, tabulador o retorno de carro, antepone un apóstrofo. La comparten el CSV y
+ * el XLSX (`common/xlsx.ts`, ADR-022, 05 RN-05.49).
  */
 export function neutralizeFormula(text: string): string {
   return FORMULA_PREFIX.test(text) ? `'${text}` : text;

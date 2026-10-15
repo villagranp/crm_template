@@ -11,14 +11,20 @@ export class ApiError extends Error {
   readonly code: string;
   readonly details: unknown[];
   readonly correlationId?: string;
+  /**
+   * Segundos de espera de la cabecera `Retry-After` (p. ej. `429 RATE_LIMIT_EXCEEDED`),
+   * o `undefined` si la respuesta no la trae o no es un número de segundos.
+   */
+  readonly retryAfterSeconds?: number;
 
-  constructor(body: ApiErrorBody) {
+  constructor(body: ApiErrorBody, transport: { retryAfterSeconds?: number } = {}) {
     super(body.message);
     this.name = 'ApiError';
     this.statusCode = body.statusCode;
     this.code = body.code;
     this.details = body.details ?? [];
     this.correlationId = body.correlationId;
+    this.retryAfterSeconds = transport.retryAfterSeconds;
   }
 
   get isUnauthorized(): boolean {

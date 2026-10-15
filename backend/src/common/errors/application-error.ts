@@ -90,6 +90,19 @@ export class PermissionDeniedError extends ApplicationError {
 }
 
 /**
+ * 503: el servicio no pudo completar la operación a tiempo o no está disponible
+ * (API-STANDARDS §3). El código lo decide quien lanza (`REPORT_TIMEOUT`, 05 F.5).
+ */
+export class ServiceUnavailableError extends ApplicationError {
+  readonly code: string;
+
+  constructor(code: string, message: string, details: ReadonlyArray<Record<string, unknown>> = []) {
+    super(message, details);
+    this.code = code;
+  }
+}
+
+/**
  * 413: el archivo o el cuerpo supera el tamaño admitido (API-STANDARDS §3). El
  * código lo decide quien lanza (`ATTACHMENT_TOO_LARGE`, DC-4).
  */

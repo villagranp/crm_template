@@ -141,8 +141,8 @@ const SORT_COLUMNS: Readonly<Record<ActivitySortField, string>> = {
   status: 's.label',
 };
 
-/** `metadata.weight` de `crm.prioridad` (RN-04.32); 0 si falta o no es número. */
-const PRIORITY_WEIGHT_SQL = Prisma.sql`CASE WHEN jsonb_typeof(pr.metadata -> 'weight') = 'number' THEN (pr.metadata ->> 'weight')::numeric ELSE 0 END`;
+/** `metadata.weight` de `crm.prioridad` (RN-04.32); 0 si falta o no es número. Alias `pr`; exportado para Reportes (05 E.6). */
+export const PRIORITY_WEIGHT_SQL = Prisma.sql`CASE WHEN jsonb_typeof(pr.metadata -> 'weight') = 'number' THEN (pr.metadata ->> 'weight')::numeric ELSE 0 END`;
 const IS_OPEN_SQL = Prisma.sql`(s.metadata ->> 'isOpen') = 'true'`;
 
 interface ActivityListRow {

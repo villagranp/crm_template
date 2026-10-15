@@ -15,7 +15,9 @@ features/crm/
   opportunities/           Módulo 3: pipeline y detalle de oportunidades
   forecast/                Módulo 3: matriz del forecast M+6
   commercial-activity/     Módulo 4 (Actividad comercial): common/, activities/, pending/, visits/, agenda/,
-                           follow-up/, interactions/, entry-points/ (barril para 02/03)
+                           follow-up/, interactions/, entry-points/ (barril para 02/03 y Reportes)
+  reports/                 Módulo 5 (Reportes): common/, projects/, opportunities/, forecast/, visits/,
+                           activities/, dashboard/, funnel/, charts/, reports-routes.ts
   customer-imports/        Módulo 6 (Integraciones): carga masiva de clientes; index.ts
 ```
 
@@ -134,6 +136,38 @@ importan desde otros submódulos: lo público para 02/03 está en `commercial-ac
 | `CountrySelect` (`value`, `onChange`, `label?`, `disabled?`) + `useCountryOptions(enabled)` | Filtro "país del cliente" con los países de `GET /customers/form-options` (02 F2); sin `clientes.ver` no se ofrece |
 | `AttachmentCount` (`count`) | Columna "Adjuntos": icono + número con nombre accesible ("3 adjuntos") |
 | `NextActionDate` (`date`, `prefix?`, `today?`) | Fecha de próxima acción resaltada con color **y** texto ("(hoy)", "(pasada)"); "hoy" en la zona de negocio |
+
+### Piezas comunes de Reportes (`reports/common/`)
+
+Para las siete pantallas del Módulo 5 (`/reportes/*`, todas con `reportes.ver`; 05 E.1 y
+"Precisiones … frontend" P-05.19–P-05.32). Las siete están entregadas (proyectos, oportunidades,
+forecast, visitas, actividades, dashboard y embudo). Convenciones del área en
+[`reports/README.md`](reports/README.md).
+
+| Pieza | Uso |
+|---|---|
+| `useReportQueryState({ filterKeys, sortableFields, defaultSort, period, paramPrefix? })` | Estado en la URL con los nombres de la API. `period`: `{ kind: 'dates', defaultPreset: 'CURRENT_MONTH' \| … \| null, defaultDateBasis }` o `{ kind: 'months' }`. Devuelve `values`, `period` efectivo, `isDefaultPeriod`, `dateBasis`, `today` (zona del negocio), `filterQuery` (resúmenes), `listQuery` (listas), `exportQuery` (+ orden + `format=xlsx`, sin página), `apply(values)`, `clear()`, `table` |
+| `ReportFilterBar` (`label`, `fields`, `values`, `onApply`, `onClear`, `period?`, `search?`, `children?`) | Botón "Filtros" + formulario (borrador, "Aplicar filtros"), chips "Campo: valor" con quitar y "Limpiar". `fields`: `select`/`autocomplete` (opciones de `filter-options`), `text`, `customer`, `project` (`customerKey?`), `product` (cada remoto con su permiso; tras recargar, cliente y proyecto se nombran con su ficha, P-05.28). `period`: `{ kind: 'dates', period, isDefault, today, dateBases?, defaultDateBasis, dateBasisRequired?, allowEmpty, maxYears?, maxMonths?, defaultNote?, dateBasisNotes? }` o `{ kind: 'months', appliedRange, maxMonths? }` |
+| `report-filter-options.ts` | `ownerOptions`, `namedOptions`, `catalogOptions` (orden de catálogo, inactivos marcados), `enumOptions` |
+| `SummaryCards` (`label`, `items[{ key, label, value, detail?, tone?, filterValue? }]`, `activeValue?`, `onSelect?`, `isLoading?`, `errorMessage?`, `onRetry?`, `footer?`, `columns?`) | Tarjetas de resumen; con `filterValue` son botones (`aria-pressed`) que aplican/quitan el filtro de estado |
+| `useReportExport({ request, fallbackFileName })` + `ExportButton` (`exporter`, `label?`) + `ExportFeedback` (`exporter`) | Descarga `.xlsx` con `httpClient.download` + `saveFile`; botón solo con `reportes.exportar`; progreso, filas de `X-Export-Rows` y errores 422/429/503 con referencia |
+| `ChartPanel` (`title`, `description?`, `table`, `chart?`, `isLoading?`, `errorMessage?`, `onRetry?`, `isEmpty?`, `emptyMessage?`, `action?`, `summary?`) | Panel con estados propios y "Ver como tabla" / "Ver como gráfica" si hay `chart` (AC-05.32, AC-05.33); `summary` = cifra o aviso sobre ambas vistas |
+| `ChartDataTable` (`label`, `columns[{ key, header, align? }]`, `rows[{ key, cells }]`) | Tabla equivalente de una gráfica: encabezados reales, primera columna como encabezado de fila, `scroll-x` |
+| `charts/LazyCharts`: `LazyBarChart` (`ariaLabel`, `categories`, `series`, `layout`, `barLabel?`, `onItemClick?`), `LazyLineChart`, `LazyComboChart` (`bars`, `line`: un solo eje) | **Única** puerta a `@mui/x-charts` Community (ADR-023): carga diferida (`React.lazy`), `figure` con leyenda en texto (≥ 2 series), esqueleto mientras llega el *chunk*, colores de `chartColors` por `tone` (`primary`, `secondary`, `negative`) y sin animación con `prefers-reduced-motion`. `series[{ key, label, values, tone, stack?, formatValue? }]` |
+| `report-links.ts` | `reportHref`, `opportunitiesReportHref` (etapa, asesor, país, cliente, período `IDENTIFIED`), `activeProjectsReportHref`, `forecastMonthReportHref`: destino del clic en una barra y del enlace equivalente en la tabla |
+| `useReportTimeZones()` | Zonas de `GET /reports/filter-options` (`timeZone` del perfil, `businessTimeZone`); la del navegador mientras cargan o si no son válidas (P-05.27) |
+| `ReportPage` (`title`, `subtitle?`, `exporter?`, `filterOptionsFailed?`, `actions?`) | `PageHeader` "Inicio / Reportes / <Pantalla>" con exportación y aviso si fallan las opciones de filtro |
+| `ReportTable` (`label`, `columns`, `query`, `state`, `getRowId`) | `DataTable` con tarjetas bajo `sm` y estados cargando / vacío ("No hay registros para los filtros seleccionados" + "Limpiar filtros") / error con referencia |
+| `SourceLink` (`to`, `permission`, `label?`) | Código como enlace a la ficha solo con el `.ver` de la entidad (`REPORT_SOURCE_PERMISSIONS`) |
+| `ReportDateTime` / `ReportCalendarDate`, `report-format.ts`, `report-period.ts`, `report-paths.ts` | Instantes en la zona del perfil, fechas de calendario sin zona; `formatCount`/`formatUsd`/`formatTons`/`formatQuantityWithUnit`/`formatMonth`; atajos y esquemas de período; fichas de visita y actividad |
+| `reports.errors.ts` | `describeReportError`, `reportErrorMessage` (con referencia), `exportTooLargeDetails` |
+
+El barril `commercial-activity/entry-points` exporta además `formatDateTime`, `formatDate`,
+`formatCalendarDate`, `todayInTimeZone` e `isValidTimeZone` para Reportes; las **zonas** de
+Reportes salen ya de su propio `filter-options` (`useReportTimeZones`, P-05.27) y
+`useCommercialTimeZones` queda para otros consumidores. `customers` exporta `useCustomer` (chip
+del cliente tras recargar, P-05.28).
+`httpClient.download` devuelve `headers` y `ApiError.retryAfterSeconds` lee `Retry-After`.
 
 Opciones aditivas de `@/components/data` usadas por el CRM: `DataTable` `onRowClick` + `getRowLabel`
 (fila navegable con teclado, `role="link"`) y `useTableQueryState({ paramPrefix })` para varias

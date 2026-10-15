@@ -24,6 +24,7 @@ import { ParametersCoreModule } from './modules/parameters/parameters-core.modul
 import { ParametersModule } from './modules/parameters/parameters.module';
 import { ProductsModule } from './modules/products/products.module';
 import { ProjectsModule } from './modules/projects/projects.module';
+import { ReportsModule } from './modules/reports/reports.module';
 import { TeamsModule } from './modules/teams/teams.module';
 import { UnitConversionsModule } from './modules/unit-conversions/unit-conversions.module';
 import { HealthModule } from './modules/health/health.module';
@@ -75,9 +76,11 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     ForecastModule,
     // CRM · Módulo 4: actividad comercial (04).
     CommercialActivityModule,
-    // CRM · Módulo 1: fórmulas comerciales compartidas (Inicio y Reportes) y panel de Inicio (01).
+    // CRM · Módulo 1: fórmulas comerciales compartidas (Inicio y Reportes, 01 F.2, 05 G.3) y panel de Inicio (01).
     CommercialMetricsModule,
     DashboardModule,
+    // CRM · Módulo 5: reportes (05).
+    ReportsModule,
     // CRM · Módulo 6: carga masiva de clientes (06, F-42).
     CustomerImportsModule,
     HealthModule,

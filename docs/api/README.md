@@ -495,6 +495,127 @@ alerta por su propio permiso. Período (2 y 6): `period=MONTH|QUARTER|YEAR` (mes
 `from`/`to` (fechas de calendario, `from ≤ to`, ≤ 366 días); si no, `400 VALIDATION_FAILED` con
 `details[0] = { field, issue }`. No hay códigos de error nuevos.
 
+## Endpoints del CRM — Módulo 5 · Reportes (F-34 a F-41)
+
+Especificación: [`05-reportes.md`](../implementation-plans/crm/05-reportes.md) §F.1–§F.5 y
+"Precisiones de implementación (2026-10-13)" (P-05.1–P-05.17). Etiqueta OpenAPI `reports`.
+**Solo lectura** (RN-05.1): todo es `GET` y ningún endpoint escribe en tablas comerciales; la
+única escritura del módulo es la auditoría de la exportación (`crm.report.exported`).
+
+Reglas comunes:
+
+- Todos exigen sesión (`401 UNAUTHENTICATED`) y **`reportes.ver`** (`403 PERMISSION_DENIED`);
+  no se exige además el `.ver` de cada entidad (D-05.11).
+- Filas, conteos y totales se calculan **después** de aplicar el alcance de `reportes.ver`
+  (OWN / TEAM con subequipos / COUNTRY / ORGANIZATION, con las herencias DM-13 y DM-25 de 00
+  §4.2). Un filtro nunca amplía el alcance: un asesor, país o id fuera del alcance o
+  inexistente devuelve `200` con conjunto vacío (RN-05.4, F.5).
+- Excluyen los registros eliminados lógicamente y los hijos de proyectos o clientes
+  eliminados (RN-05.5, D-05.12).
+- Filtros multivalor como parámetros repetidos (`ownerId=a&ownerId=b`, máximo 50). Período
+  `from`/`to` (`YYYY-MM-DD`, inclusivos) **juntos o ninguno**; sin período no se filtra por
+  fecha (la pantalla envía su período por defecto, C.2). `dateBasis` por reporte (C.2).
+- Colecciones `{ data, pagination }` con `page`, `pageSize` (≤ 100), `sortBy` (lista blanca por
+  reporte) y `sortOrder`; desempate siempre por `id` (RN-05.14). Los resúmenes van en
+  `…/summary` con los **mismos** filtros y el **mismo** conjunto que la lista (RN-05.9).
+- Importes: decimales como texto; todo total en USD sobre `estimated_amount_usd` (RN-05.13,
+  ADR-024).
+
+| Método | Ruta | Permiso | Entrada → salida | Errores |
+|---|---|---|---|---|
+| GET | `/reports/filter-options` | `reportes.ver` | → `ReportFilterOptionsDto` (`owners`, `countries`, `catalogs`, `productFamilies`, `scope`, `businessTimeZone`, `timeZone`; las dos zonas son aditivas, 05 P-05.27) | `422 INVALID_CATALOG_SEMANTICS` |
+| GET | `/reports/projects` | `reportes.ver` | `ProjectReportQueryDto` (`search`, `countryId[]`, `city`, `ownerId[]`, `customerId[]`, `projectTypeId[]`, `phaseId[]`, `commercialStatus[]`, `situation`, `from`, `to`, `dateBasis` obligatorio con período) → `PaginatedProjectReportDto` | `400`, `422 PERIOD_TOO_LONG` / `INVALID_CATALOG_SEMANTICS` |
+| GET | `/reports/opportunities` | `reportes.ver` | `OpportunityReportQueryDto` (`from`, `to`, `dateBasis`, `ownerId[]`, `customerId[]`, `countryId[]`, `status[]`, `stageId[]`, `productId[]`, `productFamilyId[]`) → `PaginatedOpportunityReportDto` | `400`, `422` |
+| GET | `/reports/opportunities/summary` | `reportes.ver` | mismos filtros → `OpportunityReportSummaryDto` (conteos, `byStage`, `byOwner`, `estimateTotals` en USD + referencia local) | `400`, `422` |
+| GET | `/reports/forecast` | `reportes.ver` | `ForecastReportQueryDto` (`fromMonth`, `toMonth` `YYYY-MM`, por defecto M+1…M+6; `projectId[]`, `customerId[]`, `productId[]`, `productFamilyId[]`, `ownerId[]`, `countryId[]`) → `PaginatedForecastReportDto` | `400`, `422` |
+| GET | `/reports/forecast/consolidated` | `reportes.ver` | mismos filtros + `groupBy` (`MONTH` por defecto), `thenBy` → `PaginatedForecastGroupDto` | `400` (incl. `thenBy = groupBy`), `422` |
+| GET | `/reports/forecast/summary` | `reportes.ver` | mismos filtros → `ForecastReportSummaryDto` (cada mes del rango con acumulados, totales por unidad, `tonnageUnit`, `lastUpdatedAt`) | `400`, `422` |
+| GET | `/reports/visits` | `reportes.ver` | `VisitReportQueryDto` (`from`, `to`, `dateBasis`, `ownerId[]`, `customerId[]`, `countryId[]` del cliente, `projectId[]`, `statusCategory[]`, `statusId[]`) → `PaginatedVisitReportDto` | `400`, `422` |
+| GET | `/reports/visits/summary` | `reportes.ver` | mismos filtros → `VisitReportSummaryDto` | `400`, `422` |
+| GET | `/reports/activities` | `reportes.ver` | `ActivityReportQueryDto` (`from`, `to`, `dateBasis`, `ownerId[]`, `customerId[]`, `countryId[]` del cliente, `typeId[]`, `statusCategory[]`, `statusId[]`, `priorityId[]`) → `PaginatedActivityReportDto` | `400`, `422` |
+| GET | `/reports/activities/summary` | `reportes.ver` | mismos filtros → `ActivityReportSummaryDto` (con `dueSoonHours`) | `400`, `422` |
+| GET | `/reports/projects/export` | `reportes.ver` **y** `reportes.exportar` | filtros de la lista + `sortBy`, `sortOrder`, `format=xlsx` (sin `page`/`pageSize`) → `.xlsx` | `400`, `403`, `422 EXPORT_TOO_LARGE` / `PERIOD_TOO_LONG` / `INVALID_CATALOG_SEMANTICS`, `429`, `503` |
+| GET | `/reports/opportunities/export` | `reportes.ver` **y** `reportes.exportar` | ídem (`OpportunityReportExportQueryDto`) → `.xlsx` con las columnas de monto de RN-05.59 | ídem |
+| GET | `/reports/forecast/export` | `reportes.ver` **y** `reportes.exportar` | ídem + `groupBy`/`thenBy` opcionales (añaden la hoja "Consolidado") → `.xlsx` | ídem + `400` si `thenBy` sin `groupBy` o igual a él |
+| GET | `/reports/visits/export` | `reportes.ver` **y** `reportes.exportar` | ídem (`VisitReportExportQueryDto`) → `.xlsx` | ídem |
+| GET | `/reports/activities/export` | `reportes.ver` **y** `reportes.exportar` | ídem (`ActivityReportExportQueryDto`) → `.xlsx` | ídem |
+| GET | `/reports/dashboard` | `reportes.ver` | `DashboardQueryDto` (`from`, `to`, `countryId[]`, `ownerId[]`; por defecto 12 meses cerrados + mes en curso, máximo 24 meses) → `CommercialDashboardDto` (`period`, `activeProjects`, `opportunitiesByStage`, `wonLostByMonth`, `forecastRange`, `forecastByMonth`, `tonnageUnit`, `byOwner`, `activityVisitByMonth`) | `400`, `422 PERIOD_TOO_LONG` (`maxMonths: 24`) / `INVALID_CATALOG_SEMANTICS` |
+| GET | `/reports/dashboard/trends` | `reportes.ver` | `DashboardQueryDto` → `CommercialTrendsDto` (`period`, `series[{ metric, points[{ year, month, value }] }]`) | ídem |
+| GET | `/reports/funnel` | `reportes.ver` | `FunnelQueryDto` (`from`, `to` por `opportunity_date`, `stageId[]`, `customerId[]`, `companyTypeId[]`, `ownerId[]`, `countryId[]`) → `SalesFunnelDto` (`stages[{ stage, count, shareOfTotal, cumulativeConversion, unavailableReason }]`, `totalInFunnel`, `sampleMinimum`) | `400`, `422 PERIOD_TOO_LONG` / `INVALID_CATALOG_SEMANTICS` |
+
+Listas blancas de `sortBy` (y orden por defecto): proyectos `code`, `name`, `customerName`,
+`countryName`, `ownerName`, `phaseOrder`, `phaseProgress`, `estimatedDecisionDate`,
+`lastActivityAt` (`lastActivityAt desc`); oportunidades `code`, `projectName`, `customerName`,
+`ownerName`, `stageOrder`, `estimatedAmountUsd`, `decisionDate`, `updatedAt` (`updatedAt desc`);
+forecast `period`, `projectName`, `productSku`, `familyName`, `ownerName`, `tonnage`,
+`updatedAt` (`period asc`); visitas `scheduledStartAt`, `actualStartAt`, `confirmedAt`,
+`customerName`, `ownerName`, `statusOrder` (`scheduledStartAt desc`); actividades
+`activityDate`, `dueAt`, `priorityWeight`, `customerName`, `ownerName`, `typeName`
+(`activityDate desc`). Con `sortBy` y sin `sortOrder`, ascendente.
+
+Todos pueden responder además `503 REPORT_TIMEOUT` (la consulta superó el `statement_timeout`
+de 10 s en pantallas y 60 s en exportación; acotar los filtros).
+
+### Exportación XLSX (F-39, ADR-022)
+
+- Exige `reportes.ver` **y** `reportes.exportar` (`403` con uno solo). Mismos filtros, alcance y
+  orden que la pantalla, sin paginación; enviar `page` o `pageSize` → `400`.
+- Respuesta `200` binaria: `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`,
+  `Content-Disposition: attachment; filename="reporte-<proyectos|oportunidades|forecast|visitas|actividades>-YYYYMMDD-HHmm.xlsx"`
+  (hora del negocio), `X-Export-Rows`, `X-Export-Truncated: false`, `Cache-Control: no-store`,
+  `X-Content-Type-Options: nosniff`.
+- Hojas "Datos", ["Consolidado" en forecast con `groupBy`], "Resumen" y "Filtros". Celdas tipadas
+  (fechas de Excel en la hora del negocio, cantidades `#,##0.0000` con su unidad al lado,
+  toneladas `#,##0.000`, montos `#,##0.00` con su moneda, porcentajes `0.00 %`); ninguna
+  fórmula y todo texto neutralizado con apóstrofo (`=`, `+`, `-`, `@`, tabulador, CR).
+- Conjunto completo o nada: por encima de `crm.reportes.max_filas_exportacion` (100 000)
+  responde `422 EXPORT_TOO_LARGE` antes de escribir el archivo. Conteo y volcado (lotes
+  *keyset* de 1 000) van en una transacción `REPEATABLE READ READ ONLY` con
+  `statement_timeout` de 60 s.
+- Como mucho 5 exportaciones por minuto **por usuario** (todas las rutas `/export` juntas;
+  cuentan también las rechazadas por validación): `429 RATE_LIMIT_EXCEEDED` con `Retry-After`.
+- Cada exportación correcta deja `crm.report.exported` en `audit_logs` (`resourceType =
+  crm.report`, `resourceId` = reporte, `metadata` = reporte, formato, filtros en JSON, alcance,
+  filas y duración; nunca los datos) y un log `report_exported` sin PII. Un fallo antes de que
+  salgan las cabeceras (aunque el libro ya se haya empezado en el servidor) responde el error
+  estándar en JSON, sin las cabeceras del archivo; un fallo con las cabeceras ya enviadas corta
+  la conexión (nunca un archivo truncado que parezca válido) y se registra como
+  `report_export_aborted`.
+- La hoja "Filtros" describe los filtros en español (bases de fecha, estados, situación,
+  agrupación, orden): asesores, países, catálogos y familias por su nombre **solo** si están
+  entre las opciones autorizadas del usuario; clientes, proyectos, productos y cualquier id
+  fuera del alcance, por su id.
+
+### Códigos de error nuevos (05 F.5)
+
+| Status | Código | Cuándo |
+|---|---|---|
+| 422 | `PERIOD_TOO_LONG` | Período de más de 5 años (`details[0] = { field: "to", code, message, maxYears: 5 }`) o rango de forecast de más de 24 meses (`{ field: "toMonth", …, maxMonths: 24 }`) |
+| 422 | `INVALID_CATALOG_SEMANTICS` | Un elemento de `crm.etapa_oportunidad`, `crm.fase_cliente`, `crm.estado_visita` o `crm.estado_actividad` no cumple su esquema de 00 §3.3 (`details[] = { field: <catalog>, code, itemCode, message }`) |
+| 422 | `EXPORT_TOO_LARGE` | El conjunto supera `crm.reportes.max_filas_exportacion` (`details[0] = { rows, maxRows }`) |
+| 429 | `RATE_LIMIT_EXCEEDED` | Más de 5 exportaciones en un minuto por usuario (`Retry-After`) |
+| 503 | `REPORT_TIMEOUT` | La consulta superó el tiempo máximo (nueva clase `ServiceUnavailableError` → `503`) |
+
+`400 VALIDATION_FAILED` (DC-6) cubre además: `from`/`to` sueltos o `from > to`, período sin
+`dateBasis` en proyectos, `fromMonth`/`toMonth` sueltos o invertidos, `thenBy = groupBy` y
+`commercialStatus` mal formado, `page`/`pageSize`/`format ≠ xlsx` en `/export`, `thenBy` sin
+`groupBy` en la exportación de forecast y el período del dashboard (`from`/`to` sueltos o invertidos).
+`PERIOD_TOO_LONG` del dashboard lleva `maxMonths: 24`.
+
+### Servicio compartido de indicadores (05 G.3, 01 F.2)
+
+`CommercialMetricsModule` (`backend/src/modules/commercial-metrics/`) exporta
+`CommercialMetricsService` y `BUSINESS_CLOCK`; el puerto `COMMERCIAL_METRICS_READ_MODEL` lo
+implementa `prisma-commercial-metrics.repository.ts`. Es la fuente única de las fórmulas de
+Inicio y Reportes: los métodos de 01 F.2 que usa Inicio (`countActiveProjects`,
+`countOpenOpportunities`, `countWonOpportunities`, `countLostOpportunities`, `countOutcomes`,
+`forecastWindow`, `countVisits`, `countActivities`, `targetCompliance`, `semanticCatalog`,
+`resolvePeriod`, `forecastWindowMonths`) y las agregaciones con filtros de Reportes, incluidas
+`funnel` (embudo, RN-05.53–RN-05.56) y `monthlySeries` / `monthlyCounts` (series del dashboard,
+RN-05.52). Ambas familias usan las mismas definiciones (`metric-definitions.ts`) y los mismos
+predicados de visibilidad; `commercial-metrics-consistency.e2e.spec.ts` (PF-05.30) compara las
+tarjetas de Inicio con los reportes equivalentes. Sin endpoints propios.
+
 ## Endpoints del CRM — Módulo 6 · Carga masiva de clientes
 
 Contrato completo: [`06-integraciones.md`](../implementation-plans/crm/06-integraciones.md) §F y

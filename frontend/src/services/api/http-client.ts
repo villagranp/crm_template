@@ -80,6 +80,14 @@ function buildUrl(path: string, query: RequestOptions['query']): string {
   return queryString ? `${base}${normalizedPath}?${queryString}` : `${base}${normalizedPath}`;
 }
 
+const RETRY_AFTER_SECONDS = /^\d+$/;
+
+/** `Retry-After` en segundos (la forma que emite la API); una fecha HTTP u otro valor se ignora. */
+export function retryAfterSecondsFrom(header: string | null): number | undefined {
+  const value = header?.trim();
+  return value && RETRY_AFTER_SECONDS.test(value) ? Number(value) : undefined;
+}
+
 async function toApiError(response: Response, correlationId: string): Promise<ApiError> {
   let body: Partial<ApiErrorBody> = {};
 
@@ -95,7 +103,7 @@ async function toApiError(response: Response, correlationId: string): Promise<Ap
     message: body.message ?? response.statusText ?? 'Request failed',
     details: Array.isArray(body.details) ? body.details : [],
     correlationId: body.correlationId ?? correlationId,
-  });
+  }, { retryAfterSeconds: retryAfterSecondsFrom(response.headers.get('retry-after')) });
 }
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -228,6 +236,8 @@ export interface DownloadedFile {
   blob: Blob;
   /** Name from `Content-Disposition`, if the server sent one. */
   fileName: string | null;
+  /** Response headers (p. ej. `X-Export-Rows` de las exportaciones de Reportes). */
+  headers: Headers;
 }
 
 /** `filename*=UTF-8''...` (RFC 5987) wins over plain `filename="..."`. */
@@ -248,7 +258,7 @@ export function fileNameFromContentDisposition(header: string | null): string | 
 }
 
 /**
- * Downloads a file (CSV exports) through the same pipeline as every other call.
+ * Downloads a file (CSV and XLSX exports) through the same pipeline as every other call.
  * A plain `<a href>` cannot be used: the access token lives in memory and would
  * not be sent.
  */
@@ -257,6 +267,7 @@ async function download(path: string, options: RequestOptions = {}): Promise<Dow
   return {
     blob: await response.blob(),
     fileName: fileNameFromContentDisposition(response.headers.get('content-disposition')),
+    headers: response.headers,
   };
 }
 

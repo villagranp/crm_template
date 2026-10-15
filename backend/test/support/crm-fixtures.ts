@@ -231,10 +231,16 @@ export interface InsertOpportunityOptions {
   /** Resultado vigente (solo para etapas cerradas). `LOST` usa el primer motivo del catálogo. */
   outcome?: 'WON' | 'LOST' | 'PARTIAL' | null;
   deletedAt?: Date | null;
-  /** Fecha de decisión del resultado (`YYYY-MM-DD`); por defecto 2026-10-05. */
+  /** `YYYY-MM-DD`; por defecto `2026-10-01`. */
+  opportunityDate?: string;
+  /** Fecha de decisión del resultado (`YYYY-MM-DD`); por defecto `2026-10-05`. */
   decisionDate?: string;
+  /** % adjudicado de un `PARTIAL`; por defecto `60`. */
   awardedPercent?: string;
+  /** Estimación ya convertida (foto, ADR-024): los cuatro campos juntos o ninguno (`ck_opportunities_amount_set`). Prevalece sobre `estimatedAmountUsd`. */
+  estimate?: { amount: string; currencyCode: string; exchangeRate: string; exchangeRateDate: string | null; amountUsd: string };
   estimatedTonnage?: string | null;
+  /** Equivalente en USD; con él se rellenan monto, moneda (USD por defecto) y tasa. */
   estimatedAmountUsd?: string | null;
   /** Monto en moneda local (con `currencyCode` distinto de USD); por defecto, el de USD. */
   estimatedAmount?: string;
@@ -242,6 +248,7 @@ export interface InsertOpportunityOptions {
   exchangeRate?: string;
   nextAction?: string | null;
   stageChangedAt?: Date;
+  updatedAt?: Date;
 }
 
 /** Oportunidad mínima (con su resultado si se indica), insertada sin la API. */
@@ -252,21 +259,30 @@ export async function insertOpportunity(prisma: PrismaClient, options: InsertOpp
       projectId: options.projectId,
       ownerId: options.ownerId,
       stageId: await catalogItemId(prisma, 'crm.etapa_oportunidad', options.stageCode ?? 'CONTACTADO'),
-      opportunityDate: new Date('2026-10-01T00:00:00.000Z'),
+      opportunityDate: new Date(`${options.opportunityDate ?? '2026-10-01'}T00:00:00.000Z`),
       deletedAt: options.deletedAt ?? null,
-      estimatedTonnage: options.estimatedTonnage ?? null,
-      estimatedAmountUsd: options.estimatedAmountUsd ?? null,
-      // ck_opportunities_amount_set: monto, moneda, tasa y equivalente en USD van juntos.
-      ...(options.estimatedAmountUsd
+      ...(options.estimate
         ? {
-            estimatedAmount: options.estimatedAmount ?? options.estimatedAmountUsd,
-            currencyCode: options.currencyCode ?? 'USD',
-            exchangeRate: options.exchangeRate ?? '1',
-            ...((options.currencyCode ?? 'USD') !== 'USD' ? { exchangeRateDate: new Date('2026-10-01T00:00:00.000Z') } : {}),
+            estimatedAmount: options.estimate.amount,
+            currencyCode: options.estimate.currencyCode,
+            exchangeRate: options.estimate.exchangeRate,
+            exchangeRateDate: options.estimate.exchangeRateDate ? new Date(`${options.estimate.exchangeRateDate}T00:00:00.000Z`) : null,
+            estimatedAmountUsd: options.estimate.amountUsd,
           }
-        : {}),
+        : options.estimatedAmountUsd
+          ? {
+              // ck_opportunities_amount_set: monto, moneda, tasa y equivalente en USD van juntos.
+              estimatedAmountUsd: options.estimatedAmountUsd,
+              estimatedAmount: options.estimatedAmount ?? options.estimatedAmountUsd,
+              currencyCode: options.currencyCode ?? 'USD',
+              exchangeRate: options.exchangeRate ?? '1',
+              ...((options.currencyCode ?? 'USD') !== 'USD' ? { exchangeRateDate: new Date('2026-10-01T00:00:00.000Z') } : {}),
+            }
+          : {}),
+      estimatedTonnage: options.estimatedTonnage ?? null,
       nextAction: options.nextAction ?? null,
       ...(options.stageChangedAt ? { stageChangedAt: options.stageChangedAt } : {}),
+      ...(options.updatedAt ? { updatedAt: options.updatedAt } : {}),
     },
   });
   if (options.outcome) {
@@ -403,7 +419,17 @@ export async function insertProjectProduct(
 /** Línea de forecast insertada sin la API (sin regla: tonelaje nulo). */
 export async function insertForecastLine(
   prisma: PrismaClient,
-  options: { projectId: string; productId: string; unitId: string; ownerId: string; year: number; month: number; quantity?: string },
+  options: {
+    projectId: string;
+    productId: string;
+    unitId: string;
+    ownerId: string;
+    year: number;
+    month: number;
+    quantity?: string;
+    /** Conversión (foto de regla y factor) y su tonelaje: los tres juntos (`ck_forecast_lines_conversion`). */
+    conversion?: { ruleId: string; factor: string; tonnage: string };
+  },
 ): Promise<string> {
   const line = await prisma.forecastLine.create({
     data: {
@@ -414,6 +440,9 @@ export async function insertForecastLine(
       year: options.year,
       month: options.month,
       quantity: options.quantity ?? '5',
+      ...(options.conversion
+        ? { conversionRuleId: options.conversion.ruleId, conversionFactor: options.conversion.factor, tonnage: options.conversion.tonnage }
+        : {}),
     },
   });
   return line.id;
@@ -441,10 +470,10 @@ export async function insertActivity(
     dueAt?: Date | null;
     scheduledAt?: Date | null;
     subject?: string;
-    /** Con estado `COMPLETADA`: se rellenan quién completó y las notas (ck_activities_completion). */
-    completedAt?: Date | null;
     createdAt?: Date;
     deletedAt?: Date | null;
+    /** Con `completedAt` se informan también quién completó (el dueño) y unas notas de resultado (`ck_activities_completion`). */
+    completedAt?: Date | null;
   },
 ): Promise<string> {
   const activity = await prisma.activity.create({
@@ -459,9 +488,9 @@ export async function insertActivity(
       priorityId: await catalogItemId(prisma, 'crm.prioridad', options.priorityCode ?? 'MEDIA'),
       dueAt: options.dueAt ?? null,
       scheduledAt: options.scheduledAt ?? null,
-      ...(options.completedAt ? { completedAt: options.completedAt, completedById: options.ownerId, resultNotes: 'Hecho' } : {}),
       ...(options.createdAt ? { createdAt: options.createdAt } : {}),
       deletedAt: options.deletedAt ?? null,
+      ...(options.completedAt ? { completedAt: options.completedAt, completedById: options.ownerId, resultNotes: 'Resultado de prueba' } : {}),
     },
   });
   return activity.id;
@@ -490,6 +519,9 @@ export async function insertVisit(
     /** Confirmada por su dueño (DM-20); sin resumen ni comentarios se rellena `confirmationSummary` (ck_visits_confirm_requires). */
     confirmedAt?: Date | null;
     reminderMinutesBefore?: number | null;
+    /** Fecha planificada original (por defecto la vigente) y número de reprogramaciones. */
+    originalScheduledAt?: Date;
+    rescheduleCount?: number;
   },
 ): Promise<string> {
   const at = options.scheduledStartAt ?? new Date(Date.now() + 86_400_000);
@@ -502,7 +534,8 @@ export async function insertVisit(
       statusId: await catalogItemId(prisma, 'crm.estado_visita', options.statusCode ?? 'PROGRAMADA'),
       scheduledStartAt: at,
       scheduledEndAt: options.scheduledEndAt ?? null,
-      originalScheduledAt: at,
+      originalScheduledAt: options.originalScheduledAt ?? at,
+      rescheduleCount: options.rescheduleCount ?? 0,
       objective: options.objective ?? 'Visita de prueba',
       actualStartAt: options.actualStartAt ?? null,
       resultSummary: options.resultSummary ?? null,

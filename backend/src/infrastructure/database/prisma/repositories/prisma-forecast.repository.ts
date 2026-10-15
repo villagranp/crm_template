@@ -115,8 +115,11 @@ function periodsSql(alias: Prisma.Sql, periods: readonly YearMonth[]): Prisma.Sq
   return Prisma.sql`(${alias}.year * 12 + ${alias}.month) = ANY(${periods.map((period) => period.year * 12 + period.month)}::int[])`;
 }
 
-/** Línea visible (H.1): proyecto visible, o línea cuyo asesor está en el alcance. El proyecto (`p`) no eliminado lo exige quien llama. */
-function lineVisibilitySql(scope: VisibilityScope): Prisma.Sql {
+/**
+ * Línea visible (H.1): proyecto visible, o línea cuyo asesor está en el alcance. El proyecto (`p`) no eliminado lo exige quien llama.
+ * Alias fijos `fl` (línea) y `p` (proyecto). Exportado para Inicio y Reportes (05 RN-05.33, DM-25).
+ */
+export function forecastLineVisibilitySql(scope: VisibilityScope): Prisma.Sql {
   if (scope.kind === 'ALL') return Prisma.sql`TRUE`;
   return Prisma.sql`(${projectVisibilitySql('p', scope)} OR ${uuidInSql(Prisma.sql`fl.owner_id`, scope.ownerIds)})`;
 }
@@ -145,7 +148,7 @@ function pairsCte(criteria: ForecastCriteria, scope: VisibilityScope): Prisma.Sq
       JOIN projects p ON p.id = fl.project_id
       WHERE p.deleted_at IS NULL
         AND ${periodsSql(Prisma.sql`fl`, criteria.periods)}
-        AND ${lineVisibilitySql(scope)}
+        AND ${forecastLineVisibilitySql(scope)}
         AND ${pairFilterSql(Prisma.sql`fl`, criteria)}
     ),
     pairs AS (

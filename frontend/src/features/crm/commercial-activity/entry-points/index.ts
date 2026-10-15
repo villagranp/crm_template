@@ -17,3 +17,14 @@ export { NewActivityButton } from './NewActivityButton';
 export type { NewActivityButtonProps } from './NewActivityButton';
 export { PlanVisitButton } from './PlanVisitButton';
 export type { PlanVisitButtonProps } from './PlanVisitButton';
+
+/**
+ * Formatos de fecha del Módulo 4 que reutiliza Reportes (05 E.1, RN-05.7): `formatDateTime`/
+ * `formatDate` con zona explícita, `formatCalendarDate` (sin zona), `todayInTimeZone` e
+ * `isValidTimeZone`. Mismo comportamiento que en Actividad comercial. Las **zonas** de Reportes
+ * salen ya de `GET /reports/filter-options` (P-05.27); `useCommercialTimeZones()` se sigue
+ * exportando para otros consumidores.
+ */
+export { useCommercialTimeZones } from '../common/use-commercial-time-zones';
+export type { CommercialTimeZones } from '../common/use-commercial-time-zones';
+export { formatCalendarDate, formatDate, formatDateTime, isValidTimeZone, todayInTimeZone } from '../common/date-time';

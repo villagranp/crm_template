@@ -6,6 +6,27 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 ## [Unreleased]
 
 ### Changed
+- **CRM — integración del Módulo 5 (Reportes) con los Módulos 1 (Inicio) y 6 (Integraciones)**
+  (`05-reportes.md`, P-05.36; sin cambios de contrato, esquema, permisos ni dependencias):
+  - Un solo `commercial-metrics`: base del Módulo 1 (KPI-01…KPI-10 con su firma y
+    comportamiento) más las agregaciones de Reportes; un solo puerto y un solo adaptador, que usa
+    `forecastLineVisibilitySql` de Proyectos; `metric-definitions.ts` con las definiciones de los
+    Módulos 1, 3 y 5. `StageCount` de Reportes pasa a `ReportStageCount`; DEF-E con la firma de 01.
+  - Un solo `common/xlsx.ts` (lectura y escritura de texto de la carga masiva, escritor tipado en
+    *streaming* de la exportación) y una sola versión de `exceljs` (4.4.0, addendum de ADR-022).
+  - `commercial-metrics-consistency.e2e.spec.ts` (PF-05.30/31) compara con los reportes también
+    las tarjetas de Inicio por HTTP (`/dashboard/indicators/*`).
+  - TESTING.md «Todas las suites E2E en un mismo stack»: diez suites en cinco tandas.
+- E2E PF-03.116 (`projects.e2e.spec.ts`): «sin `forecast.ver`» comprueba que no hay enlace a
+  `/proyectos/forecast` ni otro «Forecast» que no sea Reportes › Forecast, que desde el Módulo 5
+  aparece con `reportes.ver` (05 H.3, D-05.11).
+- Frontend (aditivo): `httpClient.download` devuelve las cabeceras de la respuesta y `ApiError`
+  expone `retryAfterSeconds` (`Retry-After`). El barril `commercial-activity/entry-points` exporta
+  los formatos de fecha del Módulo 4 (e `isValidTimeZone`) para Reportes; las zonas horarias de
+  Reportes salen ya de `GET /reports/filter-options` (`useReportTimeZones`). `ChartPanel` acepta
+  `summary`, `ReportFilterBar` acepta `maxMonths`/`defaultNote` en el período y nombra cliente y
+  proyecto tras recargar con su ficha (P-05.28); `customers` exporta `useCustomer`. Vitest
+  procesa `@mui/x-charts` con `server.deps.inline`. Se elimina `ReportsPendingPage`.
 - Pruebas de integración: `exclusiveParameters` (candado consultivo por esquema) hace mutuamente
   excluyentes `customers.e2e` y `customer-imports.e2e`, que cambian los mismos parámetros globales.
 - Semilla demo: la carga `DEMO-IMP-0001` guarda `raw_data` e incidencias con la forma real de la
@@ -28,6 +49,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   - E2E PF-04.58 sin simulación del Módulo 3: parte de la ficha real del proyecto.
 
 ### Fixed
+- **CRM Módulo 5 — revisión E5 de Reportes** (`05-reportes.md`, P-05.35): la exportación XLSX
+  ya no puede responder un error JSON con las cabeceras del archivo (`Content-Type` XLSX y
+  `Content-Disposition: attachment`) cuando falla con el libro empezado pero antes de enviar
+  cabeceras: el archivo se escribe en un flujo intermedio que se desconecta, se retiran sus
+  cabeceras y el error llega con el formato estándar (`report-download.spec.ts`). La hoja
+  "Filtros" muestra los enumerados en español (RN-05.48) y nunca el nombre de un id que no esté
+  entre las opciones autorizadas (prueba unitaria e integración).
 - **Arranque del backend compilado**: `start`, `start:prod` y el `CMD` de la imagen ejecutaban
   `dist/main.js`, que no existe (el build genera `dist/src/main.js`); el contenedor no arrancaba.
 - **Imágenes Docker**: Node 22.12 → 22.20. El corepack de 22.12 tiene claves de firma de npm
@@ -114,6 +142,44 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   - NGINX: una sola cabecera `Cache-Control: no-store` en las respuestas de la API.
 
 ### Added
+- **CRM Módulo 5 — Reportes, completado** (F-34…F-41, `matriz-trazabilidad.md`): backend,
+  frontend, E2E y revisión E5 en verde. `commercial-metrics` (creado aquí con los nombres de la
+  spec 01) quedó unificado con el del Módulo 1 al integrar `main` (ver «Changed»). Pendiente: deuda previa de `pnpm audit` (avisos de vite, vitest, jest y prisma, no
+  aportados por `exceljs` ni `@mui/x-charts`); chip de producto «Seleccionado» tras recargar
+  (requiere `GET /products/:id` del Módulo 3).
+- **CRM Módulo 5 — E2E de Reportes** (`05-reportes.md`, P-05.33, P-05.34):
+  `frontend/tests/e2e/crm-reports.e2e.spec.ts` con PF-05.39 (manager: reporte de oportunidades
+  filtrado con su resumen y exportación `.xlsx` abierta con `exceljs`; dashboard con filtro de
+  asesor, «Ver como tabla» y etapa → reporte filtrado; embudo desde el menú) y PF-05.40 (asesor:
+  menú de Reportes sin «Exportar a Excel», visibilidad por alcance y siete pantallas a 400 px sin
+  scroll horizontal). `e2e-stack.ts activate` imprime `E2E_REPORT_TEAM_PROJECT_CODE`; TESTING.md
+  «E2E de Reportes» (cuarta tanda). F-34…F-41 pasan a `completada`.
+- **CRM Módulo 5 — frontend de los reportes, la exportación, el dashboard y el embudo** (`05-reportes.md`, P-05.19–P-05.32):
+  pantallas `/reportes/proyectos`, `/reportes/oportunidades`, `/reportes/forecast`,
+  `/reportes/visitas` y `/reportes/actividades` (F-34…F-38) con filtros, período, orden y página
+  en la URL, tarjetas de resumen que filtran la tabla, tabla → tarjetas en móvil, enlaces a la
+  ficha de origen según permiso, importes en USD con la referencia local "referencial" y botón
+  "Exportar a Excel" (F-39, solo con `reportes.exportar`; mensajes de `EXPORT_TOO_LARGE`, `429` y
+  `REPORT_TIMEOUT` con referencia). Piezas comunes reutilizables en `features/crm/reports/common`
+  (`useReportQueryState`, `ReportFilterBar`, `SummaryCards`, `ExportButton`, `ChartPanel`,
+  `ReportTable`, `ReportPage`, `SourceLink`).
+  - **Dashboard comercial** `/reportes/dashboard` (F-40): siete paneles (proyectos activos por
+    fase, oportunidades por etapa, ganadas vs. perdidas, forecast por mes con acumulado,
+    distribución por asesor, actividades y visitas, tendencias como múltiplos pequeños) con
+    filtros de período (máximo 24 meses de calendario; sin período, el que aplica el servidor),
+    país y asesor en la URL; cada panel con "Ver como tabla", estados propios y clic en la barra
+    hacia el reporte filtrado.
+  - **Embudo comercial** `/reportes/embudo` (F-41): barras horizontales por etapa con cantidad y
+    % de participación, tabla con conversión acumulada, porcentajes no calculables como "—" con
+    su motivo (`NO_DATA`, `INSUFFICIENT_HISTORY`, `INSUFFICIENT_SAMPLE`), filtros de etapa,
+    cliente, tipo de cliente, asesor, país y período; clic en una etapa → reporte de
+    oportunidades filtrado.
+  - Gráficas con **`@mui/x-charts` 8.29.3** (Community, ADR-023 addendum), cargadas en un *chunk*
+    diferido desde `reports/charts/LazyCharts` (también la distribución por etapa de F-35);
+    tokens `chartColors`/`chartLayout` (DESIGN-SYSTEM §3 "Gráficas"); prueba de arquitectura
+    PF-05.47. `features/crm/reports/README.md` con las convenciones del área.
+  - Backend (aditivo): `GET /reports/filter-options` publica `businessTimeZone` y `timeZone`
+    (perfil del usuario) (P-05.27).
 - **QA en Windows Server** (ADR-026, `docs/deployment/qa-windows.md`): backend como servicio de
   Windows, NGINX for Windows con HTTPS sirviendo el frontend y la API, PostgreSQL 18 local.
   `infrastructure/qa-windows/`: `nginx.conf`, `env.qa.example` (sin valores reales),

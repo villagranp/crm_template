@@ -226,9 +226,13 @@ Notas:
   la página. Repite; con las dependencias ya optimizadas no vuelve a pasar.
 - Sin `E2E_NO_FORECAST_PASSWORD` la prueba «sin forecast.ver» se salta; ningún rol de la
   demo cumple «`proyectos.ver` sin `forecast.ver`».
+- Ese usuario sí ve Reportes › Forecast (`/reportes/forecast`): exige `reportes.ver`, no
+  `forecast.ver` (05 H.3, D-05.11). La prueba comprueba que no hay enlace a
+  `/proyectos/forecast` ni ningún otro «Forecast» que no sea el de Reportes.
 - PF-03.115 reasigna el asesor del proyecto de equipo en cada ejecución y crea una copia;
   PF-03.114 y el forecast crean proyectos con sufijo único. Todo es repetible sin volver
   a `prepare`.
+
 ### E2E de Actividad comercial
 
 `frontend/tests/e2e/crm-commercial-activity.e2e.spec.ts` (PF-04.58 a PF-04.61 del
@@ -272,7 +276,8 @@ Notas:
   `activate`): (1) `auth-local smoke crm-customers` con la contraseña inicial
   del administrador, (2) `admin-access crm-commercial-activity` con la ya
   cambiada (`E2E_ADMIN_PASSWORD = E2E_ADMIN_NEW_PASSWORD`) y (3) `projects
-  forecast` («E2E de Proyectos», con `E2E_NO_FORECAST_PASSWORD`).
+  forecast` («E2E de Proyectos», con `E2E_NO_FORECAST_PASSWORD`); Reportes, Inicio
+  e Integraciones añaden dos tandas más (ver «Todas las suites E2E en un mismo stack»).
   `auth-local` exige volver al paso 1 antes de repetirlo.
 - Con varios navegadores en paralelo la SPA puede pasar de 120 peticiones por
   minuto desde la misma IP: en el stack aislado se arranca el backend con
@@ -344,6 +349,44 @@ Notas:
   actividades vencidas y alertas de proyecto u oportunidad en el equipo del manager, el
   recorrido falla con un mensaje de precondición: depende de los datos demo.
 
+### E2E de Reportes
+
+`frontend/tests/e2e/crm-reports.e2e.spec.ts` (PF-05.39 y PF-05.40 del plan
+`docs/implementation-plans/crm/05-reportes.md`) usa el mismo stack aislado que «E2E de
+Clientes» (`integration_e2e`, semilla esencial y demo, backend en 3100 desde el código
+fuente, Vite en 5180). Solo lee y exporta (cada exportación deja su `crm.report.exported`),
+así que se puede repetir sin volver a preparar el esquema. No necesita usuarios propios: el
+manager demo (TEAM) tiene `reportes.ver` y `reportes.exportar` y el asesor demo (OWN) solo
+`reportes.ver`.
+
+| Recorrido | Qué cubre |
+|---|---|
+| PF-05.39 (reporte) | Manager: Reportes › Oportunidades desde el menú; el resumen cuadra con la tabla (AC-05.5); una tarjeta filtra la tabla; filtro «Estado = Abiertas» con su chip; «Exportar a Excel» descarga `reporte-oportunidades-YYYYMMDD-HHmm.xlsx`, que la prueba abre con `exceljs` (hojas Datos/Resumen/Filtros, encabezados y las mismas filas en el mismo orden que la pantalla, AC-05.23) |
+| PF-05.39 (dashboard y embudo) | Manager: dashboard con los siete paneles, filtro de asesor (AC-05.31), «Ver como tabla» con los valores de la API (AC-05.33), etapa → reporte de oportunidades con etapa, asesor y período `IDENTIFIED` y el mismo conteo; embudo desde el menú (AC-05.35), tabla alternativa y etapa → reporte con el mismo conteo |
+| PF-05.40 | Asesor: las siete opciones de Reportes en el menú, sin «Exportar a Excel» (AC-05.28); un proyecto de otro asesor del equipo lo encuentra el manager y el asesor no (AC-05.41); las siete pantallas a 400 px sin desplazamiento horizontal |
+
+Variables, además de las de «E2E de Clientes» (las imprime `e2e-stack.ts activate`):
+
+| Variable | Valor |
+|---|---|
+| `E2E_REPORT_TEAM_PROJECT_CODE` | código de un proyecto de otro asesor que el manager ve en `GET /reports/projects` y el asesor no (`GET /projects/{id}` → `404`); distinto del `E2E_MANAGER_TEAM_PROJECT` que reasigna PF-03.115 |
+
+Pasos: los 1 a 4 de «E2E de Clientes»; después
+`E2E_BASE_URL=http://localhost:5180 pnpm --filter @app/frontend test:e2e crm-reports`
+con las variables impresas y `E2E_ASESOR_PASSWORD` / `E2E_MANAGER_PASSWORD`. Limpieza: el
+paso 6 (y los `frontend/test-results`, donde queda el `.xlsx` descargado).
+
+Notas:
+
+- El recorrido inicia sesión una vez por usuario (2 accesos) y reutiliza la sesión. Para
+  correr **todos** los E2E es la cuarta tanda (ver «Todas las suites E2E en un mismo stack»).
+- `exceljs` es dependencia del backend (ADR-022): la prueba la resuelve desde
+  `backend/package.json` con `createRequire`, sin añadir dependencias al frontend.
+- Las comparaciones son contra la respuesta real del servidor (conteos de `/summary`,
+  `pagination.totalItems`, `X-Export-Rows`), no contra cifras fijas de la demo.
+- La primera ejecución contra un Vite recién arrancado puede fallar mientras compila las
+  páginas diferidas y el *chunk* de `@mui/x-charts`; con Vite ya caliente no vuelve a pasar.
+
 ### E2E de Integraciones
 
 `frontend/tests/e2e/customer-imports.e2e.spec.ts` (PF-06.49 y PF-06.50 del plan
@@ -398,6 +441,26 @@ Notas:
   repetible sin volver a `prepare`; con el stack ya compilado tarda unos 13 s.
 - La plantilla y el archivo de errores se comprueban leyendo la descarga real de
   Playwright (`download.path()`); el nombre llega en `Content-Disposition`.
+
+### Todas las suites E2E en un mismo stack
+
+Con los módulos 1 a 6 integrados, las diez suites de `frontend/tests/e2e/` corren sobre
+**un** stack aislado («E2E de Clientes», pasos 1–3) en cinco tandas, con más de un minuto
+entre tandas y tras cada `activate` (10 inicios de sesión por minuto por IP):
+
+1. `activate` con `E2E_ASESOR_PASSWORD`, `E2E_MANAGER_PASSWORD`, `E2E_RESTRICTED_PASSWORD`,
+   `E2E_NO_FORECAST_PASSWORD` y `E2E_NO_COMMERCIAL_PASSWORD`, **sin** `E2E_ADMIN_PASSWORD`:
+   el administrador debe conservar su contraseña inicial para `auth-local`.
+2. Tanda 1: `auth-local smoke crm-customers` (`E2E_ADMIN_PASSWORD = SEED_ADMIN_PASSWORD`).
+3. Tanda 2: `admin-access crm-commercial-activity` (`E2E_ADMIN_PASSWORD = E2E_ADMIN_NEW_PASSWORD`).
+4. Tanda 3: `projects forecast`.
+5. Tanda 4: `crm-reports`.
+6. `activate` otra vez, ahora con `E2E_ADMIN_PASSWORD = E2E_ADMIN_NEW_PASSWORD`: el
+   administrador ya tiene esa contraseña, así que solo inicia sesión e imprime
+   `E2E_ADMIN_EMAIL` y `E2E_IMPORT_EXISTING_CODE` (el resto es idempotente).
+7. Tanda 5: `dashboard customer-imports` (`E2E_ADMIN_PASSWORD = E2E_ADMIN_NEW_PASSWORD`).
+
+Para repetir la batería completa se vuelve a `prepare` (por `auth-local`).
 
 ## 9. En el pipeline
 

@@ -51,6 +51,14 @@ describe('MaterialSymbol', () => {
     },
   );
 
+  it.each([
+    ['insights', 'InsightsOutlinedIcon'],
+    ['filter_alt', 'FilterAltOutlinedIcon'],
+  ])('resuelve el icono `%s` del módulo Reportes (05 H.3)', (name, testId) => {
+    renderWithProviders(<MaterialSymbol name={name} />);
+    expect(screen.getByTestId(testId)).toHaveAttribute('aria-hidden', 'true');
+  });
+
   it('un nombre desconocido cae en el icono por defecto', () => {
     renderWithProviders(<MaterialSymbol name="no_existe" />);
     expect(screen.getByTestId('ChevronRightIcon')).toBeInTheDocument();

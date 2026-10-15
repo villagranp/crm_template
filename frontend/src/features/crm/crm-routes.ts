@@ -5,6 +5,7 @@ import { ROUTE_PATHS } from '@/routes/route-paths';
 import { COMMERCIAL_ACTIVITY_ROUTES } from './commercial-activity/commercial-activity-routes';
 import { CUSTOMER_IMPORT_PERMISSIONS } from './customer-imports/customer-imports.permissions';
 import { FORECAST_PERMISSIONS, OPPORTUNITY_PERMISSIONS, PROJECT_PERMISSIONS } from './projects/projects.permissions';
+import { REPORT_ROUTES } from './reports/reports-routes';
 
 /**
  * Pantallas del CRM comercial: ruta, permiso y página (cargada bajo demanda).
@@ -99,6 +100,8 @@ export const CRM_ROUTES: readonly CrmRoute[] = [
   },
   // Actividad comercial (04 E.1): `commercial-activity/commercial-activity-routes.ts`.
   ...COMMERCIAL_ACTIVITY_ROUTES,
+  // Reportes (05 E.1): `reports/reports-routes.ts`.
+  ...REPORT_ROUTES,
   // Módulo 6 (06 §E): historial y detalle de cargas masivas de clientes.
   {
     path: ROUTE_PATHS.crm.customerImports.list,

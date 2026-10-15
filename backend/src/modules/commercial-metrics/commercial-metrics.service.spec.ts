@@ -3,6 +3,7 @@ import { join, relative } from 'node:path';
 
 import type { AppLogger } from '@/infrastructure/logging/app-logger.service';
 import type { VisibilityScope } from '@/modules/access/visibility-scope';
+import type { CatalogLookupService } from '@/modules/catalogs/catalog-lookup.service';
 
 import { CommercialMetricsService, type MetricContext, targetInPeriod } from './commercial-metrics.service';
 import type { SemanticCatalogItem } from './metric-definitions';
@@ -64,7 +65,7 @@ describe('CommercialMetricsService (01 F.2, KPI-01…KPI-10)', () => {
       teamOwnerIds: jest.fn().mockResolvedValue(['me', 'other']),
       achieved: jest.fn().mockResolvedValue('2.0000'),
     } as unknown as jest.Mocked<CommercialMetricsReadModel>;
-    service = new CommercialMetricsService(readModel, { warn: jest.fn() } as unknown as AppLogger);
+    service = new CommercialMetricsService(readModel, { warn: jest.fn() } as unknown as AppLogger, {} as CatalogLookupService);
   });
 
   it('KPI-01 pasa solo las fases no finales del catálogo', async () => {
