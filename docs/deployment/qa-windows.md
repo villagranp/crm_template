@@ -253,7 +253,60 @@ compila, migra, ejecuta la semilla esencial (idempotente), arranca, valida y rec
 comprueba `/api/v1/ready`. Se detiene en el primer error; el sitio no responde mientras dura
 (unos minutos).
 
-## 13. Antes de Entra ID
+## 13. Carga inicial de datos
+
+Carga de **proyectos**, **productos y familias** y **minutos de seguridad** desde archivos con
+plantilla, ejecutada por quien administra el servidor (no hay pantalla ni endpoint). Diseño y
+reglas: [`CARGA-INICIAL.md`](../implementation-plans/CARGA-INICIAL.md); plantillas, orden de carga y
+manejo de errores: [`docs/templates/README.md`](../templates/README.md). Usa los servicios de la
+aplicación, así que aplica folios, unicidad, visibilidad y **auditoría** con el administrador que
+indiques en `--actor`. Requiere haber ejecutado la semilla esencial y tener creados los usuarios y
+los clientes (orden: usuarios → clientes → proyectos).
+
+Desde `C:\apps\mi-cliente-ag`, en PowerShell (no hace falta ser administrador de Windows; el
+script lee `backend\.env` como el servicio). Guarda los archivos fuera del repositorio, p. ej.
+`C:\data\mi-cliente-ag\cargas`:
+
+```powershell
+cd C:\apps\mi-cliente-ag
+New-Item -ItemType Directory -Force C:\data\mi-cliente-ag\cargas | Out-Null
+
+# 1. Plantilla con los códigos activos reales de la base de QA (se escribe un XLSX o los CSV)
+pnpm --filter '@app/backend' run load:data -- template projects --format xlsx --out C:\data\mi-cliente-ag\cargas
+
+# 2. Llena la hoja de datos y VALIDA (no escribe nada; imprime servidor, base y esquema)
+pnpm --filter '@app/backend' run load:data -- validate projects --file C:\data\mi-cliente-ag\cargas\proyectos.xlsx
+
+# 3. Con la validación en 0, APLICA con un administrador activo (correo o código de colaborador)
+pnpm --filter '@app/backend' run load:data -- apply projects --file C:\data\mi-cliente-ag\cargas\proyectos.xlsx --actor '<correo del administrador de QA>'
+```
+
+Las entidades son `projects`, `products` y `safety-minutes`; con `products` y CSV, `--file` es el
+archivo de productos y el de familias es el de al lado con el sufijo `-familias`. Si
+`NODE_ENV=production` en el servidor, `apply` exige además `--confirm-production`.
+
+- Comprueba la línea `Base de datos: … (esquema …)` antes de aplicar: debe ser `mi_cliente_ag`
+  (esquema `public`) de QA.
+- Código de salida: `0` sin errores; `1` errores de validación o de aplicación (se escribe
+  `informe-carga-<entidad>-<modo>-<fecha>.csv` en la carpeta actual, o la ruta de `--report`,
+  con hoja, fila, columna y motivo, sin datos de las celdas); `2` comando, archivo, actor o
+  entorno rechazados. Compruébalo con `$LASTEXITCODE`.
+- Repetir es seguro: lo que ya existe se omite como «ya existe» sin modificarlo; con errores de
+  validación no se aplica nada.
+- Al terminar, borra los **archivos de entrada**: pueden contener correos de colaboradores. Los
+  informes no contienen datos de celdas (solo hoja, fila, columna y motivo).
+- Advertencias (código de salida 0): `EXISTS_DIFFERENT` (ya existía con datos distintos: se omitió
+  sin modificar; revisa en la aplicación) y `CLASSIFICATION_FAILED` (el proyecto se creó pero sin
+  tipo y sector). **Reparación de `CLASSIFICATION_FAILED`:** abre el proyecto en la aplicación
+  (Proyectos), guarda su tipo y sector; volver a ejecutar `apply` lo omite como «ya existe» y no lo
+  arregla.
+- `template` no sobrescribe plantillas existentes: usa otra carpeta o `--force`.
+- Verifica el resultado en la aplicación y en la bitácora de auditoría (eventos
+  `crm.project.created`, `crm.product_family.created`, `crm.product.created`,
+  `safety_minute.created`).
+- No uses este procedimiento para datos de demostración: esos van con `prisma:seed:demo`.
+
+## 14. Antes de Entra ID
 
 Entra ID no acepta direcciones de redirección `https://<IP>`. Pide a infraestructura un
 nombre DNS de QA y un certificado válido para él; después se sustituye `qa.crt`/`qa.key`, se

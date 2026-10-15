@@ -6,6 +6,27 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 ## [Unreleased]
 
 ### Added
+- **Carga inicial de datos por scripts con plantilla** (`docs/implementation-plans/CARGA-INICIAL.md`;
+  backend y documentación, sin cambios de esquema, endpoints, permisos ni dependencias): el
+  administrador del sistema carga **proyectos**, **productos y familias** y **minutos de seguridad**
+  con `pnpm --filter @app/backend run load:data -- <template|validate|apply> <proyectos|productos|…>`
+  (`projects`, `products`, `safety-minutes`). `validate` no escribe nada y es lo que corre por
+  omisión; `apply` exige `--actor` (administrador activo con el permiso de la entidad) y, en
+  producción, `--confirm-production`. Usa los servicios de aplicación existentes (folios, unicidad,
+  visibilidad y auditoría con el actor), valida fila a fila acumulando todos los errores con fila,
+  columna y motivo (sin datos de las celdas), es idempotente («ya existe» se omite sin modificar),
+  no aplica nada si hay errores de validación y genera un informe CSV; salida distinta de 0 con
+  errores. Plantillas CSV y XLSX versionadas en `docs/templates/` (con README: orden de carga,
+  pasos y errores) y sección «Carga inicial de datos» en `docs/deployment/qa-windows.md`. Los
+  proyectos se enlazan al cliente por su **código CRM**. Módulo sin controladores
+  `initial-data-load`; `ProjectsModule`, `ProductsModule` y `SafetyMinutesModule` exportan ahora
+  `ProjectsService`, `ProjectClassificationService`, `ProductMastersService` y
+  `SafetyMinutesService`; `readSheetRows` admite `exactSheet`; el saneamiento de celdas de la carga
+  masiva de clientes acepta columnas ajenas (sin cambio de comportamiento). `validate` anticipa los
+  obligatorios parametrizados de proyectos (`crm.campos_obligatorios`), distingue «ya existe» de un
+  conflicto (`CODE_CONFLICT` bloquea; `EXISTS_DIFFERENT` avisa sin bloquear), tiene paridad con las
+  validaciones de los DTO de alta y reporta aparte los proyectos creados sin clasificar
+  (`CLASSIFICATION_FAILED`); `template` no sobrescribe sin `--force`.
 - **Ajustes 1** (`docs/implementation-plans/AJUSTES-1.md`; backend y frontend):
   - **Dashboard personalizable por usuario**: cada usuario elige qué bloques e indicadores (K1-K9)
     de Inicio ve y en qué orden con «Personalizar panel»; «Restablecer» vuelve a la composición por
