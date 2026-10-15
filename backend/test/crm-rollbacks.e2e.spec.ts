@@ -9,7 +9,7 @@ import { INTEGRATION_ENV } from './support/integration-env';
 
 /**
  * Rollback de las migraciones del CRM (las 8 de la Fase 0 y las posteriores, como
- * `20261014100000_audit_logs_append_only` de ADR-025) con el procedimiento
+ * `20261014100000_audit_logs_append_only` de ADR-025 y `20261015100000_safety_minutes` de Ajustes 1) con el procedimiento
  * documentado en `docs/database/data-model.md` §10.3 y en la cabecera de cada
  * `prisma/rollbacks/*.down.sql`:
  *
@@ -49,6 +49,8 @@ const CRM_TABLES = [
   'customers', 'contacts', 'projects', 'project_phase_history', 'opportunities', 'opportunity_stage_history',
   'opportunity_results', 'opportunity_result_history', 'project_products', 'forecast_lines', 'visits', 'visit_events',
   'activities', 'interaction_participants', 'attachments', 'customer_imports', 'customer_import_rows', 'sales_targets',
+  // Ajustes 1 (AJ1-2): `20261015100000_safety_minutes`, con su CHECK de mensaje no vacío.
+  'safety_minutes',
 ];
 
 async function tablesPresent(): Promise<string[]> {
@@ -124,6 +126,7 @@ describe('rollback de las migraciones del CRM', () => {
     // Las 8 de la Fase 0 siguen ahí; las posteriores (ADR-025…) también tienen su script.
     expect(migrations.filter((name) => /^20261010\d+_crm_/.test(name))).toHaveLength(8);
     expect(migrations).toContain('20261014100000_audit_logs_append_only');
+    expect(migrations).toContain('20261015100000_safety_minutes');
     expect([...downScripts].reverse()).toEqual(migrations.map((name) => `${name}.down.sql`));
   });
 

@@ -1,9 +1,10 @@
 import { ApiProperty, ApiPropertyOptional, OmitType } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsIn, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, registerDecorator, ValidateIf } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, ValidateIf } from 'class-validator';
 
 import { IsCalendarDateString } from '@/common/dto/calendar-date-string.validator';
 import { isPresent, trim, trimToNull } from '@/common/dto/dto-transforms';
+import { IsNotBeforeFrom } from '@/common/dto/not-before-from.validator';
 import { PaginationMetaDto } from '@/common/dto/paginated-response.dto';
 import { PaginationQueryDto } from '@/common/dto/pagination-query.dto';
 import { UserRefDto } from '@/common/dto/user-ref.dto';
@@ -19,24 +20,6 @@ const RATE_NOTE =
 
 function toUpperCaseCode({ value }: { value: unknown }): unknown {
   return typeof value === 'string' ? value.trim().toUpperCase() : value;
-}
-
-/** `to` no anterior a `from` (07 F.7). Las fechas `YYYY-MM-DD` se comparan como texto. */
-function IsNotBeforeFrom(): PropertyDecorator {
-  return (target: object, propertyName: string | symbol) => {
-    registerDecorator({
-      name: 'isNotBeforeFrom',
-      target: target.constructor,
-      propertyName: propertyName as string,
-      options: { message: 'to must be on or after from' },
-      validator: {
-        validate: (value: unknown, args) => {
-          const from = (args?.object as { from?: unknown } | undefined)?.from;
-          return typeof value !== 'string' || typeof from !== 'string' || from <= value;
-        },
-      },
-    });
-  };
 }
 
 export class ExchangeRatesQueryDto extends OmitType(PaginationQueryDto, ['search', 'sortBy', 'sortOrder'] as const) {

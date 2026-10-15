@@ -1,0 +1,14 @@
+-- PROCEDIMIENTO DE ROLLBACK (docs/database/data-model.md §10.3), desde backend/:
+--   1. Aplicar los .down.sql en orden INVERSO a las migraciones, hasta llegar a la
+--      que se quiere revertir:
+--        pnpm exec prisma db execute --file prisma/rollbacks/<migración>.down.sql --schema prisma/schema.prisma
+--   2. Tras cada uno, retirar su migración del historial de Prisma:
+--        DELETE FROM "_prisma_migrations" WHERE migration_name = '<migración>';
+--      (`prisma migrate resolve --rolled-back` NO sirve: solo acepta migraciones
+--      fallidas y con una aplicada responde P3012.)
+--   Lo verifica backend/test/crm-rollbacks.e2e.spec.ts.
+--
+-- Rollback de 20261015100000_safety_minutes (Ajustes 1, AJ1-2). Elimina la tabla y los
+-- mensajes programados (respaldo previo si ya hay mensajes que conservar). Los eventos
+-- `safety_minute.*` de `audit_logs` no se tocan.
+DROP TABLE IF EXISTS "safety_minutes";

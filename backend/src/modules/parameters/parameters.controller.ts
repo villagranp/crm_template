@@ -47,6 +47,9 @@ function toResponse(parameter: SystemParameterRecord): ParameterResponseDto {
     readOnly: isReadOnly(parameter),
     allowedValues: rule?.allowedValues ? [...rule.allowedValues] : null,
     editor: rule?.editor ?? null,
+    editorOptions: rule?.editorOptions
+      ? Object.fromEntries(Object.entries(rule.editorOptions).map(([name, values]) => [name, [...values]]))
+      : null,
     range: rule?.range ? { ...rule.range } : null,
     updatedAt: parameter.updatedAt.toISOString(),
   };

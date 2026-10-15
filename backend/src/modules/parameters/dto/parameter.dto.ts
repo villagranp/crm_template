@@ -50,6 +50,16 @@ export class ParameterResponseDto {
   @ApiProperty({ type: String, nullable: true, example: 'number', description: 'Editor sugerido para la interfaz (registro de reglas)' })
   editor!: string | null;
 
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: { type: 'array', items: { type: 'string' } },
+    nullable: true,
+    example: { blocks: ['safety-minute', 'hero'], kpis: ['projects-active'], lockedVisibleBlocks: ['safety-minute'] },
+    description:
+      'Listas cerradas que necesita el editor, definidas una sola vez en el backend (hoy solo `ui.inicio.tarjetas`: `blocks`, `kpis` y `lockedVisibleBlocks`, los bloques que no se pueden ocultar)',
+  })
+  editorOptions!: Record<string, string[]> | null;
+
   @ApiProperty({ type: ParameterRangeDto, nullable: true, description: 'Rango numérico admitido' })
   range!: ParameterRangeDto | null;
 

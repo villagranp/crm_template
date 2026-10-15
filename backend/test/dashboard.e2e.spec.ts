@@ -597,7 +597,7 @@ describe('actividad (PF-01.28–PF-01.32, PF-01.46, AC-01.21–AC-01.26)', () =>
 describe('OpenAPI (PF-01.47, AC-01.39)', () => {
   it('los 10 endpoints aparecen con su DTO y los códigos 401 y 403', () => {
     const document = SwaggerModule.createDocument(context.app, new DocumentBuilder().build());
-    const paths = Object.keys(document.paths).filter((path) => path.includes('/dashboard'));
+    const paths = Object.keys(document.paths).filter((path) => path.startsWith('/api/v1/dashboard'));
     expect(paths).toHaveLength(10);
     for (const path of paths) {
       const operation = document.paths[path]?.get;

@@ -1,5 +1,6 @@
 import request from 'supertest';
 
+import { EXCLUSIVE_TIMEOUT_MS, exclusiveParameters } from './support/crm-fixtures';
 import { withParameterLock } from './support/parameter-lock';
 import {
   accessTokenFor,
@@ -373,5 +374,125 @@ describe('GET /api/v1/parameters/authentication (D-07.8, RN-07.34, PF-07.14)', (
       expect(response.status).toBe(404);
     }
     expect(await ctx.prisma.systemParameter.count({ where: { key: { contains: 'auth' } } })).toBe(0);
+  });
+});
+
+/**
+ * Ajustes 1 (AJ1-1, AJ1-6): parámetros `ui.*` del grupo `interfaz` (PF-AJ1.2, PF-AJ1.19,
+ * PF-AJ1.23, AC-AJ1.7b, AC-AJ1.22). Candado exclusivo `ui-settings`, compartido con
+ * `me-settings.e2e`, porque los parámetros son globales y los valores se cambian de forma temporal.
+ */
+describe('parámetros de interfaz (grupo interfaz)', () => {
+  const COMPOSITION_KEY = 'ui.inicio.tarjetas';
+  const TOPBAR_KEYS = ['ui.barra_superior.buscar', 'ui.barra_superior.pantalla_completa', 'ui.barra_superior.notificaciones'];
+  let releaseUi: () => Promise<void>;
+
+  beforeAll(async () => {
+    releaseUi = await exclusiveParameters('ui-settings');
+  }, EXCLUSIVE_TIMEOUT_MS);
+
+  afterAll(async () => {
+    await releaseUi?.();
+  });
+
+  async function interfaceGroup(token = adminToken) {
+    const response = await api().get('/api/v1/parameters').set('Authorization', `Bearer ${token}`).expect(200);
+    const group = (response.body.data as { group: string; parameters: Record<string, unknown>[] }[]).find((entry) => entry.group === 'interfaz');
+    return group?.parameters ?? [];
+  }
+
+  it('PF-AJ1.23: la semilla crea los cuatro parámetros ui.* con los valores de D-AJ1.4', async () => {
+    const parameters = await interfaceGroup();
+    const byKey = new Map(parameters.map((parameter) => [parameter.key as string, parameter]));
+    expect(byKey.get('ui.barra_superior.buscar')).toMatchObject({ type: 'BOOLEAN', value: 'false', editor: 'boolean', requiresConfigure: false });
+    expect(byKey.get('ui.barra_superior.pantalla_completa')).toMatchObject({ type: 'BOOLEAN', value: 'true', editor: 'boolean', requiresConfigure: false });
+    expect(byKey.get('ui.barra_superior.notificaciones')).toMatchObject({ type: 'BOOLEAN', value: 'false', editor: 'boolean', requiresConfigure: false });
+    expect(byKey.get(COMPOSITION_KEY)).toMatchObject({ type: 'JSON', editor: 'dashboard-cards', requiresConfigure: false, readOnly: false, isSystem: true });
+    expect(byKey.has('ui.paginacion_default')).toBe(true);
+    // Descripción de buscar y notificaciones: avisan de que aún no tienen función (RN-AJ1.14).
+    expect(byKey.get('ui.barra_superior.buscar')?.description).toMatch(/aún no tiene función/i);
+    expect(byKey.get('ui.barra_superior.notificaciones')?.description).toMatch(/aún no tiene función/i);
+  });
+
+  it('el editor recibe las listas cerradas de claves del backend (editorOptions) y el valor por defecto sembrado', async () => {
+    const composition = (await interfaceGroup()).find((parameter) => parameter.key === COMPOSITION_KEY);
+    expect(composition?.editorOptions).toEqual({
+      blocks: ['safety-minute', 'hero', 'mine', 'kpis', 'alerts', 'activity', 'access'],
+      kpis: [
+        'projects-active',
+        'opportunities-open',
+        'opportunities-won',
+        'opportunities-lost',
+        'forecast',
+        'visits-pending',
+        'activities-pending',
+        'activities-overdue',
+        'targets',
+      ],
+      lockedVisibleBlocks: ['safety-minute'],
+    });
+    expect(composition?.allowedValues).toHaveLength(16);
+    const value = JSON.parse(composition?.value as string) as { blocks: { visible: boolean }[]; kpis: { visible: boolean }[] };
+    expect(value.blocks).toHaveLength(7);
+    expect(value.kpis).toHaveLength(9);
+    expect([...value.blocks, ...value.kpis].every((entry) => entry.visible)).toBe(true);
+    // Los demás parámetros no traen editorOptions.
+    const other = (await interfaceGroup()).find((parameter) => parameter.key === 'ui.paginacion_default');
+    expect(other?.editorOptions).toBeNull();
+  });
+
+  it('AC-AJ1.22: parametros.editar basta para editar un booleano ui.* y deja parameter.updated (sin parametros.configurar)', async () => {
+    const { token, email } = await tokenWithEditWithoutConfigure();
+    const key = 'ui.barra_superior.pantalla_completa';
+    const original = await currentValue(key);
+    try {
+      const response = await api().patch(`/api/v1/parameters/${key}`).set('Authorization', `Bearer ${token}`).send({ value: 'false' }).expect(200);
+      expect(response.body).toMatchObject({ key, value: 'false', group: 'interfaz' });
+      const audit = await ctx.prisma.auditLog.findFirst({ where: { event: 'parameter.updated', resourceId: key, subjectEmail: email } });
+      expect(audit?.changes).toEqual({ value: { before: 'true', after: 'false' } });
+    } finally {
+      await restore(key, original);
+    }
+  });
+
+  it.each(TOPBAR_KEYS)('%s rechaza un valor que no es booleano → 422 INVALID_PARAMETER_VALUE', async (key) => {
+    const original = await currentValue(key);
+    for (const value of ['yes', '1', 'sí', '']) {
+      const response = await api().patch(`/api/v1/parameters/${key}`).set('Authorization', `Bearer ${adminToken}`).send({ value }).expect(422);
+      expect(response.body.code).toBe('INVALID_PARAMETER_VALUE');
+    }
+    expect(await currentValue(key)).toBe(original);
+  });
+
+  it('PF-AJ1.19 / AC-AJ1.7b: el PATCH de la composición por defecto sin parametros.editar → 403; sin token → 401', async () => {
+    const original = await currentValue(COMPOSITION_KEY);
+    const { token } = await tokenWithRoles(ctx, ['usuario']);
+    for (const key of [COMPOSITION_KEY, ...TOPBAR_KEYS]) {
+      const forbidden = await api().patch(`/api/v1/parameters/${key}`).set('Authorization', `Bearer ${token}`).send({ value: original }).expect(403);
+      expect(forbidden.body.code).toBe('PERMISSION_DENIED');
+      await api().patch(`/api/v1/parameters/${key}`).send({ value: original }).expect(401);
+    }
+    expect(await currentValue(COMPOSITION_KEY)).toBe(original);
+  });
+
+  it('AC-AJ1.7b: editar la composición por defecto la guarda normalizada (safety-minute visible) y audita', async () => {
+    const { token, email } = await tokenWithEditWithoutConfigure();
+    const original = await currentValue(COMPOSITION_KEY);
+    const parsed = JSON.parse(original) as { blocks: { key: string; visible: boolean }[]; kpis: { key: string; visible: boolean }[] };
+    const edited = {
+      blocks: [...parsed.blocks].reverse().map((entry) => (entry.key === 'safety-minute' ? { key: entry.key, visible: false } : entry)),
+      kpis: parsed.kpis.map((entry) => (entry.key === 'targets' ? { key: entry.key, visible: false } : entry)),
+    };
+    try {
+      const response = await api().patch(`/api/v1/parameters/${COMPOSITION_KEY}`).set('Authorization', `Bearer ${token}`).send({ value: JSON.stringify(edited) }).expect(200);
+      const saved = JSON.parse(response.body.value as string) as typeof edited;
+      expect(saved.blocks.find((entry) => entry.key === 'safety-minute')?.visible).toBe(true);
+      expect(saved.blocks.map((entry) => entry.key)).toEqual(edited.blocks.map((entry) => entry.key));
+      expect(saved.kpis.find((entry) => entry.key === 'targets')?.visible).toBe(false);
+      const audit = await ctx.prisma.auditLog.findFirst({ where: { event: 'parameter.updated', resourceId: COMPOSITION_KEY, subjectEmail: email } });
+      expect(audit?.changes).toMatchObject({ value: { before: original } });
+    } finally {
+      await restore(COMPOSITION_KEY, original);
+    }
   });
 });
