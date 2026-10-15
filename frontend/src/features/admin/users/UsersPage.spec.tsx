@@ -6,6 +6,8 @@ import { useAuthStore } from '@/stores/auth.store';
 import { callsTo, errorResponse, jsonResponse, mockApi } from '@/test/api-mocks';
 import { renderWithProviders } from '@/test/render-with-providers';
 
+import { UserDetailDialog } from './components/UserDetailDialog';
+import { UserFormDialog } from './components/UserFormDialog';
 import type { UserDetail, UserListItem } from './users.api';
 import { UsersPage } from './UsersPage';
 
@@ -22,6 +24,8 @@ const USER: UserListItem = {
   email: 'ana@example.test',
   displayName: 'Ana Beltrán',
   jobTitle: null,
+  employeeCode: null,
+  country: null,
   status: 'ACTIVE',
   roles: ['administrador'],
   teams: [],
@@ -445,6 +449,353 @@ describe('UsersPage', () => {
       expect(
         await within(dialog).findByText('Sólo un administrador puede asignar o modificar accesos.'),
       ).toBeInTheDocument();
+    });
+  });
+  describe('07 E.1: código de colaborador, país y estados', () => {
+    /** Rellenan el alta completa (seis campos, selectores y equipos): más que el límite por defecto con la suite en paralelo. */
+    const FORM_FLOW_TIMEOUT_MS = 30_000;
+    const GUATEMALA = { id: 'c-gt', isoCode: 'GT', name: 'Guatemala' };
+    const HONDURAS = { id: 'c-hn', isoCode: 'HN', name: 'Honduras' };
+    const FORM_OPTIONS = { countries: [GUATEMALA, HONDURAS] };
+    const ADMIN_PERMISSIONS = [...ALL_PERMISSIONS, 'clientes.ver'];
+    const COMMERCIAL_ROLE = {
+      id: 'r-asesor',
+      code: 'asesor',
+      name: 'Asesor',
+      isSystem: true,
+      isActive: true,
+      permissionCodes: ['clientes.ver', 'proyectos.ver'],
+    };
+
+    async function fill(
+      user: ReturnType<typeof userEvent.setup>,
+      field: HTMLElement,
+      value: string,
+    ) {
+      await user.click(field);
+      await user.paste(value);
+    }
+
+    it('muestra Código y País y presenta los estados Activo, Inactivo, Bloqueado temporalmente e Invitado', async () => {
+      signInWith(['usuarios.ver']);
+      mockApi({
+        'GET /users': () =>
+          jsonResponse(
+            page([
+              { ...USER, employeeCode: 'E-001', country: GUATEMALA },
+              { ...PLAIN_USER, status: 'SUSPENDED' },
+              { ...PLAIN_USER, id: 'u-3', displayName: 'Carla', status: 'LOCKED' },
+              { ...PLAIN_USER, id: 'u-4', displayName: 'Diego', status: 'INVITED' },
+            ]),
+          ),
+      });
+
+      renderWithProviders(<UsersPage />);
+
+      const table = await screen.findByRole('table', { name: 'Usuarios' });
+      expect(within(table).getByRole('columnheader', { name: 'Código' })).toBeInTheDocument();
+      expect(within(table).getByRole('columnheader', { name: 'País' })).toBeInTheDocument();
+      expect(within(table).getByText('E-001')).toBeInTheDocument();
+      expect(within(table).getByText('Guatemala (GT)')).toBeInTheDocument();
+      expect(within(table).getByText('Activo')).toBeInTheDocument();
+      expect(within(table).getByText('Inactivo')).toBeInTheDocument();
+      expect(within(table).getByText('Bloqueado temporalmente')).toBeInTheDocument();
+      expect(within(table).getByText('Invitado')).toBeInTheDocument();
+      expect(
+        screen.getByRole('searchbox', { name: 'Buscar por nombre, correo o código' }),
+      ).toBeInTheDocument();
+      // Sin acceso a la lista de países no se ofrece el filtro.
+      expect(
+        screen.queryByRole('combobox', { name: 'País' }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('filtra por país en el servidor', async () => {
+      const user = userEvent.setup();
+      signInWith(ADMIN_PERMISSIONS);
+      const fetchMock = mockApi({
+        'GET /users': () => jsonResponse(page([USER])),
+        'GET /roles': () => jsonResponse(page(ROLES)),
+        'GET /customers/form-options': () => jsonResponse(FORM_OPTIONS),
+      });
+
+      renderWithProviders(<UsersPage />);
+
+      await user.click(await screen.findByRole('combobox', { name: 'País' }));
+      await user.click(await screen.findByRole('option', { name: 'Honduras' }));
+
+      await waitFor(() => {
+        const listCalls = fetchMock.mock.calls
+          .map(([input]) => new URL(String(input), 'http://localhost'))
+          .filter(
+            (url) => url.pathname.endsWith('/users') && url.searchParams.get('pageSize') !== '1',
+          );
+        expect(listCalls.at(-1)?.searchParams.get('countryId')).toBe('c-hn');
+      });
+    });
+
+    it('un administrador da de alta con código (en mayúsculas), país y equipo principal', async () => {
+      const user = userEvent.setup();
+      signInWith([...ADMIN_PERMISSIONS, 'equipos.ver', 'equipos.editar']);
+      const fetchMock = mockApi({
+        'GET /roles': () => jsonResponse(page([ROLE_USUARIO])),
+        'GET /customers/form-options': () => jsonResponse(FORM_OPTIONS),
+        'GET /teams': () =>
+          jsonResponse(
+            page([
+              { id: 't-1', code: 'norte', name: 'Norte', isActive: true },
+              { id: 't-2', code: 'sur', name: 'Sur', isActive: true },
+            ]),
+          ),
+        'POST /users': () => jsonResponse({ ...USER, id: 'u-9' }, 201),
+        'GET /users/u-9': () => jsonResponse(DETAIL),
+      });
+
+      renderWithProviders(<UserFormDialog open user={null} onClose={() => undefined} />);
+      const dialog = await screen.findByRole('dialog', { name: 'Nuevo usuario' });
+      await fill(user, within(dialog).getByRole('textbox', { name: /correo/i }), 'eva@example.test');
+      await fill(user, within(dialog).getByRole('textbox', { name: /^nombre/i }), 'Eva');
+      await fill(user, within(dialog).getByRole('textbox', { name: /apellidos/i }), 'Luna');
+      await fill(
+        user,
+        within(dialog).getByRole('textbox', { name: /código de colaborador/i }),
+        ' e-001 ',
+      );
+      await user.click(within(dialog).getByRole('combobox', { name: /país/i }));
+      await user.click(await screen.findByRole('option', { name: 'Guatemala (GT)' }));
+      await user.click(await within(dialog).findByRole('checkbox', { name: 'Usuario' }));
+      await user.click(within(dialog).getByRole('combobox', { name: /añadir equipo/i }));
+      await user.click(await screen.findByRole('option', { name: 'Norte (norte)' }));
+      await user.click(within(dialog).getByRole('combobox', { name: /añadir equipo/i }));
+      await user.click(await screen.findByRole('option', { name: 'Sur (sur)' }));
+      await user.click(within(dialog).getByRole('radio', { name: 'Sur' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Crear usuario' }));
+
+      await waitFor(() => expect(callsTo(fetchMock, 'POST', '/users')).toHaveLength(1));
+      expect(JSON.parse(String(callsTo(fetchMock, 'POST', '/users')[0]?.body))).toEqual({
+        email: 'eva@example.test',
+        firstName: 'Eva',
+        lastName: 'Luna',
+        roleIds: ['r-usuario'],
+        employeeCode: 'E-001',
+        countryId: 'c-gt',
+        // El backend marca como principal el primero.
+        teamIds: ['t-2', 't-1'],
+      });
+    }, FORM_FLOW_TIMEOUT_MS);
+
+    it('a un no administrador el país le aparece deshabilitado con la explicación y no se envía', async () => {
+      const user = userEvent.setup();
+      signInWith([...GESTOR_PERMISSIONS, 'clientes.ver', 'equipos.editar'], GESTOR_ROLES);
+      const fetchMock = mockApi({
+        'GET /roles': () => jsonResponse(page([ROLE_USUARIO])),
+        'POST /users': () => jsonResponse({ ...USER, id: 'u-9' }, 201),
+        'GET /users/u-9': () => jsonResponse(PLAIN_DETAIL),
+      });
+
+      renderWithProviders(<UserFormDialog open user={null} onClose={() => undefined} />);
+      const dialog = await screen.findByRole('dialog', { name: 'Nuevo usuario' });
+
+      expect(within(dialog).getByRole('combobox', { name: /país/i })).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      );
+      expect(
+        within(dialog).getByText(/Sólo un administrador puede asignar o cambiar el país/),
+      ).toBeInTheDocument();
+      expect(within(dialog).getByText(/Sólo un administrador puede asignar equipos/)).toBeInTheDocument();
+      expect(
+        within(dialog).queryByRole('combobox', { name: /añadir equipo/i }),
+      ).not.toBeInTheDocument();
+
+      await fill(user, within(dialog).getByRole('textbox', { name: /correo/i }), 'eva@example.test');
+      await fill(user, within(dialog).getByRole('textbox', { name: /^nombre/i }), 'Eva');
+      await fill(user, within(dialog).getByRole('textbox', { name: /apellidos/i }), 'Luna');
+      await fill(
+        user,
+        within(dialog).getByRole('textbox', { name: /código de colaborador/i }),
+        'E-002',
+      );
+      await user.click(await within(dialog).findByRole('checkbox', { name: 'Usuario' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Crear usuario' }));
+
+      await waitFor(() => expect(callsTo(fetchMock, 'POST', '/users')).toHaveLength(1));
+      const body = JSON.parse(String(callsTo(fetchMock, 'POST', '/users')[0]?.body)) as Record<
+        string,
+        unknown
+      >;
+      expect(body).toMatchObject({ employeeCode: 'E-002' });
+      expect(body).not.toHaveProperty('countryId');
+      expect(body).not.toHaveProperty('teamIds');
+    }, FORM_FLOW_TIMEOUT_MS);
+
+    it('traduce el conflicto de código de colaborador y avisa del perfil comercial', async () => {
+      const user = userEvent.setup();
+      signInWith(ADMIN_PERMISSIONS);
+      mockApi({
+        'GET /roles': () => jsonResponse(page([COMMERCIAL_ROLE])),
+        'GET /customers/form-options': () => jsonResponse(FORM_OPTIONS),
+        'POST /users': () =>
+          errorResponse(409, 'RESOURCE_CONFLICT', [{ field: 'employeeCode', issue: 'duplicated' }]),
+      });
+
+      renderWithProviders(<UserFormDialog open user={null} onClose={() => undefined} />);
+      const dialog = await screen.findByRole('dialog', { name: 'Nuevo usuario' });
+      await fill(user, within(dialog).getByRole('textbox', { name: /correo/i }), 'eva@example.test');
+      await fill(user, within(dialog).getByRole('textbox', { name: /^nombre/i }), 'Eva');
+      await fill(user, within(dialog).getByRole('textbox', { name: /apellidos/i }), 'Luna');
+      await user.click(await within(dialog).findByRole('checkbox', { name: 'Asesor' }));
+
+      expect(
+        within(dialog).getByText(/Los roles comerciales exigen código de colaborador y país/),
+      ).toBeInTheDocument();
+
+      await fill(
+        user,
+        within(dialog).getByRole('textbox', { name: /código de colaborador/i }),
+        'E-001',
+      );
+      await user.click(within(dialog).getByRole('button', { name: 'Crear usuario' }));
+
+      expect(
+        await within(dialog).findByText('Ya existe un usuario con ese código de colaborador.'),
+      ).toBeInTheDocument();
+    }, FORM_FLOW_TIMEOUT_MS);
+
+    it('al asignar un rol comercial sin perfil completo muestra CRM_PROFILE_INCOMPLETE', async () => {
+      const user = userEvent.setup();
+      signInWith(ADMIN_PERMISSIONS);
+      mockApi({
+        'GET /users': () => jsonResponse(page([PLAIN_USER])),
+        'GET /roles': () => jsonResponse(page([ROLE_USUARIO, COMMERCIAL_ROLE])),
+        'GET /users/u-2': () => jsonResponse(PLAIN_DETAIL),
+        'PUT /users/u-2/roles': () =>
+          errorResponse(422, 'CRM_PROFILE_INCOMPLETE', [{ field: 'employeeCode', issue: 'required' }]),
+      });
+
+      renderWithProviders(<UsersPage />);
+      await user.click(await screen.findByRole('button', { name: 'Ver Bruno Cano' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Bruno Cano' });
+      await user.click(await within(dialog).findByRole('tab', { name: 'Roles' }));
+      await user.click(await within(dialog).findByRole('checkbox', { name: 'Asesor (sistema)' }));
+      expect(
+        within(dialog).getByText(/Los roles comerciales exigen código de colaborador y país/),
+      ).toBeInTheDocument();
+      await user.click(within(dialog).getByRole('button', { name: 'Guardar roles' }));
+
+      expect(
+        await within(dialog).findByText(
+          'Para asignar un rol comercial el usuario necesita código de colaborador y país.',
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('el detalle muestra código de colaborador y país', async () => {
+      const user = userEvent.setup();
+      signInWith(['usuarios.ver']);
+      const detail: UserDetail = { ...PLAIN_DETAIL, employeeCode: 'E-010', country: GUATEMALA };
+      mockApi({
+        'GET /users': () => jsonResponse(page([PLAIN_USER])),
+        'GET /users/u-2': () => jsonResponse(detail),
+      });
+
+      renderWithProviders(<UsersPage />);
+      await user.click(await screen.findByRole('button', { name: 'Ver Bruno Cano' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Bruno Cano' });
+      expect(await within(dialog).findByText('Guatemala (GT)')).toBeInTheDocument();
+      expect(within(dialog).getByText('E-010')).toBeInTheDocument();
+    });
+
+    it('un no administrador edita el código sin enviar el país', async () => {
+      const user = userEvent.setup();
+      signInWith(GESTOR_PERMISSIONS, GESTOR_ROLES);
+      const detail: UserDetail = { ...PLAIN_DETAIL, employeeCode: 'E-010', country: GUATEMALA };
+      const fetchMock = mockApi({ 'PATCH /users/u-2': () => jsonResponse(detail) });
+
+      renderWithProviders(<UserFormDialog open user={detail} onClose={() => undefined} />);
+
+      const form = await screen.findByRole('dialog', { name: 'Editar Bruno Cano' });
+      expect(within(form).getByRole('combobox', { name: /país/i })).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      );
+      expect(within(form).getByRole('combobox', { name: /país/i })).toHaveTextContent(
+        'Guatemala (GT)',
+      );
+      const code = within(form).getByRole('textbox', { name: /código de colaborador/i });
+      await user.clear(code);
+      await fill(user, code, 'e-011');
+      await user.click(within(form).getByRole('button', { name: 'Guardar cambios' }));
+
+      await waitFor(() => expect(callsTo(fetchMock, 'PATCH', '/users/u-2')).toHaveLength(1));
+      const body = JSON.parse(String(callsTo(fetchMock, 'PATCH', '/users/u-2')[0]?.body)) as Record<
+        string,
+        unknown
+      >;
+      expect(body).toMatchObject({ employeeCode: 'E-011' });
+      expect(body).not.toHaveProperty('countryId');
+    });
+
+    it('PF-07.3: suspender deja al usuario «Inactivo»', async () => {
+      const user = userEvent.setup();
+      signInWith(ALL_PERMISSIONS);
+      let current: UserDetail = { ...PLAIN_DETAIL };
+      const fetchMock = mockApi({
+        'GET /users': () => jsonResponse(page([PLAIN_USER])),
+        'GET /users/u-2': () => jsonResponse(current),
+        'POST /users/u-2/suspend': () => {
+          current = { ...current, status: 'SUSPENDED' };
+          return jsonResponse(current);
+        },
+      });
+
+      renderWithProviders(<UserDetailDialog userId="u-2" onClose={() => undefined} />);
+      const dialog = await screen.findByRole('dialog', { name: 'Bruno Cano' });
+      await user.click(await within(dialog).findByRole('button', { name: 'Suspender' }));
+      const confirm = await screen.findByRole('dialog', { name: 'Suspender usuario' });
+      expect(within(confirm).getByText(/quedará «Inactivo»/)).toBeInTheDocument();
+      await fill(
+        user,
+        within(confirm).getByRole('textbox', { name: /motivo/i }),
+        'Baja temporal por licencia',
+      );
+      await user.click(within(confirm).getByRole('button', { name: 'Suspender' }));
+
+      expect(
+        await within(dialog).findByText('Usuario suspendido. Sus sesiones se cerraron.'),
+      ).toBeInTheDocument();
+      expect(await within(dialog).findByText('Inactivo')).toBeInTheDocument();
+      expect(
+        JSON.parse(String(callsTo(fetchMock, 'POST', '/users/u-2/suspend')[0]?.body)),
+      ).toEqual({ reason: 'Baja temporal por licencia' });
+    });
+
+    it('PF-07.3: reactivar devuelve a «Activo» a un usuario «Inactivo»', async () => {
+      const user = userEvent.setup();
+      signInWith(ALL_PERMISSIONS);
+      let current: UserDetail = { ...PLAIN_DETAIL, status: 'SUSPENDED' };
+      mockApi({
+        'GET /users/u-2': () => jsonResponse(current),
+        'POST /users/u-2/reactivate': () => {
+          current = { ...current, status: 'ACTIVE' };
+          return jsonResponse(current);
+        },
+      });
+
+      renderWithProviders(<UserDetailDialog userId="u-2" onClose={() => undefined} />);
+      const dialog = await screen.findByRole('dialog', { name: 'Bruno Cano' });
+      expect(await within(dialog).findByText('Inactivo')).toBeInTheDocument();
+      await user.click(within(dialog).getByRole('button', { name: 'Reactivar' }));
+      const reactivate = await screen.findByRole('dialog', { name: 'Reactivar usuario' });
+      await fill(
+        user,
+        within(reactivate).getByRole('textbox', { name: /motivo/i }),
+        'Vuelve de su licencia',
+      );
+      await user.click(within(reactivate).getByRole('button', { name: 'Reactivar' }));
+
+      expect(await within(dialog).findByText('Usuario reactivado.')).toBeInTheDocument();
+      expect(await within(dialog).findByText('Activo')).toBeInTheDocument();
     });
   });
 });

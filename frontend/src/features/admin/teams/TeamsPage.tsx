@@ -24,7 +24,7 @@ import {
   useTableQueryState,
   type DataTableColumn,
 } from '@/features/admin/common';
-import { useCan } from '@/hooks/use-permission';
+import { useCan, useIsAdministrador } from '@/hooks/use-permission';
 
 import { TeamFormDialog } from './components/TeamFormDialog';
 import { TeamMembersDialog } from './components/TeamMembersDialog';
@@ -110,29 +110,36 @@ export function TeamsPage() {
     enabled: view === 'table',
   });
 
+  const isAdministrador = useIsAdministrador();
   const canCreate = can(TEAM_PERMISSIONS.create);
   const canEdit = can(TEAM_PERMISSIONS.edit);
   const canDelete = can(TEAM_PERMISSIONS.remove);
+  // 07 RN-07.45 (addendum ADR-020): cambiar miembros y eliminar un equipo con
+  // miembros o subequipos es asignación de acceso, sólo del administrador.
+  // Ocultarlo es UX: el backend responde 403 ADMIN_ONLY igualmente.
+  const canEditMembers = canEdit && isAdministrador;
+  const canDeleteTeam = (team: Team) =>
+    canDelete && (isAdministrador || (team.memberCount === 0 && team.childCount === 0));
 
   const rowActions = (team: Team) => (
     <>
       {canEdit ? (
-        <>
-          <IconButton
-            aria-label={`Editar ${team.name}`}
-            onClick={() => setForm({ open: true, team })}
-          >
-            <EditOutlinedIcon />
-          </IconButton>
-          <IconButton
-            aria-label={`Miembros de ${team.name}`}
-            onClick={() => setMembersTeamId(team.id)}
-          >
-            <GroupOutlinedIcon />
-          </IconButton>
-        </>
+        <IconButton
+          aria-label={`Editar ${team.name}`}
+          onClick={() => setForm({ open: true, team })}
+        >
+          <EditOutlinedIcon />
+        </IconButton>
       ) : null}
-      {canDelete ? (
+      {canEditMembers ? (
+        <IconButton
+          aria-label={`Miembros de ${team.name}`}
+          onClick={() => setMembersTeamId(team.id)}
+        >
+          <GroupOutlinedIcon />
+        </IconButton>
+      ) : null}
+      {canDeleteTeam(team) ? (
         <IconButton
           aria-label={`Eliminar ${team.name}`}
           onClick={() => {

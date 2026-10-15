@@ -2,7 +2,7 @@ import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 
 import { createQueryKeys, type ListQuery } from '@/features/admin/common';
 
-import { exportAuditLogs, listAuditEvents, listAuditLogs } from './audit.api';
+import { type AuditExportLayout, exportAuditLogs, listAuditEvents, listAuditLogs } from './audit.api';
 import { saveFile } from '@/lib/save-file';
 
 export const auditKeys = createQueryKeys('audit');
@@ -21,8 +21,8 @@ export function useAuditEvents() {
 /** Descarga el CSV y lo guarda en el equipo del usuario. */
 export function useExportAuditLogs() {
   return useMutation({
-    mutationFn: async (filters: ListQuery) => {
-      const file = await exportAuditLogs(filters);
+    mutationFn: async ({ filters, layout = 'events' }: { filters: ListQuery; layout?: AuditExportLayout }) => {
+      const file = await exportAuditLogs(filters, layout);
       saveFile(file.blob, file.fileName ?? DEFAULT_EXPORT_FILE_NAME);
     },
   });

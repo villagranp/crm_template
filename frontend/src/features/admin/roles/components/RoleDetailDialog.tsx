@@ -1,5 +1,6 @@
 import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import {
   Alert,
   Box,
@@ -18,6 +19,7 @@ import {
   TableHead,
   TableRow,
   Tabs,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import { useEffect, useMemo, useState } from 'react';
@@ -32,8 +34,11 @@ import {
 import { useCan, useIsAdministrador } from '@/hooks/use-permission';
 
 import {
+  ACTION_HINT,
   ACTION_LABEL,
+  DATA_SCOPE_DESCRIPTION,
   DATA_SCOPE_LABEL,
+  moduleLabel,
   ROLE_ERRORS,
   buildPermissionMatrix,
 } from '../roles-format';
@@ -158,7 +163,10 @@ function RoleSummary({ role, onEdit }: { role: Role; onEdit: () => void }) {
       value: <Chip size="small" variant="outlined" label={role.isSystem ? 'Sistema' : 'Propio'} />,
     },
     { label: 'Código', value: role.code },
-    { label: 'Alcance de datos', value: DATA_SCOPE_LABEL[role.dataScope] },
+    {
+      label: 'Alcance de datos',
+      value: `${DATA_SCOPE_LABEL[role.dataScope]}. ${DATA_SCOPE_DESCRIPTION[role.dataScope]}`,
+    },
     { label: 'Usuarios asignados', value: String(role.userCount) },
     { label: 'Descripción', value: role.description ?? '—', wide: true },
   ];
@@ -234,15 +242,15 @@ function PermissionMatrix({ role }: { role: Role }) {
     <Stack spacing={3}>
       {wouldEdit && !isAdministrador ? <Alert severity="info">{ADMIN_ONLY_NOTE}</Alert> : null}
       {matrix.map((module) => (
-        <DetailSection key={module.moduleKey} title={module.moduleKey}>
+        <DetailSection key={module.moduleKey} title={moduleLabel(module.moduleKey)}>
           <TableContainer className="scroll-x">
-            <Table size="small" aria-label={`Permisos del módulo ${module.moduleKey}`}>
+            <Table size="small" aria-label={`Permisos del módulo ${moduleLabel(module.moduleKey)}`}>
               <TableHead>
                 <TableRow>
                   <TableCell>Recurso</TableCell>
                   {module.actions.map((action) => (
                     <TableCell key={action} align="center">
-                      {ACTION_LABEL[action] ?? action}
+                      <ActionHeader action={action} />
                     </TableCell>
                   ))}
                 </TableRow>
@@ -257,6 +265,7 @@ function PermissionMatrix({ role }: { role: Role }) {
                       const permission = byAction[action];
                       return (
                         <TableCell key={action} align="center" padding="checkbox">
+                          {/* Sin permiso en el catálogo: celda vacía, no "no concedido" (AC-07.12). */}
                           {permission ? (
                             <Checkbox
                               checked={selected.has(permission.code)}
@@ -295,6 +304,27 @@ function PermissionMatrix({ role }: { role: Role }) {
         </Box>
       ) : null}
     </Stack>
+  );
+}
+
+/** Cabecera de una operación de la matriz; con ayuda emergente si la necesita (p. ej. Administrar). */
+function ActionHeader({ action }: { action: string }) {
+  const label = ACTION_LABEL[action] ?? action;
+  const hint = ACTION_HINT[action];
+  if (!hint) {
+    return label;
+  }
+  return (
+    <Tooltip title={hint} describeChild>
+      <Box
+        component="span"
+        tabIndex={0}
+        sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, cursor: 'help' }}
+      >
+        {label}
+        <InfoOutlinedIcon fontSize="inherit" aria-hidden />
+      </Box>
+    </Tooltip>
   );
 }
 

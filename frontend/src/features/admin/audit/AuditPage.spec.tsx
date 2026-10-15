@@ -106,7 +106,7 @@ describe('AuditPage', () => {
     expect(first?.searchParams.get('sortOrder')).toBe('desc');
 
     await user.type(screen.getByRole('combobox', { name: 'Evento' }), 'auth.');
-    await user.type(screen.getByLabelText('Tipo de recurso'), 'user');
+    await user.type(screen.getByRole('combobox', { name: 'Entidad' }), 'user');
     await user.click(screen.getByRole('button', { name: 'Aplicar' }));
 
     await waitFor(() => {
@@ -188,5 +188,117 @@ describe('AuditPage', () => {
     renderWithProviders(<AuditPage />);
 
     expect(await screen.findByText('No tienes permiso para realizar esta acción.')).toBeInTheDocument();
+  });
+  describe('07 E.6: entidad, campo y vista por campo', () => {
+    const CUSTOMER_ENTRY: AuditLogEntry = {
+      ...ENTRY,
+      id: 'log-2',
+      event: 'crm.customer.updated',
+      resourceType: 'crm.customer',
+      resourceId: 'cus-1',
+      changes: { phone: { before: '***1234', after: '***9876' }, legalName: { before: 'A', after: 'B' } },
+    };
+    const FIELD_PAGE = { ...PAGE, data: [CUSTOMER_ENTRY, { ...ENTRY, changes: null }] };
+
+    it('el selector de Entidad muestra etiquetas, busca por ellas y filtra por el código; aplica el filtro Campo', async () => {
+      signInWith(['auditoria.ver']);
+      const fetchMock = mockApi({
+        'GET /audit-logs': () => jsonResponse(PAGE),
+        'GET /audit-logs/events': () => jsonResponse({ data: [] }),
+      });
+      const user = userEvent.setup();
+
+      renderWithProviders(<AuditPage />);
+      await screen.findByRole('table', { name: 'Registros de auditoría' });
+      await user.type(screen.getByRole('combobox', { name: 'Entidad' }), 'client');
+      await user.click(await screen.findByRole('option', { name: /^Cliente crm\.customer$/ }));
+      expect(screen.getByText('Cliente')).toBeInTheDocument();
+      await user.type(screen.getByRole('textbox', { name: 'Campo' }), 'phaseId');
+      await user.click(screen.getByRole('button', { name: 'Aplicar' }));
+
+      await waitFor(() => {
+        const last = requestedUrls(fetchMock, '/audit-logs').at(-1);
+        expect(last?.searchParams.get('resourceType')).toBe('crm.customer');
+        expect(last?.searchParams.get('field')).toBe('phaseId');
+      });
+    });
+
+    it('un campo con caracteres no admitidos no se puede aplicar', async () => {
+      signInWith(['auditoria.ver']);
+      mockApi({
+        'GET /audit-logs': () => jsonResponse(PAGE),
+        'GET /audit-logs/events': () => jsonResponse({ data: [] }),
+      });
+      const user = userEvent.setup();
+
+      renderWithProviders(<AuditPage />);
+      await user.type(screen.getByRole('textbox', { name: 'Campo' }), 'phase id');
+
+      expect(screen.getByText(/Sólo letras, dígitos, punto y guion bajo/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Aplicar' })).toBeDisabled();
+    });
+
+    it('PF-07.18: la vista por campo pinta una fila por campo con valor anterior y nuevo', async () => {
+      signInWith(['auditoria.ver']);
+      mockApi({
+        'GET /audit-logs': () => jsonResponse(FIELD_PAGE),
+        'GET /audit-logs/events': () => jsonResponse({ data: [] }),
+      });
+      const user = userEvent.setup();
+
+      renderWithProviders(<AuditPage />);
+      const events = await screen.findByRole('table', { name: 'Registros de auditoría' });
+      expect(within(events).getByText('Cliente · cus-1')).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Vista por campo' }));
+
+      const table = await screen.findByRole('table', { name: 'Cambios por campo' });
+      expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+        'Fecha y hora',
+        'Usuario',
+        'Entidad',
+        'Registro',
+        'Acción',
+        'Campo',
+        'Valor anterior',
+        'Valor nuevo',
+        expect.any(String),
+      ]);
+      const phone = within(table).getByRole('row', { name: /Teléfono \(phone\)/ });
+      // Los valores enmascarados se muestran tal cual.
+      expect(within(phone).getByText('***1234')).toBeInTheDocument();
+      expect(within(phone).getByText('***9876')).toBeInTheDocument();
+      expect(within(phone).getByText('Cliente')).toBeInTheDocument();
+      expect(within(phone).getByText('crm.customer.updated')).toBeInTheDocument();
+      // La segunda fila del mismo evento no repite sus datos comunes.
+      const legalName = within(table).getByRole('row', { name: /Razón social/ });
+      expect(within(legalName).queryByText('crm.customer.updated')).not.toBeInTheDocument();
+      // Un evento sin cambios aparece en una fila sin campo.
+      expect(within(table).getByText('role.updated')).toBeInTheDocument();
+      // El detalle se abre desde la primera fila de cada evento.
+      expect(within(table).getAllByRole('button', { name: /Ver detalle de/ })).toHaveLength(2);
+    });
+
+    it('PF-07.18: en la vista por campo exporta con layout=fields', async () => {
+      signInWith(['auditoria.ver', 'auditoria.exportar']);
+      mockApi({
+        'GET /audit-logs': () => jsonResponse(FIELD_PAGE),
+        'GET /audit-logs/events': () => jsonResponse({ data: [] }),
+      });
+      const download = vi
+        .spyOn(httpClient, 'download')
+        .mockResolvedValue({ blob: new Blob(['a,b']), fileName: 'auditoria.csv' });
+      const user = userEvent.setup();
+
+      renderWithProviders(<AuditPage />, { initialEntries: ['/?field=phone'] });
+      await user.click(await screen.findByRole('button', { name: 'Vista por campo' }));
+      await user.click(screen.getByRole('button', { name: 'Exportar CSV por campo' }));
+
+      await waitFor(() =>
+        expect(download).toHaveBeenCalledWith('/audit-logs/export', {
+          query: { field: 'phone', layout: 'fields' },
+        }),
+      );
+    });
   });
 });

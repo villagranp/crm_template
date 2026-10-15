@@ -26,14 +26,20 @@ import { useCan } from '@/hooks/use-permission';
 
 import { UserDetailDialog } from './components/UserDetailDialog';
 import { UserFormDialog } from './components/UserFormDialog';
-import { USER_STATUS_VIEW, formatDateTime } from './users-format';
+import { USER_STATUS_VIEW, formatCountry, formatDateTime } from './users-format';
 import { listUsers, USER_STATUSES, type UserListItem } from './users.api';
 import { USER_PERMISSIONS } from './users.permissions';
-import { useAssignableRoles, useExportUsers, userKeys, useUsers } from './users.queries';
+import {
+  useAssignableRoles,
+  useCountryOptions,
+  useExportUsers,
+  userKeys,
+  useUsers,
+} from './users.queries';
 
 const TITLE = 'Usuarios';
 const DESCRIPTION = 'Alta, edición, suspensión y asignaciones de los usuarios.';
-const FILTER_KEYS = ['status', 'roleCode'] as const;
+const FILTER_KEYS = ['status', 'roleCode', 'countryId'] as const;
 type UserFilterKey = (typeof FILTER_KEYS)[number];
 /** Misma lista blanca que el backend (`USER_SORT_FIELDS`). */
 const SORTABLE = ['displayName', 'email', 'status', 'createdAt', 'lastLoginAt'] as const;
@@ -49,6 +55,13 @@ const COLUMNS: DataTableColumn<UserListItem>[] = [
     primary: true,
   },
   { id: 'email', header: 'Correo', render: (user) => user.email, sortable: true },
+  {
+    id: 'employeeCode',
+    header: 'Código',
+    render: (user) => user.employeeCode ?? '—',
+    hideOnMobile: true,
+  },
+  { id: 'country', header: 'País', render: (user) => formatCountry(user.country) },
   { id: 'roles', header: 'Roles', render: (user) => user.roles.join(', ') || '—' },
   {
     id: 'lastLoginAt',
@@ -91,6 +104,8 @@ export function UsersPage() {
   });
   const users = useUsers(table.apiQuery);
   const roles = useAssignableRoles(can(USER_PERMISSIONS.viewRoles));
+  // Sin acceso a la lista de países (02 F2) el filtro no se ofrece; la columna sí.
+  const countries = useCountryOptions(can(USER_PERMISSIONS.viewCountries));
   const exportMutation = useExportUsers();
   const { filters, search, sort } = table.state;
   const statusCounts = useFilterCounts({
@@ -180,12 +195,32 @@ export function UsersPage() {
                     ))}
                   </TextField>
                 ) : null}
+                {countries.data ? (
+                  <TextField
+                    select
+                    size="small"
+                    fullWidth={false}
+                    value={filters.countryId ?? ''}
+                    onChange={(event) => table.setFilter('countryId', event.target.value)}
+                    slotProps={{
+                      select: { displayEmpty: true, inputProps: { 'aria-label': 'País' } },
+                    }}
+                    sx={{ flex: '0 0 auto', minWidth: '11rem' }}
+                  >
+                    <MenuItem value="">Todos los países</MenuItem>
+                    {countries.data.map((country) => (
+                      <MenuItem key={country.id} value={country.id}>
+                        {country.name}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                ) : null}
               </>
             }
             search={{
               value: table.searchInput,
               onChange: table.setSearchInput,
-              label: 'Buscar por nombre o correo',
+              label: 'Buscar por nombre, correo o código',
             }}
             primaryAction={
               can(USER_PERMISSIONS.create)
@@ -211,7 +246,7 @@ export function UsersPage() {
           isFetching={users.isFetching}
           errorMessage={users.isError ? describeApiError(users.error).message : null}
           onRetry={() => void users.refetch()}
-          emptyTitle={hasFilters ? 'No hay resultados' : 'Aún no hay usuarios'}
+          emptyTitle={hasFilters ? 'Ningún usuario coincide' : 'Aún no hay usuarios'}
           emptyIcon={hasFilters ? undefined : <ManageAccountsOutlinedIcon />}
           emptyAction={
             hasFilters ? (

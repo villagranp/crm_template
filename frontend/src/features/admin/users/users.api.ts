@@ -16,11 +16,21 @@ export interface UserTeam {
   isPrimary: boolean;
 }
 
+/** País del usuario (07 F.1, DM-2): `{ id, isoCode, name }` o `null`. */
+export interface UserCountry {
+  id: string;
+  isoCode: string;
+  name: string;
+}
+
 export interface UserListItem {
   id: string;
   email: string;
   displayName: string;
   jobTitle: string | null;
+  /** Código de colaborador (07 RN-07.1): único, en mayúsculas. */
+  employeeCode: string | null;
+  country: UserCountry | null;
   status: UserStatus;
   roles: string[];
   teams: UserTeam[];
@@ -44,6 +54,8 @@ export interface UserDetail {
   displayName: string;
   jobTitle: string | null;
   phone: string | null;
+  employeeCode: string | null;
+  country: UserCountry | null;
   status: UserStatus;
   lastLoginAt: string | null;
   createdAt: string;
@@ -77,9 +89,46 @@ export interface CreateUserRequest {
   jobTitle?: string;
   phone?: string;
   roleIds: string[];
+  employeeCode?: string;
+  /** Sólo administrador (07 RN-07.5): un no administrador recibe `403 ADMIN_ONLY`. */
+  countryId?: string;
+  /**
+   * Sólo administrador con `equipos.editar` (07 RN-07.10). El backend marca
+   * como principal el primero de la lista.
+   */
+  teamIds?: string[];
 }
 
-export type UpdateUserRequest = Partial<Pick<CreateUserRequest, 'firstName' | 'lastName' | 'jobTitle' | 'phone'>>;
+/**
+ * `null` vacía el campo (el backend responde `422 CRM_PROFILE_INCOMPLETE` si el
+ * usuario tiene un rol comercial). `countryId` sólo lo cambia un administrador.
+ */
+export interface UpdateUserRequest
+  extends Partial<Pick<CreateUserRequest, 'firstName' | 'lastName' | 'jobTitle' | 'phone'>> {
+  employeeCode?: string | null;
+  countryId?: string | null;
+}
+
+/** Cuerpo de `PUT /users/{id}/teams` (07 F.2): como mucho un principal. */
+export interface UserTeamAssignment {
+  teamId: string;
+  isPrimary: boolean;
+}
+
+/** Equipo que se puede asignar (de `GET /teams`). */
+export interface TeamOption {
+  id: string;
+  code: string;
+  name: string;
+  isActive: boolean;
+}
+
+/** País asignable (de los `form-options` de Clientes, 02 F2). */
+export interface CountryOption {
+  id: string;
+  isoCode: string;
+  name: string;
+}
 
 export interface DirectAssignmentRequest {
   targetId: string;
@@ -117,6 +166,7 @@ export interface MenuOptionOption {
 
 const USERS_PATH = '/users';
 const ALL_ROLES_PAGE_SIZE = 100;
+const ALL_TEAMS_PAGE_SIZE = 100;
 
 export function listUsers(query: ListQuery): Promise<Paginated<UserListItem>> {
   return httpClient.get<Paginated<UserListItem>>(USERS_PATH, { query });
@@ -154,6 +204,11 @@ export function replaceUserRoles(id: string, roleIds: string[]): Promise<void> {
   return httpClient.put<void>(`${USERS_PATH}/${id}/roles`, { body: { ids: roleIds } });
 }
 
+/** `PUT /users/{id}/teams` (07 F.2, D-07.4): reemplaza todos los equipos del usuario. */
+export function replaceUserTeams(id: string, teams: UserTeamAssignment[]): Promise<{ teams: UserTeam[] }> {
+  return httpClient.put<{ teams: UserTeam[] }>(`${USERS_PATH}/${id}/teams`, { body: { teams } });
+}
+
 export function replaceUserPermissions(id: string, assignments: DirectAssignmentRequest[]): Promise<void> {
   return httpClient.put<void>(`${USERS_PATH}/${id}/permissions`, { body: { assignments } });
 }
@@ -167,6 +222,27 @@ export async function listAssignableRoles(): Promise<RoleOption[]> {
     query: { pageSize: ALL_ROLES_PAGE_SIZE, sortBy: 'name', sortOrder: 'asc' },
   });
   return page.data;
+}
+
+/** Equipos para asignar (requiere `equipos.ver`). Primera página del tamaño máximo, por nombre. */
+export async function listAssignableTeams(): Promise<TeamOption[]> {
+  const page = await httpClient.get<Paginated<TeamOption>>('/teams', {
+    query: { pageSize: ALL_TEAMS_PAGE_SIZE, sortBy: 'name', sortOrder: 'asc' },
+  });
+  return page.data.map(({ id, code, name, isActive }) => ({ id, code, name, isActive }));
+}
+
+/**
+ * Países activos para el selector y el filtro de país (07 E.1, DM-2).
+ *
+ * No hay un endpoint de países bajo `usuarios.*`: se reutiliza la lista que
+ * publica Clientes en `GET /customers/form-options` (02 F2), igual que los
+ * filtros de Actividad comercial. Exige `clientes.ver`; sin él no se ofrece el
+ * selector (el administrador lo tiene siempre, ADR-020).
+ */
+export async function listCountryOptions(): Promise<CountryOption[]> {
+  const options = await httpClient.get<{ countries: CountryOption[] }>('/customers/form-options');
+  return options.countries.map(({ id, isoCode, name }) => ({ id, isoCode, name }));
 }
 
 export function listPermissionCatalog(): Promise<PermissionOption[]> {

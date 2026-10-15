@@ -29,8 +29,30 @@ export interface CatalogItem {
   updatedAt: string;
 }
 
+/** Clave de `metadata` declarada por el registro de semántica (`CatalogMetadataFieldDto`, 07 F.4). */
+export interface CatalogMetadataField {
+  key: string;
+  type: 'boolean' | 'number' | 'string' | 'enum' | 'enum[]' | 'string[]';
+  required: boolean;
+  /** Admite `null`. */
+  nullable?: boolean;
+  /** Valores admitidos (`enum`, `enum[]`). */
+  values?: string[];
+  min?: number;
+  max?: number;
+  /** Sólo enteros. */
+  integer?: boolean;
+}
+
 /** `GET /catalogs/{id}`: el catálogo con todos sus elementos, por `sortOrder`. */
 export interface CatalogDetail extends Catalog {
+  /**
+   * Esquema de `metadata` (catálogos `crm.*`). `null` = metadata libre (se
+   * edita como JSON); `[]` = el catálogo no lleva metadata.
+   */
+  metadataSchema: CatalogMetadataField[] | null;
+  /** Conjunto cerrado (07 RN-07.25): no se crean ni desactivan elementos; sólo cambian etiqueta y orden. */
+  closedSet: boolean;
   items: CatalogItem[];
 }
 
