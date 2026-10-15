@@ -96,3 +96,35 @@ escritos a mano en una migración.**
   de PostgreSQL; la recomendación de roles separados reduce quién los tiene.
 - La retención efectiva nunca es menor que la configurada: un parámetro ausente
   o inválido se trata como 365 días.
+
+## Estado de implementación (2026-10-14)
+
+Implementado por el Módulo 7 sin cambiar la decisión: migración
+`20261014100000_audit_logs_append_only` (función `audit_logs_append_only()`,
+disparadores `trg_audit_logs_no_update`, `trg_audit_logs_no_truncate` y
+`trg_audit_logs_delete_after_retention`, SQLSTATE `AU001`) y su inverso en
+`backend/prisma/rollbacks/`. "No válido" se concreta así: la retención se lee de
+`system_parameters` del mismo esquema que la tabla y, si falta, no es un entero o
+es menor que 30 (el mínimo del parámetro), se usa 365. Detalle en
+`docs/database/data-model.md` §6; roles recomendados en
+`docs/deployment/environments.md`; regla de las pruebas (nunca limpian
+`audit_logs`: filtran por sus ids o recrean el esquema) en `TESTING.md` §7.
+Pruebas: `backend/test/audit-immutability.e2e.spec.ts` y `crm-rollbacks.e2e.spec.ts`.
+
+### Riesgo aceptado y temporal en QA (decisión del responsable 2026-10-14, D3)
+
+En QA (Windows Server, [ADR-026](ADR-026-runtime-de-qa-en-windows-server-nativo.md),
+`docs/deployment/qa-windows.md`) hay un único usuario, `mi_cliente_ag_qa`, que es
+dueño de la base, ejecuta las migraciones y es la aplicación en ejecución; la
+restauración con `pg_restore --no-owner` deja además `audit_logs` a su nombre.
+Como propietario de la tabla, esa credencial **podría desactivar los
+disparadores** (`ALTER TABLE audit_logs DISABLE TRIGGER …`). El responsable lo
+acepta como **riesgo temporal de QA**, sin cambiar los scripts de despliegue:
+QA no tiene datos productivos y desactivar un disparador queda en los logs de
+PostgreSQL.
+
+Mitigación obligatoria en **producción**: separar los tres roles de
+`docs/deployment/environments.md` ("Bitácora de auditoría"): migraciones
+(propietario), aplicación (`SELECT`, `INSERT`) y purga (`SELECT`, `DELETE` y
+`SELECT` sobre `system_parameters`), con `REVOKE ALL ON audit_logs FROM PUBLIC,
+<rol_app>`. La aplicación de producción nunca es propietaria de `audit_logs`.

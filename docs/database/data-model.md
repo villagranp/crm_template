@@ -172,6 +172,36 @@ La retención está en `system_parameters` (`auditoria.dias_retencion`, 365 día
 por defecto) y debe cuadrar con la política del proyecto
 (`docs/security/retention.md`).
 
+**Solo inserción, también en la base** ([ADR-025](../adr/ADR-025-inmutabilidad-de-la-auditoria-con-disparadores.md),
+migración `20261014100000_audit_logs_append_only`). La función
+`audit_logs_append_only()` y tres disparadores, en SQL escrito a mano (Prisma no
+gestiona disparadores ni los ve como deriva):
+
+| Disparador | Momento | Efecto |
+|---|---|---|
+| `trg_audit_logs_no_update` | `BEFORE UPDATE`, por fila | Siempre rechaza |
+| `trg_audit_logs_no_truncate` | `BEFORE TRUNCATE`, por sentencia | Siempre rechaza |
+| `trg_audit_logs_delete_after_retention` | `BEFORE DELETE`, por fila | Rechaza las filas con `occurred_at` dentro de la retención; permite purgar las vencidas |
+
+- El rechazo usa el SQLSTATE propio `AU001` y un mensaje que no revela datos de
+  la fila.
+- La retención se lee en cada `DELETE` de `system_parameters` del **mismo
+  esquema** que la tabla (`TG_TABLE_SCHEMA`, no el `search_path`). Si falta, no
+  es un entero o es menor que 30, se usa 365: nunca queda más permisivo.
+- Un propietario de la tabla o un superusuario puede desactivar los
+  disparadores: protegen contra la aplicación y los errores, no contra un
+  administrador de base. Reparto de roles recomendado en
+  [`docs/deployment/environments.md`](../deployment/environments.md).
+- Rollback: `backend/prisma/rollbacks/20261014100000_audit_logs_append_only.down.sql`
+  (retira disparadores y función; no toca datos). Probado en
+  `backend/test/audit-immutability.e2e.spec.ts` y `crm-rollbacks.e2e.spec.ts`.
+
+**Filtro por campo** (`GET /audit-logs?field=`, Módulo 7): `changes ? 'campo'`
+sobre los índices existentes, combinado con fecha y tipo. Sin índice nuevo: un
+índice GIN sobre `changes` queda como **mejora medida**, solo si el volumen lo
+exige, y sería una migración aditiva en SQL (Prisma no lo expresa; mismo riesgo
+de deriva que PLAN-ADMIN §10).
+
 ---
 
 ## 7. Convenciones del esquema
@@ -253,7 +283,7 @@ seeds y servicios del CRM llegan después; la Fase 0 solo crea el esquema.
 | Bloque | Tablas | Notas |
 |---|---|---|
 | Monedas y países | `currencies`, `exchange_rates`, `countries` | Moneda base USD (ADR-024). `currencies` usa el código ISO 4217 como PK. Una tasa por moneda y fecha de vigencia; el USD no tiene tasa |
-| Usuarios (extensión) | `users.employee_code` (único), `users.country_id` | Ambos nulos en la base (DM-30). Defaults de usuarios **nuevos**: `es-GT` / `America/Guatemala` (DM-2) |
+| Usuarios (extensión) | `users.employee_code` (único), `users.country_id` | Ambos nulos en la base (DM-30). Defaults de usuarios **nuevos**: `es-GT` / `America/Guatemala` (DM-2). Desde el Módulo 7: el código se guarda recortado y en mayúsculas; el país solo lo fija un administrador; con un rol comercial ambos son obligatorios en la aplicación (`CRM_PROFILE_INCOMPLETE`), no en la base |
 | Productos | `units_of_measure`, `product_families`, `products`, `unit_conversion_rules` | Regla única por (origen, destino, `scope_key`); `scope_key` = `GLOBAL` o el UUID del ámbito |
 | Clientes | `customers`, `contacts` | Código de cliente único por país; **NIT sin único** (DM-4: establecimientos que comparten NIT) |
 | Proyectos | `projects`, `project_phase_history`, `opportunities`, `opportunity_stage_history`, `opportunity_results`, `opportunity_result_history`, `project_products`, `forecast_lines` | Resultado 0..1 por oportunidad; forecast único por proyecto, producto, año y mes |
@@ -303,9 +333,10 @@ Todo ello está probado contra PostgreSQL en `backend/test/crm-schema.e2e.spec.t
 | `20261010100500_crm_commercial_activity` | Visitas, eventos, actividades, participantes |
 | `20261010100600_crm_attachments_imports_targets` | Adjuntos, importaciones, metas; FK `customers.source_import_id` |
 | `20261010100700_crm_interactions_view` | Vista `crm_interactions_v` |
+| `20261014100000_audit_logs_append_only` | Paso 9 de 00 §9, entregado por el Módulo 7: función y disparadores de `audit_logs` (ADR-025, ver §6) |
 
 El SQL de tablas, índices y FK lo generó `prisma migrate diff`; los CHECK, la
-vista y el `RENAME VALUE` se escribieron a mano. Prisma no genera *down*: cada
+vista, el `RENAME VALUE` y los disparadores se escribieron a mano. Prisma no genera *down*: cada
 migración tiene su inverso en `backend/prisma/rollbacks/<migración>.down.sql`.
 
 **Procedimiento de rollback** (desde `backend/`, con `DATABASE_URL` apuntando a
@@ -332,17 +363,20 @@ a aplicar lo retirado.
 > (comprobado con Prisma 6.19). Por eso el paso 2 borra la fila del historial.
 
 Verificado por `backend/test/crm-rollbacks.e2e.spec.ts`: en un esquema propio
-aplica las ocho, ejecuta los ocho `.down.sql` en orden inverso con
-`prisma db execute`, retira sus filas y comprueba que no queda ninguna tabla ni
-la vista del CRM, que `data_scope` vuelve a `TERRITORY` y que `users` pierde
-`employee_code` y `country_id`; después `migrate deploy` las aplica de nuevo.
+aplica todas las del CRM (las ocho de la Fase 0 y las posteriores), ejecuta sus
+`.down.sql` en orden inverso con `prisma db execute`, retira sus filas y
+comprueba que no queda ninguna tabla ni la vista del CRM, que `data_scope`
+vuelve a `TERRITORY`, que `users` pierde `employee_code` y `country_id` y que
+`audit_logs` pierde sus disparadores y la función; después `migrate deploy` las
+aplica de nuevo. Toda migración nueva desde la primera del CRM necesita su
+`.down.sql` (la prueba lo exige).
 
 > **Revertir los pasos 2–8 borra datos comerciales.** Mientras no haya datos
 > del CRM es inocuo; tras el primer uso real queda **prohibido sin respaldo
 > previo** de la base y de `ATTACHMENTS_STORAGE_PATH`.
 
-La migración 9 de 00 §9 (disparadores de inmutabilidad de `audit_logs`,
-ADR-025) la entrega el Módulo 7, no la Fase 0.
+Revertir `20261014100000_audit_logs_append_only` no pierde datos: solo retira
+la protección de la bitácora en la base.
 
 ### 10.4 Datos sensibles
 
