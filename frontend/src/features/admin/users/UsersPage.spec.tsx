@@ -453,7 +453,7 @@ describe('UsersPage', () => {
   });
   describe('07 E.1: código de colaborador, país y estados', () => {
     /** Rellenan el alta completa (seis campos, selectores y equipos): más que el límite por defecto con la suite en paralelo. */
-    const FORM_FLOW_TIMEOUT_MS = 30_000;
+    const FORM_FLOW_TIMEOUT_MS = 60_000;
     const GUATEMALA = { id: 'c-gt', isoCode: 'GT', name: 'Guatemala' };
     const HONDURAS = { id: 'c-hn', isoCode: 'HN', name: 'Honduras' };
     const FORM_OPTIONS = { countries: [GUATEMALA, HONDURAS] };
@@ -688,7 +688,7 @@ describe('UsersPage', () => {
           'Para asignar un rol comercial el usuario necesita código de colaborador y país.',
         ),
       ).toBeInTheDocument();
-    });
+    }, FORM_FLOW_TIMEOUT_MS);
 
     it('el detalle muestra código de colaborador y país', async () => {
       const user = userEvent.setup();
@@ -768,7 +768,7 @@ describe('UsersPage', () => {
       expect(
         JSON.parse(String(callsTo(fetchMock, 'POST', '/users/u-2/suspend')[0]?.body)),
       ).toEqual({ reason: 'Baja temporal por licencia' });
-    });
+    }, FORM_FLOW_TIMEOUT_MS);
 
     it('PF-07.3: reactivar devuelve a «Activo» a un usuario «Inactivo»', async () => {
       const user = userEvent.setup();
@@ -796,6 +796,6 @@ describe('UsersPage', () => {
 
       expect(await within(dialog).findByText('Usuario reactivado.')).toBeInTheDocument();
       expect(await within(dialog).findByText('Activo')).toBeInTheDocument();
-    });
+    }, FORM_FLOW_TIMEOUT_MS);
   });
 });
