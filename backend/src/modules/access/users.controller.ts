@@ -47,7 +47,6 @@ import {
   UserAccessResponseDto,
   UserDetailResponseDto,
   UserListItemDto,
-  UserResponseDto,
   UserStatusChangeDto,
 } from './dto/user.dto';
 import { MenuModuleDto } from './dto/menu.dto';
@@ -76,7 +75,11 @@ export class UsersController {
 
   @Get()
   @RequirePermission('usuarios.ver')
-  @ApiOperation({ summary: 'Lista de usuarios con filtros, orden y paginación' })
+  @ApiOperation({
+    summary: 'Lista de usuarios con filtros, orden y paginación',
+    description:
+      '`search` busca en nombre, correo y código de colaborador. Filtros: `status`, `roleCode`, `teamId`, `countryId`. Cada fila trae `employeeCode` y `country` (`null` si no tiene).',
+  })
   @ApiOkResponse({ description: '`{ data: UserListItemDto[], pagination }`' })
   @ApiBadRequestResponse({ type: ErrorResponseDto })
   async list(@Query() query: ListUsersQueryDto): Promise<PaginatedResponseDto<UserListItemDto>> {
@@ -90,6 +93,8 @@ export class UsersController {
       status: item.status,
       roles: item.roles,
       teams: item.teams,
+      employeeCode: item.employeeCode,
+      country: item.country,
       lastLoginAt: item.lastLoginAt,
       createdAt: item.createdAt,
     }));
@@ -103,7 +108,7 @@ export class UsersController {
   @Header('Cache-Control', 'no-store')
   @ApiOperation({
     summary: 'Exporta los usuarios filtrados a CSV (D13)',
-    description: `Mismos filtros que la lista. Como mucho ${MAX_EXPORT_ROWS} filas; si se alcanza el tope responde ${EXPORT_TRUNCATED_HEADER}: true. Cada exportación queda en la bitácora como \`user.exported\`.`,
+    description: `Mismos filtros que la lista (incluido \`countryId\`). Columnas: Código de colaborador, Correo, Nombre, País, Puesto, Estado, Roles, Equipos, Último acceso, Alta. Como mucho ${MAX_EXPORT_ROWS} filas; si se alcanza el tope responde ${EXPORT_TRUNCATED_HEADER}: true. Cada exportación queda en la bitácora como \`user.exported\`.`,
   })
   @ApiProduces('text/csv')
   @ApiOkResponse({ description: 'Archivo CSV (UTF-8 con BOM)', schema: { type: 'string', format: 'binary' } })
@@ -123,7 +128,7 @@ export class UsersController {
 
   @Get(':id')
   @RequirePermission('usuarios.ver')
-  @ApiOperation({ summary: 'Detalle del usuario con roles, equipos y asignaciones directas' })
+  @ApiOperation({ summary: 'Detalle del usuario con código de colaborador, país, roles, equipos y asignaciones directas' })
   @ApiOkResponse({ type: UserDetailResponseDto })
   @ApiNotFoundResponse({ type: ErrorResponseDto })
   async findById(@Param('id', ParseUUIDPipe) userId: string): Promise<UserDetailResponseDto> {
@@ -138,30 +143,51 @@ export class UsersController {
       'Nace INVITED. Si AUTH_DEFAULT_PASSWORD está configurada, recibe esa contraseña con cambio obligatorio en el primer acceso; si no, nace sin credencial. ' +
       'Enviar `teamIds` no vacío exige además el permiso `equipos.editar` (el mismo que asignar miembros a un equipo); sin él responde 403 `PERMISSION_DENIED` con `details[].requiredPermission = "equipos.editar"`. ' +
       'El primer equipo de la lista queda como equipo principal. ' +
-      'ADR-020: un actor sin el rol `administrador` sólo puede asignar roles que no conceden ningún permiso (hoy, `usuario`); con cualquier otro responde 403 `ADMIN_ONLY`.',
+      'ADR-020 y su addendum de 2026-10-10: un actor sin el rol `administrador` sólo puede asignar roles que no conceden ningún permiso (hoy, `usuario`), sin `countryId` y sin `teamIds`; en otro caso responde 403 `ADMIN_ONLY`. ' +
+      '`employeeCode` se guarda recortado y en mayúsculas y es único (409). Con un rol comercial (concede algún permiso del CRM; no cuenta `administrador`) son obligatorios `employeeCode` y `countryId`: 422 `CRM_PROFILE_INCOMPLETE` (D-07.3).',
   })
-  @ApiCreatedResponse({ type: UserResponseDto })
+  @ApiCreatedResponse({
+    type: UserListItemDto,
+    description: 'El usuario creado, con la misma forma que un elemento de `GET /users` (incluye `employeeCode`, `country`, `lastLoginAt` y `createdAt`).',
+  })
   @ApiBadRequestResponse({ type: ErrorResponseDto })
   @ApiForbiddenResponse({
     type: ErrorResponseDto,
     description:
-      'PERMISSION_DENIED: falta `usuarios.crear`, o `equipos.editar` cuando se envían `teamIds` · ADMIN_ONLY: un no administrador asigna un rol que concede permisos (ADR-020)',
+      'PERMISSION_DENIED: falta `usuarios.crear`, o `equipos.editar` cuando se envían `teamIds` · ADMIN_ONLY: un no administrador asigna un rol que concede permisos, fija `countryId` o envía `teamIds` (ADR-020, RN-07.5, RN-07.10)',
   })
-  @ApiConflictResponse({ type: ErrorResponseDto, description: 'RESOURCE_CONFLICT: correo ya registrado' })
+  @ApiConflictResponse({
+    type: ErrorResponseDto,
+    description: 'RESOURCE_CONFLICT: correo ya registrado, o código de colaborador repetido (`details[].field = "employeeCode"`)',
+  })
   @ApiUnprocessableEntityResponse({
     type: ErrorResponseDto,
-    description: 'UNKNOWN_REFERENCE: rol inexistente o inactivo, o equipo inexistente o eliminado',
+    description:
+      'UNKNOWN_REFERENCE: rol inexistente o inactivo, equipo inexistente o eliminado, o país inexistente (`issue: "not_found"`) o inactivo (`issue: "inactive"`) · CRM_PROFILE_INCOMPLETE: rol comercial sin código o sin país (`details[].field`)',
   })
   async create(
     @Body() dto: CreateUserDto,
     @Req() request: AppRequest,
     @Res({ passthrough: true }) response: Response,
-  ): Promise<UserResponseDto> {
+  ): Promise<UserListItemDto> {
     const user = await this.usersService.create(dto, await this.accessService.resolveActor(request));
     const access = await this.accessService.getEffectiveAccess(user.id);
 
     response.setHeader('Location', `/api/v1/users/${user.id}`);
-    return { ...user, roles: access.roles };
+    // Mapeo explícito, con la misma forma que un elemento de `GET /users`.
+    return {
+      id: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      jobTitle: user.jobTitle,
+      status: user.status,
+      roles: access.roles,
+      teams: user.teams,
+      employeeCode: user.employeeCode,
+      country: user.country,
+      lastLoginAt: user.lastLoginAt,
+      createdAt: user.createdAt,
+    };
   }
 
   @Patch(':id')
@@ -169,12 +195,26 @@ export class UsersController {
   @ApiOperation({
     summary: 'Actualiza los datos de un usuario',
     description:
-      'El estado no se cambia aquí: usa /suspend y /reactivate. Enviar `status` responde 400. Si el usuario tiene el rol `administrador`, sólo otro administrador puede editarlo (ADR-020): 403 ADMIN_ONLY.',
+      'El estado no se cambia aquí: usa /suspend y /reactivate. Enviar `status` responde 400. Si el usuario tiene el rol `administrador`, sólo otro administrador puede editarlo (ADR-020): 403 ADMIN_ONLY. ' +
+      'Cambiar `countryId` (fijarlo, cambiarlo o quitarlo) también es exclusivo del administrador (RN-07.5); enviar el país actual no es un cambio. ' +
+      '`employeeCode` lo puede editar quien tenga `usuarios.editar`. A un usuario con rol comercial no se le pueden vaciar `employeeCode` ni `countryId` (422 `CRM_PROFILE_INCOMPLETE`).',
   })
-  @ApiForbiddenResponse({ type: ErrorResponseDto, description: ADMIN_ONLY_FORBIDDEN_DOC })
+  @ApiForbiddenResponse({
+    type: ErrorResponseDto,
+    description: `${ADMIN_ONLY_FORBIDDEN_DOC} · ADMIN_ONLY también si un no administrador cambia \`countryId\` (RN-07.5)`,
+  })
   @ApiOkResponse({ type: UserDetailResponseDto })
   @ApiBadRequestResponse({ type: ErrorResponseDto })
   @ApiNotFoundResponse({ type: ErrorResponseDto })
+  @ApiConflictResponse({
+    type: ErrorResponseDto,
+    description: 'RESOURCE_CONFLICT: código de colaborador repetido (`details[].field = "employeeCode"`)',
+  })
+  @ApiUnprocessableEntityResponse({
+    type: ErrorResponseDto,
+    description:
+      'UNKNOWN_REFERENCE: país inexistente o inactivo · CRM_PROFILE_INCOMPLETE: vaciaría el código o el país de un usuario comercial',
+  })
   async update(
     @Param('id', ParseUUIDPipe) userId: string,
     @Body() dto: UpdateUserDto,
@@ -251,14 +291,18 @@ export class UsersController {
   @ApiOperation({
     summary: 'Reemplaza los roles del usuario (D3)',
     description:
-      'Exclusivo del administrador (ADR-020): 403 ADMIN_ONLY en otro caso. SELF_LOCKOUT si el actor se quita su rol de administrador o su `usuarios.editar` efectivo; LAST_ADMIN si no quedaría ningún administrador activo con `usuarios.editar` y `roles.editar` efectivos.',
+      'Exclusivo del administrador (ADR-020): 403 ADMIN_ONLY en otro caso. SELF_LOCKOUT si el actor se quita su rol de administrador o su `usuarios.editar` efectivo; LAST_ADMIN si no quedaría ningún administrador activo con `usuarios.editar` y `roles.editar` efectivos. ' +
+      'Si algún rol resultante es comercial (concede algún permiso del CRM; no cuenta `administrador`) y al usuario le falta el código de colaborador o el país: 422 CRM_PROFILE_INCOMPLETE (D-07.3).',
   })
   @ApiForbiddenResponse({ type: ErrorResponseDto, description: ADMIN_ONLY_FORBIDDEN_DOC })
   @ApiNoContentResponse()
   @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'Lista vacía o inválida' })
   @ApiNotFoundResponse({ type: ErrorResponseDto })
   @ApiConflictResponse({ type: ErrorResponseDto, description: 'SELF_LOCKOUT o LAST_ADMIN' })
-  @ApiUnprocessableEntityResponse({ type: ErrorResponseDto, description: 'UNKNOWN_REFERENCE' })
+  @ApiUnprocessableEntityResponse({
+    type: ErrorResponseDto,
+    description: 'UNKNOWN_REFERENCE · CRM_PROFILE_INCOMPLETE (`details[].field`: `employeeCode`, `countryId`)',
+  })
   async replaceRoles(
     @Param('id', ParseUUIDPipe) userId: string,
     @Body() dto: ReplaceIdsDto,
@@ -320,6 +364,8 @@ function toDetailDto(user: UserDetailRecord): UserDetailResponseDto {
     displayName: user.displayName,
     jobTitle: user.jobTitle,
     phone: user.phone,
+    employeeCode: user.employeeCode,
+    country: user.country,
     status: user.status,
     lastLoginAt: user.lastLoginAt,
     createdAt: user.createdAt,

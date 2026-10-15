@@ -3,6 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { MAX_EXPORT_ROWS, toCsv, type CsvColumn } from '@/common/csv';
 import type { Page } from '@/infrastructure/database/ports/pagination';
 
+import { type AuditExportLayout, type AuditFieldRow, toAuditFieldRows } from './audit-field-rows';
 import { type AuditLogFilterInput, buildAuditFilter, describeAuditFilter } from './audit-filter';
 import { type AuditContext, AuditService } from './audit.service';
 import {
@@ -32,8 +33,21 @@ const CSV_COLUMNS: readonly CsvColumn<AuditLogRecord>[] = [
   { header: 'Metadatos', value: (row) => json(row.metadata) },
 ];
 
+/** Vista por campo (D-07.10): Fecha, Usuario, Entidad, Registro, Acción, Campo, Valor anterior, Valor nuevo. */
+const FIELD_CSV_COLUMNS: readonly CsvColumn<AuditFieldRow>[] = [
+  { header: 'Fecha (UTC)', value: (row) => row.occurredAt },
+  { header: 'Usuario', value: (row) => row.user },
+  { header: 'Entidad', value: (row) => row.resourceType },
+  { header: 'Registro', value: (row) => row.resourceId },
+  { header: 'Acción', value: (row) => row.event },
+  { header: 'Campo', value: (row) => row.field },
+  { header: 'Valor anterior', value: (row) => row.before },
+  { header: 'Valor nuevo', value: (row) => row.after },
+];
+
 export interface AuditExport {
   csv: string;
+  /** Eventos exportados (el tope `MAX_EXPORT_ROWS` cuenta eventos, también con `layout=fields`). */
   rows: number;
   truncated: boolean;
 }
@@ -63,9 +77,13 @@ export class AuditQueryService {
   /**
    * CSV con los filtros activos, como mucho `MAX_EXPORT_ROWS` filas (las más
    * recientes). La exportación extrae datos personales en bloque, así que
-   * deja su propio registro `audit_log.exported` con los filtros y las filas.
+   * deja su propio registro `audit_log.exported` con los filtros, el formato y
+   * los eventos exportados.
+   *
+   * `layout=fields` (D-07.10) escribe una fila por campo de cada evento; el tope
+   * sigue siendo de eventos.
    */
-  async export(input: AuditLogFilterInput, context: AuditContext): Promise<AuditExport> {
+  async export(input: AuditLogFilterInput, context: AuditContext, layout: AuditExportLayout = 'events'): Promise<AuditExport> {
     const filter = buildAuditFilter(input);
     const fetched = await this.repository.findForExport(filter, MAX_EXPORT_ROWS + 1);
     const truncated = fetched.length > MAX_EXPORT_ROWS;
@@ -74,9 +92,16 @@ export class AuditQueryService {
     await this.auditService.record('audit_log.exported', context, {
       resourceType: 'audit_log',
       resourceId: '*',
-      metadata: { ...describeAuditFilter(input), rows: rows.length, truncated },
+      metadata: { ...describeAuditFilter(input), layout, rows: rows.length, truncated },
     });
 
-    return { csv: toCsv(rows, CSV_COLUMNS), rows: rows.length, truncated };
+    const csv =
+      layout === 'fields'
+        ? toCsv(
+            rows.flatMap((row) => toAuditFieldRows(row, filter.changedField)),
+            FIELD_CSV_COLUMNS,
+          )
+        : toCsv(rows, CSV_COLUMNS);
+    return { csv, rows: rows.length, truncated };
   }
 }

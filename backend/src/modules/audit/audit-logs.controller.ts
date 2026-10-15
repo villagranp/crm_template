@@ -21,14 +21,12 @@ import { AuditQueryService } from './audit-query.service';
 import { auditContextFrom } from './audit.service';
 import {
   AuditEventNamesResponseDto,
-  AuditLogFilterQueryDto,
   AuditLogPageResponseDto,
   type AuditLogResponseDto,
+  ExportAuditLogsQueryDto,
   ListAuditLogsQueryDto,
 } from './dto/audit-log.dto';
 import type { AuditLogRecord } from './ports/audit-query.repository.port';
-
-/** Cabecera que indica que la exportación alcanzó el tope de filas. */
 
 function toResponse(record: AuditLogRecord): AuditLogResponseDto {
   return {
@@ -53,7 +51,8 @@ function exportFileName(now = new Date()): string {
 
 /**
  * Bitácora de auditoría: consulta y exportación (PLAN-ADMIN, D11 y D13).
- * No hay escritura por API: los registros los deja cada caso de uso.
+ * No hay escritura por API (`PUT`/`PATCH`/`DELETE` → 404, RN-07.38): los
+ * registros los deja cada caso de uso y la base rechaza modificarlos (ADR-025).
  */
 @ApiTags('Administración · Auditoría')
 @ApiBearerAuth()
@@ -65,10 +64,11 @@ export class AuditLogsController {
   @RequirePermission('auditoria.ver')
   @ApiOperation({
     summary: 'Consulta paginada de la bitácora',
-    description: 'Más recientes primero por defecto. `changes` y `metadata` se devuelven tal como se guardaron.',
+    description:
+      'Más recientes primero por defecto. `changes` y `metadata` se devuelven tal como se guardaron. `field` deja solo los eventos cuyo `changes` contiene ese campo.',
   })
   @ApiOkResponse({ type: AuditLogPageResponseDto })
-  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'Filtro inválido (fechas, orden, tamaño de página) o `from` posterior a `to`' })
+  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'Filtro inválido (`field`, fechas, orden, tamaño de página) o `from` posterior a `to`' })
   @ApiUnauthorizedResponse({ type: ErrorResponseDto })
   @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'Falta el permiso auditoria.ver' })
   async list(@Query() query: ListAuditLogsQueryDto): Promise<PaginatedResponseDto<AuditLogResponseDto>> {
@@ -92,19 +92,20 @@ export class AuditLogsController {
   @Header('Cache-Control', 'no-store')
   @ApiOperation({
     summary: 'Exporta la bitácora a CSV con los filtros indicados',
-    description: `Como mucho ${MAX_EXPORT_ROWS} filas, las más recientes; si se alcanza el tope responde la cabecera ${EXPORT_TRUNCATED_HEADER}: true. La exportación queda registrada como \`audit_log.exported\`.`,
+    description: `Como mucho ${MAX_EXPORT_ROWS} eventos, los más recientes; si se alcanza el tope responde la cabecera ${EXPORT_TRUNCATED_HEADER}: true. \`layout=events\` (por defecto): una fila por evento. \`layout=fields\`: una fila por campo cambiado (Fecha, Usuario, Entidad, Registro, Acción, Campo, Valor anterior, Valor nuevo; con \`field\`, solo ese campo; un valor sin la forma { before, after } va como JSON en Valor nuevo; un evento sin cambios, en una fila sin campo); el tope sigue contando eventos. La exportación queda registrada como \`audit_log.exported\`.`,
   })
   @ApiProduces('text/csv')
   @ApiOkResponse({ description: 'Archivo CSV (UTF-8 con BOM)', schema: { type: 'string', format: 'binary' } })
-  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'Filtro inválido o `from` posterior a `to`' })
+  @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'Filtro inválido (`field`, `layout`, fechas) o `from` posterior a `to`' })
   @ApiUnauthorizedResponse({ type: ErrorResponseDto })
   @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'Falta el permiso auditoria.exportar' })
   async export(
-    @Query() query: AuditLogFilterQueryDto,
+    @Query() query: ExportAuditLogsQueryDto,
     @Req() request: AppRequest,
     @Res({ passthrough: true }) response: Response,
   ): Promise<string> {
-    const result = await this.auditQueryService.export(query, auditContextFrom(request));
+    const { layout, ...filters } = query;
+    const result = await this.auditQueryService.export(filters, auditContextFrom(request), layout);
 
     response.setHeader('Content-Type', 'text/csv; charset=utf-8');
     response.setHeader('Content-Disposition', `attachment; filename="${exportFileName()}"`);

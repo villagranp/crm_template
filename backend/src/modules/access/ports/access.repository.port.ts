@@ -18,8 +18,30 @@ export interface AccessUserRecord {
   teams: { id: string; name: string; isPrimary: boolean }[];
 }
 
+/** País del usuario tal como lo muestran la lista y el detalle (07 F.1). */
+export interface UserCountryRecord {
+  id: string;
+  isoCode: string;
+  name: string;
+}
+
+/** País consultado al asignarlo: debe existir y estar activo (RN-07.4). */
+export interface CountryReference extends UserCountryRecord {
+  isActive: boolean;
+}
+
+/** Rol con los permisos que concede, para la regla de perfil comercial (D-07.3). */
+export interface RoleGrantRecord {
+  id: string;
+  code: string;
+  permissionCodes: string[];
+}
+
 /** Fila de la lista y de la exportación de usuarios. */
 export interface UserListItem extends AccessUserRecord {
+  /** Código de colaborador (RN-07.1), en mayúsculas. */
+  employeeCode: string | null;
+  country: UserCountryRecord | null;
   roles: string[];
   lastLoginAt: Date | null;
   createdAt: Date;
@@ -43,6 +65,8 @@ export interface UserDetailRecord {
   displayName: string;
   jobTitle: string | null;
   phone: string | null;
+  employeeCode: string | null;
+  country: UserCountryRecord | null;
   status: UserStatus;
   lastLoginAt: Date | null;
   createdAt: Date;
@@ -155,6 +179,7 @@ export interface ListUsersFilter {
   status?: UserStatus;
   roleCode?: string;
   teamId?: string;
+  countryId?: string;
   sortBy?: UserSortField;
   sortOrder?: SortOrder;
 }
@@ -182,6 +207,9 @@ export interface CreateUserInput {
   lastName: string;
   jobTitle?: string;
   phone?: string;
+  /** Ya normalizado (recortado y en mayúsculas). */
+  employeeCode?: string | null;
+  countryId?: string | null;
   roleIds: string[];
   teamIds: string[];
   createdById: string | null;
@@ -193,6 +221,9 @@ export interface UpdateUserInput {
   lastName?: string;
   jobTitle?: string | null;
   phone?: string | null;
+  /** Omitido = sin cambio; `null` = quitarlo. Ya normalizado. */
+  employeeCode?: string | null;
+  countryId?: string | null;
   updatedById: string | null;
 }
 
@@ -268,6 +299,13 @@ export interface AccessRepository {
   /** Devuelve el usuario por el sujeto del proveedor de identidad. */
   findUserBySubject(provider: 'LOCAL' | 'ENTRA_ID', subject: string): Promise<AccessUserRecord | null>;
   findUserByEmail(email: string): Promise<AccessUserRecord | null>;
+  /**
+   * Id del usuario que tiene ese código de colaborador (ya normalizado),
+   * **incluidos los eliminados**: el código es único en todo el sistema (RN-07.1).
+   */
+  findUserIdByEmployeeCode(employeeCode: string): Promise<string | null>;
+  /** País por id, activo o no (RN-07.4 distingue inexistente de inactivo). */
+  findCountry(countryId: string): Promise<CountryReference | null>;
 
   /** Instantánea completa de acceso, con vigencias ya aplicadas. */
   getUserAccessSnapshot(userId: string): Promise<UserAccessSnapshot | null>;
@@ -312,6 +350,8 @@ export interface AccessRepository {
   existingTeamIds(ids: string[]): Promise<string[]>;
   /** De los roles dados, los que conceden al menos un permiso (ADR-020, alta por un no administrador). */
   findRoleIdsGrantingPermissions(roleIds: string[]): Promise<string[]>;
+  /** De los roles dados, los activos y no borrados con los códigos de sus permisos (D-07.3). */
+  findRoleGrants(roleIds: string[]): Promise<RoleGrantRecord[]>;
 
   findMenuOptionById(menuOptionId: string): Promise<MenuOptionRecord | null>;
   /** Incluye las opciones borradas: su clave sigue reservada. */

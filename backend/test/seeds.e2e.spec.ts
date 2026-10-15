@@ -188,8 +188,24 @@ describe('semilla esencial (00 §8.2)', () => {
     const administrator = await prisma.role.findUniqueOrThrow({ where: { code: 'administrador' }, select: { _count: { select: { permissions: true } } } });
     expect(administrator._count.permissions).toBe(afterFirstRun.permissions);
 
-    // DM-32: ninguna opción del CRM sin pantalla registrada (Reportes y tipos de cambio aún no).
-    expect(await prisma.menuOption.count({ where: { key: { in: ['reportes-visitas', 'admin-tipos-cambio'] } } })).toBe(0);
+    // DM-32: ninguna opción del CRM sin pantalla registrada (Reportes aún no).
+    expect(await prisma.menuOption.count({ where: { key: 'reportes-visitas' } })).toBe(0);
+    // Módulo 7 registró sus pantallas (07 E.5): sus opciones existen y solo llegan al administrador.
+    const adminCrmOptions = await prisma.menuOption.findMany({
+      where: { key: { in: ['admin-tipos-cambio', 'admin-productos', 'admin-conversiones'] } },
+      orderBy: { sortOrder: 'asc' },
+      select: { key: true, path: true, requiredPermission: { select: { code: true } }, roles: { select: { role: { select: { code: true } } } } },
+    });
+    expect(adminCrmOptions.map((option) => [option.key, option.path, option.requiredPermission?.code])).toEqual([
+      ['admin-tipos-cambio', '/administracion/tipos-cambio', 'parametros.ver'],
+      ['admin-productos', '/administracion/productos', 'productos.ver'],
+      ['admin-conversiones', '/administracion/conversiones', 'productos.ver'],
+    ]);
+    for (const option of adminCrmOptions) {
+      const roleCodes = option.roles.map((r) => r.role.code);
+      expect(roleCodes).toContain('administrador');
+      expect(roleCodes).not.toEqual(expect.arrayContaining(['asesor']));
+    }
     // Módulo 4 registró sus rutas (04 E.1): sus seis opciones existen con su permiso y llegan a los roles del CRM.
     const activityOptions = await prisma.menuOption.findMany({
       where: { key: { startsWith: 'actividad-' } },

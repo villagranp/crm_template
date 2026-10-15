@@ -79,3 +79,19 @@ export class UpdateParameterDto {
   @MaxLength(MAX_JSON_LENGTH)
   value!: string;
 }
+
+export class AuthenticationSettingsResponseDto {
+  @ApiProperty({ enum: ['local', 'entra', 'hybrid'], description: 'Proveedor vigente (`AUTH_PROVIDER`). Solo lectura: cambiarlo es un despliegue (ADR-019)' })
+  provider!: 'local' | 'entra' | 'hybrid';
+
+  @ApiProperty({ description: '`false` con `entra`: los parámetros de login local no aplican' })
+  localLoginEnabled!: boolean;
+
+  @ApiProperty({
+    type: [String],
+    example: ['seguridad.intentos_fallidos_maximos', 'seguridad.minutos_bloqueo', 'seguridad.dias_caducidad_password'],
+    description:
+      'Claves de los parámetros de login local. Se editan con `PATCH /parameters/{key}`, que exige `parametros.editar` y además `parametros.configurar` (como todo `seguridad.*` y los estructurales)',
+  })
+  securityParameterKeys!: string[];
+}

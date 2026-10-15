@@ -202,6 +202,7 @@ describe('registro de reglas de parámetros', () => {
         'crm.importaciones.habilitada',
         'crm.moneda_base',
         'crm.zona_horaria_negocio',
+        'auditoria.dias_retencion',
         'seguridad.dias_caducidad_password',
         'seguridad.intentos_fallidos_maximos',
         'seguridad.minutos_bloqueo',

@@ -5,14 +5,50 @@ import { IsBoolean, IsIn, IsOptional, IsUUID } from 'class-validator';
 import { toLowerCaseUuid } from '@/common/dto/uuid-transform';
 import { PaginationMetaDto } from '@/common/dto/paginated-response.dto';
 import { PaginationQueryDto } from '@/common/dto/pagination-query.dto';
-import { toOptionalBoolean } from '@/modules/customers/dto/dto-transforms';
 
-const UNIT_DIMENSIONS = ['MASS', 'LENGTH', 'AREA', 'VOLUME', 'COUNT', 'OTHER'] as const;
-const CONVERSION_SCOPES = ['GLOBAL', 'PRODUCT_FAMILY', 'PRODUCT', 'PROJECT_TYPE'] as const;
-export const PRODUCT_SORT_FIELDS = ['sku'] as const;
+export const UNIT_DIMENSIONS = ['MASS', 'LENGTH', 'AREA', 'VOLUME', 'COUNT', 'OTHER'] as const;
+export const CONVERSION_SCOPES = ['GLOBAL', 'PRODUCT_FAMILY', 'PRODUCT', 'PROJECT_TYPE'] as const;
+/** `description` no es ordenable (03 F.4 lo fija en `400`). */
+export const PRODUCT_SORT_FIELDS = ['sku', 'createdAt', 'updatedAt'] as const;
 
-export class ProductsQueryDto extends PaginationQueryDto {
-  @ApiPropertyOptional({ enum: PRODUCT_SORT_FIELDS, description: 'Siempre por `sku` ascendente' })
+/**
+ * Filtro de estado de los maestros (07 F.7): `true` (defecto, compatible con las
+ * lecturas del Módulo 3) solo activos, `false` solo inactivos, `all` todos (`null`).
+ * Otro valor llega tal cual y falla `IsBoolean` (`400`).
+ */
+export function toActiveFilter({ value }: { value: unknown }): unknown {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  if (value === 'all') return null;
+  return value;
+}
+
+export const ACTIVE_FILTER_DOC = {
+  enum: ['true', 'false', 'all'],
+  default: 'true',
+  description: '`true` (defecto) solo activos; `false` solo inactivos; `all` todos',
+} as const;
+
+/**
+ * Query común de las listas de maestros (07 F.7): paginación, `search`, `isActive` y
+ * orden por lista blanca (cada DTO hijo declara su `sortBy`). Sin `sortBy`, orden
+ * natural de la lista; con él, `sortOrder` (defecto `asc`).
+ */
+export class MasterListQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional(ACTIVE_FILTER_DOC)
+  @IsOptional()
+  @Transform(toActiveFilter)
+  @IsBoolean()
+  isActive?: boolean | null;
+
+  @ApiPropertyOptional({ enum: ['asc', 'desc'], default: 'asc' })
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  override sortOrder: 'asc' | 'desc' = 'asc';
+}
+
+export class ProductsQueryDto extends MasterListQueryDto {
+  @ApiPropertyOptional({ enum: PRODUCT_SORT_FIELDS, description: 'Sin `sortBy`: por `sku` ascendente' })
   @IsOptional()
   @IsIn(PRODUCT_SORT_FIELDS)
   override sortBy?: (typeof PRODUCT_SORT_FIELDS)[number] = undefined;
@@ -22,12 +58,6 @@ export class ProductsQueryDto extends PaginationQueryDto {
   @Transform(toLowerCaseUuid)
   @IsUUID()
   familyId?: string;
-
-  @ApiPropertyOptional({ type: Boolean, default: true, description: '`true` (defecto) solo activos; `false` solo inactivos' })
-  @IsOptional()
-  @Transform(toOptionalBoolean)
-  @IsBoolean()
-  isActive?: boolean;
 }
 
 export class UnitRefDto {
@@ -63,14 +93,6 @@ export class ProductDto {
 export class PaginatedProductsDto {
   @ApiProperty({ type: [ProductDto] }) data!: ProductDto[];
   @ApiProperty({ type: PaginationMetaDto }) pagination!: PaginationMetaDto;
-}
-
-export class ProductFamiliesDto {
-  @ApiProperty({ type: [ProductFamilyDto] }) data!: ProductFamilyDto[];
-}
-
-export class UnitsOfMeasureDto {
-  @ApiProperty({ type: [UnitOfMeasureDto] }) data!: UnitOfMeasureDto[];
 }
 
 export class ResolveConversionQueryDto {

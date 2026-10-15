@@ -4,7 +4,7 @@ import { IsIn, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateIf } fr
 
 import { toLowerCaseUuid } from '@/common/dto/uuid-transform';
 import { CatalogValueDto, UserRefDto } from '@/modules/customers/dto/customer.dto';
-import { trim } from '@/modules/customers/dto/dto-transforms';
+import { trim } from '@/common/dto/dto-transforms';
 import { IsCalendarDateString, isNotNull, PROGRESS_PATTERN } from '@/modules/projects/dto/dto-helpers';
 
 import { OUTCOMES } from '../opportunity-result-rules';

@@ -114,3 +114,27 @@ export class UnsupportedMediaTypeError extends ApplicationError {
     this.code = code;
   }
 }
+
+/**
+ * Códigos del Módulo 7 · maestros comerciales y tipos de cambio (07 F.7, F.8). Se
+ * lanzan con las clases de arriba (el status lo decide la clase):
+ * - `UNIT_DIMENSION_LOCKED` (409, `ResourceConflictError`): cambiar la dimensión de una
+ *   unidad ya referenciada por un producto, una regla o una línea (RN-07.37).
+ * - `CONVERSION_RULE_PROTECTED` (409): desactivar la identidad de la unidad de tonelaje,
+ *   cambiar el factor de una identidad o desactivar la unidad de tonelaje (RN-07.36).
+ * - `INVALID_CONVERSION_TARGET` (422, `BusinessRuleViolationError`): destino distinto de
+ *   la unidad de tonelaje configurada (RN-07.36).
+ * - `INVALID_CONVERSION_SCOPE` (422): ámbito incoherente con sus referencias (07 F.7 "422 ámbito incoherente").
+ * - `EXCHANGE_RATE_DUPLICATE` (409): misma moneda y fecha de vigencia (RN-07.44).
+ * - `INVALID_EXCHANGE_RATE` (422): moneda `USD`, inexistente o inactiva, o tasa ≤ 0
+ *   (`details[].issue` ∈ `base_currency`, `unknown_currency`, `inactive_currency`, `non_positive_rate`).
+ */
+export const MASTER_DATA_ERROR_CODES = {
+  unitDimensionLocked: 'UNIT_DIMENSION_LOCKED',
+  conversionRuleProtected: 'CONVERSION_RULE_PROTECTED',
+  invalidConversionTarget: 'INVALID_CONVERSION_TARGET',
+  invalidConversionScope: 'INVALID_CONVERSION_SCOPE',
+  exchangeRateDuplicate: 'EXCHANGE_RATE_DUPLICATE',
+  invalidExchangeRate: 'INVALID_EXCHANGE_RATE',
+  unknownReference: 'UNKNOWN_REFERENCE',
+} as const;

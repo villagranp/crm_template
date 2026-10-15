@@ -15,6 +15,13 @@ export interface CsvColumn<TRow> {
 }
 
 const FORMULA_PREFIX = /^[=+\-@\t\r]/;
+/**
+ * Se entrecomilla también con `;` y tabulador: Excel con configuración
+ * regional que separa por `;` (y algunos importadores por tabulador) partiría
+ * una celda como `a;=1+1` y dejaría `=1+1` al inicio de otra celda, fuera del
+ * alcance de la neutralización de fórmulas.
+ */
+const NEEDS_QUOTES = /[",;\t\r\n]/;
 
 /**
  * Neutraliza un texto que una hoja de cálculo ejecutaría como fórmula
@@ -33,7 +40,7 @@ function cell(raw: string | number | boolean | Date | null | undefined): string 
   if (typeof raw === 'string') {
     text = neutralizeFormula(text);
   }
-  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  return NEEDS_QUOTES.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 export function toCsv<TRow>(rows: readonly TRow[], columns: readonly CsvColumn<TRow>[]): string {

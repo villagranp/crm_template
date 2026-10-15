@@ -1,5 +1,6 @@
 import { BusinessRuleViolationError } from '@/common/errors/application-error';
 
+import { LOGIN_SECURITY_PARAMETERS } from './authentication-settings';
 import type { ParameterValueType } from './ports/parameters.repository.port';
 
 /**
@@ -39,9 +40,9 @@ export interface NumericRange {
  * - Tamaño de página por defecto: 1–100 (`MAX_PAGE_SIZE` de la API).
  */
 export const PARAMETER_RANGES: Readonly<Record<string, NumericRange>> = {
-  'seguridad.intentos_fallidos_maximos': { min: 1, max: 20 },
-  'seguridad.minutos_bloqueo': { min: 1, max: 1440 },
-  'seguridad.dias_caducidad_password': { min: 0, max: 365 },
+  [LOGIN_SECURITY_PARAMETERS.maxFailedAttempts]: { min: 1, max: 20 },
+  [LOGIN_SECURITY_PARAMETERS.lockoutMinutes]: { min: 1, max: 1440 },
+  [LOGIN_SECURITY_PARAMETERS.passwordExpiryDays]: { min: 0, max: 365 },
   'auditoria.dias_retencion': { min: 30, max: 3650 },
   'ui.paginacion_default': { min: 1, max: 100 },
 };

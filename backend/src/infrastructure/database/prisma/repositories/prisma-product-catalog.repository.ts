@@ -5,15 +5,18 @@ import { createPage, type Page } from '@/infrastructure/database/ports/paginatio
 import type { TransactionContext } from '@/infrastructure/database/ports/transaction.port';
 import type {
   ProductCatalogReader,
-  ProductFamilyRecord,
   ProductRecord,
   ProductSearch,
+  ProductSortField,
   UnitOfMeasureRecord,
 } from '@/modules/products/ports/product-catalog.reader.port';
 
 import { prismaClientFor } from '../prisma-transaction';
 import { PrismaService } from '../prisma.service';
 import { andSql, escapeLikePattern, normalizedTextSql } from '../sql-text';
+
+/** Columnas de orden de la lista blanca (nunca texto del usuario en el SQL). */
+const PRODUCT_SORT_SQL: Record<ProductSortField, string> = { sku: 'pr.sku', createdAt: 'pr.created_at', updatedAt: 'pr.updated_at' };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -61,12 +64,15 @@ export class PrismaProductCatalogRepository implements ProductCatalogReader {
     if (search.isActive !== null) conditions.push(Prisma.sql`pr.is_active = ${search.isActive}`);
     const where = andSql(conditions);
     const offset = (search.page - 1) * search.pageSize;
+    const order = search.sortBy
+      ? Prisma.raw(`${PRODUCT_SORT_SQL[search.sortBy]} ${search.sortOrder === 'desc' ? 'DESC' : 'ASC'}, pr.sku ASC, pr.id ASC`)
+      : Prisma.raw('pr.sku ASC, pr.id ASC');
 
     const [ids, totals] = await Promise.all([
       this.prisma.$queryRaw<{ id: string }[]>`
         SELECT pr.id FROM products pr
         WHERE ${where}
-        ORDER BY pr.sku ASC, pr.id ASC
+        ORDER BY ${order}
         LIMIT ${search.pageSize} OFFSET ${offset}`,
       this.prisma.$queryRaw<{ total: number }[]>`SELECT COUNT(*)::int AS total FROM products pr WHERE ${where}`,
     ]);
@@ -76,14 +82,6 @@ export class PrismaProductCatalogRepository implements ProductCatalogReader {
     const byId = new Map(rows.map((row) => [row.id, row]));
     const items = ids.map((row) => byId.get(row.id)).filter((row): row is ProductRow => row !== undefined).map(toProduct);
     return createPage(items, totals[0]?.total ?? 0, search);
-  }
-
-  async listFamilies(): Promise<ProductFamilyRecord[]> {
-    return this.prisma.productFamily.findMany({
-      where: { isActive: true },
-      select: { id: true, code: true, name: true, description: true, isActive: true },
-      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-    });
   }
 
   async listUnits(): Promise<UnitOfMeasureRecord[]> {

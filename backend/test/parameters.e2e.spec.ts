@@ -1,5 +1,6 @@
 import request from 'supertest';
 
+import { withParameterLock } from './support/parameter-lock';
 import {
   accessTokenFor,
   closeTestContext,
@@ -141,6 +142,41 @@ describe('PATCH /api/v1/parameters/{key}', () => {
     expect(await currentValue(SECURITY_KEY)).toBe(original);
   });
 
+  it('auditoria.dias_retencion es estructural: 403 sin parametros.configurar y nada cambia; con él se guarda (M-2)', async () => {
+    const key = 'auditoria.dias_retencion';
+    const { token } = await tokenWithEditWithoutConfigure();
+    const admin = await tokenWithRoles(ctx, ['administrador']);
+
+    // `audit-immutability` cambia este parámetro en paralelo (con `withParameter`):
+    // el mismo candado evita leer o pisar su valor temporal.
+    await withParameterLock(key, async () => {
+      const original = await currentValue(key);
+      const next = original === '400' ? '401' : '400';
+      try {
+        const denied = await api()
+          .patch(`/api/v1/parameters/${key}`)
+          .set('Authorization', `Bearer ${token}`)
+          .send({ value: '30' })
+          .expect(403);
+        expect(denied.body.details).toEqual([{ requiredPermission: 'parametros.configurar' }]);
+        expect(await currentValue(key)).toBe(original);
+
+        const saved = await api()
+          .patch(`/api/v1/parameters/${key}`)
+          .set('Authorization', `Bearer ${admin.token}`)
+          .send({ value: next })
+          .expect(200);
+        expect(saved.body).toMatchObject({ key, value: next, requiresConfigure: true });
+        expect(await ctx.prisma.systemParameter.findUniqueOrThrow({ where: { key } })).toMatchObject({
+          value: next,
+          updatedById: admin.user.id,
+        });
+      } finally {
+        await restore(key, original);
+      }
+    });
+  });
+
   it('401 sin token', async () => {
     await api().patch(`/api/v1/parameters/${GENERAL_KEY}`).send({ value: 'x' }).expect(401);
   });
@@ -179,16 +215,19 @@ describe('PATCH /api/v1/parameters/{key}', () => {
     ['auditoria.dias_retencion', '29'],
     [GENERAL_KEY, '   '],
   ])('422 INVALID_PARAMETER_VALUE: %s = "%s"', async (key, value) => {
-    const original = await currentValue(key);
+    // Bajo el candado del parámetro: otra suite puede estar cambiándolo temporalmente.
+    await withParameterLock(key, async () => {
+      const original = await currentValue(key);
 
-    const response = await api()
-      .patch(`/api/v1/parameters/${key}`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ value })
-      .expect(422);
+      const response = await api()
+        .patch(`/api/v1/parameters/${key}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ value })
+        .expect(422);
 
-    expect(response.body.code).toBe('INVALID_PARAMETER_VALUE');
-    expect(await currentValue(key)).toBe(original);
+      expect(response.body.code).toBe('INVALID_PARAMETER_VALUE');
+      expect(await currentValue(key)).toBe(original);
+    });
   });
 
   it('404 con una clave inexistente', async () => {
@@ -289,5 +328,50 @@ describe('PATCH /api/v1/parameters/{key}: registro de reglas del CRM (D-07.7)', 
   it('403 en un parámetro estructural sin parametros.configurar (AC-07.30)', async () => {
     const { token } = await tokenWithEditWithoutConfigure();
     await patch('crm.forecast.unidad_tonelaje', 'TON', token).expect(403);
+  });
+});
+
+describe('GET /api/v1/parameters/authentication (D-07.8, RN-07.34, PF-07.14)', () => {
+  it('200: proveedor vigente en solo lectura y las claves de login local, sin secretos', async () => {
+    const response = await api().get('/api/v1/parameters/authentication').set('Authorization', `Bearer ${adminToken}`).expect(200);
+
+    expect(response.body).toEqual({
+      provider: 'local',
+      localLoginEnabled: true,
+      securityParameterKeys: ['seguridad.intentos_fallidos_maximos', 'seguridad.minutos_bloqueo', 'seguridad.dias_caducidad_password'],
+    });
+    const serialized = JSON.stringify(response.body).toLowerCase();
+    for (const forbidden of ['secret', 'tenant', 'jwt', 'client']) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  it('basta parametros.ver (sin editar ni configurar)', async () => {
+    const permission = await ctx.prisma.permission.findUniqueOrThrow({ where: { code: 'parametros.ver' } });
+    const role = await ctx.prisma.role.create({
+      data: { code: uniqueCode('param-viewer'), name: 'Lector de parámetros (prueba)', permissions: { create: [{ permissionId: permission.id }] } },
+    });
+    const user = await createTestUser(ctx.prisma, { roleCodes: [role.code] });
+    const token = await accessTokenFor(ctx.app, user);
+    await api().get('/api/v1/parameters/authentication').set('Authorization', `Bearer ${token}`).expect(200);
+  });
+
+  it('401 sin token', async () => {
+    await api().get('/api/v1/parameters/authentication').expect(401);
+  });
+
+  it('403 sin parametros.ver', async () => {
+    const { token } = await tokenWithRoles(ctx, ['usuario']);
+    const response = await api().get('/api/v1/parameters/authentication').set('Authorization', `Bearer ${token}`).expect(403);
+    expect(response.body.code).toBe('PERMISSION_DENIED');
+  });
+
+  it('no existe ninguna vía de escritura del proveedor', async () => {
+    for (const method of ['patch', 'put', 'post'] as const) {
+      const response = await api()[method]('/api/v1/parameters/authentication').set('Authorization', `Bearer ${adminToken}`).send({ value: 'entra' });
+      // PATCH cae en `/parameters/{key}` y no hay parámetro `authentication`; PUT y POST no existen.
+      expect(response.status).toBe(404);
+    }
+    expect(await ctx.prisma.systemParameter.count({ where: { key: { contains: 'auth' } } })).toBe(0);
   });
 });

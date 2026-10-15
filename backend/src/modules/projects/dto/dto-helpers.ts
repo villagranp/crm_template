@@ -1,6 +1,3 @@
-import { registerDecorator, type ValidationOptions } from 'class-validator';
-
-import { isCalendarDate } from '@/common/calendar-date';
 import { toLowerCaseUuid } from '@/common/dto/uuid-transform';
 
 /** Máximo de valores de un filtro repetible. */
@@ -26,18 +23,8 @@ export function toUuidList({ value }: { value: unknown }): unknown {
   return toLowerCaseUuid({ value: toList({ value }) } as Parameters<typeof toLowerCaseUuid>[0]);
 }
 
-/** Fecha de calendario `YYYY-MM-DD` real (DM-31). */
-export function IsCalendarDateString(options?: ValidationOptions): PropertyDecorator {
-  return (target: object, propertyName: string | symbol) => {
-    registerDecorator({
-      name: 'isCalendarDateString',
-      target: target.constructor,
-      propertyName: propertyName as string,
-      options: { message: `${String(propertyName)} must be a calendar date (YYYY-MM-DD)`, ...options },
-      validator: { validate: (value: unknown) => isCalendarDate(value) },
-    });
-  };
-}
+/** Fecha de calendario `YYYY-MM-DD` real (DM-31). Definida en `common`; se reexporta por compatibilidad. */
+export { IsCalendarDateString } from '@/common/dto/calendar-date-string.validator';
 
 /** Campo anulable de un PATCH: `null` borra y no se valida; omitido = sin cambio. */
 export function isNotNull(_object: object, value: unknown): boolean {

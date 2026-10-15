@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { LOGIN_SECURITY_PARAMETERS } from './authentication-settings';
 import type { ParameterValueType } from './ports/parameters.repository.port';
 
 /**
@@ -391,10 +392,11 @@ const contactDuplicateRulesSchema = z
 
 const RULES: readonly ParameterRule[] = [
   // Existentes (PLAN-ADMIN D10). Rangos iguales a PARAMETER_RANGES de parameter-value.ts.
-  numberRule('seguridad.intentos_fallidos_maximos', 5, 1, 20, { requiresConfigure: true }),
-  numberRule('seguridad.minutos_bloqueo', 15, 1, 1440, { requiresConfigure: true }),
-  numberRule('seguridad.dias_caducidad_password', 0, 0, 365, { requiresConfigure: true }),
-  numberRule('auditoria.dias_retencion', 365, 30, 3650),
+  numberRule(LOGIN_SECURITY_PARAMETERS.maxFailedAttempts, 5, 1, 20, { requiresConfigure: true }),
+  numberRule(LOGIN_SECURITY_PARAMETERS.lockoutMinutes, 15, 1, 1440, { requiresConfigure: true }),
+  numberRule(LOGIN_SECURITY_PARAMETERS.passwordExpiryDays, 0, 0, 365, { requiresConfigure: true }),
+  // Acorta la ventana de la bitácora: estructural (M-2 de seguridad, decisión de 2026-10-14).
+  numberRule('auditoria.dias_retencion', 365, 30, 3650, { requiresConfigure: true }),
   numberRule('ui.paginacion_default', 20, 1, 100),
 
   // CRM (00 §8.2)

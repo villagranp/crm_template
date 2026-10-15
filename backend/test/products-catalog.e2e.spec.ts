@@ -88,6 +88,9 @@ describe('Autenticación y permisos (PF-03.113)', () => {
   });
 
   it('cada ruta exige su permiso: sin productos.ver → 403 en productos y familias; unidades y resolve siguen con proyectos.ver', async () => {
+    // 07 F.7: `GET /units-of-measure` admite además `productos.ver` (`@RequireAnyPermission`), así que
+    // sin `proyectos.ver` pero con `productos.ver` sigue respondiendo 200; sin ninguno de los dos, 403.
+    // `GET /unit-conversions/resolve` sigue exigiendo solo `proyectos.ver`.
     const noProducts = await crmUser(context, { roleCodes: ['asesor'], countryId: s3, deny: ['productos.ver'] });
     const client = api(context, noProducts.token);
     await client.get('/products').expect(403);
@@ -99,7 +102,7 @@ describe('Autenticación y permisos (PF-03.113)', () => {
     const other = api(context, noProjects.token);
     await other.get('/products').expect(200);
     await other.get('/product-families').expect(200);
-    await other.get('/units-of-measure').expect(403);
+    await other.get('/units-of-measure').expect(200);
     await other.get(`/unit-conversions/resolve?fromUnitId=${randomUUID()}`).expect(403);
   });
 });
@@ -200,9 +203,10 @@ describe('GET /product-families y /units-of-measure', () => {
     const inactive = await insertProductFamily(context.prisma, { isActive: false });
     const response = await api(context, seller.token).get('/product-families').expect(200);
     const items = response.body.data as { id: string }[];
-    expect(items).toContainEqual({ ...(await familyRef(active)), description: null });
+    // 07 F.7 amplía la respuesta de forma compatible: `sortOrder`, `isActive`, fechas y `pagination` (por defecto 100 filas).
+    expect(items).toContainEqual(expect.objectContaining({ ...(await familyRef(active)), description: null, isActive: true }));
     expect(items.map((item) => item.id)).not.toContain(inactive);
-    expect(response.body).not.toHaveProperty('pagination');
+    expect(response.body.pagination).toMatchObject({ page: 1, pageSize: 100 });
   });
 
   it('unidades: solo activas, con id, código, nombre, símbolo y dimensión', async () => {
@@ -210,7 +214,9 @@ describe('GET /product-families y /units-of-measure', () => {
     const inactive = await insertUnit(context.prisma, { isActive: false });
     const response = await api(context, seller.token).get('/units-of-measure').expect(200);
     const items = response.body.data as { id: string; code: string }[];
-    expect(items).toContainEqual({ id: active.id, code: active.code, name: `Unidad ${active.code}`, symbol: active.code.toLowerCase(), dimension: 'VOLUME' });
+    expect(items).toContainEqual(
+      expect.objectContaining({ id: active.id, code: active.code, name: `Unidad ${active.code}`, symbol: active.code.toLowerCase(), dimension: 'VOLUME', isActive: true }),
+    );
     expect(items.map((item) => item.id)).not.toContain(inactive.id);
     expect(items).toContainEqual(expect.objectContaining({ id: ton.id, code: 'TON', dimension: 'MASS' }));
   });

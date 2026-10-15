@@ -35,6 +35,11 @@ export interface AuditLogFilter {
   resourceType?: string;
   resourceId?: string;
   correlationId?: string;
+  /**
+   * Clave de primer nivel de `changes` (D-07.10): solo eventos que cambiaron ese
+   * campo. Viaja como parámetro; el adaptador nunca la interpola en SQL.
+   */
+  changedField?: string;
   /** Inclusivo. */
   occurredFrom?: Date;
   /** Exclusivo. */

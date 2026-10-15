@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 
 import { createPage, type Page } from '@/infrastructure/database/ports/pagination';
 import type { TransactionContext } from '@/infrastructure/database/ports/transaction.port';
+import { canonicalEmployeeCode } from '@/modules/access/access-rules';
 import type { CustomerDuplicateRuleKey } from '@/modules/customers/duplicate-rules';
 import {
   type CountryLookup,
@@ -583,8 +584,9 @@ export class PrismaCustomersRepository implements CustomersRepository {
       return user?.id ?? null;
     }
     // D-02.17: código de colaborador y, si no hay coincidencia, correo.
+    // El código se guarda en forma canónica (RN-07.1): `e-001` en el archivo encuentra a `E-001`.
     const value = lookup.value.trim();
-    const byCode = await db.user.findFirst({ where: { employeeCode: value }, select: { id: true } });
+    const byCode = await db.user.findFirst({ where: { employeeCode: canonicalEmployeeCode(value) }, select: { id: true } });
     const byEmail = byCode ? null : await db.user.findFirst({ where: { emailNormalized: value.toLowerCase() }, select: { id: true } });
     const userId = byCode?.id ?? byEmail?.id;
     if (!userId) return null;
