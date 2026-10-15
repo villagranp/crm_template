@@ -83,7 +83,7 @@ donde se indica. Detalle de reglas y códigos de error:
 | GET · POST | `/catalogs` | `catalogos.ver` · `catalogos.crear` | Lista · alta |
 | GET · PATCH · DELETE | `/catalogs/:id` | `catalogos.ver` · `catalogos.editar` · `catalogos.eliminar` | Borrar solo si no es de sistema y está vacío |
 | POST · PATCH | `/catalogs/:id/items[/:itemId]` | `catalogos.editar` | Elementos: se desactivan, nunca se borran |
-| GET | `/parameters` | `parametros.ver` | Agrupados (sin paginar) |
+| GET | `/parameters` | `parametros.ver` | Agrupados (sin paginar); cada parámetro trae `editorOptions` (Ajustes 1) |
 | GET | `/parameters/authentication` | `parametros.ver` | Solo lectura: `{ provider: local\|entra\|hybrid, localLoginEnabled, securityParameterKeys[] }` desde `AUTH_PROVIDER` (D-07.8, RN-07.34). Sin secretos, tenant ni configuración de JWT |
 | PATCH | `/parameters/:key` | `parametros.editar` (+ `parametros.configurar` en `seguridad.*` y estructurales, incluido `auditoria.dias_retencion` desde la decisión del responsable 2026-10-14, D2, RN-07.32) | Solo el valor, validado por tipo, rango y registro de reglas. `crm.forecast.unidad_tonelaje` exige una unidad activa de masa con regla identidad `GLOBAL` activa (RN-07.33): si no, `422 INVALID_PARAMETER_VALUE` con `details[].reason` |
 | GET | `/audit-logs` · `/audit-logs/events` | `auditoria.ver` | Bitácora con filtros (incluido `field`: eventos cuyo `changes` contiene ese campo) · nombres de evento |
@@ -647,6 +647,96 @@ Sin `DELETE` ni `isActive` (RN-07.44). `ratePerUsd` como cadena decimal; `effect
 Reutilizados: `RESOURCE_CONFLICT` (también `employeeCode` repetido), `UNKNOWN_REFERENCE` (país
 inexistente o inactivo, con `issue`), `ADMIN_ONLY`, `PERMISSION_DENIED`, `INVALID_PARAMETER_VALUE`,
 `SYSTEM_RESOURCE_READ_ONLY`.
+
+## Endpoints — Ajustes 1
+
+Plan: [`AJUSTES-1.md`](../implementation-plans/AJUSTES-1.md) §6. Todos bajo `/api/v1`. Responden
+además `401 UNAUTHENTICATED` y `429`; un cuerpo o consulta que no cumple el DTO (incluidos campos no
+admitidos) → `400 VALIDATION_FAILED`; un id de ruta que no es UUID → `400 BAD_REQUEST`. Los
+recursos `/me/*` toman el usuario de la sesión: no hay `{userId}` en la ruta y no existe forma de
+leer o escribir lo de otro usuario.
+
+### Minuto de seguridad (`Administración · Minuto de seguridad`, AJ1-2)
+
+Un mensaje institucional por fecha de visualización (`displayDate`, `YYYY-MM-DD`). «Hoy» se decide
+en la zona `crm.zona_horaria_negocio`. `editable` y `deletable` los calcula el servidor: hoy y
+futuros se editan; solo los futuros se borran; los pasados son de solo lectura.
+
+| Método | Ruta | Permiso | Request → respuesta | Errores propios |
+|---|---|---|---|---|
+| GET | `/safety-minutes` | `minuto_seguridad.ver` | `from?`/`to?` (sobre `displayDate`, incluidos, `from` ≤ `to`), `page`, `pageSize` (≤ 100), `sortBy ∈ displayDate\|createdAt\|updatedAt` (defecto `displayDate`), `sortOrder` (defecto `desc`) → `{ data: SafetyMinuteResponseDto[], pagination }` | `400` (fechas, `from` > `to`, `sortBy`) |
+| GET | `/safety-minutes/:id` | `minuto_seguridad.ver` | → `SafetyMinuteResponseDto` | `404 RESOURCE_NOT_FOUND` |
+| POST | `/safety-minutes` | `minuto_seguridad.crear` | `{ message, displayDate }` → `201` + `Location`. Audita `safety_minute.created` | `400`, `409 SAFETY_MINUTE_DUPLICATE`, `422 SAFETY_MINUTE_PAST_DATE` |
+| PATCH | `/safety-minutes/:id` | `minuto_seguridad.editar` | `{ message?, displayDate? }` → `SafetyMinuteResponseDto`. Audita `safety_minute.updated` con antes/después (sin cambios no hay registro) | `400`, `404`, `409 SAFETY_MINUTE_DUPLICATE`, `409 SAFETY_MINUTE_LOCKED` (`reason = past`), `422 SAFETY_MINUTE_PAST_DATE` |
+| DELETE | `/safety-minutes/:id` | `minuto_seguridad.eliminar` | → `204`. Borrado físico; el rastro queda en `safety_minute.deleted` con el estado previo | `404`, `409 SAFETY_MINUTE_LOCKED` (`reason = today\|past`) |
+| GET | `/me/safety-minute` | `@AuthenticatedOnly` (cualquier sesión; mensaje institucional, D-AJ1.9) | → `{ safetyMinute: { displayDate, message } \| null }`. Sin mensaje hoy responde `200` con `null`: la ausencia no es un error. Sin autor ni identificadores | — |
+
+`SafetyMinuteResponseDto`: `id`, `message`, `displayDate`, `editable`, `deletable`, `createdAt`,
+`updatedAt`, `updatedBy: { id, displayName } | null`.
+
+**Validación del mensaje** (contrato; `400 VALIDATION_FAILED` si no se cumple):
+
+- Texto plano de **1 a 1000 caracteres** tras recortar los espacios de los extremos; admite saltos
+  de línea y tabulaciones; `\r\n` (y `\r` suelto) se normaliza a `\n` antes de contar y de guardar.
+- Sin caracteres de control (salvo salto de línea y tabulación, incluido `U+0000`) ni de formato o bidireccionales (por
+  ejemplo U+200B, U+202E, U+2066).
+- Debe tener al menos un carácter visible: un mensaje solo de espacios o de caracteres invisibles
+  se rechaza.
+- No se admite HTML: se guarda tal cual y la interfaz lo muestra siempre como texto (RN-AJ1.7).
+- En `PATCH` la misma regla aplica a `message` cuando viene.
+
+### Configuración y preferencias del usuario (`Acceso`, AJ1-1, AJ1-6, AJ1-7)
+
+Todas son `@AuthenticatedOnly` (el recurso es el propio usuario de la sesión). Son personales: no se
+auditan ni se registran en logs (RN-AJ1.6b, RN-AJ1.18).
+
+| Método | Ruta | Request → respuesta | Errores propios |
+|---|---|---|---|
+| GET | `/me/ui-settings` | → `UiSettingsResponseDto`: `dashboard { isCustomized, blocks[], kpis[] }` (composición efectiva: la preferencia propia o, si no hay, el parámetro `ui.inicio.tarjetas`; normalizada, `safety-minute` siempre visible; **no filtra por permisos**, el cliente combina visibilidad y permiso) y `topbar { search, fullscreen, notifications }`. No expone ningún otro parámetro | — |
+| GET | `/me/preferences` | → `{ theme: 'light'\|'dark' \| null, dashboardCards: { blocks[], kpis[] } \| null }`: la preferencia propia sin resolver por defecto (`null` si no existe o es ilegible; `dashboardCards` sale normalizado) | — |
+| PUT | `/me/preferences/theme` | `{ value: 'light'\|'dark' }` → `{ theme }`. Crea o reemplaza `ui.tema` | `400` (valor distinto de `light`/`dark`, campos extra) |
+| PUT | `/me/preferences/dashboard-cards` | `{ blocks[], kpis[] }` (lista **completa**, cada elemento `{ key, visible }`, en orden de pantalla) → la composición guardada | `400` (cuerpo mal formado, campos extra), `422 INVALID_DASHBOARD_CARDS` |
+| DELETE | `/me/preferences/dashboard-cards` | → `204`. «Restablecer»: borra la preferencia; sin preferencia previa también responde `204` | — |
+
+Claves cerradas (única definición en `backend/src/modules/parameters/dashboard-cards.ts`).
+Bloques: `safety-minute`, `hero`, `mine`, `kpis`, `alerts`, `activity`, `access`. Indicadores:
+`projects-active`, `opportunities-open`, `opportunities-won`, `opportunities-lost`, `forecast`,
+`visits-pending`, `activities-pending`, `activities-overdue`, `targets`. `safety-minute` no se
+puede ocultar: se guarda con `visible = true`. Cada lista debe traer cada clave exactamente una vez.
+
+`GET /me/safety-minute` vive en `safety-minutes/me-safety-minute.controller.ts` (no en
+`MeController`) para que `AccessModule` no dependa de `SafetyMinutesModule`, que ya depende de él.
+
+### Parámetros `ui.*` y `editorOptions` (`Parámetros`)
+
+Grupo `interfaz`, todos con `isPublic = false`; ninguno es estructural ni de seguridad, así que
+basta `parametros.editar`. La semilla no pisa un valor ya editado.
+
+| Clave | Tipo | Defecto | Efecto |
+|---|---|---|---|
+| `ui.inicio.tarjetas` | JSON | todo visible, en el orden de las listas | Composición por defecto de Inicio para quien no personalizó su panel. Editor `dashboard-cards` |
+| `ui.barra_superior.buscar` | BOOLEAN | `false` | Botón de buscar (aún sin función) |
+| `ui.barra_superior.pantalla_completa` | BOOLEAN | `true` | Botón de pantalla completa |
+| `ui.barra_superior.notificaciones` | BOOLEAN | `false` | Botón de notificaciones (aún sin función) |
+
+- `GET /parameters` añade a cada parámetro `editorOptions: Record<string, string[]> | null`: las
+  listas cerradas que necesita el editor, definidas una sola vez en el backend. Hoy solo
+  `ui.inicio.tarjetas` (`blocks`, `kpis`, `lockedVisibleBlocks`); el resto devuelve `null`.
+  `allowedValues` de ese parámetro trae la unión de bloques e indicadores.
+- `PATCH /parameters/ui.inicio.tarjetas` valida el mismo esquema que la preferencia y guarda el
+  valor normalizado; un valor inválido responde `422 INVALID_PARAMETER_VALUE` (código existente).
+
+### Códigos de error nuevos (Ajustes 1)
+
+| Status | Código | Cuándo | `details` |
+|---|---|---|---|
+| 409 | `SAFETY_MINUTE_DUPLICATE` | Ya hay un mensaje para esa fecha (al crear o al mover la fecha) | `[{ field: "displayDate", issue: "duplicated", displayDate }]` |
+| 409 | `SAFETY_MINUTE_LOCKED` | Editar o borrar lo que ya no admite el cambio (RN-AJ1.10, RN-AJ1.11) | `[{ field: "displayDate", reason: "past"\|"today", displayDate }]`: `past` = fecha anterior a hoy (ni editar ni borrar), `today` = el de hoy no se borra |
+| 422 | `SAFETY_MINUTE_PAST_DATE` | La fecha de alta, o la nueva fecha en una edición, es anterior a hoy | `[{ field: "displayDate", issue: "past", displayDate }]` |
+| 422 | `INVALID_DASHBOARD_CARDS` | La composición enviada tiene claves desconocidas, repetidas o faltantes; no se guarda nada | `[{ field, issue, key }]`, `issue` ∈ `unknown_key`, `duplicated_key`, `missing_key`; `field` es `blocks.<i>.key` / `kpis.<i>.key` (posición enviada) o, si la clave falta, `blocks` / `kpis` |
+
+Reutilizados: `RESOURCE_NOT_FOUND`, `VALIDATION_FAILED`, `PERMISSION_DENIED`,
+`INVALID_PARAMETER_VALUE`.
 
 ## Contract rules
 

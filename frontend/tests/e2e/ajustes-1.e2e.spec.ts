@@ -496,9 +496,9 @@ test.describe('Ajustes 1', () => {
       await expect(fullscreenButton).toBeVisible(SLOW);
       await expect(searchButton).toHaveCount(0);
       await expect(notificationsButton).toHaveCount(0);
-      // El pie del shell autenticado dice lo mismo. Va dentro de `<main>`, así que no es el landmark
-      // `contentinfo` (a diferencia del de la pantalla de acceso): se localiza por su texto.
-      await expect(page.getByText(footerText, { exact: true })).toBeVisible();
+      // El pie del shell autenticado dice lo mismo y también es el landmark `contentinfo` (fuera de `<main>`).
+      await expect(page.getByRole('contentinfo')).toHaveText(footerText);
+      await expect(page.getByRole('main').getByText(footerText)).toHaveCount(0);
     });
 
     try {
@@ -526,6 +526,118 @@ test.describe('Ajustes 1', () => {
         ).toBe(false);
         await expect(fullscreenButton).toBeVisible(SLOW);
         await expect(searchButton).toHaveCount(0);
+      });
+    }
+  });
+
+  test('cierre voluntario · el asesor que entra en la misma pestaña ve su panel y su tema, y aterriza en Inicio', async ({
+    page,
+    browser,
+    baseURL,
+  }) => {
+    test.skip(
+      !hasAdmin || !hasAsesor,
+      'Define E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD, E2E_ASESOR_EMAIL y E2E_ASESOR_PASSWORD.',
+    );
+
+    const html = page.locator('html');
+    const { kpiLost, kpiProjects } = homeBlocks(page);
+    const minuteRoute = '/administracion/minuto-seguridad';
+
+    await test.step('preparación: en otro contexto el asesor oculta «Oportunidades perdidas» y deja el tema oscuro', async () => {
+      const fresh = await browser.newContext({
+        baseURL,
+        timezoneId: BUSINESS_TIME_ZONE,
+        colorScheme: 'light',
+        viewport: { width: 1440, height: 900 },
+      });
+      try {
+        const other = await fresh.newPage();
+        const preferences = waitForApi(other, 'GET', /^\/me\/preferences$/);
+        await signIn(other, asesorEmail, asesorPassword);
+        const stored = ((await (await preferences).json()) as { theme: 'light' | 'dark' | null })
+          .theme;
+        await waitForHome(other);
+        await resetPanelIfCustomized(other);
+
+        await other.getByRole('button', { name: 'Personalizar panel' }).click();
+        const dialog = customizeDialog(other);
+        await expect(dialog.getByRole('list', { name: 'Bloques' })).toBeVisible(SLOW);
+        await dialog.getByLabel('Visible: Oportunidades perdidas').uncheck();
+        await saveCustomization(other);
+        await expect(homeBlocks(other).kpiLost).toHaveCount(0);
+
+        if (stored !== 'dark') {
+          const saved = waitForApi(other, 'PUT', /^\/me\/preferences\/theme$/);
+          await other.getByRole('button', { name: 'Alternar modo claro y oscuro' }).click();
+          expect((await saved).status()).toBe(HTTP_OK);
+        }
+        await expect(other.locator('html')).toHaveAttribute('data-theme', 'dark');
+        await signOut(other);
+      } finally {
+        await fresh.close();
+      }
+    });
+
+    try {
+      await test.step('el administrador (panel por defecto, tema claro) visita una ruta de administración y cierra sesión', async () => {
+        await signIn(page, adminEmail, adminPassword);
+        await page.goto('/');
+        await expect(kpiProjects).toBeVisible(SLOW);
+        await expect(kpiLost).toBeVisible();
+        await expect(html).toHaveAttribute('data-theme', 'light');
+
+        // Navegación dentro de la SPA: a partir de aquí NO se recarga la pestaña (la caché sigue en memoria).
+        await page.getByRole('link', { name: 'Administración', exact: true }).click();
+        await page
+          .getByRole('navigation', { name: 'Navegación principal' })
+          .getByRole('link', { name: 'Minuto de seguridad', exact: true })
+          .click();
+        await expect(page).toHaveURL(new RegExp(`${minuteRoute}$`));
+        await expect(
+          page.getByRole('heading', { name: 'Minuto de seguridad', level: 1 }),
+        ).toBeVisible(SLOW);
+        await signOut(page);
+        await expect(page).toHaveURL(/\/acceso$/);
+      });
+
+      await test.step('el asesor entra en la MISMA pestaña, sin recargar, y ve su panel, su tema y Inicio', async () => {
+        // Sin `page.goto`: se rellena el formulario que dejó el cierre de sesión.
+        await page.getByLabel(/correo electrónico/i).fill(asesorEmail);
+        await page.getByLabel(/^contraseña/i).fill(asesorPassword);
+        const login = waitForApi(page, 'POST', /^\/auth\/login$/);
+        await page.getByRole('button', { name: /iniciar sesión/i }).click();
+        expect((await login).status()).toBe(HTTP_OK);
+        await expect(page.getByRole('button', { name: 'Menú de usuario' })).toBeVisible();
+
+        // (b) aterriza en Inicio y no en la última ruta del administrador.
+        await expect(page).toHaveURL(/^https?:\/\/[^/]+\/$/);
+        await expect(page.getByRole('heading', { name: 'Panel de control', level: 1 })).toBeVisible(
+          SLOW,
+        );
+        await expect(page.getByRole('heading', { name: 'Sin acceso' })).toHaveCount(0);
+
+        // (a) su panel y su tema, no los del administrador.
+        await expect(kpiProjects).toBeVisible(SLOW);
+        await expect(kpiLost).toHaveCount(0);
+        await expect(html).toHaveAttribute('data-theme', 'dark', SLOW);
+      });
+    } finally {
+      // Restaura al asesor (panel por defecto y tema claro) aunque falle una comprobación anterior.
+      await test.step('restaura el panel y el tema del asesor', async () => {
+        if ((await page.getByRole('button', { name: 'Menú de usuario' }).count()) === 0) {
+          await signIn(page, asesorEmail, asesorPassword);
+        }
+        await page.goto('/');
+        await expect(kpiProjects).toBeVisible(SLOW);
+        await resetPanelIfCustomized(page);
+        await expect(kpiLost).toBeVisible(SLOW);
+        if ((await html.getAttribute('data-theme')) === 'dark') {
+          const saved = waitForApi(page, 'PUT', /^\/me\/preferences\/theme$/);
+          await page.getByRole('button', { name: 'Alternar modo claro y oscuro' }).click();
+          expect((await saved).status()).toBe(HTTP_OK);
+        }
+        await expect(html).toHaveAttribute('data-theme', 'light');
       });
     }
   });

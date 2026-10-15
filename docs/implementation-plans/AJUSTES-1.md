@@ -1,7 +1,7 @@
 # Plan de implementación — Ajustes 1
 
 - **Origen:** solicitud del responsable de negocio (2026-10-14).
-- **Estado:** **aprobado (2026-10-14)**. Decisiones de §2 resueltas por el responsable de negocio: valores recomendados, salvo D-AJ1.1 (el dashboard se configura **por usuario**) y D-AJ1.4 (buscar y notificaciones **apagados**).
+- **Estado:** **implementado (2026-10-15)**; plan **aprobado (2026-10-14)**; lo que difiere de lo aprobado está en [§16](#16-desviaciones-de-la-implementación). Decisiones de §2 resueltas por el responsable de negocio: valores recomendados, salvo D-AJ1.1 (el dashboard se configura **por usuario**) y D-AJ1.4 (buscar y notificaciones **apagados**).
 - **Decisiones que lo enmarcan:** [ADR-008](../adr/ADR-008-authorization.md) (permisos `recurso.accion`), [ADR-017](../adr/ADR-017-design-system-grupo-ag.md) (tokens), [ADR-018](../adr/ADR-018-identity-access-model.md) (menú desde la base), [ADR-019](../adr/ADR-019-autenticacion-local-con-migracion-a-entra.md), [ADR-020](../adr/ADR-020-asignacion-de-accesos-exclusiva-del-administrador.md), [ADR-025](../adr/ADR-025-inmutabilidad-de-la-auditoria-con-disparadores.md); planes [PLAN-ADMIN](PLAN-ADMIN.md) y [CRM 01 — Inicio](crm/01-inicio-dashboard.md).
 - **Skills aplicables:** `feature-development` (orquestador), `requirements-analysis`, `user-story`, `architecture`, `api-design`, `database`, `prisma`, `authorization`, `access-management`, `security`, `backend-nestjs`, `frontend-react`, `design-system`, `testing`, `observability`, `documentation`, `code-review`.
 - **ADR:** no se requiere. No hay tecnología, librería ni patrón nuevo: una tabla y un permiso nuevos siguen patrones existentes, `user_preferences` ya existe y `/me/*` ya es el patrón de recursos del propio usuario (`@AuthenticatedOnly`).
@@ -559,4 +559,70 @@ Cada paso termina con `typecheck`, `lint` y las pruebas de su nivel en verde.
 
 ## 16. Desviaciones de la implementación
 
-*(Se completa al implementar.)*
+Lo que difiere de lo aprobado, según el código entregado (2026-10-15). Contrato, reglas y
+criterios de aceptación no cambian salvo donde se indica.
+
+### 16.1 Diferencias respecto del plan
+
+1. **`GET /me/safety-minute` vive en `safety-minutes/me-safety-minute.controller.ts`**, no en
+   `MeController`: ponerlo en `access/` obligaba a `AccessModule` a importar `SafetyMinutesModule`,
+   que ya depende de `AccessModule` (usuario local de quien escribe). Ruta, `@AuthenticatedOnly` y
+   respuesta son las del plan.
+2. **`created_by_id` y `updated_by_id` de `safety_minutes` sin FK**, como en `exchange_rates`
+   (decisión aceptada). El nombre se resuelve al leer y es `null` si el usuario ya no existe.
+3. **Composición por defecto leída con el lector tolerante de RN-AJ1.4**
+   (`readStoredDashboardCards`), no con `ParameterReader`: el parámetro y la preferencia pasan por
+   la misma normalización y un valor ilegible cae a la composición de código con un aviso sin el
+   valor.
+4. **`GET /parameters` añade `editorOptions`** (`Record<string, string[]> | null`): las listas
+   cerradas que necesita el editor (`blocks`, `kpis`, `lockedVisibleBlocks`) salen una sola vez del
+   backend. No estaba en el plan; es aditivo.
+5. **`GET /me/preferences` devuelve `dashboardCards` normalizado o `null`** (y `theme` o `null`):
+   la preferencia propia sin resolver por defecto; la composición efectiva es `GET /me/ui-settings`.
+6. **Inicio muestra un marcador de carga en la primera carga de `ui-settings`**; el plan decía
+   pintar el orden por defecto mientras llega.
+7. **Dos columnas desde `md` en Inicio** (`xs`: una), no solo la reordenación de bloques que
+   preveía el plan.
+8. **`panelDescription` se conserva en `ChangePasswordPage`**: `AuthLayout` lo vuelve opcional (y
+   retira `features`); solo el acceso se queda con el nombre «Mi Cliente AG» sin texto ni viñetas.
+9. **El minuto de «hoy» tras la medianoche se refresca con el `staleTime` de 5 minutos** de
+   `ui-settings`/consulta del minuto, no en el instante del cambio de día; hasta entonces el bloque
+   puede mostrar el mensaje del día anterior (o ninguno).
+10. **El rollback de `safety_minutes` no limpia permisos, menú ni parámetros sembrados**, como el
+    resto de rollbacks del CRM; queda anotado en el `.down.sql` y en
+    [`data-model.md`](../database/data-model.md) §11.1.
+
+### 16.2 Cerrados antes de declarar la entrega (2026-10-15)
+
+Detectados por las revisiones de código y de seguridad; corregidos y verificados (commits
+`5674f38` backend, `ae3a396` frontend y `20c9bc2` E2E):
+
+- **Caché de consultas entre usuarios al cerrar sesión — cerrado.** `auth.store.ts` vacía la caché
+  de TanStack Query cuando cambia el id de usuario (cierre voluntario, sesión caducada o cambio de
+  usuario sin recargar); renovar el token no la toca. El cierre voluntario ya no conserva la ruta
+  de retorno (`signedOutByUser`, `RequireAuth.tsx`); la sesión caducada sí. Pruebas:
+  `auth.store.cache-isolation.spec.tsx`, `RequireAuth.spec.tsx` y un E2E que entra con otro usuario
+  en la misma pestaña sin recargar. El tema de `localStorage` sigue siendo por dispositivo
+  (política de `use-theme-preference-sync`).
+- **Validación de caracteres del mensaje — cerrado.** Texto plano: sin controles, sin caracteres
+  de formato/bidi, con al menos un carácter visible; `400 VALIDATION_FAILED` (un `\u0000` ya no
+  produce `500`). Contrato en [`docs/api/README.md`](../api/README.md), «Endpoints — Ajustes 1».
+- **Carrera de medianoche — cerrado.** La edición y el borrado condicionan la fecha en la propia
+  escritura; si no escribe nada, se relee y responde `409 SAFETY_MINUTE_LOCKED` (o `404`).
+- **`upsert` concurrente de preferencias — cerrado con una limitación.** El adaptador captura
+  `P2002` y reintenta una vez. La prueba de integración lanza 8 `PUT` simultáneos y pasa, pero no
+  puede garantizar que cada ejecución provoque la colisión que el reintento resuelve: la
+  corrección es correcta por construcción, no demostrada por la prueba en cada corrida.
+
+### 16.3 Aceptado y fuera de esta entrega
+
+- **Claves del dashboard copiadas en el frontend** (`services/ui-settings`, etiquetas y permisos
+  por indicador en `dashboard-layout.ts`): el editor del valor por defecto ya completa las claves
+  que falten con `editorOptions`, pero un bloque o indicador nuevo en el backend sigue necesitando
+  su etiqueta y su permiso en el frontend.
+- **Minuto de hoy tras medianoche:** con la pestaña abierta se sigue viendo el de ayer hasta el
+  siguiente refetch (`staleTime` de 5 minutos).
+- **Rollback de `safety_minutes`:** no limpia los permisos, la opción de menú ni los parámetros
+  sembrados (como el resto de rollbacks); está anotado en la cabecera del `.down.sql`.
+- **Brechas del informe ASVS** ([`docs/security/asvs-5.0-L2-2026-10.md`](../../security/asvs-5.0-L2-2026-10.md)):
+  4 altas y 10 medias abiertas; las altas se proponen como historias propias, no se abordan aquí.

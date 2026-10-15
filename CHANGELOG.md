@@ -5,7 +5,42 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 
 ## [Unreleased]
 
+### Added
+- **Ajustes 1** (`docs/implementation-plans/AJUSTES-1.md`; backend y frontend):
+  - **Dashboard personalizable por usuario**: cada usuario elige qué bloques e indicadores (K1-K9)
+    de Inicio ve y en qué orden con «Personalizar panel»; «Restablecer» vuelve a la composición por
+    defecto. Se guarda en la preferencia `ui.inicio.tarjetas` de `user_preferences`; la composición
+    por defecto es el parámetro `ui.inicio.tarjetas` (grupo `interfaz`, editor `dashboard-cards`).
+    Endpoints: `GET /me/ui-settings`, `GET /me/preferences`, `PUT`/`DELETE
+    /me/preferences/dashboard-cards`. Código nuevo `422 INVALID_DASHBOARD_CARDS`.
+  - **Minuto de seguridad**: un mensaje institucional por fecha, visible para toda sesión en un
+    bloque de Inicio (`GET /me/safety-minute`, sin permiso) y con mantenimiento en
+    «Administración → Minuto de seguridad» (`/safety-minutes*`). Tabla `safety_minutes`, migración
+    `20261015100000_safety_minutes` con su rollback `.down.sql`, permisos `minuto_seguridad.ver`,
+    `.crear`, `.editar` y `.eliminar`, opción de menú `admin-minuto-seguridad` y eventos de
+    auditoría `safety_minute.created|updated|deleted`. Códigos nuevos `SAFETY_MINUTE_DUPLICATE`,
+    `SAFETY_MINUTE_LOCKED` y `SAFETY_MINUTE_PAST_DATE`.
+  - **Barra superior parametrizable**: los botones de buscar, pantalla completa y notificaciones se
+    muestran u ocultan con `ui.barra_superior.buscar`, `.pantalla_completa` y `.notificaciones`
+    (buscar y notificaciones sembrados en `false`: aún no tienen función). Se leen por
+    `GET /me/ui-settings`, que no expone ningún otro parámetro.
+  - **Tema por usuario**: el modo claro u oscuro sigue al usuario entre dispositivos
+    (`PUT /me/preferences/theme`, preferencia `ui.tema`); `localStorage` queda como caché para el
+    acceso y el arranque.
+  - Parámetros `ui.*` y grupo «Interfaz» en la pantalla de Parámetros; `GET /parameters` añade el
+    campo `editorOptions`.
+  - Cambios visibles: el acceso muestra solo el nombre «Mi Cliente AG» (sin texto ni viñetas del
+    panel de marca), el pie dice «© 2026 Grupo AG», Inicio se organiza en dos columnas desde `md` y
+    muestra un marcador de carga mientras llega la configuración por primera vez.
+
 ### Changed
+- **Ajustes 1 — cambios de contrato** (`docs/api/README.md`, «Endpoints — Ajustes 1»; solo aditivos):
+  - `GET /parameters` devuelve en cada parámetro el campo nuevo `editorOptions`
+    (`Record<string, string[]> | null`); los clientes que lo ignoran no se ven afectados.
+  - Nuevos parámetros `ui.*` en la semilla (no pisa valores ya editados) y nuevo permiso
+    `minuto_seguridad.*`; ningún permiso existente cambia.
+  - `ExchangeRatesQueryDto`: `IsNotBeforeFrom` pasa a `common/dto/not-before-from.validator.ts`
+    para compartirlo con el minuto de seguridad (sin cambio de comportamiento).
 - **CRM Módulo 7 — cambios de contrato** (`docs/api/README.md`, "Módulo 7 · Administración"):
   - `GET /product-families` y `GET /units-of-measure` devuelven `{ data, pagination }` (antes
     `{ data }`), con `pageSize` 100 por defecto, `isActive` = `true` (defecto) | `false` | `all`,

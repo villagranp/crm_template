@@ -153,7 +153,8 @@ recorrer la jerarquía, no sólo el equipo directo.
 | Tabla | Para qué | Nota |
 |---|---|---|
 | `system_parameters` | Configuración editable en caliente | **Nunca secretos**; van al almacén de secretos |
-| `user_preferences` | Preferencias que siguen al usuario entre dispositivos | El tema del shell vive en `localStorage`; esto es para cuando eso no baste |
+| `user_preferences` | Preferencias que siguen al usuario entre dispositivos | Desde Ajustes 1 guarda `ui.tema` y `ui.inicio.tarjetas` (§11.2); `localStorage` es solo la caché del navegador para el acceso y el arranque |
+| `safety_minutes` | Mensaje institucional por fecha de visualización (Ajustes 1) | Ver §11.1 |
 | `catalogs` / `catalog_items` | Listas cortas y estables (motivos, tipos) | Si necesita columnas propias, deja de ser catálogo |
 | `sequences` | Folios (`COT-2026-00042`) | Asignar **en transacción con bloqueo de fila**, nunca con `MAX(n)+1` |
 | `stored_files` | Metadatos de adjuntos | El binario vive en el almacenamiento de objetos |
@@ -334,6 +335,7 @@ Todo ello está probado contra PostgreSQL en `backend/test/crm-schema.e2e.spec.t
 | `20261010100600_crm_attachments_imports_targets` | Adjuntos, importaciones, metas; FK `customers.source_import_id` |
 | `20261010100700_crm_interactions_view` | Vista `crm_interactions_v` |
 | `20261014100000_audit_logs_append_only` | Paso 9 de 00 §9, entregado por el Módulo 7: función y disparadores de `audit_logs` (ADR-025, ver §6) |
+| `20261015100000_safety_minutes` | Ajustes 1: tabla `safety_minutes`, índice único por fecha y `CHECK` del mensaje (ver §11.1) |
 
 El SQL de tablas, índices y FK lo generó `prisma migrate diff`; los CHECK, la
 vista, el `RENAME VALUE` y los disparadores se escribieron a mano. Prisma no genera *down*: cada
@@ -378,9 +380,88 @@ aplica de nuevo. Toda migración nueva desde la primera del CRM necesita su
 Revertir `20261014100000_audit_logs_append_only` no pierde datos: solo retira
 la protección de la bitácora en la base.
 
+Revertir `20261015100000_safety_minutes` elimina la tabla y sus mensajes (respaldo previo
+si hay que conservarlos) y no limpia permisos, menú ni parámetros sembrados (§11.1).
+
 ### 10.4 Datos sensibles
 
 `contacts` (nombre, cargo, teléfono, correo), `customers` (teléfono, correo) y
 `customer_import_rows.raw_data` contienen datos personales de terceros:
 no se registran en logs, se enmascaran en `audit_logs` (DM-29) y `raw_data` se
 purga a los `crm.importaciones.dias_retencion_filas` días (90, DM-28).
+
+---
+
+## 11. Ajustes 1 (minuto de seguridad, preferencias y parámetros de interfaz)
+
+Plan: [`AJUSTES-1.md`](../implementation-plans/AJUSTES-1.md) §5. Una tabla nueva, ninguna tabla
+modificada; el resto reutiliza `user_preferences` y `system_parameters`.
+
+### 11.1 `safety_minutes`
+
+Un mensaje institucional por fecha de visualización. Sin datos personales (clasificación:
+interno): el mensaje es texto institucional y el rastro de quién lo escribió vive en `audit_logs`.
+
+| Columna | Tipo | Nota |
+|---|---|---|
+| `id` | `uuid` PK | Lo genera Prisma (`@default(uuid())`), sin valor por defecto en la base |
+| `message` | `varchar(1000)` NOT NULL | Texto plano, 1 a 1000 caracteres; las reglas de contenido (sin control ni bidi, al menos un carácter visible) las aplica la API |
+| `display_date` | `date` NOT NULL | Fecha de calendario sin hora, en la zona `crm.zona_horaria_negocio` (DM-31) |
+| `created_at` | `timestamptz(6)` NOT NULL | Defecto `CURRENT_TIMESTAMP` |
+| `updated_at` | `timestamptz(6)` NOT NULL | `@updatedAt` |
+| `created_by_id` | `uuid` NULL | **Sin FK**, como `exchange_rates` y el resto de columnas `created_by_id` |
+| `updated_by_id` | `uuid` NULL | **Sin FK**; el servicio resuelve el nombre al leer (`updatedBy`) |
+
+- **Índice único** `uq_safety_minutes_display_date` sobre `display_date`: como máximo un mensaje
+  por fecha (`409 SAFETY_MINUTE_DUPLICATE` si la carrera llega a la base). Sirve también al filtro
+  por rango y al orden por fecha.
+- **CHECK** `ck_safety_minutes_message_not_blank`: `btrim(message) <> ''`. Escrito a mano en la
+  migración (Prisma no modela `CHECK`); es la última defensa si algo salta la validación de la API.
+- **Sin FK en `created_by_id`/`updated_by_id`**: decisión aceptada (ver §16 del plan). El usuario
+  puede desactivarse o, en el futuro, anonimizarse sin que la tabla lo impida; `updatedBy` es
+  `null` si el usuario ya no existe.
+- **Borrado físico** solo de fechas futuras; el estado previo queda en `audit_logs`
+  (`safety_minute.deleted`). No hay `deleted_at`.
+- **Rollback**: `backend/prisma/rollbacks/20261015100000_safety_minutes.down.sql` hace `DROP TABLE`
+  (pierde los mensajes programados: respaldo previo si hay que conservarlos). **No limpia la
+  semilla**: tras revertir quedan los permisos `minuto_seguridad.*`, la opción de menú
+  `admin-minuto-seguridad` y los parámetros `ui.*`, y la pantalla de mantenimiento respondería
+  `500` hasta limpiarlos o reaplicar la migración. Los eventos `safety_minute.*` de `audit_logs`
+  no se tocan. Lo verifica `backend/test/crm-rollbacks.e2e.spec.ts`.
+
+### 11.2 `user_preferences`: claves de Ajustes 1
+
+Tabla existente (`user_id`, `key`, `value` JSON, único por `(user_id, key)`, `ON DELETE CASCADE`).
+Ajustes 1 es su primer uso. El acceso lo cierra `UserPreferencesService`: el usuario siempre sale
+de la sesión.
+
+| Clave | `value` | Quién la escribe |
+|---|---|---|
+| `ui.tema` | `"light"` o `"dark"` (sin fila = el navegador decide con `prefers-color-scheme`) | `PUT /me/preferences/theme` |
+| `ui.inicio.tarjetas` | `{ blocks: [{ key, visible }], kpis: [{ key, visible }] }`, lista completa en orden de pantalla | `PUT`/`DELETE /me/preferences/dashboard-cards` |
+
+Son datos personales de configuración: no se auditan ni se registran en logs. Un valor guardado
+ilegible o que quedó desfasado (clave retirada o añadida después) se lee con el lector tolerante
+(RN-AJ1.4): se normaliza o se trata como inexistente y deja un aviso sin el valor ni el usuario.
+
+### 11.3 `system_parameters`: grupo `interfaz`
+
+Sembrados por `backend/prisma/seed/access-catalog.ts` (la semilla no pisa un valor editado), todos
+con `is_public = false` y sin `parametros.configurar`:
+
+| Clave | Tipo | Defecto |
+|---|---|---|
+| `ui.inicio.tarjetas` | `JSON` | Composición con todo visible, en el orden de `dashboard-cards.ts` (la composición por defecto de quien no personalizó su panel) |
+| `ui.barra_superior.buscar` | `BOOLEAN` | `false` |
+| `ui.barra_superior.pantalla_completa` | `BOOLEAN` | `true` |
+| `ui.barra_superior.notificaciones` | `BOOLEAN` | `false` |
+
+La misma clave `ui.inicio.tarjetas` nombra el parámetro (global) y la preferencia (por usuario): son
+filas de tablas distintas. El usuario nunca lee el parámetro directamente: `GET /me/ui-settings`
+devuelve solo la composición efectiva y los tres booleanos de la barra.
+
+### 11.4 Permisos y menú sembrados
+
+Recurso `minuto_seguridad` (módulo `administracion`) con las acciones `ver`, `crear`, `editar` y
+`eliminar`, y la opción de menú `admin-minuto-seguridad` (`/administracion/minuto-seguridad`,
+requiere `minuto_seguridad.ver`). Ver el mensaje de hoy en Inicio no exige permiso.
