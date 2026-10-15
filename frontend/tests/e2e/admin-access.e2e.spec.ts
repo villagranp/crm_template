@@ -231,7 +231,7 @@ test.describe.serial('administración de accesos', () => {
       await expect(page.getByRole('heading', { name: 'Usuarios', level: 1 })).toBeVisible();
 
       const search = waitForApi(page, 'GET', /^\/users$/, { search: userEmail });
-      await page.getByLabel('Buscar por nombre o correo').fill(userEmail);
+      await page.getByLabel('Buscar por nombre, correo o código').fill(userEmail);
       expect((await search).status()).toBe(HTTP_OK);
 
       const row = page
@@ -255,7 +255,8 @@ test.describe.serial('administración de accesos', () => {
       expect((await suspended).status()).toBe(HTTP_OK);
       await expect(confirm).toBeHidden();
       await expect(detail.getByText('Usuario suspendido. Sus sesiones se cerraron.')).toBeVisible();
-      await expect(detail.getByText('Suspendido', { exact: true })).toBeVisible();
+      // 07 RN-07.6 / E.1: SUSPENDED se presenta como «Inactivo».
+      await expect(detail.getByText('Inactivo', { exact: true })).toBeVisible();
 
       await detail.getByRole('button', { name: 'Cerrar' }).click();
       await signOut(page);

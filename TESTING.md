@@ -69,6 +69,16 @@ Un porcentaje alto con pruebas triviales es peor que uno moderado con pruebas si
   `DATABASE_URL`. `backend/test/global-setup.ts` lo borra, lo migra y lo siembra
   en cada ejecución; el esquema de desarrollo (`public`) nunca se toca. Cada
   prueba crea sus propios usuarios con correo único.
+- `INTEGRATION_SCHEMA` cambia ese esquema (debe empezar por `integration_` y
+  usar solo `[a-z0-9_]`, porque se interpola en `DROP SCHEMA`). Sirve para
+  ejecutar varias suites a la vez sin que una borre el esquema de otra
+  (`backend/test/support/integration-database.ts`).
+- **Las pruebas nunca limpian `audit_logs`.** La base rechaza `UPDATE`,
+  `TRUNCATE` y el `DELETE` de filas dentro de la retención (ADR-025), y la
+  bitácora es compartida por todas las suites: cada prueba filtra por los ids
+  de sus propios registros (recurso, actor o fila insertada) y nunca cuenta
+  totales globales. Para empezar de cero se recrea el esquema (lo hace
+  `global-setup.ts`), nunca se desactivan los disparadores.
 
 ## 8. Comandos
 
@@ -398,6 +408,66 @@ Notas:
   repetible sin volver a `prepare`; con el stack ya compilado tarda unos 13 s.
 - La plantilla y el archivo de errores se comprueban leyendo la descarga real de
   Playwright (`download.path()`); el nombre llega en `Content-Disposition`.
+
+### E2E del Módulo 7
+
+`frontend/tests/e2e/admin-crm.e2e.spec.ts` (PF-07.45 y PF-07.46 del plan
+`docs/implementation-plans/crm/07-administracion.md`, más un recorrido corto de tipos de
+cambio) usa el **mismo stack aislado** que «E2E de Integraciones» (semilla esencial y demo,
+administrador de prueba con contraseña personal). Se ejecuta junto con
+`admin-access.e2e.spec.ts`, que comparte variables.
+
+| Recorrido | Qué cubre |
+|---|---|
+| PF-07.45 | Administrador: crea un equipo propio → da de alta un asesor con código de colaborador (escrito en minúsculas; se guarda en mayúsculas, RN-07.1), país y rol `Asesor` → en el detalle comprueba código y país y le asigna el equipo (panel «Equipos», `PUT /users/{id}/teams`) → el asesor entra con la contraseña inicial y fija la suya → `GET /me/menu` solo trae módulos y opciones comerciales (ni `administracion` ni `integraciones`) y `/administracion/usuarios` muestra «Sin acceso» → el administrador lo busca por código y lo suspende («Inactivo», RN-07.6) → ya no puede entrar (`403`) |
+| PF-07.46 | Administrador: añade un valor propio a `crm.tipo_empresa` (catálogo abierto, sin invariantes) → el selector «Tipo de empresa» del alta de cliente lo ofrece → lo desactiva → el selector ya no lo ofrece → «Auditoría», «Vista por campo», filtros Campo `isActive` y Registro (id del valor): `catalog_item.updated` con `true` → `false` |
+| Tipos de cambio | Alta de `GTQ` en una fecha de vigencia propia (pasado lejano, derivada de la hora; no afecta a la tasa vigente) → la misma moneda y fecha da `409` con su mensaje → filtro por moneda y fechas → «Corregir» con moneda y fecha deshabilitadas → `PATCH` conserva moneda y fecha y la tabla muestra la tasa nueva |
+
+Variables (los valores entre `<>` son de ejemplo; las contraseñas solo por el entorno):
+
+| Variable | Valor |
+|---|---|
+| `E2E_SCHEMA` | `integration_m7_e2e` |
+| `DATABASE_URL` | la de `.env` con `?schema=integration_m7_e2e` |
+| `ATTACHMENTS_STORAGE_PATH`, `SEED_DEMO_PASSWORD`, `JWT_ACCESS_TOKEN_SECRET` | como en «E2E de Clientes» |
+| `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | `admin@e2e.invalid`, `<12+>`: exportadas antes de `prepare` |
+| `AUTH_DEFAULT_PASSWORD` | `<12+>`: contraseña inicial de los usuarios que crea el recorrido |
+| `E2E_ASESOR_PASSWORD`, `E2E_MANAGER_PASSWORD`, `E2E_ADMIN_PASSWORD` | `<12+>`: las que `activate` deja a los usuarios demo y al administrador |
+| `E2E_ADMIN_EMAIL` | lo imprime `activate` (`admin@e2e.invalid`) |
+| `E2E_DEFAULT_PASSWORD` | `= AUTH_DEFAULT_PASSWORD` |
+| `E2E_NEW_USER_PASSWORD` | `<12+>`: la que fija el usuario nuevo |
+| `E2E_COUNTRY_LABEL` | opcional; país del asesor como lo muestra el selector, por defecto `Guatemala (GT)` |
+
+Pasos (Git Bash, desde la raíz), con backend en **3107** y Vite en **5187**:
+
+1. `cd backend && pnpm exec ts-node --transpile-only scripts/e2e-stack.ts prepare`.
+2. Backend desde `backend/`: `API_PORT=3107 NODE_ENV=development AUTH_PROVIDER=local
+   CORS_ALLOWED_ORIGINS=http://localhost:5187 RATE_LIMIT_MAX_REQUESTS=5000
+   TS_NODE_PROJECT=tsconfig.json pnpm exec ts-node -r tsconfig-paths/register src/main.ts`.
+3. Frontend desde `frontend/`: `DEV_API_PROXY_TARGET=http://localhost:3107 pnpm exec vite --port 5187 --strictPort`.
+4. `E2E_API_URL=http://localhost:3107 pnpm exec ts-node --transpile-only scripts/e2e-stack.ts activate`
+   (desde `backend/`) y exporta `E2E_ADMIN_EMAIL`.
+5. Pasado un minuto: `E2E_BASE_URL=http://localhost:5187 pnpm --filter @app/frontend test:e2e admin-crm`.
+6. Pasado otro minuto: `E2E_BASE_URL=http://localhost:5187 pnpm --filter @app/frontend test:e2e admin-access`.
+7. Limpieza: detén solo el backend (3107) y el Vite (5187),
+   `E2E_SCHEMA=integration_m7_e2e pnpm exec ts-node --transpile-only scripts/e2e-stack.ts drop`,
+   y borra la carpeta temporal de adjuntos y `frontend/test-results`.
+
+Notas:
+
+- **Límite de login:** `admin-crm` hace 6 inicios de sesión (4 en PF-07.45, 1 en cada uno de
+  los otros dos) y `admin-access` 4; con `activate` (hasta 6) y 10 por minuto por IP, cada
+  paso va en su propio minuto.
+- Es repetible sin volver a `prepare`: el equipo, el usuario, el valor de catálogo y la
+  fuente del tipo de cambio llevan un sufijo único. La fecha de vigencia se deriva de los
+  segundos actuales (ciclo de 40 años): dos ejecuciones en el mismo segundo chocarían.
+- El selector de equipos del usuario carga la primera página de `GET /teams` (por nombre):
+  tras muchas ejecuciones sin `prepare`, los equipos `E2E Equipo M7 …` podrían llenarla;
+  vuelve al paso 1.
+- PF-07.45 comprueba con `expect.soft` que `POST /users` devuelve `employeeCode` y
+  `country` (contrato `UserResponseDto`): si fallan, la prueba queda en rojo pero el
+  recorrido sigue hasta el final. Los tres recorridos son independientes (`mode: 'default'`):
+  un fallo no salta los demás.
 
 ## 9. En el pipeline
 
