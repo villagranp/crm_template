@@ -25,6 +25,7 @@ import {
   safetyMinuteDuplicateError,
   safetyMinuteLockedError,
   safetyMinutePastDateError,
+  type SafetyMinuteLockReason,
 } from './safety-minute-rules';
 
 export const SAFETY_MINUTE_RESOURCE_TYPE = 'safety_minute';
@@ -124,8 +125,8 @@ export class SafetyMinutesService {
 
   /** El mensaje de hoy para cualquier sesión (D-AJ1.9), o `null` si no hay (D-AJ1.3). */
   async findToday(): Promise<TodaySafetyMinute | null> {
-    const record = await this.repository.findByDisplayDate(await this.today());
-    return record ? { displayDate: record.displayDate, message: record.message } : null;
+    // Lectura sin autor: la respuesta no lo expone, así que no se consulta `users`.
+    return this.repository.findMessageByDisplayDate(await this.today());
   }
 
   async create(request: CreateSafetyMinuteRequest, actor: SafetyMinuteActor): Promise<SafetyMinuteView> {
@@ -170,10 +171,10 @@ export class SafetyMinutesService {
       return this.viewOf(current, today);
     }
 
-    const result = await this.repository.update(id, changes, actor.userId);
+    const result = await this.repository.update(id, changes, actor.userId, today);
     if (!result.ok) {
       if (result.reason === 'NOT_FOUND') {
-        throw new ResourceNotFoundError('SafetyMinute', id);
+        throw await this.lockedOrNotFound(id, today, editLockReason);
       }
       throw safetyMinuteDuplicateError(changes.displayDate ?? current.displayDate);
     }
@@ -198,8 +199,8 @@ export class SafetyMinutesService {
       throw safetyMinuteLockedError(locked, current.displayDate);
     }
 
-    if (!(await this.repository.delete(id))) {
-      throw new ResourceNotFoundError('SafetyMinute', id);
+    if (!(await this.repository.delete(id, today))) {
+      throw await this.lockedOrNotFound(id, today, deleteLockReason);
     }
     await this.audit.record(SAFETY_MINUTE_EVENTS.deleted, actor.audit, {
       resourceType: SAFETY_MINUTE_RESOURCE_TYPE,
@@ -207,6 +208,20 @@ export class SafetyMinutesService {
       before: auditedState(current),
       after: null,
     });
+  }
+
+  /**
+   * La escritura condicionada por fecha no tocó nada (carrera de medianoche, RN-AJ1.9): se relee
+   * para responder `409 SAFETY_MINUTE_LOCKED` si la fila pasó a pasado, o `404` si ya no existe.
+   */
+  private async lockedOrNotFound(
+    id: string,
+    today: CalendarDate,
+    lockReason: (displayDate: CalendarDate, today: CalendarDate) => SafetyMinuteLockReason | null,
+  ): Promise<Error> {
+    const latest = await this.repository.findById(id);
+    const reason = latest ? lockReason(latest.displayDate, today) : null;
+    return latest && reason ? safetyMinuteLockedError(reason, latest.displayDate) : new ResourceNotFoundError('SafetyMinute', id);
   }
 
   private viewOf(record: SafetyMinuteRecord, today: CalendarDate): SafetyMinuteView {

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 
 import type { UserPreferenceKey, UserPreferencesRepository } from '@/modules/access/ports/user-preferences.repository.port';
 
@@ -23,11 +23,20 @@ export class PrismaUserPreferencesRepository implements UserPreferencesRepositor
 
   async upsert(userId: string, key: UserPreferenceKey, value: unknown): Promise<void> {
     const json = value as Prisma.InputJsonValue;
-    await this.prisma.userPreference.upsert({
-      where: { userId_key: { userId, key } },
-      create: { userId, key, value: json },
-      update: { value: json },
-    });
+    const write = () =>
+      this.prisma.userPreference.upsert({
+        where: { userId_key: { userId, key } },
+        create: { userId, key, value: json },
+        update: { value: json },
+      });
+    try {
+      await write();
+    } catch (error) {
+      // Dos PUT simultáneos del mismo usuario: ambos ven "no existe" y uno choca con el índice
+      // único. Se reintenta una vez; ahora la fila existe y el upsert actualiza (gana el último).
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) throw error;
+      await write();
+    }
   }
 
   async delete(userId: string, key: UserPreferenceKey): Promise<void> {

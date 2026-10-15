@@ -11,4 +11,9 @@
 -- Rollback de 20261015100000_safety_minutes (Ajustes 1, AJ1-2). Elimina la tabla y los
 -- mensajes programados (respaldo previo si ya hay mensajes que conservar). Los eventos
 -- `safety_minute.*` de `audit_logs` no se tocan.
+--
+-- NOTA DE PROCEDIMIENTO: este script NO limpia la semilla (como el resto de rollbacks). Tras
+-- revertir quedan los permisos `minuto_seguridad.*`, la opción de menú `admin-minuto-seguridad`
+-- y los parámetros `ui.*`: la pantalla de mantenimiento respondería 500 (la tabla ya no existe)
+-- hasta limpiar esas filas o reaplicar la migración.
 DROP TABLE IF EXISTS "safety_minutes";

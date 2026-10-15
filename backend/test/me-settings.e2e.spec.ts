@@ -219,6 +219,22 @@ describe('Tema (PF-AJ1.12, PF-AJ1.20, AC-AJ1.25, AC-AJ1.29)', () => {
     expect(rows[0]?.id).toBe(row?.id);
   });
 
+  it('PUT simultáneos del mismo usuario (sin fila previa): ninguno es 500 y queda una sola fila', async () => {
+    const { user, token } = await newUser();
+    const values = ['dark', 'light', 'dark', 'light', 'dark', 'light', 'dark', 'light'];
+    const responses = await Promise.all(values.map((value) => api(context, token).put('/me/preferences/theme').send({ value })));
+    expect(responses.map((response) => response.status)).toEqual(values.map(() => 200));
+    const rows = await storedRows(user.id, 'ui.tema');
+    expect(rows).toHaveLength(1);
+    expect(values).toContain(rows[0]?.value);
+
+    // Gana el último: un PUT posterior reemplaza la misma fila.
+    await api(context, token).put('/me/preferences/theme').send({ value: 'light' }).expect(200);
+    const after = await storedRows(user.id, 'ui.tema');
+    expect(after).toHaveLength(1);
+    expect(after[0]?.value).toBe('light');
+  });
+
   it.each([
     ['un valor no admitido', { value: 'blue' }],
     ['«system» (D-AJ1.7)', { value: 'system' }],

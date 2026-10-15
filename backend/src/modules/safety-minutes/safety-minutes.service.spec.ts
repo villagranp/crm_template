@@ -32,6 +32,7 @@ function setup(options: { existing?: SafetyMinuteRecord | null; duplicate?: bool
     search: jest.fn().mockResolvedValue({ items: [minute({ displayDate: YESTERDAY }), minute({ id: 'm2', displayDate: TODAY }), minute({ id: 'm3' })], totalItems: 3, page: 1, pageSize: 20 }),
     findById: jest.fn().mockResolvedValue(existing),
     findByDisplayDate: jest.fn().mockResolvedValue(existing),
+    findMessageByDisplayDate: jest.fn().mockResolvedValue(existing ? { displayDate: existing.displayDate, message: existing.message } : null),
     create: jest.fn(async (input: Partial<SafetyMinuteRecord>) =>
       options.duplicate ? { ok: false as const, reason: 'DUPLICATE' as const } : { ok: true as const, record: minute({ ...input, id: 'minute-new' }) },
     ),
@@ -78,7 +79,9 @@ describe('SafetyMinutesService (Ajustes 1, RN-AJ1.7–RN-AJ1.13)', () => {
   it('findToday: devuelve solo fecha y mensaje, o null si no hay (D-AJ1.3)', async () => {
     const { service, repository } = setup({ existing: minute({ displayDate: TODAY }) });
     await expect(service.findToday()).resolves.toEqual({ displayDate: TODAY, message: 'Usa siempre el casco.' });
-    expect(repository.findByDisplayDate).toHaveBeenCalledWith(TODAY);
+    expect(repository.findMessageByDisplayDate).toHaveBeenCalledWith(TODAY);
+    // Sin consultar autores: no usa la lectura completa.
+    expect(repository.findByDisplayDate).not.toHaveBeenCalled();
     await expect(setup({ existing: null }).service.findToday()).resolves.toBeNull();
   });
 
@@ -118,7 +121,7 @@ describe('SafetyMinutesService (Ajustes 1, RN-AJ1.7–RN-AJ1.13)', () => {
     it('edita mensaje y fecha de uno futuro y audita antes/después', async () => {
       const { service, repository, audit } = setup();
       const view = await service.update('minute-1', { message: 'Nuevo', displayDate: '2026-10-20' }, ACTOR);
-      expect(repository.update).toHaveBeenCalledWith('minute-1', { message: 'Nuevo', displayDate: '2026-10-20' }, 'user-1');
+      expect(repository.update).toHaveBeenCalledWith('minute-1', { message: 'Nuevo', displayDate: '2026-10-20' }, 'user-1', TODAY);
       expect(view.record).toMatchObject({ message: 'Nuevo', displayDate: '2026-10-20' });
       expect(audit.record).toHaveBeenCalledWith('safety_minute.updated', AUDIT, {
         resourceType: 'safety_minute',
@@ -166,11 +169,54 @@ describe('SafetyMinutesService (Ajustes 1, RN-AJ1.7–RN-AJ1.13)', () => {
     });
   });
 
+  describe('carrera de medianoche (la fila pasa a pasado entre la lectura y la escritura)', () => {
+    it('update: la escritura condicionada no escribe, relee y responde 409 LOCKED sin auditar', async () => {
+      const { service, repository, audit } = setup();
+      repository.update.mockResolvedValue({ ok: false, reason: 'NOT_FOUND' });
+      repository.findById.mockResolvedValueOnce(minute({ displayDate: TODAY })).mockResolvedValueOnce(minute({ displayDate: YESTERDAY }));
+      await expect(service.update('minute-1', { message: 'x' }, ACTOR)).rejects.toMatchObject({
+        code: 'SAFETY_MINUTE_LOCKED',
+        details: [expect.objectContaining({ reason: 'past' })],
+      });
+      expect(repository.update).toHaveBeenCalledWith('minute-1', { message: 'x' }, 'user-1', TODAY);
+      expect(audit.record).not.toHaveBeenCalled();
+    });
+
+    it('update: si al releer ya no existe, 404', async () => {
+      const { service, repository } = setup();
+      repository.update.mockResolvedValue({ ok: false, reason: 'NOT_FOUND' });
+      repository.findById.mockResolvedValueOnce(minute()).mockResolvedValueOnce(null);
+      await expect(service.update('minute-1', { message: 'x' }, ACTOR)).rejects.toBeInstanceOf(ResourceNotFoundError);
+    });
+
+    it.each([
+      ['pasó a ayer', YESTERDAY, 'past'],
+      ['pasó a hoy', TODAY, 'today'],
+    ])('delete: %s → 409 LOCKED (%s) sin auditar', async (_name, displayDate, reason) => {
+      const { service, repository, audit } = setup();
+      repository.delete.mockResolvedValue(false);
+      repository.findById.mockResolvedValueOnce(minute()).mockResolvedValueOnce(minute({ displayDate }));
+      await expect(service.delete('minute-1', ACTOR)).rejects.toMatchObject({
+        code: 'SAFETY_MINUTE_LOCKED',
+        details: [expect.objectContaining({ reason })],
+      });
+      expect(repository.delete).toHaveBeenCalledWith('minute-1', TODAY);
+      expect(audit.record).not.toHaveBeenCalled();
+    });
+
+    it('delete: si al releer ya no existe, 404', async () => {
+      const { service, repository } = setup();
+      repository.delete.mockResolvedValue(false);
+      repository.findById.mockResolvedValueOnce(minute()).mockResolvedValueOnce(null);
+      await expect(service.delete('minute-1', ACTOR)).rejects.toBeInstanceOf(ResourceNotFoundError);
+    });
+  });
+
   describe('delete', () => {
     it('borra uno futuro y audita safety_minute.deleted con el estado previo', async () => {
       const { service, repository, audit } = setup();
       await service.delete('minute-1', ACTOR);
-      expect(repository.delete).toHaveBeenCalledWith('minute-1');
+      expect(repository.delete).toHaveBeenCalledWith('minute-1', TODAY);
       expect(audit.record).toHaveBeenCalledWith('safety_minute.deleted', AUDIT, {
         resourceType: 'safety_minute',
         resourceId: 'minute-1',

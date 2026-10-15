@@ -286,6 +286,54 @@ describe('Validación (PF-AJ1.15, AC-AJ1.10)', () => {
   });
 });
 
+describe('Texto plano del mensaje (seguridad)', () => {
+  let offset = 0;
+  const nextDate = () => addDays(today, 3000 + offset++);
+
+  it.each([
+    ['NUL (antes 500 por PostgreSQL 22021)', 'a\u0000b'],
+    ['control C0', 'a\u0007b'],
+    ['DEL', 'a\u007Fb'],
+    ['RLO (U+202E)', 'inicio ‮fdp.exe'],
+    ['aislado bidi (U+2066)', 'a⁦b'],
+    ['ZWSP dentro del texto', 'a​b'],
+    ['solo ZWSP', '​​​'],
+    ['solo relleno braille', '⠀⠀'],
+    ['solo BOM y espacios', ' ﻿ '],
+  ])('POST y PATCH: %s → 400 VALIDATION_FAILED, no 500, y no guarda nada', async (_name, message) => {
+    const admin = api(context, adminToken);
+    const created = await admin.post('/safety-minutes').send({ message, displayDate: nextDate() }).expect(400);
+    expect(created.body.code).toBe('VALIDATION_FAILED');
+    const { id } = await createViaApi(nextDate(), 'Original');
+    const patched = await admin.patch(`/safety-minutes/${id}`).send({ message }).expect(400);
+    expect(patched.body.code).toBe('VALIDATION_FAILED');
+    const stored = await context.prisma.safetyMinute.findUniqueOrThrow({ where: { id } });
+    expect(stored.message).toBe('Original');
+  });
+
+  it('admite saltos de línea y tabulaciones', async () => {
+    const message = 'Línea 1\n\tLínea 2';
+    const created = await api(context, adminToken).post('/safety-minutes').send({ message, displayDate: nextDate() }).expect(201);
+    expect(created.body.message).toBe(message);
+  });
+
+  it('CRLF se normaliza a LF al guardar y al contar la longitud', async () => {
+    const admin = api(context, adminToken);
+    const created = await admin.post('/safety-minutes').send({ message: 'uno\r\ndos\r\ntres', displayDate: nextDate() }).expect(201);
+    expect(created.body.message).toBe('uno\ndos\ntres');
+    const stored = await context.prisma.safetyMinute.findUniqueOrThrow({ where: { id: created.body.id as string } });
+    expect(stored.message).toBe('uno\ndos\ntres');
+
+    const patched = await admin.patch(`/safety-minutes/${created.body.id as string}`).send({ message: 'a\r\nb' }).expect(200);
+    expect(patched.body.message).toBe('a\nb');
+
+    // 998 + CRLF + 1 = 1001 caracteres crudos, pero 1000 tras normalizar: válido.
+    const edge = `${'a'.repeat(998)}\r\nb`;
+    expect(edge).toHaveLength(1001);
+    await admin.post('/safety-minutes').send({ message: edge, displayDate: nextDate() }).expect(201);
+  });
+});
+
 describe('Duplicados y fechas pasadas (PF-AJ1.14, PF-AJ1.16, AC-AJ1.9)', () => {
   it('una segunda alta para la misma fecha → 409 SAFETY_MINUTE_DUPLICATE con details[0].field = displayDate', async () => {
     const date = addDays(today, 70);

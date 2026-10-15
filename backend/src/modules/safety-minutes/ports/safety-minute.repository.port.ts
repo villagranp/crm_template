@@ -56,8 +56,15 @@ export interface SafetyMinuteRepository {
   search(search: SafetyMinuteSearch): Promise<Page<SafetyMinuteRecord>>;
   findById(id: string): Promise<SafetyMinuteRecord | null>;
   findByDisplayDate(displayDate: CalendarDate): Promise<SafetyMinuteRecord | null>;
+  /** Solo fecha y mensaje de la fila de esa fecha, sin resolver autores (`/me/safety-minute`). */
+  findMessageByDisplayDate(displayDate: CalendarDate): Promise<{ readonly displayDate: CalendarDate; readonly message: string } | null>;
   create(input: CreateSafetyMinuteInput, actorId: string | null): Promise<CreateSafetyMinuteResult>;
-  update(id: string, input: UpdateSafetyMinuteInput, actorId: string | null): Promise<UpdateSafetyMinuteResult>;
-  /** Borrado físico (RN-AJ1.11); `false` si la fila no existe. */
-  delete(id: string): Promise<boolean>;
+  /**
+   * La escritura se condiciona en la propia sentencia a `displayDate >= notBefore` (hoy): si la
+   * fila pasó a pasado entre la lectura y la escritura no se toca y responde `NOT_FOUND`; el
+   * servicio relee para distinguir "bloqueada" de "ya no existe".
+   */
+  update(id: string, input: UpdateSafetyMinuteInput, actorId: string | null, notBefore: CalendarDate): Promise<UpdateSafetyMinuteResult>;
+  /** Borrado físico (RN-AJ1.11) condicionado a `displayDate > after` (hoy); `false` si no borró nada. */
+  delete(id: string, after: CalendarDate): Promise<boolean>;
 }

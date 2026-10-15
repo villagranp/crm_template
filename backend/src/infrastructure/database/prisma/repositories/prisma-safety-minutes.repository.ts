@@ -86,6 +86,14 @@ export class PrismaSafetyMinutesRepository implements SafetyMinuteRepository {
     return row ? ((await this.withAuthors([row]))[0] ?? null) : null;
   }
 
+  async findMessageByDisplayDate(displayDate: CalendarDate): Promise<{ displayDate: CalendarDate; message: string } | null> {
+    const row = await this.prisma.safetyMinute.findUnique({
+      where: { displayDate: fromCalendarDate(displayDate) },
+      select: { displayDate: true, message: true },
+    });
+    return row ? { displayDate: toCalendarDate(row.displayDate), message: row.message } : null;
+  }
+
   async create(input: CreateSafetyMinuteInput, actorId: string | null): Promise<CreateSafetyMinuteResult> {
     try {
       const row = await this.prisma.safetyMinute.create({
@@ -101,13 +109,13 @@ export class PrismaSafetyMinutesRepository implements SafetyMinuteRepository {
     }
   }
 
-  async update(id: string, input: UpdateSafetyMinuteInput, actorId: string | null): Promise<UpdateSafetyMinuteResult> {
+  async update(id: string, input: UpdateSafetyMinuteInput, actorId: string | null, notBefore: CalendarDate): Promise<UpdateSafetyMinuteResult> {
     if (!UUID_PATTERN.test(id)) return { ok: false, reason: 'NOT_FOUND' };
     const data: Prisma.SafetyMinuteUncheckedUpdateInput = { updatedById: actorId };
     if (input.message !== undefined) data.message = input.message;
     if (input.displayDate !== undefined) data.displayDate = fromCalendarDate(input.displayDate);
     try {
-      const row = await this.prisma.safetyMinute.update({ where: { id }, data, select: MINUTE_SELECT });
+      const row = await this.prisma.safetyMinute.update({ where: { id, AND: [{ displayDate: { gte: fromCalendarDate(notBefore) } }] }, data, select: MINUTE_SELECT });
       return { ok: true, record: (await this.withAuthors([row]))[0]! };
     } catch (error) {
       if (isPrismaError(error, UNIQUE_VIOLATION)) return { ok: false, reason: 'DUPLICATE' };
@@ -116,9 +124,9 @@ export class PrismaSafetyMinutesRepository implements SafetyMinuteRepository {
     }
   }
 
-  async delete(id: string): Promise<boolean> {
+  async delete(id: string, after: CalendarDate): Promise<boolean> {
     if (!UUID_PATTERN.test(id)) return false;
-    const result = await this.prisma.safetyMinute.deleteMany({ where: { id } });
+    const result = await this.prisma.safetyMinute.deleteMany({ where: { id, displayDate: { gt: fromCalendarDate(after) } } });
     return result.count > 0;
   }
 
