@@ -42,6 +42,15 @@ const TYPE_CHIPS = [
   { value: 'false', label: 'Propios' },
 ] as const;
 const TYPE_CHIP_VALUES: readonly string[] = TYPE_CHIPS.map((chip) => chip.value);
+/**
+ * Filtro rápido "Catálogos del CRM" (07 E.3): busca por el prefijo de clave
+ * `crm.`. Es una búsqueda, no un filtro nuevo de la API.
+ */
+const CRM_PREFIX = 'crm.';
+const SCOPE_CHIPS = [
+  { value: '', label: 'Todos los catálogos' },
+  { value: CRM_PREFIX, label: 'Catálogos del CRM' },
+] as const;
 
 const COLUMNS: DataTableColumn<Catalog>[] = [
   {
@@ -151,12 +160,20 @@ export function CatalogsPage() {
         toolbar={
           <ListToolbar
             filters={
-              <FilterChips
-                label="Filtrar por tipo"
-                value={table.state.filters.isSystem ?? ''}
-                onChange={(value) => table.setFilter('isSystem', value || undefined)}
-                options={TYPE_CHIPS.map((chip) => ({ ...chip, count: typeCounts[chip.value] }))}
-              />
+              <>
+                <FilterChips
+                  label="Filtrar por tipo"
+                  value={table.state.filters.isSystem ?? ''}
+                  onChange={(value) => table.setFilter('isSystem', value || undefined)}
+                  options={TYPE_CHIPS.map((chip) => ({ ...chip, count: typeCounts[chip.value] }))}
+                />
+                <FilterChips
+                  label="Filtrar por ámbito"
+                  value={table.searchInput.trim() === CRM_PREFIX ? CRM_PREFIX : ''}
+                  onChange={(value) => table.setSearchInput(value)}
+                  options={SCOPE_CHIPS.map((chip) => ({ ...chip }))}
+                />
+              </>
             }
             search={{
               value: table.searchInput,

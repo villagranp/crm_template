@@ -8,6 +8,7 @@ project-specific evidence and analysis.
 | `threat-model.md` | Assets, trust boundaries, threats and mitigations |
 | `review-<date>.md` | Security review of a release or of a sensitive change |
 | `data-classification.md` | Which data is personal, confidential or public |
+| [`asvs-5.0-L2-2026-10.md`](asvs-5.0-L2-2026-10.md) | OWASP ASVS 5.0 level 2 verification report (internal self-verification, no external penetration test; not a certification), 2026-10-15 |
 
 ## Rules
 

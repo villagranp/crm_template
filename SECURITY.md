@@ -14,11 +14,11 @@ Security by design. Todo cambio pasa por el Skill [`security`](.claude/skills/se
 | Cabeceras | Helmet en la API + cabeceras de seguridad en NGINX |
 | CORS | Allowlist explícita por entorno, sin `*` con credenciales |
 | Rate limiting | `@nestjs/throttler` global + límites en NGINX |
-| Secretos | Solo variables de entorno / Key Vault. Nunca en Git |
+| Secretos | Solo variables de entorno (en producción, se prevé Key Vault o variable groups: **no verificable desde el repositorio**, ver informe ASVS G-12). Nunca en Git |
 | Logging | Estructurado, con correlation ID, sin datos sensibles |
-| Dependencias | `pnpm audit` en cada PR; actualizaciones revisadas |
+| Dependencias | Actualizaciones revisadas. `pnpm audit` se ejecuta bajo demanda: la plantilla `security-scan.yml` **aún no está incluida en ningún pipeline** (informe ASVS G-04) |
 | Errores | Formato único, sin stack traces ni detalles internos |
-| Transporte | HTTPS obligatorio fuera de desarrollo local; HSTS en el borde |
+| Transporte | HTTPS obligatorio fuera de desarrollo local. La API emite HSTS (helmet); en NGINX el HSTS está **comentado** hasta tener un certificado público (informe ASVS G-02) |
 
 ## 2. Modelo de confianza
 
@@ -36,16 +36,18 @@ Se valida: forma, tipo, rango, longitud, formato y pertenencia a whitelist.
 | Injection | Prisma parametrizado; prohibido SQL por concatenación; `sortBy`/`fields` por whitelist; sanitización de salida en el frontend |
 | Insecure Design | Flujo obligatorio con Architecture y Security Review antes de implementar; ADR para decisiones estructurales |
 | Security Misconfiguration | Config validada al arranque (fail fast); Helmet; CORS explícito; Swagger deshabilitable por entorno; imágenes mínimas y usuario no root |
-| Vulnerable Components | `pnpm audit` en PR pipeline; revisión de licencia y mantenimiento antes de agregar dependencias |
+| Vulnerable Components | Revisión de licencia y mantenimiento antes de agregar dependencias; `pnpm audit` bajo demanda (pendiente integrarlo al pipeline, informe ASVS G-04) |
 | Authentication Failures | Tokens de vida corta, rotación y revocación de refresh, validación completa de firma/iss/aud/exp/nbf, rate limit en login |
 | Integrity Failures | Lockfile versionado; `--frozen-lockfile` en CI; imágenes pinneadas por digest en release |
 | Logging Failures | Log estructurado de eventos de seguridad (login fallido, 403, cambios de permisos) sin exponer datos sensibles |
 | SSRF | Sin fetch a URLs suministradas por el usuario; allowlist de destinos en integraciones |
 
+Verificación detallada de estos controles contra OWASP ASVS 5.0 nivel 2 (autoverificación interna, sin prueba de penetración externa; no es una certificación): [`docs/security/asvs-5.0-L2-2026-10.md`](docs/security/asvs-5.0-L2-2026-10.md).
+
 ## 4. Gestión de secretos
 
 - `.env` está en `.gitignore`. Solo se versiona `.env.example`.
-- Producción y ambientes compartidos: Azure Key Vault o variable groups seguros de Azure DevOps.
+- Producción y ambientes compartidos: Azure Key Vault o variable groups seguros de Azure DevOps (previsto; no verificable desde el repositorio, informe ASVS G-12 y anexo D).
 - Prohibido: client secrets, certificados, llaves privadas o connection strings en el repositorio.
 - Rotación: si un secreto se expone, se **rota**, no se borra el commit y ya.
 

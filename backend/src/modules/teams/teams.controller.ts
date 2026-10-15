@@ -18,7 +18,7 @@ import { RequirePermission } from '@/common/decorators/require-permission.decora
 import { ErrorResponseDto } from '@/common/dto/error-response.dto';
 import { PaginatedResponseDto } from '@/common/dto/paginated-response.dto';
 import type { AppRequest } from '@/common/types/request-context';
-import { auditContextFrom } from '@/modules/audit/audit.service';
+import { AccessService } from '@/modules/access/access.service';
 
 import {
   CreateTeamDto,
@@ -31,6 +31,10 @@ import {
 } from './dto/team.dto';
 import type { TeamDetailRecord, TeamRecord } from './ports/teams.repository.port';
 import { TeamsService } from './teams.service';
+
+/** Texto de Swagger del 403 en las operaciones que cambian la composición de un equipo (RN-07.45). */
+const TEAM_ADMIN_ONLY_DOC =
+  'PERMISSION_DENIED: falta el permiso del endpoint · ADMIN_ONLY: la operación cambia la composición del equipo (miembros, responsable, jerarquía) y es exclusiva de un usuario con el rol `administrador` vigente (addendum de 2026-10-10 a ADR-020)';
 
 function toResponse(team: TeamRecord): TeamResponseDto {
   return {
@@ -71,7 +75,10 @@ function toDetailResponse(team: TeamDetailRecord): TeamDetailResponseDto {
 @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'PERMISSION_DENIED: falta el permiso del endpoint' })
 @Controller('teams')
 export class TeamsController {
-  constructor(private readonly teamsService: TeamsService) {}
+  constructor(
+    private readonly teamsService: TeamsService,
+    private readonly accessService: AccessService,
+  ) {}
 
   @Get()
   @RequirePermission('equipos.ver')
@@ -105,9 +112,14 @@ export class TeamsController {
 
   @Post()
   @RequirePermission('equipos.crear')
-  @ApiOperation({ summary: 'Alta de equipo', description: 'Audita `team.created`.' })
+  @ApiOperation({
+    summary: 'Alta de equipo',
+    description:
+      'Audita `team.created`. Fijar `managerId` o `parentId` (no nulos) es asignación de acceso y exige ser administrador (RN-07.45, addendum de ADR-020): 403 ADMIN_ONLY. Sin ellos basta `equipos.crear`.',
+  })
   @ApiCreatedResponse({ type: TeamDetailResponseDto })
   @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED' })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: TEAM_ADMIN_ONLY_DOC })
   @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'RESOURCE_NOT_FOUND: el padre o el responsable no existen' })
   @ApiConflictResponse({ type: ErrorResponseDto, description: 'RESOURCE_CONFLICT: el código ya existe' })
   async create(@Body() dto: CreateTeamDto, @Req() request: AppRequest): Promise<TeamDetailResponseDto> {
@@ -120,7 +132,7 @@ export class TeamsController {
         managerId: dto.managerId ?? null,
         isActive: dto.isActive ?? true,
       },
-      auditContextFrom(request),
+      await this.accessService.resolveActor(request),
     );
     return toDetailResponse(team);
   }
@@ -129,8 +141,10 @@ export class TeamsController {
   @RequirePermission('equipos.editar')
   @ApiOperation({
     summary: 'Actualiza un equipo',
-    description: 'Campo omitido = sin cambio; `null` quita el valor. `code` es inmutable. Audita `team.updated`.',
+    description:
+      'Campo omitido = sin cambio; `null` quita el valor. `code` es inmutable. Audita `team.updated`. Cambiar `managerId` o `parentId` exige ser administrador (RN-07.45): 403 ADMIN_ONLY; enviar el valor actual no es un cambio. Cambiar `isActive` de un equipo con miembros o subequipos también exige ser administrador (403 ADMIN_ONLY, mismo criterio que DELETE); en un equipo vacío basta `equipos.editar`, igual que `name` y `description`.',
   })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: TEAM_ADMIN_ONLY_DOC })
   @ApiOkResponse({ type: TeamDetailResponseDto })
   @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED (incluye enviar `code`)' })
   @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'RESOURCE_NOT_FOUND: el equipo, el padre o el responsable' })
@@ -140,18 +154,23 @@ export class TeamsController {
     @Body() dto: UpdateTeamDto,
     @Req() request: AppRequest,
   ): Promise<TeamDetailResponseDto> {
-    return toDetailResponse(await this.teamsService.update(teamId, dto, auditContextFrom(request)));
+    return toDetailResponse(await this.teamsService.update(teamId, dto, await this.accessService.resolveActor(request)));
   }
 
   @Delete(':id')
   @RequirePermission('equipos.eliminar')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Elimina un equipo (borrado lógico)', description: 'Audita `team.deleted`.' })
+  @ApiOperation({
+    summary: 'Elimina un equipo (borrado lógico)',
+    description:
+      'Audita `team.deleted`. Si el equipo tiene miembros o subequipos, un no administrador recibe 403 ADMIN_ONLY (RN-07.45) y el administrador 409 HAS_CHILDREN.',
+  })
   @ApiNoContentResponse()
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: TEAM_ADMIN_ONLY_DOC })
   @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'RESOURCE_NOT_FOUND' })
-  @ApiConflictResponse({ type: ErrorResponseDto, description: 'HAS_CHILDREN: el equipo tiene miembros o subequipos' })
+  @ApiConflictResponse({ type: ErrorResponseDto, description: 'HAS_CHILDREN: el equipo tiene miembros o subequipos (sólo lo ve el administrador)' })
   async remove(@Param('id', ParseUUIDPipe) teamId: string, @Req() request: AppRequest): Promise<void> {
-    await this.teamsService.remove(teamId, auditContextFrom(request));
+    await this.teamsService.remove(teamId, await this.accessService.resolveActor(request));
   }
 
   @Put(':id/members')
@@ -159,8 +178,9 @@ export class TeamsController {
   @ApiOperation({
     summary: 'Reemplaza los miembros del equipo',
     description:
-      'Conjunto completo. Marcar `isPrimary` desmarca el equipo principal del usuario en sus otros equipos, en la misma transacción. Audita `team.members_replaced`.',
+      'Conjunto completo. Marcar `isPrimary` desmarca el equipo principal del usuario en sus otros equipos, en la misma transacción. Audita `team.members_replaced`. Exclusivo del administrador (RN-07.45, addendum de ADR-020): 403 ADMIN_ONLY en otro caso.',
   })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: TEAM_ADMIN_ONLY_DOC })
   @ApiOkResponse({ type: TeamDetailResponseDto })
   @ApiBadRequestResponse({ type: ErrorResponseDto, description: 'VALIDATION_FAILED (incluye `userId` repetido)' })
   @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'RESOURCE_NOT_FOUND: el equipo o algún usuario' })
@@ -172,7 +192,7 @@ export class TeamsController {
     const team = await this.teamsService.replaceMembers(
       teamId,
       dto.members.map((member) => ({ userId: member.userId, isPrimary: member.isPrimary })),
-      auditContextFrom(request),
+      await this.accessService.resolveActor(request),
     );
     return toDetailResponse(team);
   }

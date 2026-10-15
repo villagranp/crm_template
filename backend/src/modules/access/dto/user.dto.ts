@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, OmitType } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   ArrayUnique,
   IsArray,
@@ -9,18 +10,50 @@ import {
   IsString,
   IsUUID,
   Length,
+  Matches,
+  ValidateIf,
 } from 'class-validator';
 
 import { PaginationQueryDto } from '@/common/dto/pagination-query.dto';
+import { canonicalEmployeeCode } from '@/modules/access/access-rules';
 
 import { USER_SORT_FIELDS, type UserSortField } from '../ports/access.repository.port';
 
 export const USER_STATUSES = ['INVITED', 'ACTIVE', 'SUSPENDED', 'LOCKED'] as const;
 export type UserStatus = (typeof USER_STATUSES)[number];
 
+/** Código de colaborador ya normalizado: letras, dígitos, `-` y `_` (RN-07.1). */
+export const EMPLOYEE_CODE_PATTERN = /^[A-Z0-9_-]+$/;
+export const EMPLOYEE_CODE_MAX_LENGTH = 40;
+
 /**
- * Filtros de la lista de usuarios. `search` busca en nombre y correo.
- * Sin `sortBy`, la lista sale por nombre ascendente.
+ * RN-07.1: el código se guarda recortado y en mayúsculas, así que la unicidad
+ * no distingue mayúsculas ni espacios alrededor. Una cadena vacía (o sólo
+ * espacios) equivale a `null`: en la edición, quitar el código.
+ */
+export function normalizeEmployeeCode({ value }: { value: unknown }): unknown {
+  if (typeof value !== 'string') {
+    return value;
+  }
+  const normalized = canonicalEmployeeCode(value);
+  return normalized === '' ? null : normalized;
+}
+
+function hasValue(_object: object, value: unknown): boolean {
+  return value !== null && value !== undefined;
+}
+
+const EMPLOYEE_CODE_DOC = {
+  example: 'E-001',
+  maxLength: EMPLOYEE_CODE_MAX_LENGTH,
+  pattern: EMPLOYEE_CODE_PATTERN.source,
+  description:
+    'Código de colaborador, único en todo el sistema. Se guarda recortado y en mayúsculas (1–40: letras, dígitos, `-`, `_`). Repetido → 409 `RESOURCE_CONFLICT` con `details[].field = "employeeCode"`.',
+} as const;
+
+/**
+ * Filtros de la lista de usuarios. `search` busca en nombre, correo y código
+ * de colaborador. Sin `sortBy`, la lista sale por nombre ascendente.
  */
 export class ListUsersQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ enum: USER_SORT_FIELDS, description: 'Campo de orden (lista blanca)' })
@@ -43,6 +76,11 @@ export class ListUsersQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsUUID()
   teamId?: string;
+
+  @ApiPropertyOptional({ format: 'uuid', description: 'Usuarios de este país (07 F.1)' })
+  @IsOptional()
+  @IsUUID()
+  countryId?: string;
 }
 
 /** Mismos filtros que la lista, sin paginación: exporta todo lo filtrado (D13). */
@@ -76,13 +114,37 @@ export class CreateUserDto {
   @Length(5, 40)
   phone?: string;
 
+  @ApiPropertyOptional({ ...EMPLOYEE_CODE_DOC, type: String, nullable: true })
+  @Transform(normalizeEmployeeCode)
+  @ValidateIf(hasValue)
+  @IsString()
+  @Length(1, EMPLOYEE_CODE_MAX_LENGTH)
+  @Matches(EMPLOYEE_CODE_PATTERN, { message: 'employeeCode solo admite letras, dígitos, guion y guion bajo' })
+  employeeCode?: string | null;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    type: String,
+    nullable: true,
+    description:
+      'País del usuario: existente y activo (422 `UNKNOWN_REFERENCE`). Fijarlo es asignación de acceso: sólo un administrador (403 `ADMIN_ONLY`, RN-07.5)',
+  })
+  @IsOptional()
+  @IsUUID()
+  countryId?: string | null;
+
   @ApiProperty({ type: [String], format: 'uuid', description: 'Roles iniciales; al menos uno' })
   @IsArray()
   @ArrayUnique()
   @IsUUID('4', { each: true })
   roleIds!: string[];
 
-  @ApiPropertyOptional({ type: [String], format: 'uuid' })
+  @ApiPropertyOptional({
+    type: [String],
+    format: 'uuid',
+    description:
+      'Equipos iniciales; el primero queda como principal. No vacío exige `equipos.editar` y ser administrador (403 `ADMIN_ONLY`, RN-07.10)',
+  })
   @IsOptional()
   @IsArray()
   @ArrayUnique()
@@ -119,6 +181,42 @@ export class UpdateUserDto {
   @IsString()
   @Length(5, 40)
   phone?: string;
+
+  @ApiPropertyOptional({
+    ...EMPLOYEE_CODE_DOC,
+    type: String,
+    nullable: true,
+    description: `${EMPLOYEE_CODE_DOC.description} \`null\` o vacío lo quita, salvo a un usuario comercial (422 \`CRM_PROFILE_INCOMPLETE\`).`,
+  })
+  @Transform(normalizeEmployeeCode)
+  @ValidateIf(hasValue)
+  @IsString()
+  @Length(1, EMPLOYEE_CODE_MAX_LENGTH)
+  @Matches(EMPLOYEE_CODE_PATTERN, { message: 'employeeCode solo admite letras, dígitos, guion y guion bajo' })
+  employeeCode?: string | null;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    type: String,
+    nullable: true,
+    description:
+      'Cambiarlo es asignación de acceso: sólo un administrador (403 `ADMIN_ONLY`, RN-07.5); enviar el valor actual no es un cambio. Existente y activo (422 `UNKNOWN_REFERENCE`). `null` lo quita, salvo a un usuario comercial (422 `CRM_PROFILE_INCOMPLETE`).',
+  })
+  @IsOptional()
+  @IsUUID()
+  countryId?: string | null;
+}
+
+/** País del usuario en la lista y el detalle. */
+export class UserCountryDto {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ example: 'GT' })
+  isoCode!: string;
+
+  @ApiProperty({ example: 'Guatemala' })
+  name!: string;
 }
 
 class UserTeamDto {
@@ -156,6 +254,12 @@ export class UserResponseDto {
 }
 
 export class UserListItemDto extends UserResponseDto {
+  @ApiProperty({ nullable: true, type: String, example: 'E-001' })
+  employeeCode!: string | null;
+
+  @ApiProperty({ nullable: true, type: UserCountryDto })
+  country!: UserCountryDto | null;
+
   @ApiProperty({ nullable: true, type: String, format: 'date-time' })
   lastLoginAt!: Date | null;
 
@@ -236,6 +340,12 @@ export class UserDetailResponseDto {
   @ApiProperty({ nullable: true, type: String })
   phone!: string | null;
 
+  @ApiProperty({ nullable: true, type: String, example: 'E-001' })
+  employeeCode!: string | null;
+
+  @ApiProperty({ nullable: true, type: UserCountryDto })
+  country!: UserCountryDto | null;
+
   @ApiProperty({ enum: USER_STATUSES })
   status!: UserStatus;
 
@@ -248,7 +358,10 @@ export class UserDetailResponseDto {
   @ApiProperty({ format: 'date-time' })
   updatedAt!: Date;
 
-  @ApiProperty({ type: [UserTeamDto], description: 'Sólo lectura: los miembros se gestionan desde Equipos' })
+  @ApiProperty({
+    type: [UserTeamDto],
+    description: 'Se cambian con `PUT /users/{id}/teams` o desde Equipos (`PUT /teams/{id}/members`), sólo un administrador',
+  })
   teams!: UserTeamDto[];
 
   @ApiProperty({ type: [UserRoleAssignmentDto] })

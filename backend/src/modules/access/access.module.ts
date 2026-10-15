@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { PrismaModule } from '@/infrastructure/database/prisma/prisma.module';
 import { PrismaAccessRepository } from '@/infrastructure/database/prisma/repositories/prisma-access.repository';
+import { PrismaUserPreferencesRepository } from '@/infrastructure/database/prisma/repositories/prisma-user-preferences.repository';
 import { PrismaVisibilityScopeRepository } from '@/infrastructure/database/prisma/repositories/prisma-visibility-scope.repository';
 import { AuthCoreModule } from '@/modules/auth/auth-core.module';
 
@@ -10,9 +11,12 @@ import { MeController } from './me.controller';
 import { MenuOptionsController } from './menu-options.controller';
 import { MenuOptionsService } from './menu-options.service';
 import { ACCESS_REPOSITORY } from './ports/access.repository.port';
+import { USER_PREFERENCES_REPOSITORY } from './ports/user-preferences.repository.port';
 import { VISIBILITY_SCOPE_READER } from './ports/visibility-scope.port';
 import { RolesController } from './roles.controller';
 import { RolesService } from './roles.service';
+import { UiSettingsService } from './ui-settings.service';
+import { UserPreferencesService } from './user-preferences.service';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 import { VisibilityScopeResolver } from './visibility-scope.resolver';
@@ -37,6 +41,9 @@ import { VisibilityScopeResolver } from './visibility-scope.resolver';
     RolesService,
     MenuOptionsService,
     VisibilityScopeResolver,
+    UserPreferencesService,
+    UiSettingsService,
+    { provide: USER_PREFERENCES_REPOSITORY, useClass: PrismaUserPreferencesRepository },
     { provide: ACCESS_REPOSITORY, useClass: PrismaAccessRepository },
     { provide: VISIBILITY_SCOPE_READER, useClass: PrismaVisibilityScopeRepository },
   ],

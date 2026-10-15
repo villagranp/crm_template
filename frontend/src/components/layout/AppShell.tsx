@@ -5,6 +5,7 @@ import { BottomNav } from '@/components/layout/BottomNav';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Topbar } from '@/components/layout/Topbar';
 import { useAuth } from '@/hooks/use-auth';
+import { useThemePreferenceSync } from '@/services/preferences';
 import { brandIdentity, layout } from '@/theme/tokens';
 
 /**
@@ -25,6 +26,8 @@ const gutterVar = `var(${APP_GUTTER_VAR})`;
  */
 export function AppShell() {
   const { isAuthenticated } = useAuth();
+  // Tema por usuario: aplica el guardado en el servidor y guarda los cambios (RN-AJ1.17).
+  useThemePreferenceSync();
 
   return (
     <Box
@@ -41,7 +44,6 @@ export function AppShell() {
         {isAuthenticated ? <Sidebar /> : null}
 
         <Box
-          component="main"
           sx={{
             flexGrow: 1,
             minWidth: 0,
@@ -55,22 +57,25 @@ export function AppShell() {
             },
           }}
         >
-          <Box
-            sx={{
-              flex: 1,
-              width: '100%',
-              maxWidth: layout.contentMaxWidth,
-              mx: 'auto',
-              px: gutterVar,
-              pt: gutterVar,
-              // Deja sitio a la barra inferior de móvil y a la safe area de iOS.
-              pb: {
-                xs: `calc(${layout.bottomNavHeight}px + env(safe-area-inset-bottom, 0px) + ${gutterVar})`,
-                md: gutterVar,
-              },
-            }}
-          >
-            <Outlet />
+          {/* El pie queda fuera de `main` para exponer el landmark `contentinfo`. */}
+          <Box component="main" sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <Box
+              sx={{
+                flex: 1,
+                width: '100%',
+                maxWidth: layout.contentMaxWidth,
+                mx: 'auto',
+                px: gutterVar,
+                pt: gutterVar,
+                // Deja sitio a la barra inferior de móvil y a la safe area de iOS.
+                pb: {
+                  xs: `calc(${layout.bottomNavHeight}px + env(safe-area-inset-bottom, 0px) + ${gutterVar})`,
+                  md: gutterVar,
+                },
+              }}
+            >
+              <Outlet />
+            </Box>
           </Box>
 
           <Box
@@ -85,7 +90,7 @@ export function AppShell() {
             }}
           >
             <Typography variant="caption" color="text.secondary">
-              © {new Date().getFullYear()} {brandIdentity.productName}
+              © {new Date().getFullYear()} {brandIdentity.companyName}
             </Typography>
           </Box>
         </Box>

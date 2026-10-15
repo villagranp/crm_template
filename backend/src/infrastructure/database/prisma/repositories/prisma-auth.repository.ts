@@ -12,6 +12,7 @@ import type {
   SessionRevocationReason,
   SetPasswordInput,
 } from '@/modules/auth/ports/auth.repository.port';
+import { LOGIN_SECURITY_PARAMETERS } from '@/modules/parameters/authentication-settings';
 
 import { PrismaService } from '../prisma.service';
 
@@ -22,11 +23,8 @@ const DEFAULT_SECURITY_SETTINGS: SecuritySettings = {
   passwordExpiryDays: 0,
 };
 
-const SECURITY_PARAMETER_KEYS = {
-  maxFailedAttempts: 'seguridad.intentos_fallidos_maximos',
-  lockoutMinutes: 'seguridad.minutos_bloqueo',
-  passwordExpiryDays: 'seguridad.dias_caducidad_password',
-} as const;
+/** Clave de cada ajuste: la lista única del módulo de parámetros. */
+const SECURITY_PARAMETER_KEYS: Readonly<Record<keyof SecuritySettings, string>> = LOGIN_SECURITY_PARAMETERS;
 
 const SESSION_SELECT = {
   id: true,

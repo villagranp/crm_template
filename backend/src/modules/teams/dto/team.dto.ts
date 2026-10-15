@@ -195,3 +195,40 @@ export class PaginatedTeamsResponseDto {
   @ApiProperty({ type: [TeamResponseDto] }) data!: TeamResponseDto[];
   @ApiProperty({ type: PaginationMetaDto }) pagination!: PaginationMetaDto;
 }
+
+/** Tope de equipos por usuario en `PUT /users/{id}/teams` (07 F.2). */
+export const MAX_USER_TEAMS = 50;
+
+export class UserTeamAssignmentDto {
+  @ApiProperty({ format: 'uuid', description: 'Equipo existente y no eliminado' })
+  @IsUUID()
+  teamId!: string;
+
+  @ApiProperty({ description: 'Equipo principal del usuario; como mucho uno (409 si hay dos)' })
+  @IsBoolean()
+  isPrimary!: boolean;
+}
+
+export class ReplaceUserTeamsDto {
+  @ApiProperty({
+    type: [UserTeamAssignmentDto],
+    maxItems: MAX_USER_TEAMS,
+    description: 'Conjunto completo de equipos del usuario; vacío lo deja sin equipos',
+  })
+  @IsArray()
+  @ArrayMaxSize(MAX_USER_TEAMS)
+  @ArrayUnique((team: UserTeamAssignmentDto) => team.teamId, { message: 'teams no puede repetir teamId' })
+  @ValidateNested({ each: true })
+  @Type(() => UserTeamAssignmentDto)
+  teams!: UserTeamAssignmentDto[];
+}
+
+export class UserTeamResponseDto {
+  @ApiProperty({ format: 'uuid' }) id!: string;
+  @ApiProperty({ example: 'Ventas Norte' }) name!: string;
+  @ApiProperty() isPrimary!: boolean;
+}
+
+export class UserTeamsResponseDto {
+  @ApiProperty({ type: [UserTeamResponseDto] }) teams!: UserTeamResponseDto[];
+}

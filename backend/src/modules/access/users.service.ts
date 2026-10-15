@@ -19,13 +19,13 @@ import {
   isSelfLockout,
   losesAdminGuardian,
 } from './admin-invariant';
-import { assertAssignableByNonAdministrador } from './admin-only';
+import { adminOnlyError, assertAssignableByNonAdministrador } from './admin-only';
+import { type CrmProfile, assertCrmProfileComplete } from './crm-profile';
 import type { DirectAssignmentDto } from './dto/assignment.dto';
 import type { CreateUserDto, ExportUsersQueryDto, ListUsersQueryDto, UpdateUserDto } from './dto/user.dto';
 import {
   ACCESS_REPOSITORY,
   type AccessRepository,
-  type AccessUserRecord,
   type DirectAssignmentInput,
   type ListUsersFilter,
   type Paginated,
@@ -33,6 +33,9 @@ import {
   type UserListItem,
   type UserStatus,
 } from './ports/access.repository.port';
+
+/** Ningún país asignado (`null`) o el id del país. */
+type CountryId = string | null;
 
 const SUSPENDABLE: ReadonlySet<UserStatus> = new Set(['ACTIVE', 'INVITED', 'LOCKED']);
 const REACTIVATABLE: ReadonlySet<UserStatus> = new Set(['SUSPENDED', 'LOCKED']);
@@ -48,8 +51,10 @@ export interface UsersExport {
 }
 
 const EXPORT_COLUMNS: readonly CsvColumn<UserListItem>[] = [
+  { header: 'Código de colaborador', value: (user) => user.employeeCode },
   { header: 'Correo', value: (user) => user.email },
   { header: 'Nombre', value: (user) => user.displayName },
+  { header: 'País', value: (user) => user.country?.name ?? null },
   { header: 'Puesto', value: (user) => user.jobTitle },
   { header: 'Estado', value: (user) => user.status },
   { header: 'Roles', value: (user) => user.roles.join(' | ') },
@@ -66,7 +71,15 @@ const EXPORT_COLUMNS: readonly CsvColumn<UserListItem>[] = [
  * - Un usuario nace con al menos un rol: sin rol no ve nada y el alta parecería
  *   rota.
  * - Asignar equipos en el alta exige además `equipos.editar` (lo mismo que
- *   `PUT /teams/{id}/members`); los equipos deben existir y no estar borrados.
+ *   `PUT /teams/{id}/members`) y ser administrador (addendum de ADR-020,
+ *   RN-07.10); los equipos deben existir y no estar borrados.
+ * - País (RN-07.4, RN-07.5): fijarlo en el alta o cambiarlo en la edición es
+ *   exclusivo del administrador; debe existir y estar activo al asignarlo.
+ * - Código de colaborador (RN-07.1): único en todo el sistema, recortado y en
+ *   mayúsculas (lo normaliza el DTO).
+ * - Perfil comercial (D-07.3, `crm-profile.ts`): con un rol comercial, código
+ *   y país son obligatorios al asignar roles, en el alta y al editar (no se
+ *   pueden vaciar): `422 CRM_PROFILE_INCOMPLETE`.
  * - Las asignaciones directas siempre llevan razón (lo exige el DTO) y se
  *   reemplazan en bloque, no se acumulan.
  * - D3: nadie se suspende ni se quita su propio rol de administrador, nadie se
@@ -124,6 +137,7 @@ export class UsersService {
         status: query.status ?? null,
         roleCode: query.roleCode ?? null,
         teamId: query.teamId ?? null,
+        countryId: query.countryId ?? null,
       },
     });
 
@@ -134,28 +148,45 @@ export class UsersService {
     return detailOrThrow(this.repository, userId);
   }
 
-  async create(dto: CreateUserDto, actor: ActorContext): Promise<AccessUserRecord> {
+  async create(dto: CreateUserDto, actor: ActorContext): Promise<UserDetailRecord> {
     const teamIds = dto.teamIds ?? [];
+    const employeeCode = dto.employeeCode ?? null;
+    const countryId = dto.countryId ?? null;
 
     if (dto.roleIds.length === 0) {
       throw new BadRequestException('El usuario debe tener al menos un rol asignado');
     }
+    const isAdministrador = await this.accessService.isAdministrador(actor.userId);
     // ADR-020: un no administrador sólo da de alta con roles que no conceden
-    // ningún permiso (hoy, `usuario`).
-    if (!(await this.accessService.isAdministrador(actor.userId))) {
+    // ningún permiso (hoy, `usuario`), sin país (RN-07.5).
+    if (!isAdministrador) {
       assertAssignableByNonAdministrador(await this.repository.findRoleIdsGrantingPermissions(dto.roleIds));
+      if (countryId !== null) {
+        throw adminOnlyError('Only an administrator can set the country of a user');
+      }
     }
     // Autorización antes que validar referencias: sin el permiso no se revela
-    // qué equipos existen.
+    // qué equipos existen. Primero el permiso del recurso (PERMISSION_DENIED) y
+    // después la regla de administrador (ADMIN_ONLY, RN-07.10).
     if (teamIds.length > 0) {
       await this.assertActorHolds(actor, TEAM_MEMBERSHIP_PERMISSION);
+      if (!isAdministrador) {
+        throw adminOnlyError('Only an administrator can assign teams to a user');
+      }
     }
     await this.assertExisting('role', dto.roleIds, await this.repository.existingRoleIds(dto.roleIds));
     await this.assertExisting('team', teamIds, await this.repository.existingTeamIds(teamIds));
+    if (countryId !== null) {
+      await this.assertAssignableCountry(this.repository, countryId);
+    }
+    assertCrmProfileComplete(await this.repository.findRoleGrants(dto.roleIds), { employeeCode, countryId });
 
     const existing = await this.repository.findUserByEmail(dto.email);
     if (existing) {
       throw new ResourceConflictError('Ya existe un usuario con ese correo');
+    }
+    if (employeeCode !== null) {
+      await this.assertEmployeeCodeAvailable(employeeCode, null);
     }
 
     const user = await this.repository.createUser({
@@ -164,6 +195,8 @@ export class UsersService {
       lastName: dto.lastName.trim(),
       jobTitle: dto.jobTitle,
       phone: dto.phone,
+      employeeCode,
+      countryId,
       roleIds: dto.roleIds,
       teamIds,
       createdById: actor.userId,
@@ -186,18 +219,44 @@ export class UsersService {
       },
     });
 
-    return user;
+    // El detalle completo (código, país, fechas), no el registro mínimo de la inserción.
+    return created;
   }
 
   async update(userId: string, dto: UpdateUserDto, actor: ActorContext): Promise<UserDetailRecord> {
     await this.accessService.assertActorMayActOn(actor.userId, userId);
     const before = await this.getDetail(userId);
 
+    // Omitido = sin cambio. Enviar el valor actual tampoco es un cambio.
+    const countryChange = changedValue<CountryId>(dto.countryId, before.country?.id ?? null);
+    const employeeCodeChange = changedValue(dto.employeeCode, before.employeeCode);
+
+    // RN-07.5: cambiar el país cambia lo que ve con alcance COUNTRY.
+    if (countryChange !== undefined && !(await this.accessService.isAdministrador(actor.userId))) {
+      throw adminOnlyError('Only an administrator can change the country of a user');
+    }
+    if (countryChange) {
+      await this.assertAssignableCountry(this.repository, countryChange);
+    }
+    // D-07.3: a un usuario comercial no se le vacía el perfil.
+    if (countryChange === null || employeeCodeChange === null) {
+      const snapshot = await this.repository.getUserAccessSnapshot(userId);
+      assertCrmProfileComplete(snapshot?.roles ?? [], {
+        employeeCode: employeeCodeChange === undefined ? before.employeeCode : employeeCodeChange,
+        countryId: countryChange === undefined ? (before.country?.id ?? null) : countryChange,
+      });
+    }
+    if (employeeCodeChange) {
+      await this.assertEmployeeCodeAvailable(employeeCodeChange, userId);
+    }
+
     await this.repository.updateUser(userId, {
       firstName: dto.firstName?.trim(),
       lastName: dto.lastName?.trim(),
       jobTitle: dto.jobTitle,
       phone: dto.phone,
+      employeeCode: employeeCodeChange,
+      countryId: countryChange,
       updatedById: actor.userId,
     });
 
@@ -299,6 +358,8 @@ export class UsersService {
     const { before, after } = await this.mutateUnderAdminInvariant(userId, actor, async (repository) => {
       const user = await detailOrThrow(repository, userId);
       await this.assertExisting('role', roleIds, await repository.existingRoleIds(roleIds));
+      // D-07.3: un rol comercial exige código y país.
+      assertCrmProfileComplete(await repository.findRoleGrants(roleIds), crmProfileOf(user));
 
       // D3 literal: el propio rol de administrador no se quita, aunque otro rol
       // conservara los permisos críticos.
@@ -420,6 +481,26 @@ export class UsersService {
     }
   }
 
+  /** RN-07.4: `422 UNKNOWN_REFERENCE` si el país no existe (`issue: "not_found"`) o está inactivo (`"inactive"`). */
+  private async assertAssignableCountry(repository: AccessRepository, countryId: string): Promise<void> {
+    const country = await repository.findCountry(countryId);
+    if (!country || !country.isActive) {
+      throw new BusinessRuleViolationError(ACCESS_ERROR_CODES.unknownReference, 'Unknown or inactive country', [
+        { field: 'countryId', resource: 'country', identifier: countryId, issue: country ? 'inactive' : 'not_found' },
+      ]);
+    }
+  }
+
+  /** RN-07.1: `409 RESOURCE_CONFLICT` con `field = employeeCode` si otro usuario (incluso eliminado) ya lo usa. */
+  private async assertEmployeeCodeAvailable(employeeCode: string, ownerId: string | null): Promise<void> {
+    const holder = await this.repository.findUserIdByEmployeeCode(employeeCode);
+    if (holder !== null && holder !== ownerId) {
+      throw new ResourceConflictError('A user with this employee code already exists', [
+        { field: 'employeeCode', issue: 'duplicated' },
+      ]);
+    }
+  }
+
   private async assertExisting(resource: string, requested: string[], existing: string[]): Promise<void> {
     const missing = missingIds(requested, existing);
     if (missing.length > 0) {
@@ -457,6 +538,7 @@ function toFilter(query: ExportUsersQueryDto): Omit<ListUsersFilter, 'page' | 'p
     status: query.status,
     roleCode: query.roleCode,
     teamId: query.teamId,
+    countryId: query.countryId,
     sortBy: query.sortBy,
     // Sin campo de orden explícito, por nombre ascendente.
     sortOrder: query.sortBy ? query.sortOrder : 'asc',
@@ -477,6 +559,23 @@ function isCurrent(expiresAt: Date | null): boolean {
   return expiresAt === null || expiresAt.getTime() > Date.now();
 }
 
+/**
+ * Valor nuevo de un campo anulable de un PATCH, o `undefined` si no cambia
+ * (omitido o igual al actual).
+ */
+function changedValue<T extends string | null>(requested: T | undefined, current: T): T | undefined {
+  if (requested === undefined) {
+    return undefined;
+  }
+  const next = (requested ?? null) as T;
+  return next === current ? undefined : next;
+}
+
+function crmProfileOf(user: UserDetailRecord): CrmProfile {
+  return { employeeCode: user.employeeCode, countryId: user.country?.id ?? null };
+}
+
+/** RN-07.11: el país se audita con su id y su código ISO (legible en la bitácora). */
 function userAuditView(user: UserDetailRecord): Record<string, unknown> {
   return {
     email: user.email,
@@ -484,6 +583,9 @@ function userAuditView(user: UserDetailRecord): Record<string, unknown> {
     lastName: user.lastName,
     jobTitle: user.jobTitle,
     phone: user.phone,
+    employeeCode: user.employeeCode,
+    countryId: user.country?.id ?? null,
+    countryIsoCode: user.country?.isoCode ?? null,
     status: user.status,
   };
 }

@@ -8,10 +8,12 @@ tenga que tocar archivos compartidos al construir su área.
 
 ```text
 features/admin/
-  admin-routes.ts          ruta + permiso + página lazy de cada área (ya están las 8)
+  admin-routes.ts          ruta + permiso + página lazy de cada área (las 8 de PLAN-ADMIN, las 3 del CRM Módulo 7 y la de Ajustes 1)
   common/                  piezas compartidas (no se modifican sin acordarlo)
   users/                   UsersPage.tsx, users.api.ts, users.queries.ts, users.schemas.ts, components/…
   roles/  menu-options/  teams/  catalogs/  parameters/  approvals/  audit/
+  exchange-rates/  products/  conversions/      (CRM Módulo 7, 07-administracion.md)
+  safety-minutes/                                (Ajustes 1, AJUSTES-1.md)
 ```
 
 | Área | Carpeta | Ruta | Permiso de la ruta |
@@ -24,6 +26,10 @@ features/admin/
 | Parámetros | `parameters/` | `/administracion/parametros` | `parametros.ver` |
 | Aprobaciones | `approvals/` | `/administracion/aprobaciones` | `aprobaciones.ver` |
 | Auditoría | `audit/` | `/administracion/auditoria` | `auditoria.ver` |
+| Tipos de cambio | `exchange-rates/` | `/administracion/tipos-cambio` | `parametros.ver` (registrar y corregir: `parametros.configurar`) |
+| Productos | `products/` | `/administracion/productos` | `productos.ver` (escribir: `productos.configurar`) |
+| Conversiones | `conversions/` | `/administracion/conversiones` | `productos.ver` (escribir: `productos.configurar`) |
+| Minuto de seguridad | `safety-minutes/` | `/administracion/minuto-seguridad` | `minuto_seguridad.ver` (crear, editar y eliminar: `minuto_seguridad.crear`, `.editar` y `.eliminar`) |
 
 - La página del área (`<Area>Page.tsx`) conserva su **export con nombre**: `admin-routes.ts`
   la carga con `React.lazy` por ese nombre. Sustituye `<UnderConstruction />` por la pantalla real.
@@ -132,3 +138,79 @@ const users = useUsers(table.apiQuery);
 - Pruebas con React Testing Library por comportamiento (`renderWithProviders`, `mockApi` de
   `@/test/api-mocks`): formularios, mapeo de errores y acciones ocultas sin permiso. Para la
   vista de tabla en jsdom simula `matchMedia` (ver `src/components/data/DataTable.spec.tsx`).
+
+## 8. Reglas propias de las áreas (CRM Módulo 7)
+
+Especificación: [`07-administracion.md`](../../../../docs/implementation-plans/crm/07-administracion.md).
+Lo que aquí se oculta o deshabilita es experiencia de usuario: el backend vuelve a decidir.
+
+- **Productos** (`products/`): familias, productos y unidades en pestañas, sin borrado (se
+  desactivan). `products.schemas.ts` replica los patrones de
+  `backend/src/modules/products/master-data-rules.ts`: el código de familia, el de unidad y el
+  SKU se recortan y se pasan a mayúsculas, empiezan por letra o dígito y solo admiten los
+  caracteres del backend (SKU: letras, dígitos, espacio y `. _ - /`); el orden va de 0 a 100000.
+  Si el backend cambia un patrón, cambia aquí también (`products.schemas.spec.ts`).
+- **Conversiones** (`conversions/`): reglas de conversión a la unidad de tonelaje por ámbito
+  (global, producto, familia, tipo de proyecto). El factor admite coma decimal y viaja como
+  cadena con punto (hasta 8 decimales, > 0). Las protecciones de la identidad las decide el
+  backend (`409 CONVERSION_RULE_PROTECTED`).
+- **Tipos de cambio** (`exchange-rates/`): pestaña de tasas (alta y corrección de tasa, fuente y
+  notas; la API ordena por `effectiveDate desc` por defecto) y pestaña de monedas en solo lectura.
+- **Usuarios** (`users/`): código de colaborador y país en lista, filtro, ficha, formularios y
+  exportación. Los **equipos del usuario** se gestionan desde su ficha (`UserTeamsPanel`,
+  `PUT /users/{id}/teams`): editable solo por un administrador con `equipos.editar` (y
+  `equipos.ver` para elegir); para el resto, solo lectura. El país solo lo fija un administrador.
+  **Dependencia:** la lista de países sale de `GET /customers/form-options`, que exige
+  `clientes.ver` (`USER_PERMISSIONS.viewCountries`); sin ese permiso no se carga el filtro ni el
+  selector de país. Mejora futura: un endpoint de países bajo `usuarios.ver`.
+- **Equipos** (`teams/`, RN-07.45, addendum de ADR-020): reemplazar miembros, fijar o cambiar
+  responsable o equipo padre, eliminar un equipo con miembros o subequipos y — decisión del
+  responsable 2026-10-14 (D1) — **activar o desactivar un equipo con miembros o subequipos** son
+  solo del administrador. Al resto se le ocultan las acciones (miembros, eliminar) o se le
+  muestran deshabilitadas con la explicación (responsable, padre, interruptor «Activo»), y el
+  formulario solo envía `isActive`, `managerId` y `parentId` si cambian. Un equipo vacío lo
+  activa o desactiva cualquiera con `equipos.editar`. `teams.errors.ts` traduce `403 ADMIN_ONLY`.
+- **Parámetros** (`parameters/`): los parámetros estructurales tienen editor propio
+  (`components/editors/`: campos obligatorios, reglas de duplicidad, valores por defecto,
+  prioridades de alertas, reglas de avance, transiciones de etapa, tipos de adjunto); el resto
+  se edita por tipo (`parameters.schemas.ts`). `seguridad.*` y los estructurales (también
+  `auditoria.dias_retencion`, D2) exigen `parametros.configurar`. El bloque «Autenticación»
+  (`AuthenticationSettingsCard`, `GET /parameters/authentication`) es de solo lectura y sin
+  secretos.
+- **Catálogos** (`catalogs/`): el formulario de semántica de cada elemento (`metadata`) se
+  genera desde el `metadataSchema` del catálogo (`catalog-metadata.ts`, `MetadataFields`);
+  el backend decide con `422 INVALID_CATALOG_METADATA` y `409 CATALOG_INVARIANT`.
+- **Auditoría** (`audit/`): vista por evento o **por campo** (una fila por campo cambiado; la
+  paginación sigue siendo por evento), filtro `field` y exportación con el mismo diseño
+  (`layout=events|fields`).
+
+## 9. Reglas propias de las áreas (Ajustes 1)
+
+Especificación: [`AJUSTES-1.md`](../../../../docs/implementation-plans/AJUSTES-1.md). Lo que aquí se
+oculta o deshabilita es experiencia de usuario: el backend vuelve a decidir.
+
+- **Minuto de seguridad** (`safety-minutes/`, AJ1-2): lista paginada con filtros de fecha `from`/`to`
+  (el cliente valida `from` ≤ `to` antes de pedir), orden por fecha, creación, edición, detalle y
+  borrado. Cada acción se muestra solo con su permiso (`safety-minutes.permissions.ts`:
+  `.ver`, `.crear`, `.editar`, `.eliminar`). `editable` y `deletable` los calcula el servidor con
+  «hoy» de la zona del negocio y mandan sobre los botones: hoy y futuros se editan, solo los
+  futuros se borran, los pasados son de solo lectura. El mensaje es **texto plano**: siempre se
+  pinta como texto (la lista lo trunca a vista previa, el detalle lo muestra completo), nunca como
+  HTML. `safety-minutes.schemas.ts` replica la validación básica (1 a 1000 caracteres tras recortar;
+  fecha obligatoria y no anterior a hoy en la zona del navegador, salvo conservar la que ya tenía); las
+  reglas finas (caracteres de control o bidi, «hoy» de la zona del negocio) las decide el backend. `safety-minutes.errors.ts` traduce `409 SAFETY_MINUTE_LOCKED` según `details[0].reason`
+  (`past` | `today`), marca el campo de la fecha en `409 SAFETY_MINUTE_DUPLICATE` y
+  `422 SAFETY_MINUTE_PAST_DATE`, y deja el resto a `describeApiError`.
+- **Parámetros → editor `dashboard-cards`** (`parameters/components/editors/DashboardCardsEditor.tsx`):
+  edita `ui.inicio.tarjetas`, la composición por defecto de Inicio, con las listas reordenables de
+  bloques e indicadores y los mismos controles de «Personalizar panel»
+  (`features/dashboard/components/DashboardCardsList.tsx`). Las claves y las etiquetas salen del
+  backend (`editorOptions` y `allowedValues` de `GET /parameters`): no se copian listas de claves;
+  `safety-minute` aparece fijo y siempre visible (`lockedVisibleBlocks`). El editor no filtra por
+  permiso: el valor por defecto es de todos. El servidor valida claves y repeticiones
+  (`422 INVALID_PARAMETER_VALUE`).
+- **Parámetros → grupo «Interfaz»** (`parameter-sections.ts`): sección `interfaz`, justo después de
+  «Acceso» y antes de las del CRM, para las claves que empiezan por `ui.` (composición de Inicio y
+  botones de la barra superior: buscar, pantalla completa y notificaciones). Buscar y
+  notificaciones vienen apagados porque aún no tienen función. Los cambios llegan a cada usuario al
+  recargar su configuración (`GET /me/ui-settings`, `staleTime` de 5 minutos).

@@ -348,8 +348,10 @@ describe('subida y vista previa (PF-06.3–PF-06.7, PF-06.19–PF-06.21, PF-06.3
     const body = await uploadOk(admin.token, [
       row(J1, { companyType: 'CONSTRUCTORA', status: 'ACTIVO', rating: 'B', salesOwner: owner.email }),
       row(J1, { salesOwner: employeeCode }),
+      // RN-07.1: el código se compara en forma canónica (recorte + mayúsculas).
+      row(J1, { salesOwner: `  ${employeeCode.toLowerCase()} ` }),
     ]);
-    expect(body.validRows).toBe(2);
+    expect(body.validRows).toBe(3);
   });
 
   it('códigos de error idénticos a los del alta manual (PF-06.19) y campo de la plantilla', async () => {

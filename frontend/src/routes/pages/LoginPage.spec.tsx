@@ -62,6 +62,22 @@ describe('LoginPage', () => {
     expect(screen.queryByRole('checkbox', { name: /recordarme/i })).not.toBeInTheDocument();
   });
 
+  it('el panel de marca solo muestra el nombre y el pie dice © año Grupo AG', () => {
+    renderLogin();
+
+    // El panel es decorativo (aria-hidden): se busca por texto, no por rol.
+    expect(screen.getAllByText('Mi Cliente AG').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/un solo acceso para trabajar/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Acceso por roles y permisos')).not.toBeInTheDocument();
+    expect(screen.queryByText('Administración centralizada')).not.toBeInTheDocument();
+    expect(screen.queryByText('Auditoría de cambios')).not.toBeInTheDocument();
+    expect(screen.getByRole('contentinfo')).toHaveTextContent(
+      `© ${new Date().getFullYear()} Grupo AG`,
+    );
+    // El formulario conserva sus textos funcionales.
+    expect(screen.getByText(/introduce tu correo y contraseña/i)).toBeInTheDocument();
+  });
+
   it('permite mostrar y ocultar la contraseña', async () => {
     const user = userEvent.setup();
     renderLogin();

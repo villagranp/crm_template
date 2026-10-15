@@ -7,8 +7,10 @@ import LocationOnOutlinedIcon from '@mui/icons-material/LocationOnOutlined';
 import ThumbDownOffAltOutlinedIcon from '@mui/icons-material/ThumbDownOffAltOutlined';
 import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import { Alert, Box, Stack, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { Fragment, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+import { useUiSettings, type DashboardKpiKey } from '@/services/ui-settings';
 import { fontSizes, layout } from '@/theme/tokens';
 import { sectionLabelSx } from '@/theme/typography';
 
@@ -23,6 +25,7 @@ import {
   pluralize,
   topStages,
 } from '../dashboard-format';
+import { visibleKpiKeys } from '../dashboard-layout';
 import type { DashboardAccess } from '../dashboard.permissions';
 import {
   useActivityIndicators,
@@ -151,11 +154,19 @@ export function KpiGrid({ access }: { access: DashboardAccess }) {
   const period = parsePeriod(searchParams.get(PERIOD_PARAM));
   const links = useLinkContext();
 
-  const projects = useProjectIndicators(access.projects);
-  const opportunities = useOpportunityIndicators(period, access.opportunities);
-  const forecast = useForecastIndicators(access.forecast);
-  const visits = useVisitIndicators(access.visits);
-  const activities = useActivityIndicators(access.activities);
+  const { settings } = useUiSettings();
+  // Visible por preferencia Y con permiso, en el orden configurado: lo que no se pinta no se pide.
+  const shownKeys = visibleKpiKeys(settings.dashboard.kpis, access);
+  const shown = new Set<DashboardKpiKey>(shownKeys);
+  const showsOpportunities =
+    shown.has('opportunities-open') || shown.has('opportunities-won') || shown.has('opportunities-lost');
+  const showsActivities = shown.has('activities-pending') || shown.has('activities-overdue');
+
+  const projects = useProjectIndicators(shown.has('projects-active'));
+  const opportunities = useOpportunityIndicators(period, showsOpportunities);
+  const forecast = useForecastIndicators(shown.has('forecast'));
+  const visits = useVisitIndicators(shown.has('visits-pending'));
+  const activities = useActivityIndicators(showsActivities);
 
   const changePeriod = (next: DashboardPeriod | null) => {
     if (!next) {
@@ -175,11 +186,123 @@ export function KpiGrid({ access }: { access: DashboardAccess }) {
     );
   };
 
-  const showPeriod = access.opportunities || access.targets;
+  const showPeriod = showsOpportunities || shown.has('targets');
   const opportunityPeriod = opportunities.data?.period;
   const periodText = opportunityPeriod
     ? formatPeriodRange(opportunityPeriod)
     : PERIOD_LABELS[period];
+
+  const cards: Record<DashboardKpiKey, ReactNode> = {
+    'projects-active': (
+      <KpiCard
+        tone="brand"
+        label="Proyectos activos"
+        icon={<ApartmentOutlinedIcon />}
+        {...cardState(projects)}
+        value={projects.data ? formatCount(projects.data.activeProjects) : undefined}
+        href={kpiCardHref('activeProjects', links)}
+      />
+    ),
+    'opportunities-open': (
+      <KpiCard
+        tone="brandSoft"
+        label="Oportunidades abiertas"
+        icon={<HandshakeOutlinedIcon />}
+        {...cardState(opportunities)}
+        value={opportunities.data ? formatCount(opportunities.data.open.count) : undefined}
+        foot={
+          opportunities.data
+            ? topStages(opportunities.data.open.byStage)
+                .map((stage) => `${stage.label} ${formatCount(stage.count)}`)
+                .join(' · ') || undefined
+            : undefined
+        }
+        href={kpiCardHref('openOpportunities', links)}
+      />
+    ),
+    'opportunities-won': (
+      <KpiCard
+        label="Oportunidades ganadas"
+        icon={<EmojiEventsOutlinedIcon />}
+        {...cardState(opportunities)}
+        value={opportunities.data ? formatCount(opportunities.data.won.count) : undefined}
+        foot={
+          opportunities.data
+            ? `${pluralize(opportunities.data.won.partialCount, 'parcial', 'parciales')} · ${periodText}`
+            : undefined
+        }
+        href={kpiCardHref('wonOpportunities', links, opportunityPeriod)}
+      />
+    ),
+    'opportunities-lost': (
+      <KpiCard
+        label="Oportunidades perdidas"
+        icon={<ThumbDownOffAltOutlinedIcon />}
+        {...cardState(opportunities)}
+        value={opportunities.data ? formatCount(opportunities.data.lost.count) : undefined}
+        foot={opportunities.data ? periodText : undefined}
+        href={kpiCardHref('lostOpportunities', links, opportunityPeriod)}
+      />
+    ),
+    forecast: (
+      <KpiCard
+        label="Forecast próximos seis meses"
+        icon={<TrendingUpOutlinedIcon />}
+        {...cardState(forecast)}
+        value={
+          forecast.data
+            ? forecast.data.totalTonnage === null
+              ? 'Sin proyección'
+              : formatTonnageValue(forecast.data.totalTonnage, forecast.data.tonnageUnit)
+            : undefined
+        }
+        foot={forecast.data ? forecastFoot(forecast.data) : undefined}
+        href={kpiCardHref('forecast', links)}
+      >
+        {forecast.data && forecast.data.totalTonnage !== null && forecast.data.months.length > 0 ? (
+          <ForecastSeries data={forecast.data} />
+        ) : null}
+      </KpiCard>
+    ),
+    'visits-pending': (
+      <KpiCard
+        label="Visitas pendientes"
+        icon={<LocationOnOutlinedIcon />}
+        {...cardState(visits)}
+        value={visits.data ? formatCount(visits.data.pending.count) : undefined}
+        foot={
+          visits.data
+            ? `${pluralize(visits.data.upcoming.count, 'próxima', 'próximas')} en ${visits.data.upcoming.days} días · ${pluralize(visits.data.pending.overdueCount, 'atrasada', 'atrasadas')}`
+            : undefined
+        }
+        href={kpiCardHref('pendingVisits', links)}
+      />
+    ),
+    'activities-pending': (
+      <KpiCard
+        label="Actividades pendientes"
+        icon={<AssignmentOutlinedIcon />}
+        {...cardState(activities)}
+        value={activities.data ? formatCount(activities.data.pending.count) : undefined}
+        foot={
+          activities.data
+            ? `${formatCount(activities.data.pending.dueSoonCount)} por vencer en ${activities.data.pending.dueSoonHours} h`
+            : undefined
+        }
+        href={kpiCardHref('pendingActivities', links)}
+      />
+    ),
+    'activities-overdue': (
+      <KpiCard
+        label="Actividades vencidas"
+        icon={<AssignmentLateOutlinedIcon />}
+        {...cardState(activities)}
+        value={activities.data ? formatCount(activities.data.overdue.count) : undefined}
+        href={kpiCardHref('overdueActivities', links)}
+      />
+    ),
+    targets: <TargetsCard period={period} />,
+  };
 
   return (
     <Box component="section" aria-labelledby="home-indicators">
@@ -218,6 +341,8 @@ export function KpiGrid({ access }: { access: DashboardAccess }) {
 
       {!access.anyCommercialSource ? (
         <Alert severity="info">{NO_INDICATORS_NOTICE}</Alert>
+      ) : shownKeys.length === 0 ? (
+        <Alert severity="info">No hay indicadores visibles en tu panel.</Alert>
       ) : (
         <Box
           sx={{
@@ -231,120 +356,9 @@ export function KpiGrid({ access }: { access: DashboardAccess }) {
             },
           }}
         >
-          {access.projects ? (
-            <KpiCard
-              tone="brand"
-              label="Proyectos activos"
-              icon={<ApartmentOutlinedIcon />}
-              {...cardState(projects)}
-              value={projects.data ? formatCount(projects.data.activeProjects) : undefined}
-              href={kpiCardHref('activeProjects', links)}
-            />
-          ) : null}
-
-          {access.opportunities ? (
-            <>
-              <KpiCard
-                tone="brandSoft"
-                label="Oportunidades abiertas"
-                icon={<HandshakeOutlinedIcon />}
-                {...cardState(opportunities)}
-                value={opportunities.data ? formatCount(opportunities.data.open.count) : undefined}
-                foot={
-                  opportunities.data
-                    ? topStages(opportunities.data.open.byStage)
-                        .map((stage) => `${stage.label} ${formatCount(stage.count)}`)
-                        .join(' · ') || undefined
-                    : undefined
-                }
-                href={kpiCardHref('openOpportunities', links)}
-              />
-              <KpiCard
-                label="Oportunidades ganadas"
-                icon={<EmojiEventsOutlinedIcon />}
-                {...cardState(opportunities)}
-                value={opportunities.data ? formatCount(opportunities.data.won.count) : undefined}
-                foot={
-                  opportunities.data
-                    ? `${pluralize(opportunities.data.won.partialCount, 'parcial', 'parciales')} · ${periodText}`
-                    : undefined
-                }
-                href={kpiCardHref('wonOpportunities', links, opportunityPeriod)}
-              />
-              <KpiCard
-                label="Oportunidades perdidas"
-                icon={<ThumbDownOffAltOutlinedIcon />}
-                {...cardState(opportunities)}
-                value={opportunities.data ? formatCount(opportunities.data.lost.count) : undefined}
-                foot={opportunities.data ? periodText : undefined}
-                href={kpiCardHref('lostOpportunities', links, opportunityPeriod)}
-              />
-            </>
-          ) : null}
-
-          {access.forecast ? (
-            <KpiCard
-              label="Forecast próximos seis meses"
-              icon={<TrendingUpOutlinedIcon />}
-              {...cardState(forecast)}
-              value={
-                forecast.data
-                  ? forecast.data.totalTonnage === null
-                    ? 'Sin proyección'
-                    : formatTonnageValue(forecast.data.totalTonnage, forecast.data.tonnageUnit)
-                  : undefined
-              }
-              foot={forecast.data ? forecastFoot(forecast.data) : undefined}
-              href={kpiCardHref('forecast', links)}
-            >
-              {forecast.data &&
-              forecast.data.totalTonnage !== null &&
-              forecast.data.months.length > 0 ? (
-                <ForecastSeries data={forecast.data} />
-              ) : null}
-            </KpiCard>
-          ) : null}
-
-          {access.visits ? (
-            <KpiCard
-              label="Visitas pendientes"
-              icon={<LocationOnOutlinedIcon />}
-              {...cardState(visits)}
-              value={visits.data ? formatCount(visits.data.pending.count) : undefined}
-              foot={
-                visits.data
-                  ? `${pluralize(visits.data.upcoming.count, 'próxima', 'próximas')} en ${visits.data.upcoming.days} días · ${pluralize(visits.data.pending.overdueCount, 'atrasada', 'atrasadas')}`
-                  : undefined
-              }
-              href={kpiCardHref('pendingVisits', links)}
-            />
-          ) : null}
-
-          {access.activities ? (
-            <>
-              <KpiCard
-                label="Actividades pendientes"
-                icon={<AssignmentOutlinedIcon />}
-                {...cardState(activities)}
-                value={activities.data ? formatCount(activities.data.pending.count) : undefined}
-                foot={
-                  activities.data
-                    ? `${formatCount(activities.data.pending.dueSoonCount)} por vencer en ${activities.data.pending.dueSoonHours} h`
-                    : undefined
-                }
-                href={kpiCardHref('pendingActivities', links)}
-              />
-              <KpiCard
-                label="Actividades vencidas"
-                icon={<AssignmentLateOutlinedIcon />}
-                {...cardState(activities)}
-                value={activities.data ? formatCount(activities.data.overdue.count) : undefined}
-                href={kpiCardHref('overdueActivities', links)}
-              />
-            </>
-          ) : null}
-
-          {access.targets ? <TargetsCard period={period} /> : null}
+          {shownKeys.map((key) => (
+            <Fragment key={key}>{cards[key]}</Fragment>
+          ))}
         </Box>
       )}
     </Box>

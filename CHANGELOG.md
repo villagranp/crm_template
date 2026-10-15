@@ -5,6 +5,34 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 
 ## [Unreleased]
 
+### Added
+- **Ajustes 1** (`docs/implementation-plans/AJUSTES-1.md`; backend y frontend):
+  - **Dashboard personalizable por usuario**: cada usuario elige qué bloques e indicadores (K1-K9)
+    de Inicio ve y en qué orden con «Personalizar panel»; «Restablecer» vuelve a la composición por
+    defecto. Se guarda en la preferencia `ui.inicio.tarjetas` de `user_preferences`; la composición
+    por defecto es el parámetro `ui.inicio.tarjetas` (grupo `interfaz`, editor `dashboard-cards`).
+    Endpoints: `GET /me/ui-settings`, `GET /me/preferences`, `PUT`/`DELETE
+    /me/preferences/dashboard-cards`. Código nuevo `422 INVALID_DASHBOARD_CARDS`.
+  - **Minuto de seguridad**: un mensaje institucional por fecha, visible para toda sesión en un
+    bloque de Inicio (`GET /me/safety-minute`, sin permiso) y con mantenimiento en
+    «Administración → Minuto de seguridad» (`/safety-minutes*`). Tabla `safety_minutes`, migración
+    `20261015100000_safety_minutes` con su rollback `.down.sql`, permisos `minuto_seguridad.ver`,
+    `.crear`, `.editar` y `.eliminar`, opción de menú `admin-minuto-seguridad` y eventos de
+    auditoría `safety_minute.created|updated|deleted`. Códigos nuevos `SAFETY_MINUTE_DUPLICATE`,
+    `SAFETY_MINUTE_LOCKED` y `SAFETY_MINUTE_PAST_DATE`.
+  - **Barra superior parametrizable**: los botones de buscar, pantalla completa y notificaciones se
+    muestran u ocultan con `ui.barra_superior.buscar`, `.pantalla_completa` y `.notificaciones`
+    (buscar y notificaciones sembrados en `false`: aún no tienen función). Se leen por
+    `GET /me/ui-settings`, que no expone ningún otro parámetro.
+  - **Tema por usuario**: el modo claro u oscuro sigue al usuario entre dispositivos
+    (`PUT /me/preferences/theme`, preferencia `ui.tema`); `localStorage` queda como caché para el
+    acceso y el arranque.
+  - Parámetros `ui.*` y grupo «Interfaz» en la pantalla de Parámetros; `GET /parameters` añade el
+    campo `editorOptions`.
+  - Cambios visibles: el acceso muestra solo el nombre «Mi Cliente AG» (sin texto ni viñetas del
+    panel de marca), el pie dice «© 2026 Grupo AG», Inicio se organiza en dos columnas desde `md` y
+    muestra un marcador de carga mientras llega la configuración por primera vez.
+
 ### Changed
 - **CRM — integración del Módulo 5 (Reportes) con los Módulos 1 (Inicio) y 6 (Integraciones)**
   (`05-reportes.md`, P-05.36; sin cambios de contrato, esquema, permisos ni dependencias):
@@ -27,6 +55,28 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
   `summary`, `ReportFilterBar` acepta `maxMonths`/`defaultNote` en el período y nombra cliente y
   proyecto tras recargar con su ficha (P-05.28); `customers` exporta `useCustomer`. Vitest
   procesa `@mui/x-charts` con `server.deps.inline`. Se elimina `ReportsPendingPage`.
+- **Ajustes 1 — cambios de contrato** (`docs/api/README.md`, «Endpoints — Ajustes 1»; solo aditivos):
+  - `GET /parameters` devuelve en cada parámetro el campo nuevo `editorOptions`
+    (`Record<string, string[]> | null`); los clientes que lo ignoran no se ven afectados.
+  - Nuevos parámetros `ui.*` en la semilla (no pisa valores ya editados) y nuevo permiso
+    `minuto_seguridad.*`; ningún permiso existente cambia.
+  - `ExchangeRatesQueryDto`: `IsNotBeforeFrom` pasa a `common/dto/not-before-from.validator.ts`
+    para compartirlo con el minuto de seguridad (sin cambio de comportamiento).
+- **CRM Módulo 7 — cambios de contrato** (`docs/api/README.md`, "Módulo 7 · Administración"):
+  - `GET /product-families` y `GET /units-of-measure` devuelven `{ data, pagination }` (antes
+    `{ data }`), con `pageSize` 100 por defecto, `isActive` = `true` (defecto) | `false` | `all`,
+    `search` y `sortBy`/`sortOrder`. Compatible para quien lee `data` (Módulo 3).
+    `GET /units-of-measure` acepta `productos.ver` **o** `proyectos.ver` (`@RequireAnyPermission`).
+  - `GET /products` admite `isActive=false|all` y `sortBy` `createdAt`/`updatedAt` (antes solo `sku`).
+  - El evento `audit_log.exported` guarda `layout` (`events` | `fields`) en su metadato.
+  - Equipos (RN-07.45): reemplazar miembros, fijar o cambiar `managerId`/`parentId` y eliminar un
+    equipo con miembros o subequipos exigen ser administrador (`403 ADMIN_ONLY`); al
+    administrador, borrar con miembros sigue dando `409 HAS_CHILDREN`.
+  - Equipos (D1, decisión del responsable 2026-10-14): cambiar `isActive` de un equipo **con
+    miembros o subequipos** también es exclusivo del administrador (`403 ADMIN_ONLY`); un equipo
+    vacío lo activa o desactiva cualquiera con `equipos.editar`.
+  - Parámetros (D2, decisión del responsable 2026-10-14): `auditoria.dias_retencion` pasa a ser
+    estructural y exige además `parametros.configurar` (RN-07.32).
 - Pruebas de integración: `exclusiveParameters` (candado consultivo por esquema) hace mutuamente
   excluyentes `customers.e2e` y `customer-imports.e2e`, que cambian los mismos parámetros globales.
 - Semilla demo: la carga `DEMO-IMP-0001` guarda `raw_data` e incidencias con la forma real de la
@@ -180,6 +230,64 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
     PF-05.47. `features/crm/reports/README.md` con las convenciones del área.
   - Backend (aditivo): `GET /reports/filter-options` publica `businessTimeZone` y `timeZone`
     (perfil del usuario) (P-05.27).
+- **CRM Módulo 7 — Administración, backend** (F-43…F-47, `07-administracion.md`, `docs/api/README.md`):
+  - Usuarios: `employeeCode` (único, recortado y en mayúsculas) y `country` en lista, detalle,
+    alta, edición, búsqueda, filtro `countryId` y exportación (columnas Código de colaborador y
+    País). `countryId` y `teamIds` solo los fija un administrador (`403 ADMIN_ONLY`, addendum de
+    ADR-020); un rol comercial exige código y país (`422 CRM_PROFILE_INCOMPLETE`, D-07.3).
+    `userAuditView` añade `employeeCode`, `countryId` y `countryIsoCode` al antes/después.
+  - `PUT /users/{id}/teams` (módulo `teams`, `equipos.editar` + administrador): reemplaza los
+    equipos del usuario y audita `team.members_replaced` y `user.teams_replaced`.
+  - Maestros comerciales en el módulo `products`: alta, detalle y edición (sin borrado) de
+    familias, productos, unidades y reglas de conversión, con `productos.ver` /
+    `productos.configurar`, auditoría `crm.<recurso>.created/updated` y códigos
+    `UNIT_DIMENSION_LOCKED`, `CONVERSION_RULE_PROTECTED` (`reason` `identity_factor` |
+    `tonnage_identity` | `tonnage_unit`), `INVALID_CONVERSION_TARGET` e `INVALID_CONVERSION_SCOPE`.
+  - Tipos de cambio en el módulo `exchange-rates` (ADR-024): `GET/POST /exchange-rates`,
+    `PATCH /exchange-rates/{id}` (solo tasa, fuente y notas) y `GET /currencies` (`{ data }`), con
+    `parametros.ver` / `parametros.configurar`; `409 EXCHANGE_RATE_DUPLICATE`,
+    `422 INVALID_EXCHANGE_RATE`; auditoría `crm.exchange_rate.created/updated`.
+  - `GET /parameters/authentication` (`parametros.ver`): proveedor vigente de `AUTH_PROVIDER`,
+    solo lectura y sin secretos (D-07.8).
+  - Auditoría: filtro `field` en `GET /audit-logs` y en la exportación; `layout=events|fields`
+    en `GET /audit-logs/export` (una fila por campo cambiado; el tope sigue contando eventos).
+  - Inmutabilidad de `audit_logs` en la base (ADR-025): migración
+    `20261014100000_audit_logs_append_only` con la función `audit_logs_append_only()` y los
+    disparadores `trg_audit_logs_no_update`, `trg_audit_logs_no_truncate` y
+    `trg_audit_logs_delete_after_retention` (SQLSTATE `AU001`; retención de
+    `auditoria.dias_retencion`, 365 si falta, es ilegible o < 30). Script inverso en
+    `backend/prisma/rollbacks/`. Recomendación de roles en `docs/deployment/environments.md`.
+  - Rutas `/administracion/tipos-cambio`, `/administracion/productos` y
+    `/administracion/conversiones` en `app-routes.registry.json`: sus opciones de menú sembradas
+    (`admin-tipos-cambio`, `admin-productos`, `admin-conversiones`) ya se crean.
+  - Revisión: D1 (`isActive` de un equipo con miembros o subequipos, solo administrador) y D2
+    (`auditoria.dias_retencion` exige `parametros.configurar`), ver "Changed"; las
+    exportaciones CSV entrecomillan también los valores con `;` o tabulador (además de `,`,
+    comillas y saltos de línea); la carga masiva normaliza el `employeeCode` (recortado y en
+    mayúsculas) igual que el alta y la edición de usuarios.
+- **CRM Módulo 7 — Administración, frontend** (`07-administracion.md`,
+  `frontend/src/features/admin/README.md`):
+  - Pantallas `/administracion/tipos-cambio` (tasas con alta y corrección de tasa, fuente y
+    notas; monedas en solo lectura),
+    `/administracion/productos` (familias, productos y unidades) y `/administracion/conversiones`
+    (reglas de conversión a tonelaje por ámbito). Los formularios de maestros validan con los
+    mismos patrones que el backend (`master-data-rules.ts`: códigos y SKU que empiezan por letra
+    o dígito y se pasan a mayúsculas, orden 0–100000).
+  - Usuarios: código de colaborador y país en lista, ficha, formularios, filtro y exportación;
+    panel «Equipos» en la ficha del usuario (`PUT /users/{id}/teams`, solo administrador). La
+    lista de países sale de `GET /customers/form-options` (exige `clientes.ver`).
+  - Parámetros: editores específicos de los parámetros estructurados (campos obligatorios,
+    reglas de duplicidad, valores por defecto, prioridades de alertas, reglas de avance,
+    transiciones de etapa, tipos de adjunto) y bloque de solo lectura «Autenticación» con el
+    proveedor vigente (`GET /parameters/authentication`). Catálogos: formulario de semántica
+    (`metadata`) generado desde `metadataSchema`.
+  - Auditoría: vista «por campo» (una fila por campo cambiado), filtro por campo y exportación con
+    `layout=fields`.
+  - Equipos: miembros, responsable, equipo padre, eliminar con miembros o subequipos y (D1)
+    activar o desactivar un equipo con miembros o subequipos solo para el administrador; al resto
+    se le muestran deshabilitados con la explicación.
+  - Etiquetas de estado de usuario: `SUSPENDED` → «Inactivo», `LOCKED` → «Bloqueado
+    temporalmente».
 - **QA en Windows Server** (ADR-026, `docs/deployment/qa-windows.md`): backend como servicio de
   Windows, NGINX for Windows con HTTPS sirviendo el frontend y la API, PostgreSQL 18 local.
   `infrastructure/qa-windows/`: `nginx.conf`, `env.qa.example` (sin valores reales),

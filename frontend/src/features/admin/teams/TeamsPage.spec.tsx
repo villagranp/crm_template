@@ -30,10 +30,10 @@ function page(data: Team[]) {
   return { data, pagination: { page: 1, pageSize: 20, totalItems: data.length, totalPages: 1 } };
 }
 
-function signInWith(permissions: string[]) {
+function signInWith(permissions: string[], roles: string[] = ['administrador']) {
   useAuthStore.setState({
     status: 'authenticated',
-    user: { id: 'user-1', displayName: 'Persona de Prueba', roles: ['ADMIN'], permissions },
+    user: { id: 'user-1', displayName: 'Persona de Prueba', roles, permissions },
     passwordChangeRequired: false,
     errorMessage: null,
   });
@@ -223,5 +223,189 @@ describe('TeamsPage', () => {
       expect.stringContaining('Ventas'),
       expect.stringContaining('Norte'),
     ]);
+  });
+  describe('07 RN-07.45: miembros, responsable, padre y eliminar con hijos son del administrador', () => {
+    const GESTOR = ['gestor-accesos'];
+    const POPULATED: Team = {
+      ...TEAM,
+      id: 'team-2',
+      code: 'norte',
+      name: 'Norte',
+      memberCount: 3,
+      parentId: 'team-1',
+      parentName: 'Ventas',
+      manager: { id: 'u-1', displayName: 'Ana' },
+    };
+
+    it('un no administrador no ve Miembros ni Eliminar en equipos con miembros o subequipos', async () => {
+      signInWith(ALL_PERMISSIONS, GESTOR);
+      mockApi({ 'GET /teams': () => jsonResponse(page([TEAM, POPULATED])) });
+
+      renderWithProviders(<TeamsPage />);
+
+      await screen.findByRole('table', { name: 'Equipos' });
+      expect(screen.getByRole('button', { name: 'Editar Norte' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Miembros de Norte' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Miembros de Ventas' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Eliminar Norte' })).not.toBeInTheDocument();
+      // Un equipo vacío sí lo puede eliminar con equipos.eliminar.
+      expect(screen.getByRole('button', { name: 'Eliminar Ventas' })).toBeInTheDocument();
+    });
+
+    it('un administrador ve Miembros y Eliminar también en equipos con miembros', async () => {
+      signInWith(ALL_PERMISSIONS);
+      mockApi({ 'GET /teams': () => jsonResponse(page([POPULATED])) });
+
+      renderWithProviders(<TeamsPage />);
+
+      await screen.findByRole('table', { name: 'Equipos' });
+      expect(screen.getByRole('button', { name: 'Miembros de Norte' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Eliminar Norte' })).toBeInTheDocument();
+    });
+
+    it('a un no administrador responsable y padre le aparecen deshabilitados y la edición no los envía', async () => {
+      signInWith(ALL_PERMISSIONS, GESTOR);
+      const fetchMock = mockApi({
+        'GET /teams': () => jsonResponse(page([TEAM, POPULATED])),
+        'PATCH /teams/team-2': () => jsonResponse({ ...POPULATED, members: [] }),
+      });
+      const user = userEvent.setup();
+      renderWithProviders(<TeamsPage />);
+
+      await user.click(await screen.findByRole('button', { name: 'Editar Norte' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Editar equipo Norte' });
+      expect(within(dialog).getByRole('combobox', { name: /equipo padre/i })).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      );
+      expect(within(dialog).getByLabelText(/responsable/i)).toBeDisabled();
+      expect(
+        within(dialog).getAllByText(/Sólo un administrador puede fijar o cambiar el responsable y el equipo padre/),
+      ).toHaveLength(2);
+
+      const name = within(dialog).getByLabelText(/nombre/i);
+      await user.clear(name);
+      await user.click(name);
+      await user.paste('Norte y Centro');
+      await user.click(within(dialog).getByRole('button', { name: 'Guardar cambios' }));
+
+      await waitFor(() => expect(callsTo(fetchMock, 'PATCH', '/teams/team-2')).toHaveLength(1));
+      expect(JSON.parse(String(callsTo(fetchMock, 'PATCH', '/teams/team-2')[0]?.body))).toEqual({
+        name: 'Norte y Centro',
+        description: null,
+      });
+    });
+
+    it('traduce 403 ADMIN_ONLY al eliminar', async () => {
+      signInWith(ALL_PERMISSIONS, GESTOR);
+      mockApi({
+        'GET /teams': () => jsonResponse(page([TEAM])),
+        'DELETE /teams/team-1': () => errorResponse(403, 'ADMIN_ONLY'),
+      });
+      const user = userEvent.setup();
+      renderWithProviders(<TeamsPage />);
+
+      await user.click(await screen.findByRole('button', { name: 'Eliminar Ventas' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Eliminar equipo' });
+      await user.click(within(dialog).getByRole('button', { name: 'Eliminar' }));
+
+      expect(
+        await within(dialog).findByText(
+          'Sólo un administrador puede eliminar un equipo con miembros o subequipos (ADR-020).',
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('traduce 403 ADMIN_ONLY al guardar el formulario', async () => {
+      signInWith(ALL_PERMISSIONS, GESTOR);
+      mockApi({
+        'GET /teams': () => jsonResponse(page([TEAM])),
+        'PATCH /teams/team-1': () => errorResponse(403, 'ADMIN_ONLY'),
+      });
+      const user = userEvent.setup();
+      renderWithProviders(<TeamsPage />);
+
+      await user.click(await screen.findByRole('button', { name: 'Editar Ventas' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Editar equipo Ventas' });
+      await user.click(within(dialog).getByRole('button', { name: 'Guardar cambios' }));
+
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+        'Sólo un administrador puede fijar o cambiar el responsable o el equipo padre, o activar o desactivar un equipo con miembros o subequipos (ADR-020).',
+      );
+    });
+  });
+
+  describe('D1 (decisión del responsable 2026-10-14): activar o desactivar un equipo con miembros o subequipos es del administrador', () => {
+    const GESTOR = ['gestor-accesos'];
+    const ACTIVE_NOTE =
+      'El equipo tiene miembros o subequipos: sólo un administrador puede activarlo o desactivarlo (ADR-020).';
+    const WITH_MEMBERS: Team = { ...TEAM, id: 'team-3', code: 'sur', name: 'Sur', memberCount: 2 };
+    const WITH_CHILDREN: Team = { ...TEAM, id: 'team-4', code: 'centro', name: 'Centro', childCount: 1 };
+
+    async function openEditor(team: Team) {
+      const user = userEvent.setup();
+      renderWithProviders(<TeamsPage />);
+      await user.click(await screen.findByRole('button', { name: `Editar ${team.name}` }));
+      const dialog = await screen.findByRole('dialog', { name: `Editar equipo ${team.name}` });
+      return { user, dialog };
+    }
+
+    it.each([
+      ['miembros', WITH_MEMBERS],
+      ['subequipos', WITH_CHILDREN],
+    ])('a un no administrador el interruptor Activo de un equipo con %s le aparece deshabilitado y explicado', async (_label, team) => {
+      signInWith(ALL_PERMISSIONS, GESTOR);
+      mockApi({ 'GET /teams': () => jsonResponse(page([team])) });
+
+      const { dialog } = await openEditor(team);
+
+      const toggle = within(dialog).getByRole('checkbox', { name: 'Activo' });
+      expect(toggle).toBeDisabled();
+      expect(toggle).toHaveAccessibleDescription(ACTIVE_NOTE);
+    });
+
+    it('un no administrador activa o desactiva un equipo vacío y sólo se envía isActive si cambia', async () => {
+      signInWith(ALL_PERMISSIONS, GESTOR);
+      const fetchMock = mockApi({
+        'GET /teams': () => jsonResponse(page([TEAM])),
+        'PATCH /teams/team-1': () => jsonResponse({ ...TEAM, isActive: false, members: [] }),
+      });
+
+      const { user, dialog } = await openEditor(TEAM);
+      const toggle = within(dialog).getByRole('checkbox', { name: 'Activo' });
+      expect(toggle).toBeEnabled();
+      expect(within(dialog).queryByText(ACTIVE_NOTE)).not.toBeInTheDocument();
+
+      await user.click(toggle);
+      await user.click(within(dialog).getByRole('button', { name: 'Guardar cambios' }));
+
+      await waitFor(() => expect(callsTo(fetchMock, 'PATCH', '/teams/team-1')).toHaveLength(1));
+      expect(JSON.parse(String(callsTo(fetchMock, 'PATCH', '/teams/team-1')[0]?.body))).toEqual({
+        name: 'Ventas',
+        description: null,
+        isActive: false,
+      });
+    });
+
+    it('un administrador puede desactivar un equipo con miembros', async () => {
+      signInWith(ALL_PERMISSIONS);
+      const fetchMock = mockApi({
+        'GET /teams': () => jsonResponse(page([WITH_MEMBERS])),
+        'PATCH /teams/team-3': () => jsonResponse({ ...WITH_MEMBERS, isActive: false, members: [] }),
+      });
+
+      const { user, dialog } = await openEditor(WITH_MEMBERS);
+      const toggle = within(dialog).getByRole('checkbox', { name: 'Activo' });
+      expect(toggle).toBeEnabled();
+      expect(within(dialog).queryByText(ACTIVE_NOTE)).not.toBeInTheDocument();
+
+      await user.click(toggle);
+      await user.click(within(dialog).getByRole('button', { name: 'Guardar cambios' }));
+
+      await waitFor(() => expect(callsTo(fetchMock, 'PATCH', '/teams/team-3')).toHaveLength(1));
+      expect(JSON.parse(String(callsTo(fetchMock, 'PATCH', '/teams/team-3')[0]?.body))).toMatchObject({
+        isActive: false,
+      });
+    });
   });
 });

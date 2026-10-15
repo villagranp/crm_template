@@ -3,7 +3,7 @@ import { Transform } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateIf } from 'class-validator';
 
 import { PaginationQueryDto } from '@/common/dto/pagination-query.dto';
-import { toOptionalBoolean } from '@/modules/customers/dto/dto-transforms';
+import { toOptionalBoolean } from '@/common/dto/dto-transforms';
 
 import {
   PROJECT_DATE_FIELDS,

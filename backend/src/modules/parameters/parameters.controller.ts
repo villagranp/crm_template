@@ -16,9 +16,16 @@ import {
 import { RequirePermission } from '@/common/decorators/require-permission.decorator';
 import { ErrorResponseDto } from '@/common/dto/error-response.dto';
 import type { AppRequest } from '@/common/types/request-context';
+import { AppConfigService } from '@/config/app-config.service';
 import { auditContextFrom } from '@/modules/audit/audit.service';
 
-import { ParameterListResponseDto, ParameterResponseDto, UpdateParameterDto } from './dto/parameter.dto';
+import { authenticationSettings } from './authentication-settings';
+import {
+  AuthenticationSettingsResponseDto,
+  ParameterListResponseDto,
+  ParameterResponseDto,
+  UpdateParameterDto,
+} from './dto/parameter.dto';
 import type { SystemParameterRecord } from './ports/parameters.repository.port';
 import { ruleFor } from './parameter-rules.registry';
 import { isReadOnly, ParametersService, requiresConfigure } from './parameters.service';
@@ -40,6 +47,9 @@ function toResponse(parameter: SystemParameterRecord): ParameterResponseDto {
     readOnly: isReadOnly(parameter),
     allowedValues: rule?.allowedValues ? [...rule.allowedValues] : null,
     editor: rule?.editor ?? null,
+    editorOptions: rule?.editorOptions
+      ? Object.fromEntries(Object.entries(rule.editorOptions).map(([name, values]) => [name, [...values]]))
+      : null,
     range: rule?.range ? { ...rule.range } : null,
     updatedAt: parameter.updatedAt.toISOString(),
   };
@@ -53,7 +63,10 @@ function toResponse(parameter: SystemParameterRecord): ParameterResponseDto {
 @ApiBearerAuth()
 @Controller('parameters')
 export class ParametersController {
-  constructor(private readonly parametersService: ParametersService) {}
+  constructor(
+    private readonly parametersService: ParametersService,
+    private readonly config: AppConfigService,
+  ) {}
 
   @Get()
   @RequirePermission('parametros.ver')
@@ -71,6 +84,22 @@ export class ParametersController {
     };
   }
 
+  @Get('authentication')
+  @RequirePermission('parametros.ver')
+  @ApiOperation({
+    summary: 'Configuración de autenticación (solo lectura)',
+    description:
+      'Proveedor vigente desde la variable de despliegue `AUTH_PROVIDER` (D-07.8, RN-07.34): no es un parámetro y no se edita por la API. ' +
+      'Nunca expone secretos, ids de tenant ni configuración de JWT. `securityParameterKeys` lista los parámetros de login local.',
+  })
+  @ApiOkResponse({ type: AuthenticationSettingsResponseDto })
+  @ApiUnauthorizedResponse({ type: ErrorResponseDto })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'Falta el permiso parametros.ver' })
+  authentication(): AuthenticationSettingsResponseDto {
+    const settings = authenticationSettings(this.config.get('AUTH_PROVIDER'));
+    return { provider: settings.provider, localLoginEnabled: settings.localLoginEnabled, securityParameterKeys: [...settings.securityParameterKeys] };
+  }
+
   @Patch(':key')
   @RequirePermission('parametros.editar')
   @ApiOperation({
@@ -80,7 +109,7 @@ export class ParametersController {
       'Rangos de las claves conocidas: seguridad.intentos_fallidos_maximos 1–20; seguridad.minutos_bloqueo 1–1440;',
       'seguridad.dias_caducidad_password 0–365; auditoria.dias_retencion 30–3650; ui.paginacion_default 1–100.',
       'Las claves `crm.*` y `sistema.*` se validan además con el registro de reglas (D-07.7): rangos, listas de valores, esquema JSON y códigos de catálogo que deben existir y estar activos (los rangos se publican en `range` de `GET /parameters`).',
-      'Los parámetros del grupo `seguridad` y los estructurales (`requiresConfigure`) exigen además `parametros.configurar`. Los de solo lectura (`readOnly`, p. ej. `crm.moneda_base`) responden 409 SYSTEM_RESOURCE_READ_ONLY.',
+      'Los parámetros del grupo `seguridad` y los estructurales (`requiresConfigure`, incluido `auditoria.dias_retencion`) exigen además `parametros.configurar`. Los de solo lectura (`readOnly`, p. ej. `crm.moneda_base`) responden 409 SYSTEM_RESOURCE_READ_ONLY.',
       'Deja el evento `parameter.updated` en auditoría.',
     ].join(' '),
   })

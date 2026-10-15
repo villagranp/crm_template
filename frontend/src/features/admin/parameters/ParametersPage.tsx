@@ -1,3 +1,4 @@
+import CurrencyExchangeOutlinedIcon from '@mui/icons-material/CurrencyExchangeOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
@@ -13,7 +14,8 @@ import {
   Typography,
 } from '@mui/material';
 import { useQueryClient } from '@tanstack/react-query';
-import { Fragment, useState } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 
 import { PageHeader } from '@/components/layout/PageHeader';
 import {
@@ -26,8 +28,12 @@ import {
   subtleSurface,
 } from '@/features/admin/common';
 import { useCan } from '@/hooks/use-permission';
+import { ROUTE_PATHS } from '@/routes/route-paths';
 
+import { AuthenticationSettingsCard } from './components/AuthenticationSettingsCard';
 import { ParameterEditDialog } from './components/ParameterEditDialog';
+import { parseDashboardComposition } from './components/editors/editor-metadata';
+import { toSections, type ParameterSection } from './parameter-sections';
 import type { SystemParameter } from './parameters.api';
 import { PARAMETER_PERMISSIONS } from './parameters.permissions';
 import { parameterKeys, useParameters } from './parameters.queries';
@@ -36,20 +42,20 @@ const TITLE = 'Parámetros';
 const DESCRIPTION = 'Valores de configuración que lee la aplicación.';
 const SKELETON_ROWS = 4;
 
-const GROUP_LABELS: Readonly<Record<string, string>> = {
-  general: 'General',
-  seguridad: 'Seguridad',
-  auditoria: 'Auditoría',
-  interfaz: 'Interfaz',
-};
-
-function groupLabel(group: string): string {
-  return GROUP_LABELS[group] ?? group.charAt(0).toUpperCase() + group.slice(1);
-}
+const ACCESS_SECTION_ID = 'acceso';
+const FORECAST_SECTION_ID = 'crm-forecast';
+const CONFIGURE_NOTE = 'Requiere el permiso de configuración (parametros.configurar).';
 
 function displayValue(parameter: SystemParameter): string {
   if (parameter.type === 'BOOLEAN') {
     return parameter.value === 'true' ? 'Sí' : 'No';
+  }
+  if (parameter.editor === 'dashboard-cards') {
+    const composition = parseDashboardComposition(parameter.value);
+    if (composition) {
+      const hidden = [...composition.blocks, ...composition.kpis].filter((entry) => !entry.visible).length;
+      return `${composition.blocks.length} bloques y ${composition.kpis.length} indicadores (${hidden} ocultos)`;
+    }
   }
   return parameter.value;
 }
@@ -85,13 +91,19 @@ function ParameterRow({
         <Typography
           variant="caption"
           color="text.secondary"
-          sx={{ fontFamily: 'monospace', overflowWrap: 'anywhere' }}
+          sx={{ display: 'block', fontFamily: 'monospace', overflowWrap: 'anywhere' }}
         >
           {parameter.key}
         </Typography>
+        {lockedByConfigure ? (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            {CONFIGURE_NOTE}
+          </Typography>
+        ) : null}
       </Box>
       <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
         {parameter.isPublic ? <Chip size="small" label="Público" /> : null}
+        {parameter.readOnly ? <Chip size="small" variant="outlined" label="Sólo lectura" /> : null}
         <Typography
           variant="body2"
           sx={{
@@ -114,7 +126,7 @@ function ParameterRow({
           </IconButton>
         ) : null}
         {lockedByConfigure ? (
-          <Tooltip title="Requiere el permiso de configuración de seguridad">
+          <Tooltip title={CONFIGURE_NOTE}>
             <LockOutlinedIcon
               aria-label="Sólo lectura: requiere permiso de configuración"
               color="disabled"
@@ -123,6 +135,100 @@ function ParameterRow({
         ) : null}
       </Stack>
     </Stack>
+  );
+}
+
+/** La sección Acceso siempre está: lleva el proveedor de autenticación aunque no haya parámetros `seguridad.*`. */
+function withAccessSection(sections: ParameterSection[]): ParameterSection[] {
+  if (sections.length === 0 || sections.some((section) => section.id === ACCESS_SECTION_ID)) {
+    return sections;
+  }
+  return [{ id: ACCESS_SECTION_ID, label: 'Acceso', parameters: [] }, ...sections];
+}
+
+function isLockedByConfigure(parameter: SystemParameter, canEditAny: boolean, canConfigure: boolean): boolean {
+  const requiresConfigure = parameter.requiresConfigure ?? parameter.requiresConfigurePermission;
+  return canEditAny && !parameter.readOnly && requiresConfigure && !canConfigure;
+}
+
+function ParameterRows({
+  parameters,
+  canEditAny,
+  canConfigure,
+  onEdit,
+}: {
+  parameters: SystemParameter[];
+  canEditAny: boolean;
+  canConfigure: boolean;
+  onEdit: (parameter: SystemParameter) => void;
+}) {
+  if (parameters.length === 0) {
+    return null;
+  }
+  return (
+    <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0, borderTop: 1, borderColor: 'divider' }}>
+      {parameters.map((parameter, index) => {
+        const lockedByConfigure = isLockedByConfigure(parameter, canEditAny, canConfigure);
+        return (
+          <Fragment key={parameter.key}>
+            {index > 0 ? <Divider component="li" aria-hidden /> : null}
+            <ParameterRow
+              parameter={parameter}
+              canEdit={canEditAny && !parameter.readOnly && !lockedByConfigure}
+              lockedByConfigure={lockedByConfigure}
+              onEdit={() => onEdit(parameter)}
+            />
+          </Fragment>
+        );
+      })}
+    </Box>
+  );
+}
+
+function SectionBlock({
+  section,
+  action,
+  children,
+}: {
+  section: ParameterSection;
+  action: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <Box
+      component="section"
+      aria-label={section.label}
+      sx={{ '&:not(:last-of-type)': { borderBottom: 1, borderColor: 'divider' } }}
+    >
+      <Stack
+        direction="row"
+        alignItems="center"
+        justifyContent="space-between"
+        spacing={1}
+        sx={(theme) => ({
+          bgcolor: subtleSurface(theme),
+          px: { xs: 2, md: 2.5 },
+          py: action ? 0.5 : 1,
+          borderBottom: 1,
+          borderColor: 'divider',
+        })}
+      >
+        <Typography
+          component="h3"
+          aria-hidden
+          sx={(theme) => ({
+            ...theme.typography.overline,
+            fontFamily: theme.typography.fontFamily,
+            fontWeight: 700,
+            color: theme.palette.text.secondary,
+          })}
+        >
+          {section.label}
+        </Typography>
+        {action}
+      </Stack>
+      {children}
+    </Box>
   );
 }
 
@@ -135,6 +241,7 @@ export function ParametersPage() {
 
   const canEditAny = can(PARAMETER_PERMISSIONS.edit);
   const canConfigure = can(PARAMETER_PERMISSIONS.configure);
+  const sections = withAccessSection(parameters.data ? toSections(parameters.data) : []);
 
   let content;
   if (parameters.isPending) {
@@ -158,7 +265,7 @@ export function ParametersPage() {
         }
       />
     );
-  } else if (parameters.data.length === 0) {
+  } else if (sections.length === 0) {
     content = (
       <EmptyState
         icon={<TuneOutlinedIcon />}
@@ -167,52 +274,39 @@ export function ParametersPage() {
       />
     );
   } else {
-    content = parameters.data.map((group) => (
-      <Box
-        key={group.group}
-        component="section"
-        aria-label={groupLabel(group.group)}
-        sx={{ '&:not(:last-of-type)': { borderBottom: 1, borderColor: 'divider' } }}
-      >
-        <Typography
-          component="h3"
-          aria-hidden
-          sx={(theme) => ({
-            ...theme.typography.overline,
-            fontFamily: theme.typography.fontFamily,
-            fontWeight: 700,
-            color: theme.palette.text.secondary,
-            bgcolor: subtleSurface(theme),
-            px: { xs: 2, md: 2.5 },
-            py: 1,
-            borderBottom: 1,
-            borderColor: 'divider',
-          })}
+    content = sections.map((section) => {
+      const rows = (
+        <ParameterRows
+          parameters={section.parameters}
+          canEditAny={canEditAny}
+          canConfigure={canConfigure}
+          onEdit={setEditing}
+        />
+      );
+      return (
+        <SectionBlock
+          key={section.id}
+          section={section}
+          action={
+            section.id === FORECAST_SECTION_ID ? (
+              <Button
+                component={RouterLink}
+                to={ROUTE_PATHS.admin.exchangeRates}
+                size="small"
+                startIcon={<CurrencyExchangeOutlinedIcon />}
+              >
+                Tipos de cambio
+              </Button>
+            ) : null
+          }
         >
-          {groupLabel(group.group)}
-        </Typography>
-        <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0 }}>
-          {group.parameters.map((parameter, index) => {
-            const lockedByConfigure =
-              canEditAny && parameter.requiresConfigurePermission && !canConfigure;
-            return (
-              <Fragment key={parameter.key}>
-                {index > 0 ? <Divider component="li" aria-hidden /> : null}
-                <ParameterRow
-                  parameter={parameter}
-                  canEdit={canEditAny && !lockedByConfigure}
-                  lockedByConfigure={lockedByConfigure}
-                  onEdit={() => setEditing(parameter)}
-                />
-              </Fragment>
-            );
-          })}
-        </Box>
-      </Box>
-    ));
+          {section.id === ACCESS_SECTION_ID ? <AuthenticationSettingsCard>{rows}</AuthenticationSettingsCard> : rows}
+        </SectionBlock>
+      );
+    });
   }
 
-  const total = parameters.data?.reduce((sum, group) => sum + group.parameters.length, 0);
+  const total = parameters.data ? sections.reduce((sum, section) => sum + section.parameters.length, 0) : undefined;
 
   return (
     <>

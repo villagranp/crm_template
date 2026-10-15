@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Alert, FormControlLabel, MenuItem, Switch, TextField } from '@mui/material';
+import { Alert, FormControlLabel, ListItemText, MenuItem, Switch, TextField } from '@mui/material';
 import { useEffect } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 
@@ -12,8 +12,8 @@ import {
 } from '@/features/admin/common';
 import { useIsAdministrador } from '@/hooks/use-permission';
 
-import { DATA_SCOPE_LABEL, ROLE_ERRORS } from '../roles-format';
-import { DATA_SCOPES, type Role } from '../roles.api';
+import { DATA_SCOPE_DESCRIPTION, DATA_SCOPE_LABEL, ROLE_ERRORS } from '../roles-format';
+import { DATA_SCOPES, type DataScope, type Role } from '../roles.api';
 import { useCreateRole, useDuplicateRole, useUpdateRole } from '../roles.queries';
 import { roleFormSchema, type RoleFormValues } from '../roles.schemas';
 
@@ -197,12 +197,16 @@ export function RoleFormDialog({ mode, onClose, onSaved }: RoleFormDialogProps) 
                 helperText={
                   kind === 'edit' && !canChangeGrants
                     ? 'Sólo un administrador puede cambiar el alcance (ADR-020).'
-                    : 'Hasta dónde ven los datos las personas con este rol.'
+                    : `${DATA_SCOPE_DESCRIPTION[field.value]} Si una persona tiene varios roles, rige el alcance más amplio.`
                 }
+                slotProps={{ select: { renderValue: (value) => DATA_SCOPE_LABEL[value as DataScope] } }}
               >
                 {DATA_SCOPES.map((scope) => (
                   <MenuItem key={scope} value={scope}>
-                    {DATA_SCOPE_LABEL[scope]}
+                    <ListItemText
+                      primary={DATA_SCOPE_LABEL[scope]}
+                      secondary={DATA_SCOPE_DESCRIPTION[scope]}
+                    />
                   </MenuItem>
                 ))}
               </TextField>

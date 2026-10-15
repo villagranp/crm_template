@@ -281,4 +281,58 @@ describe('RolesPage', () => {
       expect(await within(dialog).findByText('Sólo un administrador puede asignar o modificar accesos.')).toBeInTheDocument();
     });
   });
+  describe('07 E.2: matriz del CRM y ámbitos', () => {
+    const CRM_PERMISSIONS: Permission[] = [
+      { id: 'c-1', code: 'proyectos.ver', resource: 'proyectos', action: 'ver', name: 'Ver proyectos', moduleKey: 'proyectos' },
+      { id: 'c-2', code: 'oportunidades.ver', resource: 'oportunidades', action: 'ver', name: 'Ver oportunidades', moduleKey: 'proyectos' },
+      { id: 'c-3', code: 'oportunidades.cerrar', resource: 'oportunidades', action: 'cerrar', name: 'Cerrar oportunidades', moduleKey: 'proyectos' },
+      { id: 'c-4', code: 'oportunidades.administrar', resource: 'oportunidades', action: 'administrar', name: 'Administrar oportunidades', moduleKey: 'proyectos' },
+      ...PERMISSIONS,
+    ];
+
+    it('PF-07.7: agrupa por módulo con su nombre, añade Cerrar y Administrar y deja vacías las celdas sin permiso', async () => {
+      const user = userEvent.setup();
+      signInWith(ALL_PERMISSIONS);
+      const own = role({ permissionCodes: ['oportunidades.cerrar'] });
+      mockApi({
+        'GET /roles': () => jsonResponse(page([own])),
+        'GET /roles/r-1': () => jsonResponse(own),
+        'GET /permissions': () => jsonResponse(CRM_PERMISSIONS),
+      });
+
+      renderWithProviders(<RolesPage />);
+      await user.click(await screen.findByRole('button', { name: 'Ver Supervisor' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Supervisor' });
+      await user.click(within(dialog).getByRole('tab', { name: 'Permisos' }));
+
+      const projects = await within(dialog).findByRole('table', { name: 'Permisos del módulo Proyectos' });
+      expect(within(dialog).getByRole('table', { name: 'Permisos del módulo Administración' })).toBeInTheDocument();
+      const headers = within(projects).getAllByRole('columnheader').map((cell) => cell.textContent);
+      expect(headers).toEqual(['Recurso', 'Ver', 'Cerrar', 'Administrar']);
+      expect(within(projects).getByRole('checkbox', { name: 'oportunidades.cerrar' })).toBeChecked();
+      // `proyectos.cerrar` y `proyectos.administrar` no existen: sin casilla.
+      const projectRow = within(projects).getByRole('row', { name: /^proyectos/ });
+      expect(within(projectRow).getAllByRole('checkbox')).toHaveLength(1);
+
+      await user.hover(within(projects).getByText('Administrar'));
+      expect(await screen.findByRole('tooltip')).toHaveTextContent(/registros de otras personas/);
+    });
+
+    it('el selector de ámbito ofrece «Su país» con su descripción', async () => {
+      const user = userEvent.setup();
+      signInWith(ALL_PERMISSIONS);
+      mockApi({ 'GET /roles': () => jsonResponse(page([])) });
+
+      renderWithProviders(<RolesPage />);
+      await user.click(await screen.findByRole('button', { name: 'Nuevo rol' }));
+      const dialog = await screen.findByRole('dialog', { name: /nuevo rol/i });
+      expect(within(dialog).getByText(/Sólo los registros de los que es responsable/)).toBeInTheDocument();
+      await user.click(within(dialog).getByRole('combobox', { name: /alcance de datos/i }));
+      const option = await screen.findByRole('option', { name: /Su país/ });
+      expect(option).toHaveTextContent('Los del país asignado al usuario.');
+      await user.click(option);
+      expect(within(dialog).getByRole('combobox', { name: /alcance de datos/i })).toHaveTextContent('Su país');
+      expect(within(dialog).getByText(/Los del país asignado al usuario/)).toBeInTheDocument();
+    });
+  });
 });

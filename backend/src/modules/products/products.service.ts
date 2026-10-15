@@ -8,8 +8,8 @@ import { type ResolvedConversion, UnitConversionResolver } from '@/modules/unit-
 import {
   PRODUCT_CATALOG_READER,
   type ProductCatalogReader,
-  type ProductFamilyRecord,
   type ProductRecord,
+  type ProductSortField,
   type UnitOfMeasureRecord,
 } from './ports/product-catalog.reader.port';
 
@@ -20,6 +20,9 @@ export interface SearchProductsRequest {
   readonly familyId?: string;
   /** Por defecto `true` (03 F.4); `null` = todos. */
   readonly isActive?: boolean | null;
+  /** Lista blanca `ProductSortField`; sin él, por `sku` ascendente (03 F.4). */
+  readonly sortBy?: ProductSortField;
+  readonly sortOrder?: 'asc' | 'desc';
 }
 
 export interface ResolveConversionRequest {
@@ -52,11 +55,9 @@ export class ProductsService {
       search: normalizeName(request.search),
       familyId: request.familyId ?? null,
       isActive: request.isActive === undefined ? true : request.isActive,
+      sortBy: request.sortBy,
+      sortOrder: request.sortOrder,
     });
-  }
-
-  listFamilies(): Promise<ProductFamilyRecord[]> {
-    return this.catalog.listFamilies();
   }
 
   listUnits(): Promise<UnitOfMeasureRecord[]> {

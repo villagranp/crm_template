@@ -28,7 +28,12 @@ function item(id: string, sortOrder: number): CatalogItem {
   return { id, catalogId: 'cat-1', code: id.toUpperCase(), label: `Elemento ${id}`, metadata: null, sortOrder, isActive: true, ...DATES };
 }
 
-const DETAIL: CatalogDetail = { ...OWN, items: [item('a', 10), item('b', 20)] };
+const DETAIL: CatalogDetail = {
+  ...OWN,
+  metadataSchema: null,
+  closedSet: false,
+  items: [item('a', 10), item('b', 20)],
+};
 
 function page(data: Catalog[]) {
   return { data, pagination: { page: 1, pageSize: 20, totalItems: data.length, totalPages: 1 } };
@@ -200,5 +205,218 @@ describe('CatalogsPage', () => {
     await user.click(await within(dialog).findByRole('checkbox', { name: 'Desactivar Elemento a' }));
     await waitFor(() => expect(callsTo(fetchMock, 'PATCH', '/catalogs/cat-1/items/a')).toHaveLength(2));
     expect(JSON.parse(String(callsTo(fetchMock, 'PATCH', '/catalogs/cat-1/items/a')[1]?.body))).toEqual({ isActive: false });
+  });
+  describe('07 E.3: catálogos del CRM', () => {
+    const CRM: Catalog = {
+      ...OWN,
+      id: 'cat-crm',
+      key: 'crm.etapa_oportunidad',
+      name: 'Etapas de oportunidad',
+      isSystem: true,
+    };
+    const STAGE: CatalogItem = {
+      ...item('st-1', 10),
+      catalogId: 'cat-crm',
+      code: 'PROSPECCION',
+      label: 'Prospección',
+      metadata: { order: 10, isClosed: false, outcome: null, inFunnel: true },
+    };
+    const INACTIVE_STAGE: CatalogItem = {
+      ...item('st-2', 20),
+      catalogId: 'cat-crm',
+      code: 'ANTIGUA',
+      label: 'Etapa antigua',
+      isActive: false,
+      metadata: { order: 20, isClosed: false, outcome: null, inFunnel: false },
+    };
+    const CRM_DETAIL: CatalogDetail = {
+      ...CRM,
+      closedSet: false,
+      metadataSchema: [
+        { key: 'order', type: 'number', required: true, integer: true, min: 0, max: 1000 },
+        { key: 'isClosed', type: 'boolean', required: true },
+        { key: 'outcome', type: 'enum', required: false, nullable: true, values: ['WON', 'LOST'] },
+        { key: 'inFunnel', type: 'boolean', required: true },
+      ],
+      items: [STAGE, INACTIVE_STAGE],
+    };
+    const RESULT: Catalog = {
+      ...OWN,
+      id: 'cat-res',
+      key: 'crm.resultado_oportunidad',
+      name: 'Resultados de oportunidad',
+      isSystem: true,
+    };
+    const RESULT_DETAIL: CatalogDetail = {
+      ...RESULT,
+      closedSet: true,
+      metadataSchema: [
+        { key: 'requiresReason', type: 'boolean', required: true },
+        { key: 'requiresAwardedPercent', type: 'boolean', required: true },
+        { key: 'stageOutcome', type: 'enum', required: true, values: ['WON', 'LOST'] },
+      ],
+      items: [
+        {
+          ...item('res-1', 10),
+          catalogId: 'cat-res',
+          code: 'WON',
+          label: 'Ganada',
+          metadata: { requiresReason: false, requiresAwardedPercent: false, stageOutcome: 'WON' },
+        },
+      ],
+    };
+
+    it('el filtro rápido «Catálogos del CRM» busca por el prefijo crm.', async () => {
+      signInWith(ALL_PERMISSIONS);
+      const fetchMock = mockApi({ 'GET /catalogs': () => jsonResponse(page([CRM])) });
+      const user = userEvent.setup();
+      renderWithProviders(<CatalogsPage />);
+
+      const scope = await screen.findByRole('group', { name: 'Filtrar por ámbito' });
+      await user.click(within(scope).getByRole('button', { name: 'Catálogos del CRM' }));
+
+      await waitFor(() => {
+        const searches = fetchMock.mock.calls
+          .map(([input]) => new URL(String(input), 'http://localhost'))
+          .filter((url) => url.pathname.endsWith('/catalogs') && url.searchParams.get('pageSize') !== '1')
+          .map((url) => url.searchParams.get('search'));
+        expect(searches.at(-1)).toBe('crm.');
+      });
+      expect(within(scope).getByRole('button', { name: 'Catálogos del CRM' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('PF-07.11: con metadataSchema el alta pinta un formulario y envía el metadata tipado', async () => {
+      signInWith(ALL_PERMISSIONS);
+      const fetchMock = mockApi({
+        'GET /catalogs': () => jsonResponse(page([CRM])),
+        'GET /catalogs/cat-crm': () => jsonResponse(CRM_DETAIL),
+        'POST /catalogs/cat-crm/items': () => jsonResponse(STAGE, 201),
+      });
+      const user = userEvent.setup();
+      renderWithProviders(<CatalogsPage />);
+
+      await user.click(await screen.findByRole('button', { name: 'Elementos de Etapas de oportunidad' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Catálogo Etapas de oportunidad' });
+      await within(dialog).findByText('Prospección');
+      // El metadata se lee con etiquetas, no como JSON.
+      expect(within(dialog).getByText(/Orden en el flujo: 10 · Etapa cerrada: no/)).toBeInTheDocument();
+      expect(within(dialog).queryByLabelText('Nuevo elemento: datos extra')).not.toBeInTheDocument();
+
+      await user.click(within(dialog).getByLabelText('Nuevo elemento: código'));
+      await user.paste('GANADA');
+      await user.click(within(dialog).getByLabelText('Nuevo elemento: etiqueta'));
+      await user.paste('Ganada');
+      // Sin el orden (obligatorio) no se envía.
+      await user.click(within(dialog).getByRole('button', { name: 'Añadir' }));
+      expect(await within(dialog).findByText('Obligatorio.')).toBeInTheDocument();
+      expect(callsTo(fetchMock, 'POST', '/catalogs/cat-crm/items')).toHaveLength(0);
+
+      await user.click(within(dialog).getByLabelText('Nuevo elemento: Orden en el flujo'));
+      await user.paste('90');
+      await user.click(within(dialog).getByLabelText('Nuevo elemento: Etapa cerrada'));
+      await user.click(within(dialog).getByRole('combobox', { name: /resultado de la etapa/i }));
+      await user.click(await screen.findByRole('option', { name: 'Ganada' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Añadir' }));
+
+      await waitFor(() => expect(callsTo(fetchMock, 'POST', '/catalogs/cat-crm/items')).toHaveLength(1));
+      expect(JSON.parse(String(callsTo(fetchMock, 'POST', '/catalogs/cat-crm/items')[0]?.body))).toEqual({
+        code: 'GANADA',
+        label: 'Ganada',
+        metadata: { order: 90, isClosed: true, outcome: 'WON', inFunnel: false },
+      });
+    });
+
+    it('muestra el campo de un 422 INVALID_CATALOG_METADATA y los parámetros de referenced_by_parameter', async () => {
+      signInWith(ALL_PERMISSIONS);
+      mockApi({
+        'GET /catalogs': () => jsonResponse(page([CRM])),
+        'GET /catalogs/cat-crm': () => jsonResponse(CRM_DETAIL),
+        'POST /catalogs/cat-crm/items': () =>
+          errorResponse(422, 'INVALID_CATALOG_METADATA', [{ field: 'metadata.outcome', issue: 'Valor no admitido' }]),
+        'PATCH /catalogs/cat-crm/items/st-1': () =>
+          errorResponse(409, 'CATALOG_INVARIANT', [
+            { reason: 'referenced_by_parameter', code: 'PROSPECCION', keys: ['crm.valores_por_defecto'] },
+          ]),
+      });
+      const user = userEvent.setup();
+      renderWithProviders(<CatalogsPage />);
+
+      await user.click(await screen.findByRole('button', { name: 'Elementos de Etapas de oportunidad' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Catálogo Etapas de oportunidad' });
+      await within(dialog).findByText('Prospección');
+      await user.click(within(dialog).getByLabelText('Nuevo elemento: código'));
+      await user.paste('X');
+      await user.click(within(dialog).getByLabelText('Nuevo elemento: etiqueta'));
+      await user.paste('X');
+      await user.click(within(dialog).getByLabelText('Nuevo elemento: Orden en el flujo'));
+      await user.paste('5');
+      await user.click(within(dialog).getByRole('button', { name: 'Añadir' }));
+
+      expect(await within(dialog).findByText('Resultado de la etapa: Valor no admitido')).toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole('checkbox', { name: 'Desactivar Prospección' }));
+      expect(await within(dialog).findByText(/Un parámetro del CRM usa este valor/)).toBeInTheDocument();
+      expect(within(dialog).getByText('Parámetros: crm.valores_por_defecto')).toBeInTheDocument();
+    });
+
+    it('filtra los elementos activos y oculta subir/bajar mientras filtra', async () => {
+      signInWith(ALL_PERMISSIONS);
+      mockApi({
+        'GET /catalogs': () => jsonResponse(page([CRM])),
+        'GET /catalogs/cat-crm': () => jsonResponse(CRM_DETAIL),
+      });
+      const user = userEvent.setup();
+      renderWithProviders(<CatalogsPage />);
+
+      await user.click(await screen.findByRole('button', { name: 'Elementos de Etapas de oportunidad' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Catálogo Etapas de oportunidad' });
+      expect(await within(dialog).findByText('Etapa antigua')).toBeInTheDocument();
+      const table = within(dialog).getByRole('table', { name: 'Elementos' });
+      expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+        'Código',
+        'Etiqueta',
+        'Orden',
+        'Estado',
+        'Acciones',
+      ]);
+
+      await user.click(within(dialog).getByRole('button', { name: 'Sólo activos' }));
+
+      expect(within(dialog).queryByText('Etapa antigua')).not.toBeInTheDocument();
+      expect(within(dialog).getByText('Prospección')).toBeInTheDocument();
+      expect(within(dialog).queryByRole('button', { name: 'Bajar Prospección' })).not.toBeInTheDocument();
+    });
+
+    it('un conjunto cerrado se indica, no permite añadir ni desactivar y al editar sólo envía la etiqueta', async () => {
+      signInWith(ALL_PERMISSIONS);
+      const fetchMock = mockApi({
+        'GET /catalogs': () => jsonResponse(page([RESULT])),
+        'GET /catalogs/cat-res': () => jsonResponse(RESULT_DETAIL),
+        'PATCH /catalogs/cat-res/items/res-1': () => jsonResponse(RESULT_DETAIL.items[0]),
+      });
+      const user = userEvent.setup();
+      renderWithProviders(<CatalogsPage />);
+
+      await user.click(await screen.findByRole('button', { name: 'Elementos de Resultados de oportunidad' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Catálogo Resultados de oportunidad' });
+      expect(await within(dialog).findByText('Conjunto cerrado')).toBeInTheDocument();
+      expect(within(dialog).queryByRole('form', { name: 'Añadir elemento' })).not.toBeInTheDocument();
+      expect(within(dialog).queryByRole('checkbox', { name: 'Desactivar Ganada' })).not.toBeInTheDocument();
+      expect(within(dialog).getByText('Activo')).toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole('button', { name: 'Editar Ganada' }));
+      const form = within(dialog).getByRole('form', { name: 'Editar elemento WON' });
+      expect(within(form).getByLabelText('Elemento WON: Exige motivo')).toBeDisabled();
+      const label = within(form).getByLabelText('Elemento WON: etiqueta');
+      await user.clear(label);
+      await user.click(label);
+      await user.paste('Ganada total');
+      await user.click(within(form).getByRole('button', { name: 'Guardar' }));
+
+      await waitFor(() => expect(callsTo(fetchMock, 'PATCH', '/catalogs/cat-res/items/res-1')).toHaveLength(1));
+      expect(JSON.parse(String(callsTo(fetchMock, 'PATCH', '/catalogs/cat-res/items/res-1')[0]?.body))).toEqual({
+        label: 'Ganada total',
+      });
+    });
   });
 });

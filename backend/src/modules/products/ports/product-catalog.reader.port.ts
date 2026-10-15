@@ -14,14 +14,6 @@ export interface UnitOfMeasureRecord {
   readonly isActive: boolean;
 }
 
-export interface ProductFamilyRecord {
-  readonly id: string;
-  readonly code: string;
-  readonly name: string;
-  readonly description: string | null;
-  readonly isActive: boolean;
-}
-
 /** Maestro de producto (00 §2.3): nunca guarda cantidades (ALCANCE §5.10). */
 export interface ProductRecord {
   readonly id: string;
@@ -32,12 +24,17 @@ export interface ProductRecord {
   readonly isActive: boolean;
 }
 
+/** Campos ordenables de `GET /products` (07 F.7; `description` no, 03 F.4). */
+export type ProductSortField = 'sku' | 'createdAt' | 'updatedAt';
+
 export interface ProductSearch extends PageRequest {
   /** Contenido en el SKU o en la descripción (sin distinguir mayúsculas ni acentos). */
   readonly search: string | null;
   readonly familyId: string | null;
   /** `null` = activos e inactivos. */
   readonly isActive: boolean | null;
+  /** Sin él, por `sku` ascendente. */
+  readonly sortBy?: ProductSortField;
 }
 
 /**
@@ -46,8 +43,6 @@ export interface ProductSearch extends PageRequest {
  */
 export interface ProductCatalogReader {
   searchProducts(search: ProductSearch): Promise<Page<ProductRecord>>;
-  /** Familias activas, por `sortOrder` y nombre. */
-  listFamilies(): Promise<ProductFamilyRecord[]>;
   /** Unidades activas, por `sortOrder` y código. */
   listUnits(): Promise<UnitOfMeasureRecord[]>;
   findProduct(productId: string, tx?: TransactionContext): Promise<ProductRecord | null>;

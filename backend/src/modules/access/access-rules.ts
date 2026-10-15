@@ -4,6 +4,15 @@ import type { AuditContext } from '@/modules/audit/audit.service';
  * Reglas puras del módulo de acceso, verificables sin base de datos.
  */
 
+/**
+ * RN-07.1: forma canónica del código de colaborador (recortado y en
+ * mayúsculas). Es como se guarda, así que toda búsqueda por código la aplica
+ * antes de comparar (alta, edición e importaciones).
+ */
+export function canonicalEmployeeCode(value: string): string {
+  return value.trim().toUpperCase();
+}
+
 /** Rol cuyo último titular activo no puede perderse (PLAN-ADMIN D3). */
 export const ADMIN_ROLE_CODE = 'administrador';
 

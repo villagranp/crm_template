@@ -25,6 +25,7 @@ import { ParametersModule } from './modules/parameters/parameters.module';
 import { ProductsModule } from './modules/products/products.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { SafetyMinutesModule } from './modules/safety-minutes/safety-minutes.module';
 import { TeamsModule } from './modules/teams/teams.module';
 import { UnitConversionsModule } from './modules/unit-conversions/unit-conversions.module';
 import { HealthModule } from './modules/health/health.module';
@@ -83,6 +84,8 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     ReportsModule,
     // CRM · Módulo 6: carga masiva de clientes (06, F-42).
     CustomerImportsModule,
+    // Ajustes 1 (AJ1-2): minuto de seguridad (mantenimiento y lectura del día).
+    SafetyMinutesModule,
     HealthModule,
   ],
   providers: [

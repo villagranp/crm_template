@@ -962,6 +962,25 @@ model ExchangeRate {
   @@map("exchange_rates")
 }
 
+/// Minuto de seguridad: un mensaje institucional por fecha de visualización (Ajustes 1, AJ1-2).
+/// Texto plano de 1 a 1000 caracteres; un mensaje como máximo por fecha. Sin datos personales
+/// (clasificación: interno). `created_by_id`/`updated_by_id` sin FK, como `exchange_rates`.
+/// CHECK: ck_safety_minutes_message_not_blank (btrim(message) <> '').
+model SafetyMinute {
+  id          String   @id @default(uuid()) @db.Uuid
+  message     String   @db.VarChar(1000)
+  /// Fecha de calendario (sin hora) en que se muestra, en la zona `crm.zona_horaria_negocio`.
+  displayDate DateTime @map("display_date") @db.Date
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdById String?  @map("created_by_id") @db.Uuid
+  updatedById String?  @map("updated_by_id") @db.Uuid
+
+  /// Un solo mensaje por fecha; sirve también al filtro por rango.
+  @@unique([displayDate], map: "uq_safety_minutes_display_date")
+  @@map("safety_minutes")
+}
+
 /// País. Tabla dedicada (no catálogo): la referencian usuarios, clientes, proyectos
 /// y metas, y tiene columnas propias. Nunca se borra (FK Restrict); se desactiva.
 model Country {

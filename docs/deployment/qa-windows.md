@@ -68,6 +68,14 @@ REVOKE CONNECT ON DATABASE mi_cliente_ag FROM PUBLIC;
 La aplicación usa siempre `mi_cliente_ag_qa`, nunca `postgres`
 ([environments.md](environments.md)). Las migraciones no crean extensiones: ese usuario basta.
 
+> **Riesgo aceptado y temporal de QA (decisión del responsable 2026-10-14, D3).**
+> `mi_cliente_ag_qa` es a la vez dueño de la base, rol de migraciones y aplicación, así que es
+> propietario de `audit_logs` y **podría desactivar sus disparadores de inmutabilidad**
+> ([ADR-025](../adr/ADR-025-inmutabilidad-de-la-auditoria-con-disparadores.md)). En QA se acepta
+> sin cambiar los scripts: no hay datos productivos y desactivar un disparador queda en los logs
+> de PostgreSQL. **Producción no hereda esta configuración**: separa migraciones, aplicación y
+> purga como indica [environments.md](environments.md) ("Bitácora de auditoría").
+
 ## 3. Código
 
 ```powershell
@@ -119,7 +127,8 @@ base **vacía** del paso 2:
 & 'C:\Program Files\PostgreSQL\18\bin\pg_restore.exe' -h localhost -U mi_cliente_ag_qa -d mi_cliente_ag --no-owner --no-privileges C:\data\mi-cliente-ag\backups\mi_cliente_ag_local.dump
 ```
 
-`--no-owner --no-privileges` deja todo a nombre de `mi_cliente_ag_qa`. Un aviso sobre el
+`--no-owner --no-privileges` deja todo a nombre de `mi_cliente_ag_qa`, también `audit_logs`
+(riesgo aceptado de QA D3, ver el aviso del paso 2). Un aviso sobre el
 esquema `public` (p. ej. su comentario) es inocuo; cualquier otro error, se revisa antes de
 seguir. La tabla `_prisma_migrations` viaja con los datos: en el paso 6, `migrate deploy` solo
 aplicará lo que falte. Si tu base local tuviera adjuntos (`backend\storage\attachments`), copia

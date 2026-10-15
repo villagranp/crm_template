@@ -1,15 +1,12 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
-import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
 import MailOutlineIcon from '@mui/icons-material/MailOutline';
-import VerifiedUserOutlinedIcon from '@mui/icons-material/VerifiedUserOutlined';
 import { Alert, Box, InputAdornment, Stack, TextField, Typography } from '@mui/material';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Navigate, useLocation } from 'react-router-dom';
 
 import { env } from '@/config/env';
-import { AuthLayout, type AuthFeature } from '@/features/auth/AuthLayout';
+import { AuthLayout } from '@/features/auth/AuthLayout';
 import { AuthSubmitButton } from '@/features/auth/AuthSubmitButton';
 import { getLoginErrorMessage } from '@/features/auth/auth-error-messages';
 import { PasswordField } from '@/features/auth/PasswordField';
@@ -18,17 +15,6 @@ import { ROUTE_PATHS } from '@/routes/route-paths';
 import { loginSchema, type LoginFormValues } from '@/schemas/auth.schema';
 import { brandIdentity } from '@/theme/tokens';
 
-const PANEL_DESCRIPTION =
-  'Un solo acceso para trabajar con los módulos que tu rol tiene asignados. Tu menú y tus permisos se resuelven en el servidor.';
-/** Sólo capacidades que existen hoy en la aplicación (decisión del responsable, 2026-10-09). */
-const PANEL_FEATURES: AuthFeature[] = [
-  { icon: <VerifiedUserOutlinedIcon fontSize="small" />, label: 'Acceso por roles y permisos' },
-  {
-    icon: <AdminPanelSettingsOutlinedIcon fontSize="small" />,
-    label: 'Administración centralizada',
-  },
-  { icon: <HistoryOutlinedIcon fontSize="small" />, label: 'Auditoría de cambios' },
-];
 const FORGOT_PASSWORD_HINT = '¿Olvidaste tu contraseña? Pide al administrador que la restablezca.';
 const PROVIDER_ERROR_MESSAGE = 'No se pudo iniciar sesión. Contacta al administrador del sistema.';
 
@@ -176,8 +162,6 @@ export function LoginPage() {
   return (
     <AuthLayout
       panelTitle={brandIdentity.productName}
-      panelDescription={PANEL_DESCRIPTION}
-      features={PANEL_FEATURES}
       title="Bienvenido de nuevo"
       subtitle={
         isLocalProvider

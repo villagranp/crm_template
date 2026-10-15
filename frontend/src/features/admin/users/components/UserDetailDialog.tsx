@@ -20,7 +20,6 @@ import {
   TableHead,
   TableRow,
   Tabs,
-  Typography,
 } from '@mui/material';
 import { useEffect, useState } from 'react';
 
@@ -35,8 +34,15 @@ import {
 } from '@/features/admin/common';
 import { useCan, useIsAdministrador } from '@/hooks/use-permission';
 
-import { ADMIN_TARGET_NOTE, holdsAdministrador } from '../users-access';
-import { USER_ERRORS, USER_STATUS_VIEW, formatDate, formatDateTime } from '../users-format';
+import { ADMIN_TARGET_NOTE, CRM_PROFILE_HINT, holdsAdministrador, isCommercialRole } from '../users-access';
+import {
+  USER_ERRORS,
+  USER_STATUS_VIEW,
+  formatCountry,
+  formatDate,
+  formatDateTime,
+  userErrorMessages,
+} from '../users-format';
 import type { UserDetail } from '../users.api';
 import { USER_PERMISSIONS } from '../users.permissions';
 import {
@@ -54,6 +60,7 @@ import {
 
 import { DirectAssignmentsPanel } from './DirectAssignmentsPanel';
 import { UserFormDialog } from './UserFormDialog';
+import { UserTeamsPanel } from './UserTeamsPanel';
 
 export interface UserDetailDialogProps {
   userId: string | null;
@@ -140,6 +147,8 @@ function ProfileSection({ user }: { user: UserDetail }) {
   const fields = [
     { label: 'Estado', value: <Chip size="small" color={status.color} label={status.label} /> },
     { label: 'Correo', value: user.email },
+    { label: 'Código de colaborador', value: user.employeeCode ?? '—' },
+    { label: 'País', value: formatCountry(user.country) },
     { label: 'Puesto', value: user.jobTitle ?? '—' },
     { label: 'Teléfono', value: user.phone ?? '—' },
     { label: 'Último acceso', value: formatDateTime(user.lastLoginAt) },
@@ -153,22 +162,7 @@ function ProfileSection({ user }: { user: UserDetail }) {
       </DetailSection>
 
       <DetailSection number={2} title="Equipos">
-        <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
-          Los miembros se gestionan desde la pantalla de Equipos.
-        </Typography>
-        {user.teams.length === 0 ? (
-          <Typography variant="body2">Sin equipo.</Typography>
-        ) : (
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            {user.teams.map((team) => (
-              <Chip
-                key={team.id}
-                label={team.isPrimary ? `${team.name} (principal)` : team.name}
-                variant="outlined"
-              />
-            ))}
-          </Stack>
-        )}
+        <UserTeamsPanel user={user} />
       </DetailSection>
 
       {notice ? (
@@ -237,7 +231,7 @@ function ProfileSection({ user }: { user: UserDetail }) {
         title={statusAction === 'suspend' ? 'Suspender usuario' : 'Reactivar usuario'}
         description={
           statusAction === 'suspend'
-            ? `${user.displayName} perderá el acceso de inmediato y se cerrarán todas sus sesiones.`
+            ? `${user.displayName} quedará «Inactivo»: perderá el acceso de inmediato y se cerrarán todas sus sesiones.`
             : `${user.displayName} podrá volver a entrar con sus roles actuales.`
         }
         confirmLabel={statusAction === 'suspend' ? 'Suspender' : 'Reactivar'}
@@ -246,7 +240,7 @@ function ProfileSection({ user }: { user: UserDetail }) {
         isPending={statusMutation.isPending}
         errorMessage={
           statusMutation.isError
-            ? describeApiError(statusMutation.error, USER_ERRORS).message
+            ? describeApiError(statusMutation.error, userErrorMessages(statusMutation.error)).message
             : null
         }
         onClose={() => setStatusAction(null)}
@@ -325,6 +319,10 @@ function RolesSection({ user }: { user: UserDetail }) {
   }
 
   const options = (roles.data ?? []).filter((role) => role.isActive || selected.includes(role.id));
+  // 07 D-07.3: aviso de UX; el backend responde 422 CRM_PROFILE_INCOMPLETE.
+  const needsCrmProfile =
+    (!user.employeeCode || !user.country) &&
+    options.some((role) => selected.includes(role.id) && isCommercialRole(role));
   const dirty =
     selected.length !== user.roles.length ||
     selected.some((id) => !user.roles.some((role) => role.id === id));
@@ -359,6 +357,7 @@ function RolesSection({ user }: { user: UserDetail }) {
       {selected.length === 0 ? (
         <Alert severity="warning">El usuario debe conservar al menos un rol.</Alert>
       ) : null}
+      {needsCrmProfile ? <Alert severity="info">{CRM_PROFILE_HINT}</Alert> : null}
       {mutation.isError ? (
         <Alert severity="error">{describeApiError(mutation.error, USER_ERRORS).message}</Alert>
       ) : null}

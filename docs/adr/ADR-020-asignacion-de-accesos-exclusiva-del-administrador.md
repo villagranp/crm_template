@@ -126,3 +126,11 @@ ve, que es justo lo que este ADR prohíbe para roles y permisos.
 pero no su composición. La regla se evalúa en el backend; la interfaz oculta las
 acciones. No se guarda foto histórica del equipo en los registros comerciales
 (DM-12): si un asesor cambia de equipo, sus registros se ven desde el nuevo.
+
+**Nota 2026-10-14 (decisión del responsable, D1).** Se añade a la tabla de
+operaciones exclusivas del administrador: **activar o desactivar un equipo con
+miembros o subequipos** (`PATCH /teams/{id}` si cambia `isActive`, `403
+ADMIN_ONLY`), con el mismo criterio que eliminar un equipo con miembros o
+subequipos: afecta a un equipo con composición y, con ello, a otros usuarios.
+Un equipo vacío (sin miembros ni subequipos) lo sigue activando o desactivando
+cualquiera con `equipos.editar`. Lo anterior de este addendum no cambia.

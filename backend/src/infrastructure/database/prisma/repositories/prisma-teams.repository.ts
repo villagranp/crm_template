@@ -12,6 +12,8 @@ import type {
   TeamRecord,
   TeamsRepository,
   UpdateTeamInput,
+  UserTeamAssignmentInput,
+  UserTeamMembershipRecord,
 } from '@/modules/teams/ports/teams.repository.port';
 
 import { ADVISORY_LOCK_KEYS, acquireAdvisoryXactLock, withAdvisoryXactLock } from '../advisory-lock';
@@ -49,6 +51,28 @@ function toTeamRecord(row: TeamRow): TeamRecord {
     childCount: row._count.children,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+  };
+}
+
+const TEAM_DETAIL_SELECT = {
+  ...TEAM_SELECT,
+  members: {
+    select: { userId: true, isPrimary: true, user: { select: { displayName: true, email: true } } },
+    orderBy: { user: { displayName: 'asc' } },
+  },
+} satisfies Prisma.TeamSelect;
+
+type TeamDetailRow = Prisma.TeamGetPayload<{ select: typeof TEAM_DETAIL_SELECT }>;
+
+function toTeamDetailRecord(row: TeamDetailRow): TeamDetailRecord {
+  return {
+    ...toTeamRecord(row),
+    members: row.members.map((member) => ({
+      userId: member.userId,
+      displayName: member.user.displayName,
+      email: member.user.email,
+      isPrimary: member.isPrimary,
+    })),
   };
 }
 
@@ -131,29 +155,20 @@ export class PrismaTeamsRepository implements TeamsRepository {
   }
 
   async findById(teamId: string): Promise<TeamDetailRecord | null> {
-    const row = await this.db.team.findFirst({
-      where: { id: teamId, deletedAt: null },
-      select: {
-        ...TEAM_SELECT,
-        members: {
-          select: { userId: true, isPrimary: true, user: { select: { displayName: true, email: true } } },
-          orderBy: { user: { displayName: 'asc' } },
-        },
-      },
-    });
-    if (!row) {
-      return null;
-    }
+    const row = await this.db.team.findFirst({ where: { id: teamId, deletedAt: null }, select: TEAM_DETAIL_SELECT });
+    return row ? toTeamDetailRecord(row) : null;
+  }
 
-    return {
-      ...toTeamRecord(row),
-      members: row.members.map((member) => ({
-        userId: member.userId,
-        displayName: member.user.displayName,
-        email: member.user.email,
-        isPrimary: member.isPrimary,
-      })),
-    };
+  async findManyByIds(teamIds: readonly string[]): Promise<TeamDetailRecord[]> {
+    if (teamIds.length === 0) {
+      return [];
+    }
+    const rows = await this.db.team.findMany({
+      where: { id: { in: [...teamIds] }, deletedAt: null },
+      select: TEAM_DETAIL_SELECT,
+      orderBy: { id: 'asc' },
+    });
+    return rows.map(toTeamDetailRecord);
   }
 
   async existsByCode(code: string): Promise<boolean> {
@@ -171,6 +186,26 @@ export class PrismaTeamsRepository implements TeamsRepository {
       select: { id: true },
     });
     return users.map((user) => user.id);
+  }
+
+  async findExistingTeamIds(teamIds: readonly string[]): Promise<string[]> {
+    if (teamIds.length === 0) {
+      return [];
+    }
+    const teams = await this.db.team.findMany({
+      where: { id: { in: [...teamIds] }, deletedAt: null },
+      select: { id: true },
+    });
+    return teams.map((team) => team.id);
+  }
+
+  async listUserMemberships(userId: string): Promise<UserTeamMembershipRecord[]> {
+    const rows = await this.db.teamMember.findMany({
+      where: { userId, team: { deletedAt: null } },
+      select: { teamId: true, isPrimary: true, team: { select: { name: true } } },
+      orderBy: [{ team: { name: 'asc' } }, { teamId: 'asc' }],
+    });
+    return rows.map((row) => ({ teamId: row.teamId, teamName: row.team.name, isPrimary: row.isPrimary }));
   }
 
   async create(input: CreateTeamInput): Promise<string> {
@@ -221,6 +256,32 @@ export class PrismaTeamsRepository implements TeamsRepository {
           where: { teamId_userId: { teamId, userId: member.userId } },
           create: { teamId, userId: member.userId, isPrimary: member.isPrimary },
           update: { isPrimary: member.isPrimary },
+        });
+      }
+    });
+  }
+
+  async replaceUserTeams(userId: string, teams: readonly UserTeamAssignmentInput[]): Promise<void> {
+    const teamIds = teams.map((team) => team.teamId);
+
+    await this.inTransaction(async (tx) => {
+      // Mismo bloqueo de fila que `replaceMembers`: serializa con un reemplazo
+      // de miembros concurrente que toque el equipo principal de este usuario.
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId}::uuid FOR UPDATE`;
+      // Solo equipos no eliminados: ver el contrato del puerto.
+      await tx.teamMember.deleteMany({ where: { userId, teamId: { notIn: teamIds }, team: { deletedAt: null } } });
+      if (teams.some((team) => team.isPrimary)) {
+        await tx.teamMember.updateMany({
+          where: { userId, isPrimary: true, team: { deletedAt: { not: null } } },
+          data: { isPrimary: false },
+        });
+      }
+
+      for (const team of teams) {
+        await tx.teamMember.upsert({
+          where: { teamId_userId: { teamId: team.teamId, userId } },
+          create: { teamId: team.teamId, userId, isPrimary: team.isPrimary },
+          update: { isPrimary: team.isPrimary },
         });
       }
     });

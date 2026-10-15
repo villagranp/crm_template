@@ -69,6 +69,16 @@ Un porcentaje alto con pruebas triviales es peor que uno moderado con pruebas si
   `DATABASE_URL`. `backend/test/global-setup.ts` lo borra, lo migra y lo siembra
   en cada ejecución; el esquema de desarrollo (`public`) nunca se toca. Cada
   prueba crea sus propios usuarios con correo único.
+- `INTEGRATION_SCHEMA` cambia ese esquema (debe empezar por `integration_` y
+  usar solo `[a-z0-9_]`, porque se interpola en `DROP SCHEMA`). Sirve para
+  ejecutar varias suites a la vez sin que una borre el esquema de otra
+  (`backend/test/support/integration-database.ts`).
+- **Las pruebas nunca limpian `audit_logs`.** La base rechaza `UPDATE`,
+  `TRUNCATE` y el `DELETE` de filas dentro de la retención (ADR-025), y la
+  bitácora es compartida por todas las suites: cada prueba filtra por los ids
+  de sus propios registros (recurso, actor o fila insertada) y nunca cuenta
+  totales globales. Para empezar de cero se recrea el esquema (lo hace
+  `global-setup.ts`), nunca se desactivan los disparadores.
 
 ## 8. Comandos
 
@@ -461,6 +471,148 @@ entre tandas y tras cada `activate` (10 inicios de sesión por minuto por IP):
 7. Tanda 5: `dashboard customer-imports` (`E2E_ADMIN_PASSWORD = E2E_ADMIN_NEW_PASSWORD`).
 
 Para repetir la batería completa se vuelve a `prepare` (por `auth-local`).
+
+Con el Módulo 7 y Ajustes 1 se suman dos suites a esa batería, `admin-crm` y `ajustes-1` («E2E del
+Módulo 7» y «E2E de Ajustes 1»), cada una en su propia tanda por el límite de login: `admin-crm`
+hace 6 inicios de sesión y `ajustes-1` 10, así que `ajustes-1` va sola y un minuto después de
+cualquier otra. `admin-access` ya está en la tanda 2.
+
+### E2E del Módulo 7
+
+`frontend/tests/e2e/admin-crm.e2e.spec.ts` (PF-07.45 y PF-07.46 del plan
+`docs/implementation-plans/crm/07-administracion.md`, más un recorrido corto de tipos de
+cambio) usa el **mismo stack aislado** que «E2E de Integraciones» (semilla esencial y demo,
+administrador de prueba con contraseña personal). Se ejecuta junto con
+`admin-access.e2e.spec.ts`, que comparte variables.
+
+| Recorrido | Qué cubre |
+|---|---|
+| PF-07.45 | Administrador: crea un equipo propio → da de alta un asesor con código de colaborador (escrito en minúsculas; se guarda en mayúsculas, RN-07.1), país y rol `Asesor` → en el detalle comprueba código y país y le asigna el equipo (panel «Equipos», `PUT /users/{id}/teams`) → el asesor entra con la contraseña inicial y fija la suya → `GET /me/menu` solo trae módulos y opciones comerciales (ni `administracion` ni `integraciones`) y `/administracion/usuarios` muestra «Sin acceso» → el administrador lo busca por código y lo suspende («Inactivo», RN-07.6) → ya no puede entrar (`403`) |
+| PF-07.46 | Administrador: añade un valor propio a `crm.tipo_empresa` (catálogo abierto, sin invariantes) → el selector «Tipo de empresa» del alta de cliente lo ofrece → lo desactiva → el selector ya no lo ofrece → «Auditoría», «Vista por campo», filtros Campo `isActive` y Registro (id del valor): `catalog_item.updated` con `true` → `false` |
+| Tipos de cambio | Alta de `GTQ` en una fecha de vigencia propia (pasado lejano, derivada de la hora; no afecta a la tasa vigente) → la misma moneda y fecha da `409` con su mensaje → filtro por moneda y fechas → «Corregir» con moneda y fecha deshabilitadas → `PATCH` conserva moneda y fecha y la tabla muestra la tasa nueva |
+
+Variables (los valores entre `<>` son de ejemplo; las contraseñas solo por el entorno):
+
+| Variable | Valor |
+|---|---|
+| `E2E_SCHEMA` | `integration_m7_e2e` |
+| `DATABASE_URL` | la de `.env` con `?schema=integration_m7_e2e` |
+| `ATTACHMENTS_STORAGE_PATH`, `SEED_DEMO_PASSWORD`, `JWT_ACCESS_TOKEN_SECRET` | como en «E2E de Clientes» |
+| `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | `admin@e2e.invalid`, `<12+>`: exportadas antes de `prepare` |
+| `AUTH_DEFAULT_PASSWORD` | `<12+>`: contraseña inicial de los usuarios que crea el recorrido |
+| `E2E_ASESOR_PASSWORD`, `E2E_MANAGER_PASSWORD`, `E2E_ADMIN_PASSWORD` | `<12+>`: las que `activate` deja a los usuarios demo y al administrador |
+| `E2E_ADMIN_EMAIL` | lo imprime `activate` (`admin@e2e.invalid`) |
+| `E2E_DEFAULT_PASSWORD` | `= AUTH_DEFAULT_PASSWORD` |
+| `E2E_NEW_USER_PASSWORD` | `<12+>`: la que fija el usuario nuevo |
+| `E2E_COUNTRY_LABEL` | opcional; país del asesor como lo muestra el selector, por defecto `Guatemala (GT)` |
+
+Pasos (Git Bash, desde la raíz), con backend en **3107** y Vite en **5187**:
+
+1. `cd backend && pnpm exec ts-node --transpile-only scripts/e2e-stack.ts prepare`.
+2. Backend desde `backend/`: `API_PORT=3107 NODE_ENV=development AUTH_PROVIDER=local
+   CORS_ALLOWED_ORIGINS=http://localhost:5187 RATE_LIMIT_MAX_REQUESTS=5000
+   TS_NODE_PROJECT=tsconfig.json pnpm exec ts-node -r tsconfig-paths/register src/main.ts`.
+3. Frontend desde `frontend/`: `DEV_API_PROXY_TARGET=http://localhost:3107 pnpm exec vite --port 5187 --strictPort`.
+4. `E2E_API_URL=http://localhost:3107 pnpm exec ts-node --transpile-only scripts/e2e-stack.ts activate`
+   (desde `backend/`) y exporta `E2E_ADMIN_EMAIL`.
+5. Pasado un minuto: `E2E_BASE_URL=http://localhost:5187 pnpm --filter @app/frontend test:e2e admin-crm`.
+6. Pasado otro minuto: `E2E_BASE_URL=http://localhost:5187 pnpm --filter @app/frontend test:e2e admin-access`.
+7. Limpieza: detén solo el backend (3107) y el Vite (5187),
+   `E2E_SCHEMA=integration_m7_e2e pnpm exec ts-node --transpile-only scripts/e2e-stack.ts drop`,
+   y borra la carpeta temporal de adjuntos y `frontend/test-results`.
+
+Notas:
+
+- **Límite de login:** `admin-crm` hace 6 inicios de sesión (4 en PF-07.45, 1 en cada uno de
+  los otros dos) y `admin-access` 4; con `activate` (hasta 6) y 10 por minuto por IP, cada
+  paso va en su propio minuto.
+- Es repetible sin volver a `prepare`: el equipo, el usuario, el valor de catálogo y la
+  fuente del tipo de cambio llevan un sufijo único. La fecha de vigencia se deriva de los
+  segundos actuales (ciclo de 40 años): dos ejecuciones en el mismo segundo chocarían.
+- El selector de equipos del usuario carga la primera página de `GET /teams` (por nombre):
+  tras muchas ejecuciones sin `prepare`, los equipos `E2E Equipo M7 …` podrían llenarla;
+  vuelve al paso 1.
+- PF-07.45 comprueba con `expect.soft` que `POST /users` devuelve `employeeCode` y
+  `country` (contrato `UserResponseDto`): si fallan, la prueba queda en rojo pero el
+  recorrido sigue hasta el final. Los tres recorridos son independientes (`mode: 'default'`):
+  un fallo no salta los demás.
+
+### E2E de Ajustes 1
+
+`frontend/tests/e2e/ajustes-1.e2e.spec.ts` (PF-AJ1.24 y PF-AJ1.25 del plan
+`docs/implementation-plans/AJUSTES-1.md`, más un recorrido corto de barra superior, acceso y
+pie de página) usa el **mismo stack aislado** que «E2E del Módulo 7» (semilla esencial y demo,
+administrador de prueba y asesor demo con contraseña personal). Cada recorrido es independiente
+(`mode: 'default'`) y fija la zona `America/Guatemala` y un viewport de escritorio (1440×900).
+
+| Recorrido | Qué cubre |
+|---|---|
+| PF-AJ1.24 | El administrador registra el minuto de seguridad de HOY en `/administracion/minuto-seguridad` (fecha calculada con `Intl` en `America/Guatemala`, no en UTC; el de hoy no ofrece «Eliminar») → el asesor demo ve el bloque «Minuto de seguridad» con el mensaje (el `<b>` se ve como texto) y el minuto va primero → en «Personalizar panel» el minuto no tiene interruptor, oculta «Oportunidades perdidas» y baja el minuto un lugar (`PUT /me/preferences/dashboard-cards` 200, efecto inmediato) → recarga y lo conserva → en un contexto de navegador NUEVO inicia sesión y ve lo mismo → sube el minuto al primer lugar → «Restablecer» (`DELETE` 204) vuelve a la composición por defecto y ya no ofrece «Restablecer» → el administrador conserva el panel por defecto |
+| PF-AJ1.25 | El asesor cambia a tema oscuro con el botón de la barra superior (`PUT /me/preferences/theme` con `{ "value": "dark" }`, `data-theme="dark"` en `<html>`) → cierra sesión → en un contexto nuevo `/acceso` arranca en claro, y tras iniciar sesión `GET /me/preferences` trae `dark` y se aplica → vuelve a claro (`PUT` con `light`), recarga y se conserva |
+| Cierre voluntario | El asesor deja su panel personalizado (sin «Oportunidades perdidas») y el tema oscuro desde otro contexto → en la pestaña principal entra el administrador (panel por defecto, tema claro), navega por la SPA a `/administracion/minuto-seguridad` y cierra sesión → el asesor inicia sesión en esa MISMA pestaña, sin `page.goto` ni recarga → aterriza en `/` (no en la ruta del administrador), ve SU panel y SU tema oscuro, no los del administrador → restaura panel y tema (en `finally`). Con `RequireAuth` guardando siempre la ruta de retorno, este recorrido falla |
+| Barra superior, acceso y pie | `/acceso` no muestra «Acceso por roles y permisos», «Administración centralizada» ni «Auditoría de cambios» y su pie es «© {año} Grupo AG» → con los valores sembrados `GET /me/ui-settings` trae `{ search: false, fullscreen: true, notifications: false }` y la barra muestra pantalla completa pero no buscar ni notificaciones → el administrador activa `ui.barra_superior.buscar` en Parámetros → Interfaz (`PATCH` 200) y tras recargar el botón aparece → lo restaura a `false` (en `finally`, aunque falle una comprobación) |
+
+Variables (los valores entre `<>` son de ejemplo; las contraseñas solo por el entorno):
+
+| Variable | Valor |
+|---|---|
+| `E2E_SCHEMA` | `integration_aj1_e2e` |
+| `DATABASE_URL` | la de `.env` con `?schema=integration_aj1_e2e` (para el backend; `e2e-stack.ts` ya fija el esquema) |
+| `ATTACHMENTS_STORAGE_PATH`, `SEED_DEMO_PASSWORD`, `JWT_ACCESS_TOKEN_SECRET`, `AUTH_DEFAULT_PASSWORD` | como en «E2E de Clientes» y «E2E del Módulo 7» |
+| `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | `admin@e2e.invalid`, `<12+>`: exportadas antes de `prepare` |
+| `E2E_ASESOR_PASSWORD`, `E2E_MANAGER_PASSWORD`, `E2E_ADMIN_PASSWORD` | `<12+>`: las que `activate` deja a los usuarios demo y al administrador |
+| `E2E_ADMIN_EMAIL` | lo imprime `activate` (`admin@e2e.invalid`) |
+| `E2E_ASESOR_EMAIL` | `asesor1.gt@demo.invalid` (lo imprime `activate`) |
+
+Pasos (Git Bash, desde la raíz), con backend en **3111** y Vite en **5191** (cualquier par libre y
+distinto de 3000/5173 vale; comprueba con `netstat -ano`). Guarda las variables en un archivo
+temporal fuera del repo (`export VAR='…'`, contraseñas aleatorias de 12+ caracteres), cárgalo con
+`source` en cada comando y bórralo al terminar:
+
+1. `cd backend && pnpm exec ts-node --transpile-only scripts/e2e-stack.ts prepare`.
+2. Backend desde `backend/`: `API_PORT=3111 NODE_ENV=development AUTH_PROVIDER=local
+   CORS_ALLOWED_ORIGINS=http://localhost:5191 RATE_LIMIT_MAX_REQUESTS=5000
+   TS_NODE_PROJECT=tsconfig.json pnpm exec ts-node -r tsconfig-paths/register src/main.ts`
+   (con `DATABASE_URL` del esquema aislado exportada).
+3. Frontend desde `frontend/`: `DEV_API_PROXY_TARGET=http://localhost:3111 pnpm exec vite --port 5191 --strictPort`.
+4. Solo si vas a ejecutar `auth-local` en este mismo stack: es el único recorrido que exige la
+   contraseña inicial del administrador, así que va ANTES de `activate`:
+   `E2E_ADMIN_PASSWORD=$SEED_ADMIN_PASSWORD E2E_ADMIN_NEW_PASSWORD=<12+> E2E_BASE_URL=http://localhost:5191 pnpm --filter @app/frontend test:e2e smoke auth-local`.
+   Después usa esa `E2E_ADMIN_NEW_PASSWORD` como `E2E_ADMIN_PASSWORD` del paso 5 (`activate` solo
+   comprueba que entra).
+5. `E2E_API_URL=http://localhost:3111 pnpm exec ts-node --transpile-only scripts/e2e-stack.ts activate`
+   (desde `backend/`).
+6. Pasado un minuto: `E2E_BASE_URL=http://localhost:5191 pnpm --filter @app/frontend test:e2e ajustes-1`.
+7. Regresión, cada una en su propio minuto: `… test:e2e admin-crm` (con `E2E_DEFAULT_PASSWORD=$AUTH_DEFAULT_PASSWORD`
+   y `E2E_NEW_USER_PASSWORD`) y `… test:e2e admin-access`.
+8. Limpieza: detén solo el backend (3111) y el Vite (5191),
+   `E2E_SCHEMA=integration_aj1_e2e pnpm exec ts-node --transpile-only scripts/e2e-stack.ts drop`,
+   y borra la carpeta temporal de adjuntos, el archivo de variables y `frontend/test-results`.
+
+Notas:
+
+- **Límite de login:** `ajustes-1` hace 10 inicios de sesión (4, 2, 1 y 3 por recorrido), justo el
+  límite de 10 por minuto por IP: ejecútalo solo, tras esperar un minuto desde cualquier otro paso
+  (si no, un `429` en el login no es un defecto del recorrido).
+- **El minuto de hoy no se puede borrar** (D-AJ1.5): es único por fecha. El recorrido es
+  repetible sin volver a `prepare` porque, si ya existe el de hoy (otra ejecución del mismo día),
+  lo EDITA con un mensaje de sufijo único; si no existe, lo crea. Queda un mensaje de hoy en el
+  esquema aislado: desaparece con `drop`.
+- **Estado del asesor:** el recorrido empieza normalizando al asesor (restablece un panel
+  personalizado que haya dejado una ejecución interrumpida y vuelve a claro un tema oscuro) y
+  termina con el panel por defecto y el tema claro.
+- **Orden del minuto:** por defecto el minuto de seguridad ya es el primer bloque, así que
+  «subirlo al primer lugar» solo tendría efecto después de bajarlo; por eso el recorrido lo baja
+  un lugar, comprueba que se conserva (recarga y contexto nuevo) y luego lo sube.
+- **Zona horaria:** el formulario valida «hoy» con la zona del navegador y el servidor con
+  `crm.zona_horaria_negocio`; el recorrido fija `timezoneId: 'America/Guatemala'` y calcula la
+  fecha con `Intl`, de modo que el cruce de día UTC (a partir de las 18:00 locales) no lo rompe.
+  Si un administrador cambia ese parámetro en el esquema aislado, el recorrido de hoy dejaría
+  de coincidir.
+- **Pie:** el del shell autenticado va fuera de `<main>` y el de `/acceso` también: ambos son el
+  landmark `contentinfo`, y el recorrido los localiza por rol (y comprueba que `main` no lo contiene).
+- **Pantalla completa** depende del navegador (`document.fullscreenEnabled`) y de `lg` o más:
+  por eso el viewport fijo de 1440×900.
 
 ## 9. En el pipeline
 

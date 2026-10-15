@@ -1,9 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+
+import { ResourceConflictError } from '@/common/errors/application-error';
 
 import {
   type AccessRepository,
   type AccessUserRecord,
+  type CountryReference,
   type CreateMenuOptionInput,
   type CreateRoleInput,
   type CreateUserInput,
@@ -15,6 +18,7 @@ import {
   type ModuleRecord,
   type Paginated,
   type PermissionRecord,
+  type RoleGrantRecord,
   type RoleRecord,
   type UpdateMenuOptionInput,
   type UpdateRoleInput,
@@ -35,6 +39,27 @@ const ROLE_INCLUDE = {
 } as const;
 
 const MENU_OPTION_INCLUDE = { module: true, requiredPermission: { select: { code: true } } } as const;
+
+/** País del usuario en la lista y el detalle (07 F.1). */
+const USER_COUNTRY_SELECT = { select: { id: true, isoCode: true, name: true } } as const;
+
+const UNIQUE_VIOLATION = 'P2002';
+
+/**
+ * Carrera entre la comprobación de unicidad del servicio y la escritura: el
+ * índice único de `employee_code` responde lo mismo que el servicio (RN-07.1).
+ */
+function rethrowEmployeeCodeConflict(error: unknown): never {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === UNIQUE_VIOLATION) {
+    const target = JSON.stringify(error.meta?.target ?? '');
+    if (target.includes('employee_code') || target.includes('employeeCode')) {
+      throw new ResourceConflictError('A user with this employee code already exists', [
+        { field: 'employeeCode', issue: 'duplicated' },
+      ]);
+    }
+  }
+  throw error;
+}
 
 /**
  * Adaptador Prisma del puerto de acceso (ADR-004).
@@ -125,6 +150,18 @@ export class PrismaAccessRepository implements AccessRepository {
     return user && !user.deletedAt ? toUserRecord(user) : null;
   }
 
+  async findUserIdByEmployeeCode(employeeCode: string): Promise<string | null> {
+    const user = await this.db.user.findUnique({ where: { employeeCode }, select: { id: true } });
+    return user?.id ?? null;
+  }
+
+  async findCountry(countryId: string): Promise<CountryReference | null> {
+    return this.db.country.findUnique({
+      where: { id: countryId },
+      select: { id: true, isoCode: true, name: true, isActive: true },
+    });
+  }
+
   async getUserAccessSnapshot(userId: string): Promise<UserAccessSnapshot | null> {
     const now = new Date();
 
@@ -204,11 +241,14 @@ export class PrismaAccessRepository implements AccessRepository {
       ...(filter.status ? { status: filter.status } : {}),
       ...(filter.roleCode ? { roles: { some: { role: { code: filter.roleCode } } } } : {}),
       ...(filter.teamId ? { teams: { some: { teamId: filter.teamId } } } : {}),
+      ...(filter.countryId ? { countryId: filter.countryId } : {}),
       ...(filter.search
         ? {
             OR: [
               { displayName: { contains: filter.search, mode: 'insensitive' as const } },
               { emailNormalized: { contains: filter.search.toLowerCase() } },
+              // El código se guarda en mayúsculas (RN-07.1).
+              { employeeCode: { contains: filter.search.toUpperCase() } },
             ],
           }
         : {}),
@@ -223,7 +263,11 @@ export class PrismaAccessRepository implements AccessRepository {
     const [items, totalItems] = await this.atomic([
       this.db.user.findMany({
         where,
-        include: { teams: { include: { team: true } }, roles: { include: { role: { select: { code: true } } } } },
+        include: {
+          teams: { include: { team: true } },
+          roles: { include: { role: { select: { code: true } } } },
+          country: USER_COUNTRY_SELECT,
+        },
         orderBy,
         skip: (filter.page - 1) * filter.pageSize,
         take: filter.pageSize,
@@ -234,6 +278,8 @@ export class PrismaAccessRepository implements AccessRepository {
     return {
       items: items.map((user) => ({
         ...toUserRecord(user),
+        employeeCode: user.employeeCode,
+        country: user.country,
         roles: user.roles.map((assignment) => assignment.role.code),
         lastLoginAt: user.lastLoginAt,
         createdAt: user.createdAt,
@@ -252,6 +298,7 @@ export class PrismaAccessRepository implements AccessRepository {
         menuOptions: { include: { menuOption: { select: { key: true, label: true } } }, orderBy: { createdAt: 'asc' } },
         credential: { select: { passwordChangedAt: true } },
         identities: { select: { provider: true } },
+        country: USER_COUNTRY_SELECT,
       },
     });
 
@@ -267,6 +314,8 @@ export class PrismaAccessRepository implements AccessRepository {
       displayName: user.displayName,
       jobTitle: user.jobTitle,
       phone: user.phone,
+      employeeCode: user.employeeCode,
+      country: user.country,
       status: user.status,
       lastLoginAt: user.lastLoginAt,
       createdAt: user.createdAt,
@@ -307,22 +356,26 @@ export class PrismaAccessRepository implements AccessRepository {
   async createUser(input: CreateUserInput): Promise<AccessUserRecord> {
     const displayName = `${input.firstName} ${input.lastName}`.trim();
 
-    const user = await this.db.user.create({
-      data: {
-        email: input.email,
-        emailNormalized: input.email.toLowerCase(),
-        firstName: input.firstName,
-        lastName: input.lastName,
-        displayName,
-        jobTitle: input.jobTitle ?? null,
-        phone: input.phone ?? null,
-        status: 'INVITED',
-        createdById: input.createdById,
-        roles: { create: input.roleIds.map((roleId) => ({ roleId, createdById: input.createdById })) },
-        teams: { create: input.teamIds.map((teamId, index) => ({ teamId, isPrimary: index === 0 })) },
-      },
-      include: { teams: { include: { team: true } } },
-    });
+    const user = await this.db.user
+      .create({
+        data: {
+          email: input.email,
+          emailNormalized: input.email.toLowerCase(),
+          firstName: input.firstName,
+          lastName: input.lastName,
+          displayName,
+          jobTitle: input.jobTitle ?? null,
+          phone: input.phone ?? null,
+          employeeCode: input.employeeCode ?? null,
+          countryId: input.countryId ?? null,
+          status: 'INVITED',
+          createdById: input.createdById,
+          roles: { create: input.roleIds.map((roleId) => ({ roleId, createdById: input.createdById })) },
+          teams: { create: input.teamIds.map((teamId, index) => ({ teamId, isPrimary: index === 0 })) },
+        },
+        include: { teams: { include: { team: true } } },
+      })
+      .catch(rethrowEmployeeCodeConflict);
 
     return toUserRecord(user);
   }
@@ -332,18 +385,22 @@ export class PrismaAccessRepository implements AccessRepository {
     const firstName = input.firstName ?? current.firstName;
     const lastName = input.lastName ?? current.lastName;
 
-    const user = await this.db.user.update({
-      where: { id: userId },
-      data: {
-        firstName,
-        lastName,
-        displayName: `${firstName} ${lastName}`.trim(),
-        jobTitle: input.jobTitle === undefined ? undefined : input.jobTitle,
-        phone: input.phone === undefined ? undefined : input.phone,
-        updatedById: input.updatedById,
-      },
-      include: { teams: { include: { team: true } } },
-    });
+    const user = await this.db.user
+      .update({
+        where: { id: userId },
+        data: {
+          firstName,
+          lastName,
+          displayName: `${firstName} ${lastName}`.trim(),
+          jobTitle: input.jobTitle === undefined ? undefined : input.jobTitle,
+          phone: input.phone === undefined ? undefined : input.phone,
+          employeeCode: input.employeeCode,
+          countryId: input.countryId,
+          updatedById: input.updatedById,
+        },
+        include: { teams: { include: { team: true } } },
+      })
+      .catch(rethrowEmployeeCodeConflict);
 
     return toUserRecord(user);
   }
@@ -587,6 +644,21 @@ export class PrismaAccessRepository implements AccessRepository {
       select: { id: true },
     });
     return rows.map((row) => row.id);
+  }
+
+  async findRoleGrants(roleIds: string[]): Promise<RoleGrantRecord[]> {
+    if (roleIds.length === 0) {
+      return [];
+    }
+    const rows = await this.db.role.findMany({
+      where: { id: { in: roleIds }, isActive: true, deletedAt: null },
+      select: { id: true, code: true, permissions: { select: { permission: { select: { code: true } } } } },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      code: row.code,
+      permissionCodes: row.permissions.map((item) => item.permission.code),
+    }));
   }
 
   // --- Opciones de menú y módulos --------------------------------------------

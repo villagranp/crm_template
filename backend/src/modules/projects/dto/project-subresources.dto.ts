@@ -7,7 +7,7 @@ import { PaginationMetaDto } from '@/common/dto/paginated-response.dto';
 import { ATTACHMENT_DESCRIPTION_MAX_LENGTH } from '@/modules/attachments/attachment-policy';
 import { ATTACHMENT_SORT_FIELDS, type AttachmentSortField } from '@/modules/attachments/ports/attachments.repository.port';
 import { CatalogValueDto, UserRefDto } from '@/modules/customers/dto/customer.dto';
-import { isPresent, trim, trimToNull } from '@/modules/customers/dto/dto-transforms';
+import { isPresent, trim, trimToNull } from '@/common/dto/dto-transforms';
 import { PaginationQueryDto } from '@/common/dto/pagination-query.dto';
 import { ProductFamilyRefDto, UnitRefDto } from '@/modules/products/dto/product.dto';
 

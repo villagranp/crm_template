@@ -35,6 +35,7 @@ import { env } from '@/config/env';
 import { useAuth } from '@/hooks/use-auth';
 import { useMenu } from '@/hooks/use-menu';
 import { ROUTE_PATHS } from '@/routes/route-paths';
+import { useUiSettings } from '@/services/ui-settings';
 import { useUiStore } from '@/stores/ui.store';
 import { brandIdentity, duration, easing, fontSizes, layout } from '@/theme/tokens';
 
@@ -191,6 +192,8 @@ export function Topbar({ notificationCount = 0 }: TopbarProps) {
   const setSidebarOpenMobile = useUiStore((state) => state.setSidebarOpenMobile);
   const sidebarOpenMobile = useUiStore((state) => state.sidebarOpenMobile);
   const fullscreen = useFullscreen();
+  // Parámetros `ui.barra_superior.*`: deciden si el botón se puede mostrar (RN-AJ1.15).
+  const { topbar } = useUiSettings().settings;
 
   const mini = isDesktop && sidebarMini;
 
@@ -258,7 +261,7 @@ export function Topbar({ notificationCount = 0 }: TopbarProps) {
 
         <Box sx={{ flexGrow: 1 }} />
 
-        {fullscreen.supported ? (
+        {topbar.fullscreen && fullscreen.supported ? (
           <Tooltip title={fullscreen.active ? 'Salir de pantalla completa' : 'Pantalla completa'}>
             <IconButton
               onClick={fullscreen.toggle}
@@ -281,32 +284,36 @@ export function Topbar({ notificationCount = 0 }: TopbarProps) {
           </IconButton>
         </Tooltip>
 
-        <Tooltip title="Buscar">
-          <IconButton aria-label="Abrir búsqueda global" sx={topbarIconSx}>
-            <SearchIcon />
-          </IconButton>
-        </Tooltip>
+        {topbar.search ? (
+          <Tooltip title="Buscar">
+            <IconButton aria-label="Abrir búsqueda global" sx={topbarIconSx}>
+              <SearchIcon />
+            </IconButton>
+          </Tooltip>
+        ) : null}
 
-        <Tooltip title="Notificaciones">
-          <IconButton
-            aria-label={
-              notificationCount > 0
-                ? `Notificaciones, ${notificationCount} sin leer`
-                : 'Notificaciones, ninguna sin leer'
-            }
-            sx={topbarIconSx}
-          >
-            {/* Sin notificaciones no se pinta el globo: un "0" en rojo llama la
-                atención para decir que no pasa nada. */}
-            {notificationCount > 0 ? (
-              <Badge badgeContent={notificationCount} color="error" max={99}>
+        {topbar.notifications ? (
+          <Tooltip title="Notificaciones">
+            <IconButton
+              aria-label={
+                notificationCount > 0
+                  ? `Notificaciones, ${notificationCount} sin leer`
+                  : 'Notificaciones, ninguna sin leer'
+              }
+              sx={topbarIconSx}
+            >
+              {/* Sin notificaciones no se pinta el globo: un "0" en rojo llama la
+                  atención para decir que no pasa nada. */}
+              {notificationCount > 0 ? (
+                <Badge badgeContent={notificationCount} color="error" max={99}>
+                  <NotificationsNoneOutlinedIcon />
+                </Badge>
+              ) : (
                 <NotificationsNoneOutlinedIcon />
-              </Badge>
-            ) : (
-              <NotificationsNoneOutlinedIcon />
-            )}
-          </IconButton>
-        </Tooltip>
+              )}
+            </IconButton>
+          </Tooltip>
+        ) : null}
 
         {isAuthenticated ? <UserMenu /> : null}
       </Toolbar>

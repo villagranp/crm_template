@@ -17,6 +17,7 @@ import {
 import { toLowerCaseUuid } from '@/common/dto/uuid-transform';
 import { PaginationMetaDto } from '@/common/dto/paginated-response.dto';
 import { PaginationQueryDto } from '@/common/dto/pagination-query.dto';
+import { UserRefDto } from '@/common/dto/user-ref.dto';
 
 import { CUSTOMER_EDITABLE_FIELDS, CUSTOMER_RESERVED_FIELDS } from '../customer-access-policy';
 import { CUSTOMER_DUPLICATE_RULE_KEYS } from '../duplicate-rules';
@@ -314,10 +315,8 @@ export class UpdateCustomerDto {
 // Respuesta (F.3)
 // ---------------------------------------------------------------------------
 
-export class UserRefDto {
-  @ApiProperty({ format: 'uuid' }) id!: string;
-  @ApiProperty() displayName!: string;
-}
+// Definida en `common` (la usan varios módulos); se reexporta por compatibilidad.
+export { UserRefDto };
 
 export class SalesOwnerRefDto extends UserRefDto {
   @ApiProperty({ description: 'Usuario ACTIVE y no eliminado' }) isActive!: boolean;
