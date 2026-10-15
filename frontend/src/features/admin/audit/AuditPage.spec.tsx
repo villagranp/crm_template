@@ -287,7 +287,7 @@ describe('AuditPage', () => {
       });
       const download = vi
         .spyOn(httpClient, 'download')
-        .mockResolvedValue({ blob: new Blob(['a,b']), fileName: 'auditoria.csv' });
+        .mockResolvedValue({ blob: new Blob(['a,b']), fileName: 'auditoria.csv', headers: new Headers() });
       const user = userEvent.setup();
 
       renderWithProviders(<AuditPage />, { initialEntries: ['/?field=phone'] });
