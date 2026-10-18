@@ -141,9 +141,29 @@ pnpm --filter @app/backend run load:data -- validate projects --file ./proyectos
 pnpm --filter @app/backend run load:data -- apply projects --file ./proyectos.xlsx --actor <correo|codigo> [--report ./informe.csv] [--confirm-production]
 ```
 
-Entidades: `projects`, `products`, `safety-minutes`. `template` escribe `plantilla-proyectos.xlsx|csv`, `plantilla-productos.xlsx` o `plantilla-productos.csv` + `plantilla-productos-familias.csv`, `plantilla-minuto-seguridad.xlsx|csv` con los valores activos de la base. Sin subcomando (`load:data -- projects --file …`) se valida.
+Entidades: `projects`, `products`, `safety-minutes`, `entra-identities` (§5.2). `template` escribe `plantilla-proyectos.xlsx|csv`, `plantilla-productos.xlsx` o `plantilla-productos.csv` + `plantilla-productos-familias.csv`, `plantilla-minuto-seguridad.xlsx|csv` con los valores activos de la base. Sin subcomando (`load:data -- projects --file …`) se valida.
 
 Antes de escribir, el script imprime **servidor, base y esquema** de `DATABASE_URL` (sin credenciales) para que quien lo ejecuta confirme el destino. La salida es un resumen con conteos por hoja (leídas, por crear, creadas, ya existen, con errores), la lista de incidencias (hasta 50 en consola; todas en el CSV) y el resultado. Orden de carga, pasos y manejo de errores: [`docs/templates/README.md`](../templates/README.md). QA: [`qa-windows.md`](../deployment/qa-windows.md) §«Carga inicial de datos».
+
+### 5.2 Vínculos con Entra ID (`entra-identities`, ADR-027)
+
+Quinta entidad del mismo CLI, añadida para el corte a Microsoft Entra ID
+([ADR-027](../adr/ADR-027-sso-entra-id-alta-primer-ingreso-y-corte-directo.md)). **Excepción al «solo crea
+entidades de negocio»:** no crea filas de negocio sino la `UserIdentity` (`ENTRA_ID`, `subject` = `oid`) de un
+usuario **existente**. Mismo patrón y garantías que `projects`/`products`: plantilla `plantilla-vinculos-entra`
+(`docs/templates/`, v1) con las columnas «Correo o código de colaborador» y «Object ID (oid)»; `validate` no
+escribe y es la omisión; `apply` exige `--actor` (administrador activo con `usuarios.editar`); idempotente;
+informe sin datos de celdas; lectura segura de archivos.
+
+Reglas: usuario existente y no eliminado (suspendido sí); `oid` con formato GUID (se guarda en minúsculas); un
+`oid` ya vinculado a otro usuario es error `IDENTITY_TAKEN`; el mismo `oid` ya vinculado al mismo usuario es
+«ya existe»; otro `oid` ya vinculado al usuario es advertencia `EXISTS_DIFFERENT` (se omite sin modificar);
+duplicados del `oid` o del usuario en el archivo son error `DUPLICATE_IN_FILE`. Crea **solo** `UserIdentity`
+(nunca roles ni permisos) y audita `user.identity_linked`. Se vincula siempre por `oid`, nunca por correo. El
+servicio de aplicación es `EntraIdentityLinkService` (módulo de acceso); la lectura de identidades existentes
+es el método `findEntraIdentities` del puerto `InitialDataLookup`. Los `*.e2e` están en
+`backend/test/sso-entra.e2e.spec.ts`. Uso completo: [`docs/templates/README.md`](../templates/README.md) y el
+runbook de [`AUTHENTICATION.md`](../../AUTHENTICATION.md) §4.3.
 
 ### 5.1 Orden de carga
 

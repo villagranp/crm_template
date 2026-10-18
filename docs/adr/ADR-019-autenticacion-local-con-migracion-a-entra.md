@@ -105,3 +105,19 @@ Cuando exista el registro de aplicación:
 - Mientras dure el modo local, revisar trimestralmente las cuentas activas
   contra la lista de personal vigente. Es un control manual, y es precisamente
   el que desaparece al migrar a Entra ID.
+
+## Addendum 2026-10-15 — La migración es un corte directo, sin `hybrid`
+
+**Estado:** Accepted — 2026-10-15 (decisión del responsable). Aclara el «Plan de migración a Entra ID»; no
+reescribe el resto de este ADR. Detalle en
+[ADR-027](ADR-027-sso-entra-id-alta-primer-ingreso-y-corte-directo.md).
+
+- El paso 4 (ventana con `AUTH_PROVIDER=hybrid` y su propio ADR) **se sustituye por un corte directo**:
+  `hybrid` no se implementa y sigue lanzando error al arrancar. Se vincula a todos por `oid`, se cambia
+  `AUTH_PROVIDER=entra` y se revocan las credenciales locales.
+- El paso 3 se ejecuta con `load:data entra-identities` (vinculación por lote, solo por `oid`) y el paso 5
+  con `auth:revoke-local` (borra `user_credentials` y revoca sesiones de las cuentas vinculadas).
+- Las preguntas que este ADR dejaba al de `hybrid` (precedencia, correo en ambos proveedores, duración de la
+  ventana) dejan de aplicar: nunca hay dos proveedores activos a la vez.
+- Una baja de personal sigue sin cerrar el acceso automáticamente tras el corte (riesgo residual y
+  conciliación periódica documentados en ADR-027).

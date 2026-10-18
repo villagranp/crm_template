@@ -52,3 +52,4 @@ __pycache__/
 
 # Informes de la carga inicial por scripts (solo filas y motivos, pero son artefactos de cada ejecucion)
 informe-carga-*.csv
+informe-revocacion-credenciales-*.csv

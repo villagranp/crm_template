@@ -6,6 +6,32 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 ## [Unreleased]
 
 ### Added
+- **SSO con Microsoft Entra ID** ([ADR-027](docs/adr/ADR-027-sso-entra-id-alta-primer-ingreso-y-corte-directo.md),
+  `AUTHENTICATION.md` §4; backend y frontend). Solo probado con tokens y MSAL simulados: la primera
+  prueba real contra un tenant se hará en QA.
+  - **Alta al primer ingreso, sin permisos:** con `AUTH_PROVIDER=entra`, un token válido con un `oid`
+    sin vínculo crea el usuario sin roles, equipos ni país (el administrador del CRM le asigna el
+    acceso, ADR-020), de forma idempotente y a prueba de peticiones simultáneas. Solo si el correo
+    pertenece a los dominios de `seguridad.sso_dominios_permitidos` (sembrado `somosgrupoag.com`) y
+    el interruptor `seguridad.sso_alta_automatica` está encendido. Errores 403:
+    `IDENTITY_NOT_LINKED`, `IDENTITY_INCOMPLETE`, `IDENTITY_DOMAIN_NOT_ALLOWED` y
+    `SSO_PROVISIONING_DISABLED`. Auditoría `user.provisioned`.
+  - **Vinculación solo por `oid`, nunca por correo:** un usuario local existente no entra hasta que se
+    vincula. `load:data … entra-identities` vincula en lote desde una plantilla
+    (`docs/templates/plantilla-vinculos-entra.{csv,xlsx}`); auditoría `user.identity_linked`.
+  - **Corte directo, sin `hybrid`:** `pnpm --filter @app/backend run auth:revoke-local` revoca las
+    credenciales y sesiones locales tras vincular a todos (simulación por defecto; `--confirm`;
+    aborta si queda alguna cuenta sin vincular salvo `--allow-unlinked`). Las bajas son manuales.
+  - **Token endurecido:** RS256, `ver 2.0`, `scp` obligatorio, `exp` obligatorio, `oid` GUID, y los
+    opcionales `ENTRA_REQUIRED_SCOPE` y `ENTRA_ALLOWED_CLIENT_IDS` (`azp`), obligatorios con
+    `NODE_ENV=production` y `AUTH_PROVIDER=entra`. Las variables `ENTRA_*` se validan al arrancar.
+  - **Frontend:** adaptador `@azure/msal-browser` 4.30.0 (flujo de redirección con PKCE, sin
+    ventanas emergentes ni iframes), ruta pública `/auth/callback`, estado «Acceso pendiente» para
+    quien entra sin rol y «Usar otra cuenta». `GET /users?pendingAccess=true`, `pendingAccess` en la
+    lista, el detalle y el alta, y chip «Pendientes de acceso» en Administración → Usuarios.
+  - **Despliegue:** `connect-src` hacia `login.microsoftonline.com` en la política de seguridad de
+    NGINX; `VITE_*` documentadas para el servidor de QA y nombre `miclienteag-qa.somosgrupoag.com`.
+    Tras actualizar, ejecutar `prisma:seed` para el parámetro y los permisos nuevos.
 - **Carga inicial de datos por scripts con plantilla** (`docs/implementation-plans/CARGA-INICIAL.md`;
   backend y documentación, sin cambios de esquema, endpoints, permisos ni dependencias): el
   administrador del sistema carga **proyectos**, **productos y familias** y **minutos de seguridad**

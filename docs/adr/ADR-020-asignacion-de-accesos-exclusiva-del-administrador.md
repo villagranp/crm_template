@@ -134,3 +134,16 @@ ADMIN_ONLY`), con el mismo criterio que eliminar un equipo con miembros o
 subequipos: afecta a un equipo con composición y, con ello, a otros usuarios.
 Un equipo vacío (sin miembros ni subequipos) lo sigue activando o desactivando
 cualquiera con `equipos.editar`. Lo anterior de este addendum no cambia.
+
+## Addendum 2026-10-15 — El alta automática con Entra ID no asigna acceso
+
+**Estado:** Accepted — 2026-10-15. Aclara el alcance de este ADR; no cambia ninguna regla. Detalle en
+[ADR-027](ADR-027-sso-entra-id-alta-primer-ingreso-y-corte-directo.md).
+
+- Con `AUTH_PROVIDER=entra`, el primer ingreso de una persona sin cuenta **crea la cuenta sin acceso**:
+  usuario `ACTIVE` **sin roles, sin permisos directos, sin equipos y sin país**. No es asignar acceso; es la
+  ausencia de él. Todo lo que concede acceso (roles, excepciones directas, equipos, país) sigue siendo
+  exclusivo del administrador (`403 ADMIN_ONLY` para el resto).
+- La lista de cuentas en esa situación es `GET /users?pendingAccess=true` (`ACTIVE` sin ningún rol vigente).
+- Vincular una identidad de Entra ID a una cuenta **existente** (`load:data entra-identities`) lo ejecuta un
+  administrador activo con `usuarios.editar` y crea solo la identidad: nunca roles ni permisos.

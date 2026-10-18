@@ -108,6 +108,42 @@ Restringe el archivo a administradores y `SYSTEM` (la cuenta del servicio):
 icacls C:\apps\mi-cliente-ag\backend\.env /inheritance:r /grant:r "Administrators:F" "SYSTEM:R"
 ```
 
+### 4.1 Variables del frontend (solo con Entra ID)
+
+Con `AUTH_PROVIDER=local` no hace falta nada: los valores por defecto del frontend ya son los de
+QA. Con Entra ID hay que dar al servidor un segundo archivo, **distinto del `.env` del backend**.
+
+Las variables `VITE_*` **se incrustan en el bundle al compilar** (`pnpm build`): no se leen en
+tiempo de ejecución ni del `backend\.env`. Si cambian, hay que volver a compilar. Vite lee, en
+modo producción, `frontend\.env.production.local`; `.gitignore` ya ignora `.env.*`, así que ese
+archivo vive solo en el servidor, sobrevive a `git pull` y no se versiona (cuidado con
+`git clean -x`, que lo borraría). No contienen secretos: son valores públicos que acabarán en el
+JavaScript que descarga el navegador.
+
+Créalo **antes** de ejecutar `actualizar.ps1` (o de `pnpm build` en el paso 6), con los valores de
+QA. Client ID, authority y scope los entrega el administrador del tenant:
+
+```powershell
+notepad C:\apps\mi-cliente-ag\frontend\.env.production.local
+```
+
+```dotenv
+VITE_AUTH_PROVIDER=entra
+VITE_ENTRA_CLIENT_ID=<client ID de la aplicación SPA>
+VITE_ENTRA_AUTHORITY=https://login.microsoftonline.com/<ID del tenant>
+VITE_ENTRA_REDIRECT_URI=https://miclienteag-qa.somosgrupoag.com/auth/callback
+VITE_ENTRA_API_SCOPE=<scope de la API, p. ej. api://<client ID de la API>/access_as_user>
+```
+
+- `VITE_ENTRA_AUTHORITY` debe llevar el **GUID del tenant**; `/common`, `/organizations` y
+  `/consumers` se rechazan al arrancar (aceptarían cuentas de cualquier tenant).
+- `VITE_ENTRA_REDIRECT_URI` debe coincidir **exactamente** con una redirect URI registrada (ver el
+  apartado 14).
+- Si falta alguna de las cuatro variables `VITE_ENTRA_*` con `VITE_AUTH_PROVIDER=entra`, la página
+  queda en blanco y la consola del navegador muestra `Invalid frontend configuration` con el
+  nombre de la variable (nunca su valor).
+- Plantilla con todas las variables y su explicación: sección «FRONTEND» de `.env.example`.
+
 ## 5. (Opcional) Traer la base de desarrollo
 
 Solo si quieres en QA los datos de tu base local. Se copian **también sus usuarios y
@@ -248,6 +284,9 @@ descomprimir el ZIP de la misma marca de tiempo en `attachments`.
 powershell -ExecutionPolicy Bypass -File C:\apps\mi-cliente-ag\infrastructure\qa-windows\actualizar.ps1
 ```
 
+Con Entra ID, `frontend\.env.production.local` (apartado 4.1) debe existir **antes**: el paso de
+compilación incrusta esas variables y no se leen después.
+
 Detiene el backend (el motor de Prisma queda bloqueado mientras corre), trae `main`, instala,
 compila, migra, ejecuta la semilla esencial (idempotente), arranca, valida y recarga NGINX y
 comprueba `/api/v1/ready`. Se detiene en el primer error; el sitio no responde mientras dura
@@ -308,6 +347,59 @@ archivo de productos y el de familias es el de al lado con el sufijo `-familias`
 
 ## 14. Antes de Entra ID
 
-Entra ID no acepta direcciones de redirección `https://<IP>`. Pide a infraestructura un
-nombre DNS de QA y un certificado válido para él; después se sustituye `qa.crt`/`qa.key`, se
-actualiza `CORS_ALLOWED_ORIGINS` y se registra la aplicación (ADR-007).
+Entra ID no acepta direcciones de redirección `https://<IP>`: QA necesita un **nombre DNS** y un
+**certificado válido para ese nombre**. Decisión del responsable (2026-10-15): el nombre es
+`miclienteag-qa.somosgrupoag.com`. Lleva **guion medio**: el guion bajo (`_`) no es válido en
+nombres de host y los navegadores y certificados lo rechazan.
+
+Requisitos de la **API** registrada en el tenant (los configura su administrador):
+
+- Que emita **tokens v2** (`accessTokenAcceptedVersion = 2` en el manifiesto de la API).
+- **«Asignación de usuarios requerida» = Sí** en la aplicación empresarial: solo entran las
+  personas o grupos asignados.
+- **Consentimiento de usuario desactivado**: solo el administrador concede los permisos.
+
+Orden recomendado (los pasos 1 a 3 los hace infraestructura):
+
+1. **DNS.** Registro `A` (o `CNAME`) `miclienteag-qa.somosgrupoag.com` hacia la IP del servidor de
+   QA. Comprueba desde otro equipo: `Resolve-DnsName miclienteag-qa.somosgrupoag.com`.
+2. **Certificado.** Uno emitido para `miclienteag-qa.somosgrupoag.com` (CN y SAN) por una CA que
+   los navegadores de los usuarios ya confíen. Guárdalo como `C:\nginx\ssl\qa.crt` y `qa.key`
+   (PEM, mismos permisos del paso 8) y reinicia `MiClienteAG-NGINX`. `server_name _` de
+   `nginx.conf` ya atiende cualquier nombre: no hay que editarlo.
+3. **Registro de la aplicación (administrador del tenant).** Plataforma **«Aplicación de una sola
+   página» (SPA)**, no «Web»: el canje del código es una petición `fetch` entre orígenes y solo la
+   plataforma SPA responde con CORS. Redirect URIs de QA:
+   - `https://miclienteag-qa.somosgrupoag.com/auth/callback` (respuesta del inicio de sesión).
+   - `https://miclienteag-qa.somosgrupoag.com/acceso` (destino tras cerrar sesión).
+
+   Para desarrollo, `http://localhost:5173/auth/callback` y `http://localhost:5173/acceso`. El
+   administrador entrega el client ID, el authority (con el ID del tenant) y el scope de la API:
+   **no se escriben en archivos versionados** (ni en este documento).
+4. **Backend (`C:\apps\mi-cliente-ag\backend\.env`).** Cambia `CORS_ALLOWED_ORIGINS` a
+   `https://miclienteag-qa.somosgrupoag.com` (el origen sin ruta ni barra final; si durante la
+   transición se sigue entrando por IP, se pueden listar ambos separados por coma) y configura el
+   proveedor Entra del backend: las variables `AUTH_PROVIDER` y `ENTRA_*` están en
+   [`AUTHENTICATION.md`](../../AUTHENTICATION.md) y en el ADR-027. Con `AUTH_PROVIDER=entra` son
+   **obligatorias en producción** `ENTRA_REQUIRED_SCOPE` (el scope que el token debe traer) y
+   `ENTRA_ALLOWED_CLIENT_IDS` (los client ID de las aplicaciones autorizadas a llamar a la API,
+   entre ellos el de la SPA). Los valores los entrega el administrador del tenant y **no se
+   versionan**. Reinicia el servicio:
+   `Restart-Service MiClienteAG-API`.
+5. **Variables del frontend** en `frontend\.env.production.local` (apartado 4.1), **antes** de
+   ejecutar `actualizar.ps1`.
+6. **Actualizar QA** (paso 12): compila con esas variables incrustadas.
+
+Comprobación posterior, entrando por `https://miclienteag-qa.somosgrupoag.com`:
+
+- `/acceso` muestra solo el botón «Continuar» (sin correo ni contraseña) y el menú de usuario no
+  ofrece «Cambiar contraseña».
+- El primer ingreso de una persona que no existía crea su cuenta **sin permisos**: ve «Acceso
+  pendiente». El administrador la habilita en Administración → Usuarios (filtro «Pendientes de
+  acceso») asignándole un rol; la persona pulsa «Volver a comprobar» o vuelve a entrar.
+- Si el backend rechaza la identidad, el login muestra el motivo: cuenta sin vincular, identidad sin
+  correo utilizable o alta automática desactivada. En los tres casos se contacta al administrador.
+- Cerrar sesión termina también la sesión de Microsoft y vuelve a `/acceso`.
+
+La política CSP de NGINX ya permite `https://login.microsoftonline.com` en `connect-src`
+(`infrastructure/nginx/conf.d/security-headers.conf`); no se abren iframes ni ventanas emergentes.
