@@ -107,7 +107,7 @@ export class ParametersController {
     description: [
       'Sólo el valor es editable. Se valida por tipo: NUMBER (entero si el valor actual es entero), BOOLEAN (true/false), JSON válido, DATE ISO 8601, STRING de 1 a 1000 caracteres.',
       'Rangos de las claves conocidas: seguridad.intentos_fallidos_maximos 1–20; seguridad.minutos_bloqueo 1–1440;',
-      'seguridad.dias_caducidad_password 0–365; auditoria.dias_retencion 30–3650; ui.paginacion_default 1–100.',
+      'seguridad.dias_caducidad_password 0–365; auditoria.dias_retencion 30–3650; ui.paginacion_default 1–100. seguridad.sso_alta_automatica es booleano (true/false, ADR-027): apagado, el primer ingreso con Entra ID de quien no tiene cuenta responde 403 SSO_PROVISIONING_DISABLED.',
       'Las claves `crm.*` y `sistema.*` se validan además con el registro de reglas (D-07.7): rangos, listas de valores, esquema JSON y códigos de catálogo que deben existir y estar activos (los rangos se publican en `range` de `GET /parameters`).',
       'Los parámetros del grupo `seguridad` y los estructurales (`requiresConfigure`, incluido `auditoria.dias_retencion`) exigen además `parametros.configurar`. Los de solo lectura (`readOnly`, p. ej. `crm.moneda_base`) responden 409 SYSTEM_RESOURCE_READ_ONLY.',
       'Deja el evento `parameter.updated` en auditoría.',

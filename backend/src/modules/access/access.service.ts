@@ -80,28 +80,53 @@ const SCOPE_RANK: Record<DataScope, number> = { OWN: 0, TEAM: 1, COUNTRY: 2, ORG
  */
 @Injectable()
 export class AccessService {
+  /** Usuario local resuelto por principal de Entra ID (vive lo que el objeto de la petición). */
+  private readonly resolvedEntraUsers = new WeakMap<AuthenticatedPrincipal, string | null>();
+
   constructor(@Inject(ACCESS_REPOSITORY) private readonly repository: AccessRepository) {}
 
   /**
    * Traduce la identidad del proveedor al usuario local.
    *
-   * Primero busca por el vínculo `UserIdentity` (proveedor + sujeto) y, si no
-   * existe, por correo. Lo segundo cubre el primer acceso de una cuenta creada
-   * por un administrador antes de que el usuario entrara nunca.
+   * Primero busca por el vínculo `UserIdentity` (proveedor + sujeto).
    *
-   * NO crea usuarios: el aprovisionamiento automático desde el token es una
-   * decisión de cada proyecto (a quién se deja entrar, con qué rol inicial) y
-   * necesita su propio ADR.
+   * - `local`: si no existe, cae al correo. Cubre el primer acceso de una cuenta creada por un
+   *   administrador antes de que el usuario entrara nunca.
+   * - `entra`: **nunca por correo** (ADR-027, decisión 4). El correo del directorio se puede
+   *   reasignar; vincular por él sin que un administrador lo confirme cedería la cuenta a quien
+   *   lo reciba. La vinculación es explícita (`oid`), o el alta del primer ingreso, que ya
+   *   resolvió `SsoProvisioningService` antes de llegar aquí. Sin vínculo, no hay cuenta (`null`).
+   *
+   * NO crea usuarios: eso es `SsoProvisioningService`, una vez por petición, tras verificar el token.
    */
   async findUserIdForPrincipal(principal: AuthenticatedPrincipal): Promise<string | null> {
     const provider = principal.issuedBy === 'entra' ? 'ENTRA_ID' : 'LOCAL';
-    const linked = await this.repository.findUserBySubject(provider, principal.subjectId);
+
+    // Con Entra ID el principal de la petición es siempre el mismo objeto (el guard lo guarda en `request`):
+    // el resultado se recuerda por principal para no repetir la consulta en el guard de permisos, el
+    // controlador y los servicios. Solo `entra`: con `local` cada llamada consulta, como siempre.
+    if (provider === 'ENTRA_ID' && this.resolvedEntraUsers.has(principal)) {
+      return this.resolvedEntraUsers.get(principal) ?? null;
+    }
+
+    const userId = await this.resolveUserId(principal, provider);
+    if (provider === 'ENTRA_ID') {
+      this.resolvedEntraUsers.set(principal, userId);
+    }
+    return userId;
+  }
+
+  private async resolveUserId(principal: AuthenticatedPrincipal, provider: 'LOCAL' | 'ENTRA_ID'): Promise<string | null> {
+    const linked =
+      provider === 'ENTRA_ID'
+        ? await this.repository.findUserBySubject(provider, principal.subjectId, principal.tenantId)
+        : await this.repository.findUserBySubject(provider, principal.subjectId);
 
     if (linked) {
       return linked.status === 'ACTIVE' || linked.status === 'INVITED' ? linked.id : null;
     }
 
-    if (!principal.email) {
+    if (provider === 'ENTRA_ID' || !principal.email) {
       return null;
     }
 
@@ -112,6 +137,26 @@ export class AccessService {
 
     // Una cuenta suspendida o bloqueada autentica pero no recibe permisos.
     return byEmail.status === 'ACTIVE' || byEmail.status === 'INVITED' ? byEmail.id : null;
+  }
+
+  /** ¿El usuario tiene una identidad de ese proveedor vinculada? (p. ej. el actor de `auth:revoke-local`.) */
+  isLinkedTo(userId: string, provider: 'LOCAL' | 'ENTRA_ID'): Promise<boolean> {
+    return this.repository.userHasIdentity(userId, provider);
+  }
+
+  /**
+   * Usuario local (no eliminado) por correo o por código de colaborador, para las herramientas de línea
+   * de comandos que reciben `--actor`. Si contiene `@` se busca por correo; si no, por código.
+   */
+  async findUserRefByIdentifier(identifier: string): Promise<{ id: string; email: string } | null> {
+    const text = identifier.trim();
+    if (text.includes('@')) {
+      const user = await this.repository.findUserByEmail(text);
+      return user ? { id: user.id, email: user.email } : null;
+    }
+    const userId = await this.repository.findUserIdByEmployeeCode(text.toUpperCase());
+    const detail = userId ? await this.repository.findUserDetail(userId) : null;
+    return detail ? { id: detail.id, email: detail.email } : null;
   }
 
   /** Quién ejecuta una mutación de administración: usuario local + contexto de auditoría. */

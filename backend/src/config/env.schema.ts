@@ -7,6 +7,8 @@ import { DURATION_PATTERN } from './duration';
  * La aplicacion falla al arrancar si falta o es invalida una variable obligatoria (fail fast).
  * Toda variable nueva se agrega aqui Y en el .env.example de la raiz.
  */
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const envSchema = z
   .object({
     // APP
@@ -49,6 +51,11 @@ export const envSchema = z
     ENTRA_AUDIENCE: z.string().optional(),
     ENTRA_AUTHORITY: z.string().optional(),
     ENTRA_JWKS_URI: z.string().optional(),
+    // ADR-027: scope delegado que debe traer el token (`scp`) y clientes (`azp`) que pueden pedirlo, separados
+    // por comas. Se aplican siempre que esten configurados; con NODE_ENV=production y AUTH_PROVIDER=entra
+    // son obligatorios (abajo).
+    ENTRA_REQUIRED_SCOPE: z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), z.string().trim().optional()),
+    ENTRA_ALLOWED_CLIENT_IDS: z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), z.string().trim().optional()),
 
     // CORS
     CORS_ALLOWED_ORIGINS: z.string().default('http://localhost:5173'),
@@ -112,6 +119,36 @@ export const envSchema = z
           path: [key],
           message: `${key} es obligatorio cuando AUTH_PROVIDER incluye Entra ID`,
         });
+      }
+
+      const issue = (key: string, message: string): void => {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message });
+      };
+      const tenant = env.ENTRA_TENANT_ID;
+      if (tenant && !GUID.test(tenant)) {
+        issue('ENTRA_TENANT_ID', 'ENTRA_TENANT_ID debe ser un GUID');
+      }
+      if (env.ENTRA_AUTHORITY) {
+        const authority = env.ENTRA_AUTHORITY;
+        const valid = authority.startsWith('https://') && authority.endsWith('/v2.0') && (!tenant || authority.toLowerCase().includes(tenant.toLowerCase()));
+        if (!valid) {
+          issue('ENTRA_AUTHORITY', 'ENTRA_AUTHORITY debe ser HTTPS, contener el tenant y terminar en /v2.0 (se aceptan solo tokens v2)');
+        }
+      }
+      if (env.ENTRA_JWKS_URI && !env.ENTRA_JWKS_URI.startsWith('https://')) {
+        issue('ENTRA_JWKS_URI', 'ENTRA_JWKS_URI debe ser HTTPS');
+      }
+      const clients = (env.ENTRA_ALLOWED_CLIENT_IDS ?? '').split(',').map((id) => id.trim()).filter((id) => id.length > 0);
+      if (clients.some((id) => !GUID.test(id))) {
+        issue('ENTRA_ALLOWED_CLIENT_IDS', 'ENTRA_ALLOWED_CLIENT_IDS debe ser una lista de GUID separados por comas');
+      }
+      if (env.NODE_ENV === 'production') {
+        if (!env.ENTRA_REQUIRED_SCOPE) {
+          issue('ENTRA_REQUIRED_SCOPE', 'ENTRA_REQUIRED_SCOPE es obligatorio en producción con Entra ID (el scope que expone la API)');
+        }
+        if (clients.length === 0) {
+          issue('ENTRA_ALLOWED_CLIENT_IDS', 'ENTRA_ALLOWED_CLIENT_IDS es obligatorio en producción con Entra ID (el client id de la SPA)');
+        }
       }
     }
   });

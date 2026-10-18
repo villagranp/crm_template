@@ -5,6 +5,7 @@ import { normalizeName } from '@/modules/customers/customer-normalization';
 import type {
   InitialDataLookup,
   LookupCustomer,
+  LookupEntraIdentity,
   LookupExistingProject,
   LookupFamily,
   LookupProduct,
@@ -45,6 +46,21 @@ export class PrismaInitialDataLookupRepository implements InitialDataLookup {
       status: row.status,
       isDeleted: row.deletedAt !== null,
     }));
+  }
+
+  async findEntraIdentities(query: { readonly subjects: readonly string[]; readonly userIds: readonly string[] }): Promise<LookupEntraIdentity[]> {
+    if (query.subjects.length === 0 && query.userIds.length === 0) return [];
+    const rows = await this.prisma.userIdentity.findMany({
+      where: {
+        provider: 'ENTRA_ID',
+        OR: [
+          ...(query.subjects.length > 0 ? [{ subject: { in: [...query.subjects] } }] : []),
+          ...(query.userIds.length > 0 ? [{ userId: { in: [...query.userIds] } }] : []),
+        ],
+      },
+      select: { userId: true, subject: true },
+    });
+    return rows.map((row) => ({ userId: row.userId, subject: row.subject.toLowerCase() }));
   }
 
   async findCustomersByCrmCode(crmCodes: readonly string[]): Promise<LookupCustomer[]> {

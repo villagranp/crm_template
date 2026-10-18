@@ -1,6 +1,7 @@
 import { ResourceConflictError, ResourceNotFoundError } from '@/common/errors/application-error';
 import { writeTextWorkbook } from '@/common/xlsx';
 import type { AccessService } from '@/modules/access/access.service';
+import type { EntraIdentityLinkService } from '@/modules/access/entra-identity-link.service';
 import type { CustomerReferenceGuard } from '@/modules/customers/customer-reference.guard';
 import type { ProductMastersService } from '@/modules/products/product-masters.service';
 import type { ProjectClassificationService } from '@/modules/projects/project-classification.service';
@@ -12,12 +13,13 @@ import type { LoadFile, LoadSource } from './initial-data-file-reader';
 import { ActorRejectedError, describeFailure, InitialDataLoader } from './initial-data-loader.service';
 import { ENTITY_DEFINITIONS } from './initial-data-templates';
 import type { ParameterReader } from '@/modules/parameters/parameter-reader';
-import type { InitialDataLookup, LookupExistingProject, LookupFamily, LookupProduct, LookupReference, LookupUser } from './ports/initial-data-lookup.port';
+import type { InitialDataLookup, LookupEntraIdentity, LookupExistingProject, LookupFamily, LookupProduct, LookupReference, LookupUser } from './ports/initial-data-lookup.port';
 
 const PROJECT_HEADERS = ENTITY_DEFINITIONS.projects.sheets[0]!.columns.map((column) => column.header);
 const FAMILY_HEADERS = ENTITY_DEFINITIONS.products.sheets[0]!.columns.map((column) => column.header);
 const PRODUCT_HEADERS = ENTITY_DEFINITIONS.products.sheets[1]!.columns.map((column) => column.header);
 const MINUTE_HEADERS = ENTITY_DEFINITIONS['safety-minutes'].sheets[0]!.columns.map((column) => column.header);
+const IDENTITY_HEADERS = ENTITY_DEFINITIONS['entra-identities'].sheets[0]!.columns.map((column) => column.header);
 
 const ACTOR_ID = '11111111-1111-4111-8111-111111111111';
 const OWNER_ID = '22222222-2222-4222-8222-222222222222';
@@ -53,11 +55,12 @@ interface World {
   projectsByCode: LookupExistingProject[];
   projects: LookupExistingProject[];
   minuteDates: string[];
+  entraIdentities: LookupEntraIdentity[];
   /** Obligatorios que añade `crm.campos_obligatorios.project`. */
   requiredProject: string[];
 }
 
-function build(world: Partial<World> = {}, adminPermissions: string[] = ['proyectos.crear', 'proyectos.administrar', 'productos.configurar', 'minuto_seguridad.crear']) {
+function build(world: Partial<World> = {}, adminPermissions: string[] = ['proyectos.crear', 'proyectos.administrar', 'productos.configurar', 'minuto_seguridad.crear', 'usuarios.editar']) {
   const data: World = {
     users: [user()],
     customers: [{ id: CUSTOMER_ID, crmCode: 'CLI-1', isDeleted: false }],
@@ -72,6 +75,7 @@ function build(world: Partial<World> = {}, adminPermissions: string[] = ['proyec
     projectsByCode: [],
     projects: [],
     minuteDates: [],
+    entraIdentities: [],
     requiredProject: [],
     ...world,
   };
@@ -87,10 +91,11 @@ function build(world: Partial<World> = {}, adminPermissions: string[] = ['proyec
     findProjectsByCodes: jest.fn(async (codes) => data.projectsByCode.filter((existing) => codes.includes(existing.code))),
     findProjectsOfCustomers: jest.fn(async (ids) => data.projects.filter((project) => ids.includes(project.customerId))),
     findExistingSafetyMinuteDates: jest.fn(async (dates) => data.minuteDates.filter((date) => dates.includes(date))),
+    findEntraIdentities: jest.fn(async ({ subjects, userIds }) => data.entraIdentities.filter((identity) => subjects.includes(identity.subject) || userIds.includes(identity.userId))),
     listTemplateValues: jest.fn(),
   };
   const access = {
-    isAdministrador: jest.fn(async () => true),
+    isAdministrador: jest.fn(async (userId: string) => userId === ACTOR_ID),
     getEffectivePermissions: jest.fn(async () => new Set(adminPermissions)),
   };
   const projects = { create: jest.fn(async () => ({ record: { id: 'project-1' } })) };
@@ -103,6 +108,7 @@ function build(world: Partial<World> = {}, adminPermissions: string[] = ['proyec
   };
   const safetyMinutes = { today: jest.fn(async () => TODAY), create: jest.fn(async () => ({})) };
   const parameters = { get: jest.fn(async () => ({ project: data.requiredProject })) };
+  const identityLinks = { link: jest.fn(async (): Promise<{ kind: string }> => ({ kind: 'linked' })) };
   const loader = new InitialDataLoader(
     lookup,
     access as unknown as AccessService,
@@ -113,8 +119,9 @@ function build(world: Partial<World> = {}, adminPermissions: string[] = ['proyec
     masters as unknown as ProductMastersService,
     safetyMinutes as unknown as SafetyMinutesService,
     parameters as unknown as ParameterReader,
+    identityLinks as unknown as EntraIdentityLinkService,
   );
-  return { loader, lookup, access, projects, classification, projectAccess, customerGuard, masters, safetyMinutes };
+  return { loader, lookup, access, projects, classification, projectAccess, customerGuard, masters, safetyMinutes, identityLinks };
 }
 
 const minutesSource = (rows: Record<string, string>[]): LoadSource => ({
@@ -134,6 +141,17 @@ const productsSource = (families: Record<string, string>[], products: Record<str
     products: csvFile(PRODUCT_HEADERS, products.map((values) => row(PRODUCT_HEADERS, values))),
   },
 });
+
+const identitiesSource = (rows: Record<string, string>[]): LoadSource => ({
+  format: 'CSV',
+  files: { 'entra-identities': csvFile(IDENTITY_HEADERS, rows.map((values) => row(IDENTITY_HEADERS, values))) },
+});
+
+const OID_1 = '00000000-0000-4000-8000-000000000001';
+const OID_2 = '00000000-0000-4000-8000-000000000002';
+const OID_3 = '00000000-0000-4000-8000-000000000003';
+const OTHER_USER_ID = '44444444-4444-4444-8444-444444444444';
+const link = (userRef: string, oid: string) => ({ 'Correo o código de colaborador': userRef, 'Object ID (oid)': oid });
 
 const minute = (date: string, message = 'Mensaje de prueba') => ({ 'Fecha de visualización': date, Mensaje: message });
 const project = (overrides: Record<string, string> = {}) => ({ 'Nombre del proyecto': 'Torre Ejemplo', 'Código CRM del cliente': 'CLI-1', ...overrides });
@@ -590,5 +608,135 @@ describe('describeFailure', () => {
     const failure = describeFailure('projects', new BoomError('fila con datos personales'));
     expect(failure).toEqual({ code: 'CREATE_FAILED', column: null, detail: 'error inesperado Error' });
     expect(JSON.stringify(failure)).not.toContain('personales');
+  });
+});
+
+describe('InitialDataLoader · vínculos con Entra ID (ADR-027)', () => {
+  const TARGET = 'persona@example.invalid';
+
+  const world = (overrides: Partial<World> = {}): Partial<World> => ({
+    users: [user(), user({ id: OWNER_ID, email: TARGET, employeeCode: 'EMP-7' })],
+    ...overrides,
+  });
+
+  it('validar no escribe: reporta por crear y exige el permiso solo si se indica actor', async () => {
+    const { loader, identityLinks } = build(world());
+    const report = await loader.validate('entra-identities', identitiesSource([link(TARGET, OID_1)]));
+    expect(report.sheets).toEqual([{ sheet: 'Vínculos', read: 1, toCreate: 1, created: 0, exists: 0, existsDifferent: 0, createdWithWarning: 0, errors: 0 }]);
+    expect(report).toMatchObject({ applied: false, errorCount: 0 });
+    expect(identityLinks.link).not.toHaveBeenCalled();
+  });
+
+  it('aplicar vincula por correo o por código de colaborador con el oid en minúsculas y el actor administrador', async () => {
+    const { loader, identityLinks } = build(world());
+    const report = await loader.apply('entra-identities', identitiesSource([link(TARGET.toUpperCase(), OID_1.toUpperCase()), link('EMP-7', OID_2)]), 'admin@example.invalid');
+    // Mismo usuario por correo y por código: ambas filas son error y no se vincula nada.
+    expect(report.errorCount).toBe(2);
+    expect(report.applied).toBe(false);
+    expect(report.entries.map((entry) => entry.code)).toEqual(['DUPLICATE_IN_FILE', 'DUPLICATE_IN_FILE']);
+    expect(identityLinks.link).not.toHaveBeenCalled();
+
+    const other = build({ users: [user(), user({ id: OWNER_ID, email: TARGET }), user({ id: OTHER_USER_ID, email: 'otra@example.invalid', employeeCode: 'EMP-8' })] });
+    const ok = await other.loader.apply('entra-identities', identitiesSource([link(TARGET.toUpperCase(), OID_1.toUpperCase()), link('EMP-8', OID_2)]), 'admin@example.invalid');
+    expect(ok).toMatchObject({ applied: true, errorCount: 0 });
+    expect(ok.sheets[0]).toMatchObject({ toCreate: 2, created: 2 });
+    expect(other.identityLinks.link).toHaveBeenCalledWith(OWNER_ID, OID_1, expect.objectContaining({ actorId: ACTOR_ID }));
+    expect(other.identityLinks.link).toHaveBeenCalledWith(OTHER_USER_ID, OID_2, expect.objectContaining({ actorId: ACTOR_ID }));
+  });
+
+  it.each([
+    ['usuario inexistente', world({ users: [user()] }), link(TARGET, OID_1), 'UNKNOWN_REFERENCE'],
+    ['usuario eliminado', world({ users: [user(), user({ id: OWNER_ID, email: TARGET, isDeleted: true })] }), link(TARGET, OID_1), 'INACTIVE_REFERENCE'],
+    ['oid con formato inválido', world(), link(TARGET, 'no-es-un-guid'), 'INVALID_FORMAT'],
+    ['oid ya vinculado a otro usuario', world({ entraIdentities: [{ userId: OTHER_USER_ID, subject: OID_1 }] }), link(TARGET, OID_1), 'IDENTITY_TAKEN'],
+  ])('%s: error de la fila y no se vincula nada', async (_name, overrides, fileRow, code) => {
+    const { loader, identityLinks } = build(overrides);
+    const report = await loader.apply('entra-identities', identitiesSource([fileRow]), 'admin@example.invalid');
+    expect(report).toMatchObject({ applied: false, errorCount: 1 });
+    expect(report.entries.map((entry) => entry.code)).toEqual([code]);
+    expect(identityLinks.link).not.toHaveBeenCalled();
+  });
+
+  it('un usuario suspendido sí se puede vincular (vincular no da acceso: lo da el rol)', async () => {
+    const { loader, identityLinks } = build(world({ users: [user(), user({ id: OWNER_ID, email: TARGET, status: 'SUSPENDED' })] }));
+    const report = await loader.apply('entra-identities', identitiesSource([link(TARGET, OID_1)]), 'admin@example.invalid');
+    expect(report).toMatchObject({ applied: true, errorCount: 0 });
+    expect(identityLinks.link).toHaveBeenCalledTimes(1);
+  });
+
+  it('el mismo oid ya vinculado al mismo usuario es «ya existe» (idempotente); con otro oid, advertencia EXISTS_DIFFERENT', async () => {
+    const { loader, identityLinks } = build(
+      world({
+        users: [user(), user({ id: OWNER_ID, email: TARGET }), user({ id: OTHER_USER_ID, email: 'otra@example.invalid' })],
+        entraIdentities: [
+          { userId: OWNER_ID, subject: OID_1 },
+          { userId: OTHER_USER_ID, subject: OID_3 },
+        ],
+      }),
+    );
+    const report = await loader.apply('entra-identities', identitiesSource([link(TARGET, OID_1), link('otra@example.invalid', OID_2)]), 'admin@example.invalid');
+    expect(report).toMatchObject({ applied: true, errorCount: 0 });
+    expect(report.sheets[0]).toMatchObject({ toCreate: 0, created: 0, exists: 1, existsDifferent: 1 });
+    expect(report.entries.map((entry) => [entry.row, entry.status, entry.code])).toEqual([
+      [2, 'EXISTS', 'ALREADY_EXISTS'],
+      [3, 'WARNING', 'EXISTS_DIFFERENT'],
+    ]);
+    expect(identityLinks.link).not.toHaveBeenCalled();
+  });
+
+  it('duplicados dentro del archivo: el mismo oid o el mismo usuario dos veces', async () => {
+    const { loader } = build(world({ users: [user(), user({ id: OWNER_ID, email: TARGET }), user({ id: OTHER_USER_ID, email: 'otra@example.invalid' })] }));
+    const report = await loader.validate('entra-identities', identitiesSource([link(TARGET, OID_1), link('otra@example.invalid', OID_1), link(TARGET, OID_2)]));
+    expect(report.entries.filter((entry) => entry.code === 'DUPLICATE_IN_FILE').map((entry) => [entry.row, entry.column])).toEqual([
+      [2, 'Object ID (oid)'],
+      [2, 'Correo o código de colaborador'],
+      [3, 'Object ID (oid)'],
+      [4, 'Correo o código de colaborador'],
+    ]);
+  });
+
+  it('una condición de carrera (otro vínculo creado entre la lectura y la escritura) queda como error de la fila', async () => {
+    const { loader, identityLinks } = build(world());
+    identityLinks.link.mockResolvedValueOnce({ kind: 'identity_taken' });
+    const report = await loader.apply('entra-identities', identitiesSource([link(TARGET, OID_1)]), 'admin@example.invalid');
+    expect(report.errorCount).toBe(1);
+    expect(report.entries[0]).toMatchObject({ status: 'ERROR', code: 'IDENTITY_TAKEN' });
+  });
+
+  it('el informe nunca incluye correos, códigos ni oid de las celdas', async () => {
+    const { loader } = build(world({ entraIdentities: [{ userId: OTHER_USER_ID, subject: OID_1 }] }));
+    const report = await loader.validate('entra-identities', identitiesSource([link(TARGET, OID_1), link('desconocido@example.invalid', OID_2)]));
+    const text = JSON.stringify(report);
+    for (const secret of [TARGET, 'desconocido', OID_1, OID_2]) expect(text).not.toContain(secret);
+  });
+
+  it('B8: el informe avisa de las filas que apuntan a usuarios con rol de administrador (cuántas y cuáles), sin bloquear', async () => {
+    const adminTarget = user({ id: OTHER_USER_ID, email: 'otra@example.invalid' });
+    const { loader, access, identityLinks } = build({ users: [user(), user({ id: OWNER_ID, email: TARGET }), adminTarget] });
+    access.isAdministrador.mockImplementation(async (userId: string) => userId === ACTOR_ID || userId === OTHER_USER_ID);
+
+    const report = await loader.apply('entra-identities', identitiesSource([link(TARGET, OID_1), link('otra@example.invalid', OID_2)]), 'admin@example.invalid');
+    expect(report).toMatchObject({ applied: true, errorCount: 0 });
+    expect(report.entries.map((entry) => [entry.row, entry.status, entry.code])).toEqual([
+      [null, 'WARNING', 'ADMINISTRATOR_ROWS'],
+      [3, 'WARNING', 'LINKS_TO_ADMINISTRATOR'],
+    ]);
+    expect(report.entries[0]!.message).toContain('1 fila(s)');
+    expect(identityLinks.link).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(report)).not.toContain('otra@example.invalid');
+  });
+
+  it('sin filas hacia administradores no añade ningún aviso', async () => {
+    const { loader } = build(world());
+    const report = await loader.validate('entra-identities', identitiesSource([link(TARGET, OID_1)]));
+    expect(report.entries).toEqual([]);
+  });
+
+  it('apply exige un actor administrador con usuarios.editar', async () => {
+    const lacking = build(world(), ['proyectos.crear']);
+    await expect(lacking.loader.apply('entra-identities', identitiesSource([link(TARGET, OID_1)]), 'admin@example.invalid')).rejects.toMatchObject({ reason: 'ACTOR_LACKS_PERMISSION' });
+    const notAdmin = build(world());
+    notAdmin.access.isAdministrador.mockResolvedValue(false);
+    await expect(notAdmin.loader.apply('entra-identities', identitiesSource([link(TARGET, OID_1)]), 'admin@example.invalid')).rejects.toMatchObject({ reason: 'ACTOR_NOT_ADMIN' });
   });
 });

@@ -138,6 +138,7 @@ export class UsersService {
         roleCode: query.roleCode ?? null,
         teamId: query.teamId ?? null,
         countryId: query.countryId ?? null,
+        pendingAccess: query.pendingAccess ?? null,
       },
     });
 
@@ -539,6 +540,7 @@ function toFilter(query: ExportUsersQueryDto): Omit<ListUsersFilter, 'page' | 'p
     roleCode: query.roleCode,
     teamId: query.teamId,
     countryId: query.countryId,
+    pendingAccess: query.pendingAccess,
     sortBy: query.sortBy,
     // Sin campo de orden explícito, por nombre ascendente.
     sortOrder: query.sortBy ? query.sortOrder : 'asc',

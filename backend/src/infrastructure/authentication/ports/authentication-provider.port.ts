@@ -13,7 +13,14 @@ export interface AuthenticationProvider {
 }
 
 export class InvalidTokenError extends Error {
-  constructor(reason: string) {
+  /**
+   * Código estable del rechazo (p. ej. `ERR_JWT_EXPIRED` de jose o `ENTRA_SCOPE_MISSING`), seguro de
+   * registrar: nunca contiene datos del token. El guard registra solo esto.
+   */
+  constructor(
+    reason: string,
+    readonly code?: string,
+  ) {
     super(reason);
     this.name = 'InvalidTokenError';
   }

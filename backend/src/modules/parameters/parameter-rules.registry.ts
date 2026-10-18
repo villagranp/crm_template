@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
-import { LOGIN_SECURITY_PARAMETERS } from './authentication-settings';
+import { canonicalDomain, parseDomainList } from '@/common/identity-claims';
+
+import { LOGIN_SECURITY_PARAMETERS, SSO_ALLOWED_DOMAINS_PARAMETER, SSO_AUTO_PROVISIONING_PARAMETER } from './authentication-settings';
 import {
   canonicalDashboardCards,
   DASHBOARD_ALWAYS_VISIBLE_BLOCKS,
@@ -411,6 +413,30 @@ const RULES: readonly ParameterRule[] = [
   numberRule(LOGIN_SECURITY_PARAMETERS.maxFailedAttempts, 5, 1, 20, { requiresConfigure: true }),
   numberRule(LOGIN_SECURITY_PARAMETERS.lockoutMinutes, 15, 1, 1440, { requiresConfigure: true }),
   numberRule(LOGIN_SECURITY_PARAMETERS.passwordExpiryDays, 0, 0, 365, { requiresConfigure: true }),
+  // ADR-027: alta automática (sin permisos) al primer ingreso con Entra ID. Del grupo `seguridad`: exige `parametros.configurar`.
+  booleanRule(SSO_AUTO_PROVISIONING_PARAMETER, true, true),
+  // ADR-027: dominios de correo que pueden darse de alta solos (exacto, sin distinguir mayúsculas). Solo frena altas nuevas.
+  {
+    key: SSO_ALLOWED_DOMAINS_PARAMETER,
+    type: 'STRING',
+    defaultValue: 'somosgrupoag.com',
+    schema: z
+      .string()
+      .max(1000)
+      .superRefine((value, ctx) => {
+        const parts = value.split(',').filter((part) => part.trim().length > 0);
+        if (parts.length === 0) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Indica al menos un dominio (para frenar las altas, apaga seguridad.sso_alta_automatica)' });
+        }
+        if (parts.some((part) => canonicalDomain(part) === null)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Cada dominio debe ser como somosgrupoag.com (letras, dígitos y guiones, con punto), separados por comas' });
+        }
+      }),
+    normalize: (value) => parseDomainList(value as string).join(','),
+    requiresConfigure: true,
+    readOnly: false,
+    editor: 'text',
+  },
   // Acorta la ventana de la bitácora: estructural (M-2 de seguridad, decisión de 2026-10-14).
   numberRule('auditoria.dias_retencion', 365, 30, 3650, { requiresConfigure: true }),
   numberRule('ui.paginacion_default', 20, 1, 100),

@@ -5,6 +5,7 @@ import { sanitizeCell } from '@/modules/customer-imports/cell-sanitizer';
 import { normalizeName } from '@/modules/customers/customer-normalization';
 import { FAMILY_CODE_PATTERN, normalizeCode, SKU_PATTERN } from '@/modules/products/master-data-rules';
 import { normalizeProjectCode } from '@/modules/projects/project-rules';
+import { canonicalOid, isGuid } from '@/common/identity-claims';
 
 import type { ParsedSheet } from './initial-data-file-reader';
 import type { ReportEntry } from './initial-data-report';
@@ -60,6 +61,11 @@ export class SheetCollector {
   existsDifferent(fileRow: number, columnKey: string | null, message: string): void {
     this.differentRows.add(fileRow);
     this.entries.push({ sheet: this.sheet.sheetName, row: fileRow, column: this.headerOf(columnKey), status: 'WARNING', code: 'EXISTS_DIFFERENT', message });
+  }
+
+  /** Aviso informativo de una fila (no la marca como error, omitida ni advertida de creación): solo deja la incidencia. */
+  note(fileRow: number | null, columnKey: string | null, code: string, message: string): void {
+    this.entries.push({ sheet: this.sheet.sheetName, row: fileRow, column: this.headerOf(columnKey), status: 'WARNING', code, message });
   }
 
   /** Fila creada que necesita reparación manual: no cuenta como creada ni como error. */
@@ -361,4 +367,47 @@ export function validateMinuteRows(rows: readonly LoadRow[], collector: SheetCol
   return rows
     .filter((row) => !collector.hasError(row.fileRow))
     .map((row) => ({ fileRow: row.fileRow, displayDate: value(row, 'displayDate') ?? '', message: messageOf(row) ?? '' }));
+}
+
+// ---------------------------------------------------------------------------
+// Vínculos con Entra ID (ADR-027)
+// ---------------------------------------------------------------------------
+
+export interface EntraIdentityDraft {
+  readonly fileRow: number;
+  readonly user: OwnerReference;
+  /** `oid` en minúsculas, como lo emite Entra ID y como se guarda. */
+  readonly oid: string;
+}
+
+/**
+ * Valida las filas de vínculos: `oid` con formato GUID y sin repetirse en el archivo, y el mismo
+ * usuario (por la misma referencia) una sola vez. Que dos referencias distintas (correo y código)
+ * sean el mismo usuario solo se sabe al resolverlas: lo marca el cargador.
+ */
+export function validateEntraIdentityRows(rows: readonly LoadRow[], collector: SheetCollector): EntraIdentityDraft[] {
+  for (const row of rows) {
+    const oid = value(row, 'oid');
+    if (oid !== null && !isGuid(oid)) {
+      collector.error(row.fileRow, 'oid', 'INVALID_FORMAT', 'El Object ID debe ser un GUID (8-4-4-4-12 caracteres hexadecimales).');
+    }
+  }
+  markDuplicates(collector, rows, (row) => (value(row, 'oid') === null ? null : canonicalOid(value(row, 'oid') as string)), 'oid', 'El Object ID');
+  markDuplicates(
+    collector,
+    rows,
+    (row) => {
+      const user = value(row, 'user');
+      return user === null ? null : (parseOwnerReference(user).value.toLowerCase());
+    },
+    'user',
+    'El usuario',
+  );
+  return rows
+    .filter((row) => !collector.hasError(row.fileRow))
+    .map((row) => ({
+      fileRow: row.fileRow,
+      user: parseOwnerReference(value(row, 'user') ?? ''),
+      oid: canonicalOid(value(row, 'oid') ?? ''),
+    }));
 }

@@ -24,7 +24,8 @@
     "imports:purge-rows": "ts-node --transpile-only -r tsconfig-paths/register src/scripts/purge-customer-import-rows.ts",
     "imports:purge-rows:prod": "node dist/src/scripts/purge-customer-import-rows.js",
     "load:data": "ts-node --transpile-only scripts/load-initial-data.ts",
-    "load:data:templates": "ts-node --transpile-only scripts/generate-initial-data-templates.ts"
+    "load:data:templates": "ts-node --transpile-only scripts/generate-initial-data-templates.ts",
+    "auth:revoke-local": "ts-node --transpile-only scripts/revoke-local-credentials.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
