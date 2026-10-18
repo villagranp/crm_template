@@ -34,6 +34,11 @@ export interface UserListItem {
   status: UserStatus;
   roles: string[];
   teams: UserTeam[];
+  /**
+   * Sin ningún acceso concedido: usuario recién creado (p. ej. en el primer ingreso con Entra ID,
+   * ADR-027) al que el administrador aún debe asignarle un rol. Lo calcula el backend.
+   */
+  pendingAccess: boolean;
   lastLoginAt: string | null;
   createdAt: string;
 }
@@ -60,6 +65,8 @@ export interface UserDetail {
   lastLoginAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Calculado por el servidor: usuario ACTIVE sin rol vigente ni permisos directos vigentes. */
+  pendingAccess: boolean;
   teams: UserTeam[];
   roles: { id: string; code: string; name: string; isSystem: boolean; expiresAt: string | null }[];
   directPermissions: (DirectAssignment & { code: string; name: string })[];

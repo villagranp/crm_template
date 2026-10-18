@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
 
+import { env } from '@/config/env';
 import { useAuth } from '@/hooks/use-auth';
 import { ROUTE_PATHS } from '@/routes/route-paths';
 
@@ -19,7 +20,8 @@ interface PasswordChangeGateProps {
 export function PasswordChangeGate({ children }: PasswordChangeGateProps) {
   const { isAuthenticated, passwordChangeRequired } = useAuth();
 
-  if (isAuthenticated && passwordChangeRequired) {
+  // Con Entra ID no hay contraseña local que cambiar: la pantalla ni siquiera existe.
+  if (env.VITE_AUTH_PROVIDER === 'local' && isAuthenticated && passwordChangeRequired) {
     return <Navigate to={ROUTE_PATHS.changePassword} replace />;
   }
 

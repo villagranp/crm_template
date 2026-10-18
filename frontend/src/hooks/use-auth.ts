@@ -9,6 +9,7 @@ export function useAuth() {
   const user = useAuthStore((state) => state.user);
   const passwordChangeRequired = useAuthStore((state) => state.passwordChangeRequired);
   const errorMessage = useAuthStore((state) => state.errorMessage);
+  const signInError = useAuthStore((state) => state.signInError);
   const signIn = useAuthStore((state) => state.signIn);
   const signOut = useAuthStore((state) => state.signOut);
   const changePassword = useAuthStore((state) => state.changePassword);
@@ -18,6 +19,7 @@ export function useAuth() {
     user,
     passwordChangeRequired,
     errorMessage,
+    signInError,
     isAuthenticated: status === 'authenticated',
     signIn,
     signOut,

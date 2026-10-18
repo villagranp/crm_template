@@ -6,9 +6,11 @@ import { FullPageLoader } from '@/components/feedback/full-page-loader';
 import { AppShell } from '@/components/layout/AppShell';
 import { PasswordChangeGate } from '@/components/layout/PasswordChangeGate';
 import { RequireAuth } from '@/components/layout/RequireAuth';
+import { RequireLocalAuth } from '@/components/layout/RequireLocalAuth';
 import { RequirePermission } from '@/components/layout/RequirePermission';
 import { ADMIN_ROUTES } from '@/features/admin/admin-routes';
 import { CRM_ROUTES } from '@/features/crm/crm-routes';
+import { AuthCallbackPage } from '@/routes/pages/AuthCallbackPage';
 import { ChangePasswordPage } from '@/routes/pages/ChangePasswordPage';
 import { HomePage } from '@/routes/pages/HomePage';
 import { LoginPage } from '@/routes/pages/LoginPage';
@@ -50,7 +52,8 @@ export function getShellNavigablePaths(): string[] {
  * Tabla de rutas.
  *
  * Todo el shell exige sesión (`RequireAuth`): sin ella, cualquier ruta lleva a
- * `/acceso` y, al entrar, se vuelve a la que se pidió. Después va
+ * `/acceso` y, al entrar, se vuelve a la que se pidió. `/auth/callback` (Entra ID) es la excepción:
+ * pública, porque la sesión se completa en ella. Después va
  * `PasswordChangeGate`: con un cambio de contraseña pendiente (D13) toda ruta
  * lleva a `/cambiar-contrasena`, que vive fuera del shell porque el menú aún no
  * está disponible para esa sesión.
@@ -61,11 +64,18 @@ export const appRoutes: RouteObject[] = [
     element: <LoginPage />,
   },
   {
+    // Pública y fuera de `RequireAuth`: Microsoft devuelve aquí al usuario sin sesión (ADR-027).
+    path: ROUTE_PATHS.authCallback,
+    element: <AuthCallbackPage />,
+  },
+  {
     path: ROUTE_PATHS.changePassword,
     element: (
-      <RequireAuth>
-        <ChangePasswordPage />
-      </RequireAuth>
+      <RequireLocalAuth>
+        <RequireAuth>
+          <ChangePasswordPage />
+        </RequireAuth>
+      </RequireLocalAuth>
     ),
   },
   {

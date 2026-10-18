@@ -9,7 +9,27 @@ import { z } from 'zod';
  * Validation runs once at module load so the application fails fast on a
  * misconfigured build instead of failing later with a confusing runtime error.
  */
-const envSchema = z
+function isUrlWithProtocol(value: string, protocols: readonly string[]): boolean {
+  try {
+    return protocols.includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** El primer segmento de la ruta del authority debe ser el GUID del tenant. */
+function hasTenantGuid(authority: string): boolean {
+  try {
+    const [tenant] = new URL(authority).pathname.split('/').filter(Boolean);
+    return tenant !== undefined && GUID.test(tenant);
+  } catch {
+    return false;
+  }
+}
+
+export const envSchema = z
   .object({
     VITE_API_BASE_URL: z.string().min(1).default('/api/v1'),
     VITE_AUTH_PROVIDER: z.enum(['local', 'entra']).default('local'),
@@ -24,22 +44,51 @@ const envSchema = z
       return;
     }
 
+    // El tenant va dentro del authority (`https://login.microsoftonline.com/<tenant>`): no se
+    // exige `VITE_ENTRA_TENANT_ID` por separado. El flujo de redirección no usa secretos.
     const requiredForEntra = [
       'VITE_ENTRA_CLIENT_ID',
-      'VITE_ENTRA_TENANT_ID',
       'VITE_ENTRA_AUTHORITY',
       'VITE_ENTRA_REDIRECT_URI',
       'VITE_ENTRA_API_SCOPE',
     ] as const;
 
     for (const key of requiredForEntra) {
-      if (!value[key]) {
+      if (!value[key]?.trim()) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: [key],
           message: `${key} is required when VITE_AUTH_PROVIDER=entra`,
         });
       }
+    }
+
+    // Con la variable presente, además debe tener forma de URL (sólo nombres de variable en el
+    // error, nunca valores). El authority de Entra es siempre HTTPS; la redirect URI puede ser
+    // `http://localhost` en desarrollo.
+    if (value.VITE_ENTRA_AUTHORITY?.trim() && !isUrlWithProtocol(value.VITE_ENTRA_AUTHORITY, ['https:'])) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['VITE_ENTRA_AUTHORITY'],
+        message: 'VITE_ENTRA_AUTHORITY must be an https URL',
+      });
+    } else if (value.VITE_ENTRA_AUTHORITY?.trim() && !hasTenantGuid(value.VITE_ENTRA_AUTHORITY)) {
+      // `/common`, `/organizations` o `/consumers` aceptarían cuentas de cualquier tenant.
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['VITE_ENTRA_AUTHORITY'],
+        message: 'VITE_ENTRA_AUTHORITY must include the tenant GUID (not common/organizations)',
+      });
+    }
+    if (
+      value.VITE_ENTRA_REDIRECT_URI?.trim() &&
+      !isUrlWithProtocol(value.VITE_ENTRA_REDIRECT_URI, ['https:', 'http:'])
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['VITE_ENTRA_REDIRECT_URI'],
+        message: 'VITE_ENTRA_REDIRECT_URI must be an absolute http(s) URL',
+      });
     }
   });
 

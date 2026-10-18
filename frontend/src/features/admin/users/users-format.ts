@@ -16,6 +16,9 @@ export const USER_STATUS_VIEW: Record<UserStatus, { label: string; color: ChipPr
   LOCKED: { label: 'Bloqueado temporalmente', color: 'warning' },
 };
 
+/** Etiqueta de quien tiene cuenta pero aún ningún acceso (ADR-027). Texto + color: el color no va solo. */
+export const PENDING_ACCESS_LABEL = 'Pendiente de acceso';
+
 /** País del usuario para tablas y detalle: "Guatemala (GT)" o "—". */
 export function formatCountry(country: UserCountry | null): string {
   return country ? `${country.name} (${country.isoCode})` : '—';

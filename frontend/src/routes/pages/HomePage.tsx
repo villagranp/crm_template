@@ -3,6 +3,7 @@ import { Alert, Box, Button, Skeleton, Stack, type Theme } from '@mui/material';
 import { useState, type ReactNode } from 'react';
 
 import { PageHeader } from '@/components/layout/PageHeader';
+import { PendingAccessState } from '@/features/auth/PendingAccessState';
 import { AccessSummary } from '@/features/dashboard/components/AccessSummary';
 import { AlertsPanel } from '@/features/dashboard/components/AlertsPanel';
 import { DashboardCustomizeDialog } from '@/features/dashboard/components/DashboardCustomizeDialog';
@@ -22,6 +23,7 @@ import { useDashboardAccess, useSafetyMinute } from '@/features/dashboard/dashbo
 import { useAuth } from '@/hooks/use-auth';
 import { useHealth } from '@/hooks/use-health';
 import { useMenu } from '@/hooks/use-menu';
+import { usePendingAccess } from '@/hooks/use-pending-access';
 import { useProfile } from '@/hooks/use-profile';
 import {
   useResetDashboardComposition,
@@ -46,7 +48,7 @@ function GridArea({ area, children }: { area: DashboardBlockKey; children: React
  * a `/dashboard/*`. Ocultar es experiencia de usuario: el backend vuelve a
  * exigir cada permiso y filtra por ámbito.
  */
-export function HomePage() {
+function DashboardHome() {
   const { user } = useAuth();
   const health = useHealth();
   const profile = useProfile();
@@ -188,4 +190,14 @@ export function HomePage() {
       />
     </>
   );
+}
+
+/**
+ * Inicio. Quien aún no tiene rol (usuario recién creado con Entra ID, ADR-027) ve el estado
+ * «Acceso pendiente» en lugar del panel: sus consultas fallarían o saldrían vacías. La separación
+ * está en dos componentes para no condicionar los hooks del panel.
+ */
+export function HomePage() {
+  const isAccessPending = usePendingAccess();
+  return isAccessPending ? <PendingAccessState /> : <DashboardHome />;
 }

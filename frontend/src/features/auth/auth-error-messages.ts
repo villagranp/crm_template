@@ -1,5 +1,5 @@
 import { ApiError } from '@/services/api/api-error';
-import { AUTH_ERROR_CODES } from '@/services/auth';
+import { AUTH_ERROR_CODES, SSO_ERROR_CODES } from '@/services/auth';
 
 /**
  * Traduce los errores de la API de autenticación a mensajes para el usuario.
@@ -27,6 +27,17 @@ const MESSAGES = {
   invalidPasswordData: 'Revisa los datos del formulario.',
   sessionExpired: 'Tu sesión ha caducado. Vuelve a iniciar sesión.',
   changeUnexpected: 'No se pudo cambiar la contraseña. Inténtalo de nuevo más tarde.',
+  ssoIdentityNotLinked:
+    'Tu cuenta existe pero aún no está vinculada con tu identidad corporativa. Contacta al administrador.',
+  ssoIdentityIncomplete:
+    'Tu identidad corporativa no trae un correo utilizable. Contacta al administrador.',
+  ssoDomainNotAllowed:
+    'Tu correo no pertenece a un dominio autorizado. Contacta al administrador.',
+  ssoAccountNotEnabled:
+    'Tu cuenta no está habilitada en esta aplicación. Contacta al administrador.',
+  ssoProvisioningDisabled: 'El alta automática está desactivada. Contacta al administrador.',
+  ssoUnexpected:
+    'No se pudo iniciar sesión con tu cuenta corporativa. Inténtalo de nuevo o contacta al administrador.',
 } as const;
 
 export function getLoginErrorMessage(error: unknown): string {
@@ -110,4 +121,42 @@ export function getChangePasswordError(error: unknown): ChangePasswordError {
     default:
       return { message: MESSAGES.changeUnexpected, reasons: [] };
   }
+}
+
+/**
+ * Mensaje para el fallo con el que vuelve un inicio de sesión por Entra ID (`GET /me` tras el
+ * canje del código, o un error de MSAL). Se elige por `code`; nunca se muestra el texto crudo del
+ * backend ni el de MSAL.
+ */
+export function getSsoErrorMessage(error: unknown): string {
+  if (!(error instanceof ApiError)) {
+    return MESSAGES.ssoUnexpected;
+  }
+
+  // `GET /me` answers 401 when the linked account is suspended, locked or deleted.
+  if (error.statusCode === HTTP_UNAUTHORIZED) {
+    return MESSAGES.ssoAccountNotEnabled;
+  }
+
+  if (error.statusCode === HTTP_FORBIDDEN) {
+    switch (error.code) {
+      case SSO_ERROR_CODES.domainNotAllowed:
+        return MESSAGES.ssoDomainNotAllowed;
+      case SSO_ERROR_CODES.identityNotLinked:
+        return MESSAGES.ssoIdentityNotLinked;
+      case SSO_ERROR_CODES.identityIncomplete:
+        return MESSAGES.ssoIdentityIncomplete;
+      case SSO_ERROR_CODES.provisioningDisabled:
+        return MESSAGES.ssoProvisioningDisabled;
+      case AUTH_ERROR_CODES.accountDisabled:
+        return MESSAGES.accountDisabled;
+      default:
+        return MESSAGES.ssoUnexpected;
+    }
+  }
+
+  if (error.statusCode === NETWORK_FAILURE_STATUS) {
+    return MESSAGES.network;
+  }
+  return MESSAGES.ssoUnexpected;
 }

@@ -29,6 +29,7 @@ const USER: UserListItem = {
   status: 'ACTIVE',
   roles: ['administrador'],
   teams: [],
+  pendingAccess: false,
   lastLoginAt: null,
   createdAt: '2026-01-01T00:00:00Z',
 };

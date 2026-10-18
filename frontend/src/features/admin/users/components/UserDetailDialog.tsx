@@ -37,6 +37,7 @@ import { useCan, useIsAdministrador } from '@/hooks/use-permission';
 import { ADMIN_TARGET_NOTE, CRM_PROFILE_HINT, holdsAdministrador, isCommercialRole } from '../users-access';
 import {
   USER_ERRORS,
+  PENDING_ACCESS_LABEL,
   USER_STATUS_VIEW,
   formatCountry,
   formatDate,
@@ -114,7 +115,9 @@ export function UserDetailDialog({ userId, onClose }: UserDetailDialogProps) {
             <Tab value="excepciones" label="Excepciones" />
             <Tab value="acceso" label="Acceso efectivo" />
           </Tabs>
-          {tab === 'datos' ? <ProfileSection user={user.data} /> : null}
+          {tab === 'datos' ? (
+            <ProfileSection user={user.data} pendingAccess={user.data.pendingAccess} />
+          ) : null}
           {tab === 'roles' ? <RolesSection user={user.data} /> : null}
           {tab === 'excepciones' ? <ExceptionsSection user={user.data} /> : null}
           {tab === 'acceso' ? <AccessSection userId={user.data.id} /> : null}
@@ -124,7 +127,7 @@ export function UserDetailDialog({ userId, onClose }: UserDetailDialogProps) {
   );
 }
 
-function ProfileSection({ user }: { user: UserDetail }) {
+function ProfileSection({ user, pendingAccess }: { user: UserDetail; pendingAccess: boolean }) {
   const can = useCan();
   const isAdministrador = useIsAdministrador();
   // ADR-020: editar, suspender, reactivar o restablecer la contraseña de un
@@ -146,6 +149,14 @@ function ProfileSection({ user }: { user: UserDetail }) {
 
   const fields = [
     { label: 'Estado', value: <Chip size="small" color={status.color} label={status.label} /> },
+    ...(pendingAccess
+      ? [
+          {
+            label: 'Acceso',
+            value: <Chip size="small" color="warning" label={PENDING_ACCESS_LABEL} />,
+          },
+        ]
+      : []),
     { label: 'Correo', value: user.email },
     { label: 'Código de colaborador', value: user.employeeCode ?? '—' },
     { label: 'País', value: formatCountry(user.country) },
@@ -164,6 +175,13 @@ function ProfileSection({ user }: { user: UserDetail }) {
       <DetailSection number={2} title="Equipos">
         <UserTeamsPanel user={user} />
       </DetailSection>
+
+      {pendingAccess ? (
+        <Alert severity="info">
+          Esta cuenta aún no tiene ningún acceso. Un administrador debe asignarle un rol (pestaña
+          «Roles») para que pueda trabajar.
+        </Alert>
+      ) : null}
 
       {notice ? (
         <Alert severity="success" onClose={() => setNotice(null)}>

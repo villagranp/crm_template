@@ -8,31 +8,24 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { env } from '@/config/env';
 import { AuthLayout } from '@/features/auth/AuthLayout';
 import { AuthSubmitButton } from '@/features/auth/AuthSubmitButton';
-import { getLoginErrorMessage } from '@/features/auth/auth-error-messages';
+import { getLoginErrorMessage, getSsoErrorMessage } from '@/features/auth/auth-error-messages';
 import { PasswordField } from '@/features/auth/PasswordField';
 import { useAuth } from '@/hooks/use-auth';
 import { ROUTE_PATHS } from '@/routes/route-paths';
+import { clearReturnPath, isSafeReturnPath, saveReturnPath } from '@/services/auth';
 import { loginSchema, type LoginFormValues } from '@/schemas/auth.schema';
 import { brandIdentity } from '@/theme/tokens';
 
 const FORGOT_PASSWORD_HINT = '¿Olvidaste tu contraseña? Pide al administrador que la restablezca.';
 const PROVIDER_ERROR_MESSAGE = 'No se pudo iniciar sesión. Contacta al administrador del sistema.';
 
-/** Rutas a las que no tiene sentido volver tras entrar. */
-const NON_RETURNABLE_PATHS: readonly string[] = [ROUTE_PATHS.login, ROUTE_PATHS.changePassword];
-
-/** Sólo rutas internas: un `from` manipulado no puede sacar al usuario del sitio. */
+/**
+ * Sólo rutas internas y a las que tiene sentido volver (`isSafeReturnPath`): un `from` manipulado
+ * no puede sacar al usuario del sitio.
+ */
 function getReturnPath(state: unknown): string {
   const from = (state as { from?: unknown } | null)?.from;
-  if (
-    typeof from === 'string' &&
-    from.startsWith('/') &&
-    !from.startsWith('//') &&
-    !NON_RETURNABLE_PATHS.includes(from)
-  ) {
-    return from;
-  }
-  return ROUTE_PATHS.home;
+  return isSafeReturnPath(from) ? from : ROUTE_PATHS.home;
 }
 
 function LocalSignInForm() {
@@ -120,15 +113,47 @@ function LocalSignInForm() {
   );
 }
 
-/** Proveedores de redirección (Entra ID): no hay credenciales que pedir aquí. */
+/**
+ * Proveedores de redirección (Entra ID): no hay credenciales que pedir aquí.
+ *
+ * La ruta pedida se guarda ANTES de salir a Microsoft, porque la página se descarga y el estado de
+ * React Router se pierde; `AuthCallbackPage` la recupera al volver.
+ */
 function RedirectSignIn() {
-  const { signIn, status } = useAuth();
+  const { signIn, status, signInError } = useAuth();
+  const location = useLocation();
+  const [starting, setStarting] = useState(false);
+
+  const handleContinue = (): void => {
+    const returnPath = getReturnPath(location.state);
+    if (returnPath === ROUTE_PATHS.home) {
+      clearReturnPath();
+    } else {
+      saveReturnPath(returnPath);
+    }
+    setStarting(true);
+    // Tras un rechazo previo, Microsoft debe preguntar la cuenta: si no, devuelve la misma.
+    signIn(undefined, signInError ? { selectAccount: true } : undefined)
+      .catch(() => undefined)
+      .finally(() => setStarting(false));
+  };
+
+  // Un fallo que dejó el intento anterior (p. ej. cuenta sin vincular) se explica en el formulario.
+  const failureMessage = signInError
+    ? getSsoErrorMessage(signInError)
+    : status === 'error'
+      ? PROVIDER_ERROR_MESSAGE
+      : null;
 
   return (
     <Stack spacing={3}>
-      {status === 'error' ? <Alert severity="error">{PROVIDER_ERROR_MESSAGE}</Alert> : null}
+      {failureMessage ? (
+        <Alert severity="error" role="alert">
+          {failureMessage}
+        </Alert>
+      ) : null}
 
-      <AuthSubmitButton onClick={() => void signIn().catch(() => undefined)}>
+      <AuthSubmitButton loading={starting} onClick={handleContinue}>
         Continuar
       </AuthSubmitButton>
 

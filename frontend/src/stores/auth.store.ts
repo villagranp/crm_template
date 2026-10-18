@@ -9,8 +9,9 @@ import type {
   AuthenticatedUser,
   PasswordChangeInput,
   SignInCredentials,
+  SignInOptions,
 } from '@/services/auth';
-import { createAuthProvider } from '@/services/auth';
+import { clearReturnPath, createAuthProvider } from '@/services/auth';
 
 /**
  * Client-side authentication state.
@@ -33,6 +34,12 @@ interface AuthState {
   passwordChangeRequired: boolean;
   errorMessage: string | null;
   /**
+   * Fallo con el que volvió un inicio de sesión por redirección (Entra ID): p. ej. el
+   * `403 IDENTITY_NOT_LINKED` de `GET /me`. Lo traducen `AuthCallbackPage` y `LoginPage`; se limpia
+   * al iniciar otro intento. `null` si no hubo fallo.
+   */
+  signInError: unknown;
+  /**
    * El usuario cerró sesión él mismo. `RequireAuth` lo usa para no guardar la ruta actual como
    * destino de retorno: quien entre después (otro usuario, otros permisos) empieza en el inicio.
    * Una sesión caducada no lo activa y sí vuelve al sitio donde estaba.
@@ -40,7 +47,7 @@ interface AuthState {
   signedOutByUser: boolean;
   initialize: () => Promise<void>;
   /** Rejects with the provider error so the form can explain it. */
-  signIn: (credentials?: SignInCredentials) => Promise<void>;
+  signIn: (credentials?: SignInCredentials, options?: SignInOptions) => Promise<void>;
   signOut: () => Promise<void>;
   /** Rejects with the provider error (e.g. `422 INVALID_CURRENT_PASSWORD`). */
   changePassword: (input: PasswordChangeInput) => Promise<void>;
@@ -76,6 +83,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   passwordChangeRequired: false,
   errorMessage: null,
+  signInError: null,
   signedOutByUser: false,
 
   initialize: async () => {
@@ -92,12 +100,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     unsubscribeFromProvider = authProvider.subscribe((session) => set(sessionState(session)));
 
     const session = await authProvider.initialize();
-    set(sessionState(session));
+    set({ ...sessionState(session), signInError: authProvider.consumeSignInError?.() ?? null });
   },
 
-  signIn: async (credentials) => {
+  signIn: async (credentials, options) => {
+    set({ signInError: null });
     try {
-      const session = await getProvider().signIn(credentials);
+      const session = await getProvider().signIn(credentials, options);
       set({ ...sessionState(session), signedOutByUser: false });
     } catch (error) {
       // API errors are expected answers (wrong password, disabled account) and
@@ -115,6 +124,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   signOut: async () => {
+    // Un cierre voluntario no deja ruta de retorno: quien entre después empieza en el inicio.
+    clearReturnPath();
     await getProvider().signOut();
     set({ ...sessionState(null), signedOutByUser: true });
   },

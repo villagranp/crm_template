@@ -26,7 +26,7 @@ import { useCan } from '@/hooks/use-permission';
 
 import { UserDetailDialog } from './components/UserDetailDialog';
 import { UserFormDialog } from './components/UserFormDialog';
-import { USER_STATUS_VIEW, formatCountry, formatDateTime } from './users-format';
+import { PENDING_ACCESS_LABEL, USER_STATUS_VIEW, formatCountry, formatDateTime } from './users-format';
 import { listUsers, USER_STATUSES, type UserListItem } from './users.api';
 import { USER_PERMISSIONS } from './users.permissions';
 import {
@@ -39,13 +39,16 @@ import {
 
 const TITLE = 'Usuarios';
 const DESCRIPTION = 'Alta, edición, suspensión y asignaciones de los usuarios.';
-const FILTER_KEYS = ['status', 'roleCode', 'countryId'] as const;
+const FILTER_KEYS = ['status', 'roleCode', 'countryId', 'pendingAccess'] as const;
 type UserFilterKey = (typeof FILTER_KEYS)[number];
 /** Misma lista blanca que el backend (`USER_SORT_FIELDS`). */
 const SORTABLE = ['displayName', 'email', 'status', 'createdAt', 'lastLoginAt'] as const;
 const DEFAULT_SORT = { field: 'displayName', direction: 'asc' } as const;
 /** Chips de estado: "Todos" (`''`) y cada estado. */
 const STATUS_CHIP_VALUES: readonly string[] = ['', ...USER_STATUSES];
+/** Único valor del filtro «Pendientes de acceso»: `GET /users?pendingAccess=true`. */
+const PENDING_ACCESS_VALUE = 'true';
+const PENDING_ACCESS_VALUES: readonly string[] = [PENDING_ACCESS_VALUE];
 const COLUMNS: DataTableColumn<UserListItem>[] = [
   {
     id: 'displayName',
@@ -62,7 +65,18 @@ const COLUMNS: DataTableColumn<UserListItem>[] = [
     hideOnMobile: true,
   },
   { id: 'country', header: 'País', render: (user) => formatCountry(user.country) },
-  { id: 'roles', header: 'Roles', render: (user) => user.roles.join(', ') || '—' },
+  {
+    id: 'roles',
+    header: 'Roles',
+    // Con `pendingAccess` se muestra la etiqueta en lugar de los roles: si la persona tuviera roles
+    // caducados o inactivos no se ven aquí (no son acceso vigente); están en el detalle.
+    render: (user) =>
+      user.pendingAccess ? (
+        <Chip size="small" color="warning" label={PENDING_ACCESS_LABEL} />
+      ) : (
+        user.roles.join(', ') || '—'
+      ),
+  },
   {
     id: 'lastLoginAt',
     header: 'Último acceso',
@@ -108,6 +122,13 @@ export function UsersPage() {
   const countries = useCountryOptions(can(USER_PERMISSIONS.viewCountries));
   const exportMutation = useExportUsers();
   const { filters, search, sort } = table.state;
+  const pendingAccessCounts = useFilterCounts({
+    baseQuery: table.apiQuery,
+    filterKey: 'pendingAccess',
+    values: PENDING_ACCESS_VALUES,
+    queryKey: userKeys.list,
+    queryFn: listUsers,
+  });
   const statusCounts = useFilterCounts({
     baseQuery: table.apiQuery,
     filterKey: 'status',
@@ -174,6 +195,21 @@ export function UsersPage() {
                     label: statusLabel(status),
                     count: statusCounts[status],
                   }))}
+                />
+                <FilterChips
+                  label="Filtrar por acceso"
+                  value={filters.pendingAccess ?? ''}
+                  // El chip es un interruptor: pulsarlo de nuevo quita el filtro.
+                  onChange={(value) =>
+                    table.setFilter('pendingAccess', filters.pendingAccess === value ? '' : value)
+                  }
+                  options={[
+                    {
+                      value: PENDING_ACCESS_VALUE,
+                      label: 'Pendientes de acceso',
+                      count: pendingAccessCounts[PENDING_ACCESS_VALUE],
+                    },
+                  ]}
                 />
                 {roles.data ? (
                   <TextField
