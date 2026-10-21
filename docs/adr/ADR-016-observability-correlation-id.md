@@ -29,3 +29,30 @@ OpenTelemetry, Application Insights, Prometheus y Grafana, sin instalarlos en la
 Lista explícita de campos redactados: passwords, tokens, cookies, secretos y PII.
 Los eventos de seguridad (login fallido, `403`, rate limit excedido) se registran sin exponer
 credenciales. El `correlationId` es opaco y no contiene información del usuario.
+
+## Addendum 2026-10-20 — Evento `rate_limited` y sondas mínimas
+
+Endurecimiento para exponer la plataforma a internet
+([plan](../security/plan-exposicion-internet.md) §2, brecha ASVS G-26). La decisión no cambia.
+
+**Evento `rate_limited`.** Cada respuesta `429` emite un log estructurado de nivel `warn` desde
+`AllExceptionsFilter` (`backend/src/common/filters/all-exceptions.filter.ts`): los `429` los lanzan
+guards (`ThrottlerGuard` global, `ReportExportThrottleGuard`) que corren antes del interceptor de
+peticiones, así que el filtro es el único punto donde quedan registrados. La respuesta al cliente no
+cambia.
+
+| Campo | Contenido |
+|---|---|
+| `correlationId` | El de la petición |
+| `method` | Método HTTP |
+| `path` | Plantilla de la ruta (`/api/v1/customers/:id`), nunca la URL con identificadores ni la query |
+| `clientIp` | IP del cliente según `TRUST_PROXY_HOPS` ([`environments.md`](../deployment/environments.md)) |
+| `principalId` | Solo cuando el límite es por usuario (exportación de reportes, que se evalúa con la sesión ya autenticada). El límite global corre antes de la autenticación y no lo lleva |
+
+No se registran cabeceras, cuerpo ni tokens. Es la base de la alerta de rechazos `429` en el SIEM
+(plan, bloqueante 1.8).
+
+**Sondas mínimas.** `GET /api/v1/health` responde solo `{ status: "ok", timestamp }` y
+`GET /api/v1/ready` `{ status: "ready", timestamp }` o `503 SERVICE_NOT_READY` con el formato de
+error único: ya no devuelven el nombre de la aplicación ni el detalle de la base de datos, porque son
+públicas también desde internet ([`docs/api/README.md`](../api/README.md)).

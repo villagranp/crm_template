@@ -6,6 +6,31 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 ## [Unreleased]
 
 ### Added
+- **Endurecimiento para exposición a internet** ([plan](docs/security/plan-exposicion-internet.md) §2;
+  backend, frontend, NGINX y contenedores; brechas ASVS G-11, G-17, G-18, G-20, G-21, G-22 y,
+  parcialmente, G-25 y G-26). Lo que depende del borde y de las imágenes está hecho en código y
+  pendiente de verificar con el NGINX y el Docker reales (`nginx -t`, `curl`, construcción de imágenes;
+  lista en `docs/deployment/environments.md`).
+  - **Security — CSRF:** `POST /auth/refresh` y `POST /auth/logout` exigen
+    `X-Requested-With: XMLHttpRequest`; si falta, `403 CSRF_HEADER_REQUIRED` sin efectos. El cliente
+    HTTP del frontend la envía en todas las peticiones a la API.
+  - **Security — cookie:** la cookie de refresco lleva el prefijo `__Secure-` fuera de desarrollo
+    (no `__Host-`, porque la cookie mantiene `Path=/api/v1/auth`).
+  - **Security — CSP con nonce por respuesta** en lugar de `style-src 'unsafe-inline'`, y
+    `base-uri 'none'`: NGINX escribe el nonce en `index.html` (marcador `__CSP_NONCE__`, `sub_filter`,
+    sin caché) y la caché de Emotion lo aplica (`frontend/src/theme/emotion-cache.ts`). El contenedor
+    del frontend ya no emite CSP (ADR-011, addendum 2026-10-20).
+  - **Security — borde:** `405` a métodos fuera de `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE` y
+    `OPTIONS` (el contenedor estático, solo `GET` y `HEAD`); `X-Forwarded-Proto` del cliente ya no se
+    confía (solo desde un `geo $from_trusted_ingress`, vacío); en `/api/` se ocultan las cabeceras de
+    helmet que ya pone NGINX (una de cada tipo); HSTS preparado por el `map` `$hsts_header`, apagado
+    en Docker y QA.
+  - **Security — build:** sin mapas de código fuente en producción (`FRONTEND_BUILD_SOURCEMAP=hidden`
+    opcional para monitorización) y `404` a `*.map`; Dockerfiles sin respaldo sin lockfile e imágenes
+    base fijadas por digest.
+  - **Observabilidad:** evento `rate_limited` (`warn`) en cada `429`, con `correlationId`, `method`,
+    plantilla de ruta, `clientIp` y `principalId` en el límite por usuario (ADR-016, addendum
+    2026-10-20).
 - **SSO con Microsoft Entra ID** ([ADR-027](docs/adr/ADR-027-sso-entra-id-alta-primer-ingreso-y-corte-directo.md),
   `AUTHENTICATION.md` §4; backend y frontend). Solo probado con tokens y MSAL simulados: la primera
   prueba real contra un tenant se hará en QA.
@@ -81,6 +106,24 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
     muestra un marcador de carga mientras llega la configuración por primera vez.
 
 ### Changed
+- **Endurecimiento para exposición a internet — cambios de contrato y de configuración**
+  ([plan](docs/security/plan-exposicion-internet.md) §2, `docs/api/README.md` «Sistema y sesión»).
+  **Backend y frontend deben desplegarse juntos.**
+  - `POST /auth/logout` ya no es «siempre `204`»: sin `X-Requested-With: XMLHttpRequest` responde
+    `403 CSRF_HEADER_REQUIRED` (igual que `POST /auth/refresh`). Con `AUTH_PROVIDER=entra` siguen en
+    `404`.
+  - `GET /api/v1/health` responde solo `{ status: "ok", timestamp }` y `GET /api/v1/ready`
+    `{ status: "ready", timestamp }`: se quitaron `app` y el detalle de la base (`checks`). Si no está
+    lista, `503 SERVICE_NOT_READY` con el formato de error único.
+  - La cookie de refresco se llama `__Secure-refresh_token` cuando `NODE_ENV` no es `development`
+    (`refresh_token` en desarrollo) y solo se lee el nombre vigente: **las sesiones locales vigentes
+    se pierden una vez** al desplegar.
+  - Con `NODE_ENV=production`, `CORS_ALLOWED_ORIGINS` solo admite orígenes `https://` exactos (sin
+    `*`, ruta ni barra final) o vacío; si no, la API no arranca. En `docker-compose.yml` pasa a vacío
+    por defecto (mismo origen).
+  - Nueva variable `TRUST_PROXY_HOPS` (entero ≥ 0, por defecto `1`; `2` con WAF o Front Door delante
+    de NGINX; nunca más que los saltos reales), en `.env.example`, `docker-compose.yml` y
+    `infrastructure/qa-windows/env.qa.example`.
 - **CRM — integración del Módulo 5 (Reportes) con los Módulos 1 (Inicio) y 6 (Integraciones)**
   (`05-reportes.md`, P-05.36; sin cambios de contrato, esquema, permisos ni dependencias):
   - Un solo `commercial-metrics`: base del Módulo 1 (KPI-01…KPI-10 con su firma y

@@ -100,7 +100,11 @@ Rellena los `<...>`:
 - `DATABASE_URL`: la contraseña del paso 2.
 - `JWT_ACCESS_TOKEN_SECRET`: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`.
 - `AUTH_DEFAULT_PASSWORD`: 12+ caracteres.
-- `CORS_ALLOWED_ORIGINS`: `https://<IP del servidor>`.
+- `CORS_ALLOWED_ORIGINS`: `https://<IP del servidor>`. QA corre con `NODE_ENV=production`, así que solo
+  admite orígenes `https://` exactos (sin `*`, ruta ni barra final) o vacío; con otro valor la API no
+  arranca ([`environments.md`](environments.md#borde-proxies-y-exposición-a-internet)).
+- `TRUST_PROXY_HOPS`: déjalo en `1` (solo NGINX delante). Pasa a `2` únicamente si se pone un WAF o
+  Front Door delante de NGINX; nunca más que los saltos reales.
 
 Restringe el archivo a administradores y `SYSTEM` (la cuenta del servicio):
 
@@ -243,7 +247,11 @@ New-NetFirewallRule -DisplayName 'MiClienteAG HTTP'  -Direction Inbound -Protoco
 ```
 
 `nginx.conf` se usa tal cual desde el clon: incluye `security-headers.conf` de
-`infrastructure/nginx` y sirve `frontend\dist`.
+`infrastructure/nginx` y sirve `frontend\dist`. Escribe en `index.html` el nonce de la CSP de cada
+respuesta y lo sirve sin caché, responde `405` a métodos fuera de la lista permitida y `404` a
+`*.map` (ADR-011, addendum 2026-10-20). **HSTS no se activa en QA** (`map $hsts_header` vacío):
+el certificado es autofirmado o interno y la dirección la comparte con IIS; solo en producción
+([`environments.md`](environments.md#hsts)).
 
 ## 10. Verificación
 
@@ -254,8 +262,10 @@ Desde otro equipo de la red:
 2. `https://<IP>/healthz` → `ok`; `https://<IP>/api/v1/ready` → 200.
 3. `https://<IP>/api/docs` → 404.
 4. Inicia sesión con el administrador, cambia la contraseña inicial y comprueba el menú.
-5. Recarga la página: la sesión se mantiene (cookie `Secure` sobre HTTPS).
+5. Recarga la página: la sesión se mantiene (cookie `__Secure-refresh_token`, `Secure`, sobre HTTPS).
 6. Si se usará la carga masiva: Administración → Parámetros → «Carga masiva habilitada».
+7. Comprobaciones del borde (cabeceras únicas, nonce de la CSP, `TRACE` → 405, `*.map` → 404):
+   la lista de [`environments.md`](environments.md#comprobaciones-tras-actualizar-el-borde).
 
 ## 11. Tareas programadas
 
@@ -291,6 +301,12 @@ Detiene el backend (el motor de Prisma queda bloqueado mientras corre), trae `ma
 compila, migra, ejecuta la semilla esencial (idempotente), arranca, valida y recarga NGINX y
 comprueba `/api/v1/ready`. Se detiene en el primer error; el sitio no responde mientras dura
 (unos minutos).
+
+Backend y frontend se compilan y despliegan juntos, como exige el endurecimiento para internet
+(el backend pide la cabecera `X-Requested-With` que solo envía el frontend nuevo). La primera
+actualización que incluye ese cambio cierra **una vez** las sesiones locales vigentes (la cookie
+pasa a llamarse `__Secure-refresh_token`): avisa a los usuarios de que tendrán que volver a entrar.
+Tras actualizar, repite las comprobaciones del borde del paso 10.
 
 ## 13. Carga inicial de datos
 

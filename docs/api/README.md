@@ -32,12 +32,31 @@ donde se indica. Detalle de reglas y códigos de error:
 
 | Método | Ruta | Permiso | Qué hace |
 |---|---|---|---|
-| GET | `/health` · `/ready` | público | Liveness · readiness (base de datos) |
+| GET | `/health` · `/ready` | público | Liveness · readiness (comprueba la base de datos sin nombrarla) |
 | POST | `/auth/login` | público | Inicia sesión; fija la cookie de refresco |
-| POST | `/auth/refresh` | público (cookie) | Renueva el access token y rota la cookie |
-| POST | `/auth/logout` | público (cookie) | Revoca la sesión de la cookie. Siempre `204` |
+| POST | `/auth/refresh` | público (cookie + `X-Requested-With`) | Renueva el access token y rota la cookie |
+| POST | `/auth/logout` | público (cookie + `X-Requested-With`) | Revoca la sesión de la cookie. `204` haya o no sesión; `403 CSRF_HEADER_REQUIRED` sin la cabecera |
 | POST | `/auth/password/change` | sesión | Cambia la propia contraseña; cierra las demás sesiones |
 | GET | `/me` · `/me/menu` | sesión | Perfil y permisos efectivos · menú concedido |
+
+**Cookie de refresco y cabecera anti-CSRF** (endurecimiento para internet, detalle en
+[`AUTHENTICATION.md`](../../AUTHENTICATION.md) §3). La cookie se llama `__Secure-refresh_token`
+salvo con `NODE_ENV=development` (`refresh_token`). `POST /auth/refresh` y `POST /auth/logout`
+exigen `X-Requested-With: XMLHttpRequest` (valor exacto); `POST /auth/login` no. Con
+`AUTH_PROVIDER=entra` los tres responden `404`.
+
+**Sondas de salud.** Públicas y mínimas: no devuelven nombre de la aplicación, versión, host ni
+dependencias.
+
+| Ruta | Respuesta |
+|---|---|
+| `GET /health` | `200 { "status": "ok", "timestamp": "<ISO 8601>" }`, sin consultar dependencias |
+| `GET /ready` | `200 { "status": "ready", "timestamp": "<ISO 8601>" }` o `503 SERVICE_NOT_READY` (formato de error único, sin decir qué dependencia falla) |
+
+| Status | Código | Cuándo |
+|---|---|---|
+| 403 | `CSRF_HEADER_REQUIRED` | `POST /auth/refresh` o `POST /auth/logout` sin `X-Requested-With: XMLHttpRequest`. Sin efectos: ni rotación, ni revocación, ni borrado de cookie |
+| 503 | `SERVICE_NOT_READY` | `GET /ready` con alguna dependencia crítica caída |
 
 ### Usuarios
 

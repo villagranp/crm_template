@@ -58,11 +58,37 @@ Reglas:
   verificar: ni con peticiones simultáneas se verifican más de 5 contraseñas
   por ventana. Durante el bloqueo la contraseña ni se verifica.
 - 10 intentos por minuto y por IP en `/auth/login` y `/auth/password/change`.
-  La API confía en un solo salto de proxy (NGINX), que sobrescribe
-  `X-Forwarded-For` con la IP real: el cliente no puede falsear la suya.
+  La API confía en un número exacto de saltos de proxy (`TRUST_PROXY_HOPS`,
+  1 por defecto: solo NGINX, que sobrescribe `X-Forwarded-For` con la IP real),
+  así que el cliente no puede falsear la suya. Con un WAF o Front Door delante
+  de NGINX son 2; nunca más que los saltos reales
+  ([`docs/deployment/environments.md`](docs/deployment/environments.md)).
 - Refresh token opaco (256 bits), guardado como SHA-256 en `user_sessions`.
-  Cookie `refresh_token`: `HttpOnly`, `Secure` (salvo en desarrollo),
-  `SameSite=Lax`, `Path=/api/v1/auth`.
+  Cookie `HttpOnly`, `SameSite=Lax`, `Path=/api/v1/auth`. Nombre según el entorno
+  (`backend/src/modules/auth/refresh-cookie.ts`):
+
+  | `NODE_ENV` | Nombre | `Secure` |
+  |---|---|---|
+  | `development` | `refresh_token` | No (`http://localhost`) |
+  | cualquier otro | `__Secure-refresh_token` | Sí |
+
+  El prefijo `__Secure-` obliga al navegador a aceptar la cookie solo si llegó
+  por HTTPS con `Secure`: una conexión sin cifrar no puede sembrarla ni
+  sustituirla. La API fija y lee **solo** el nombre vigente; aceptar también el
+  antiguo reabriría esa sustitución. No se usa `__Host-` porque exige `Path=/` y
+  la cookie se limita deliberadamente a la ruta de autenticación para no viajar
+  con cada petición a la API (por eso ASVS V3.3.3 sigue sin cumplirse, por diseño).
+  **Efecto de despliegue:** al pasar de `refresh_token` a `__Secure-refresh_token`
+  las sesiones locales vigentes se pierden una vez; los usuarios vuelven a entrar.
+- **Cabecera anti-CSRF.** `POST /auth/refresh` y `POST /auth/logout` se
+  autentican solo con la cookie, así que exigen además
+  `X-Requested-With: XMLHttpRequest` (valor exacto). Sin ella responden
+  `403 CSRF_HEADER_REQUIRED` antes de tocar nada: ni rotación, ni revocación, ni
+  borrado de cookie. Un formulario o un enlace de otro sitio no pueden añadir
+  cabeceras propias y un `fetch` desde otro origen necesitaría un preflight de
+  CORS que la API no concede; complementa a `SameSite=Lax`. El cliente HTTP del
+  frontend la envía en todas las peticiones, por lo que **backend y frontend se
+  despliegan juntos**. `POST /auth/login` no la exige.
 - **Rotación en cada uso.** La sesión dura 8 h desde el login; rotar no la
   alarga. Presentar un refresh ya rotado se trata como robo: se revocan
   **todas** las sesiones del usuario y se audita `auth.refresh.reused`. Por eso
@@ -297,7 +323,9 @@ Prohibido: tokens sin expiración, secretos en código, tokens en logs o en URLs
 ## 8. Logout y expiración
 
 - Local: `POST /auth/logout` revoca la sesión de la cookie y la borra. Funciona
-  con el access token caducado.
+  con el access token caducado. Responde `204` haya o no sesión, siempre que
+  lleve la cabecera `X-Requested-With: XMLHttpRequest`; sin ella, `403
+  CSRF_HEADER_REQUIRED` (§3). Con `AUTH_PROVIDER=entra` responde `404`.
 - Entra ID: logout federado (`end_session_endpoint`) cuando el proyecto lo requiera.
 - El frontend maneja `401` de forma centralizada: intenta refresh una vez, luego redirige a login.
 
