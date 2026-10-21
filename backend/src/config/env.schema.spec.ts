@@ -15,7 +15,13 @@ const ENTRA = {
   ENTRA_JWKS_URI: `https://login.microsoftonline.com/${TENANT}/discovery/v2.0/keys`,
 };
 
-const PRODUCTION = { ...ENTRA, NODE_ENV: 'production', ENTRA_REQUIRED_SCOPE: 'access_as_user', ENTRA_ALLOWED_CLIENT_IDS: CLIENT };
+const PRODUCTION = {
+  ...ENTRA,
+  NODE_ENV: 'production',
+  ENTRA_REQUIRED_SCOPE: 'access_as_user',
+  ENTRA_ALLOWED_CLIENT_IDS: CLIENT,
+  CORS_ALLOWED_ORIGINS: 'https://crm.example.com',
+};
 
 function issuesOf(raw: Record<string, unknown>): string {
   try {
@@ -78,7 +84,58 @@ describe('validateEnvironment · Entra ID (ADR-027)', () => {
     });
 
     it('el modo local en producción no los exige', () => {
-      expect(issuesOf({ ...BASE, NODE_ENV: 'production', JWT_ACCESS_TOKEN_SECRET: 'x'.repeat(40) })).toBe('');
+      expect(issuesOf({ ...BASE, NODE_ENV: 'production', JWT_ACCESS_TOKEN_SECRET: 'x'.repeat(40), CORS_ALLOWED_ORIGINS: '' })).toBe('');
     });
+  });
+});
+
+describe('validateEnvironment · CORS en producción (endurecimiento para internet)', () => {
+  const LOCAL_PRODUCTION = { ...BASE, NODE_ENV: 'production', JWT_ACCESS_TOKEN_SECRET: 'x'.repeat(40) };
+
+  it.each([
+    ['un origen https', 'https://crm.example.com'],
+    ['varios orígenes https con puerto y espacios', 'https://crm.example.com, https://10.0.0.5:8443'],
+    ['ninguno (SPA y API en el mismo origen)', ''],
+  ])('admite %s', (_name, origins) => {
+    expect(issuesOf({ ...LOCAL_PRODUCTION, CORS_ALLOWED_ORIGINS: origins })).toBe('');
+  });
+
+  it.each([
+    ['el comodín', '*'],
+    ['un origen http', 'http://crm.example.com'],
+    ['http mezclado con https', 'https://crm.example.com,http://localhost'],
+    ['una ruta', 'https://crm.example.com/app'],
+    ['una barra final', 'https://crm.example.com/'],
+    ['un comodín de subdominio', 'https://*.example.com'],
+    ['un valor que no es URL', 'crm.example.com'],
+  ])('falla al arrancar con %s', (_name, origins) => {
+    expect(issuesOf({ ...LOCAL_PRODUCTION, CORS_ALLOWED_ORIGINS: origins })).toContain('CORS_ALLOWED_ORIGINS en producción solo admite orígenes https://');
+  });
+
+  it('sin la variable en producción falla: el valor por defecto es de desarrollo (http)', () => {
+    expect(issuesOf(LOCAL_PRODUCTION)).toContain('CORS_ALLOWED_ORIGINS');
+  });
+
+  it('fuera de producción conserva los orígenes http de desarrollo', () => {
+    expect(issuesOf({ ...BASE, CORS_ALLOWED_ORIGINS: 'http://localhost:5173,http://localhost' })).toBe('');
+    expect(issuesOf({ ...BASE, NODE_ENV: 'test', CORS_ALLOWED_ORIGINS: 'http://localhost' })).toBe('');
+  });
+});
+
+describe('validateEnvironment · TRUST_PROXY_HOPS', () => {
+  it('por defecto confía en un salto (NGINX)', () => {
+    expect(validateEnvironment(BASE).TRUST_PROXY_HOPS).toBe(1);
+    expect(validateEnvironment({ ...BASE, TRUST_PROXY_HOPS: '' }).TRUST_PROXY_HOPS).toBe(1);
+  });
+
+  it.each([
+    ['0', 0],
+    ['2', 2],
+  ])('acepta %s', (raw, expected) => {
+    expect(validateEnvironment({ ...BASE, TRUST_PROXY_HOPS: raw }).TRUST_PROXY_HOPS).toBe(expected);
+  });
+
+  it.each(['-1', '1.5', 'true', 'abc'])('rechaza %s', (raw) => {
+    expect(issuesOf({ ...BASE, TRUST_PROXY_HOPS: raw })).toContain('TRUST_PROXY_HOPS');
   });
 });

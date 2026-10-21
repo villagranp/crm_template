@@ -9,6 +9,26 @@ import { DURATION_PATTERN } from './duration';
  */
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Lista de orígenes CORS separada por comas, sin vacíos. La usa también `AppConfigService`. */
+export function parseOrigins(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+}
+
+/** `https://host[:puerto]` tal cual lo envía el navegador en `Origin`: nada de `*`, `http://`, rutas ni barra final. */
+function isExactHttpsOrigin(origin: string): boolean {
+  if (!origin.startsWith('https://') || origin.includes('*')) {
+    return false;
+  }
+  try {
+    return new URL(origin).origin === origin;
+  } catch {
+    return false;
+  }
+}
+
 export const envSchema = z
   .object({
     // APP
@@ -57,8 +77,17 @@ export const envSchema = z
     ENTRA_REQUIRED_SCOPE: z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), z.string().trim().optional()),
     ENTRA_ALLOWED_CLIENT_IDS: z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), z.string().trim().optional()),
 
-    // CORS
+    // CORS. Con NODE_ENV=production solo admite orígenes https:// exactos o ninguno (abajo).
     CORS_ALLOWED_ORIGINS: z.string().default('http://localhost:5173'),
+
+    // PROXIES DE CONFIANZA
+    // Saltos de proxy delante de la API cuyo X-Forwarded-For se acepta (`trust proxy` de Express).
+    // 1 = solo NGINX (Compose, QA). 2 = WAF/Front Door/balanceador + NGINX. 0 = ningún proxy.
+    // Un valor mayor que los saltos reales permite al cliente falsear su IP (rate limit y registros).
+    TRUST_PROXY_HOPS: z.preprocess(
+      (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+      z.coerce.number().int('TRUST_PROXY_HOPS debe ser un entero').min(0, 'TRUST_PROXY_HOPS no puede ser negativo').default(1),
+    ),
 
     // LOGGING
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
@@ -99,6 +128,18 @@ export const envSchema = z
     SNOWFLAKE_SCHEMA: z.string().optional(),
   })
   .superRefine((env, ctx) => {
+    if (env.NODE_ENV === 'production') {
+      for (const origin of parseOrigins(env.CORS_ALLOWED_ORIGINS)) {
+        if (!isExactHttpsOrigin(origin)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['CORS_ALLOWED_ORIGINS'],
+            message: `CORS_ALLOWED_ORIGINS en producción solo admite orígenes https:// exactos (sin comodín, ruta ni barra final); se rechaza "${origin}". Déjalo vacío si la SPA y la API comparten origen`,
+          });
+        }
+      }
+    }
+
     const requiresLocalJwt = env.AUTH_PROVIDER === 'local' || env.AUTH_PROVIDER === 'hybrid';
     if (requiresLocalJwt && env.NODE_ENV === 'production' && !env.JWT_ACCESS_TOKEN_SECRET) {
       ctx.addIssue({

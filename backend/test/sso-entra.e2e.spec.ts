@@ -441,6 +441,15 @@ describe('tokens que no se aceptan: 401, sin crear nada', () => {
     // Con AUTH_PROVIDER=entra los endpoints de autenticación local no existen.
     expect(login.status).toBe(404);
   });
+
+  it.each(['/api/v1/auth/refresh', '/api/v1/auth/logout'])(
+    '%s sigue inerte (404) con o sin la cabecera anti-CSRF: LocalAuthEnabledGuard decide primero',
+    async (path) => {
+      const server = context.app.getHttpServer();
+      expect((await request(server).post(path)).status).toBe(404);
+      expect((await request(server).post(path).set('X-Requested-With', 'XMLHttpRequest')).status).toBe(404);
+    },
+  );
 });
 
 describe('GET /users?pendingAccess (ADR-027)', () => {

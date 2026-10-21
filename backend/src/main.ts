@@ -17,12 +17,13 @@ async function bootstrap(): Promise<void> {
   const logger = app.get(AppLogger);
 
   // Detras de NGINX `req.ip` seria siempre la IP del proxy y el rate limiting
-  // trataria a todos los usuarios como uno solo. Se confia en exactamente UN
-  // salto: la API solo es alcanzable a traves de NGINX (no publica puerto en
-  // Compose) y NGINX sobrescribe X-Forwarded-For con la IP real. Confiar por
-  // rango de red no sirve: en una red corporativa los clientes tambien tienen
-  // IP privada y podrian falsear la suya enviando la cabecera.
-  app.set('trust proxy', 1);
+  // trataria a todos los usuarios como uno solo. Se confia en un numero EXACTO de
+  // saltos (TRUST_PROXY_HOPS, 1 por defecto): la API solo es alcanzable a traves
+  // de NGINX (no publica puerto en Compose) y NGINX sobrescribe X-Forwarded-For.
+  // Con un WAF/Front Door delante de NGINX son 2. Confiar por rango de red no
+  // sirve: en una red corporativa los clientes tambien tienen IP privada y
+  // podrian falsear la suya enviando la cabecera.
+  app.set('trust proxy', config.get('TRUST_PROXY_HOPS'));
 
   app.use(helmet());
 
@@ -30,7 +31,7 @@ async function bootstrap(): Promise<void> {
     origin: config.corsAllowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', config.get('CORRELATION_ID_HEADER')],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', config.get('CORRELATION_ID_HEADER')],
   });
 
   app.setGlobalPrefix(config.get('API_GLOBAL_PREFIX'));

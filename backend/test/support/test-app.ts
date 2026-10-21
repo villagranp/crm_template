@@ -8,6 +8,7 @@ import request from 'supertest';
 
 import { AppModule } from '@/app.module';
 import { createValidationPipe } from '@/common/filters/validation-exception.factory';
+import { AppConfigService } from '@/config/app-config.service';
 import { PasswordService } from '@/modules/auth/password.service';
 
 import { disconnectParameterLock } from './parameter-lock';
@@ -41,7 +42,7 @@ export async function createTestContext(options: TestContextOptions = {}): Promi
 
   const app = moduleRef.createNestApplication<NestExpressApplication>();
   // Mismo arranque que main.ts en lo que afecta a las pruebas.
-  app.set('trust proxy', 1);
+  app.set('trust proxy', app.get(AppConfigService).get('TRUST_PROXY_HOPS'));
   app.setGlobalPrefix('api');
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
   app.useGlobalPipes(createValidationPipe());
