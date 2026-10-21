@@ -353,6 +353,26 @@ const CORE_SYSTEM_PARAMETERS: SystemParameterSeed[] = [
     isPublic: false,
   },
   {
+    key: 'seguridad.sso_alta_automatica',
+    value: 'true',
+    type: 'BOOLEAN',
+    group: 'seguridad',
+    name: 'Alta automática con Entra ID',
+    description:
+      'Con AUTH_PROVIDER=entra, crea al primer ingreso la cuenta de quien no la tiene, sin roles ni permisos (el administrador asigna el acceso). Apagado: ese primer ingreso se rechaza con 403 SSO_PROVISIONING_DISABLED.',
+    isPublic: false,
+  },
+  {
+    key: 'seguridad.sso_dominios_permitidos',
+    value: 'somosgrupoag.com',
+    type: 'STRING',
+    group: 'seguridad',
+    name: 'Dominios permitidos para el alta con Entra ID',
+    description:
+      'Dominios de correo (separados por comas, comparación exacta sin distinguir mayúsculas) que pueden darse de alta solos al primer ingreso con Entra ID. Otro dominio: 403 IDENTITY_DOMAIN_NOT_ALLOWED. No afecta a quien ya está vinculado.',
+    isPublic: false,
+  },
+  {
     key: 'auditoria.dias_retencion',
     value: '365',
     type: 'NUMBER',

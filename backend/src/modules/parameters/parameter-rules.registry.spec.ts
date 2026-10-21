@@ -86,6 +86,8 @@ const SEED_DEFAULTS: Record<string, string> = {
   'crm.inicio.visitas_proximas_dias': '7',
   'crm.reportes.max_filas_exportacion': '100000',
   'sistema.permite_datos_demo': 'false',
+  'seguridad.sso_alta_automatica': 'true',
+  'seguridad.sso_dominios_permitidos': 'somosgrupoag.com',
 };
 
 /** Un valor inválido representativo por clave (fuera de rango, de lista o de esquema). */
@@ -126,6 +128,8 @@ const INVALID: Record<string, string[]> = {
   'crm.inicio.visitas_proximas_dias': ['0', '61'],
   'crm.reportes.max_filas_exportacion': ['0', '1000001'],
   'sistema.permite_datos_demo': ['quizá'],
+  'seguridad.sso_alta_automatica': ['sí', '1', ''],
+  'seguridad.sso_dominios_permitidos': ['', ' , ', 'sin-punto', 'a b.com', '-a.com', 'https://somosgrupoag.com', 'ñ.com', 'somosgrupoag.com,malo'],
 };
 
 describe('registro de reglas de parámetros', () => {
@@ -211,9 +215,35 @@ describe('registro de reglas de parámetros', () => {
         'seguridad.dias_caducidad_password',
         'seguridad.intentos_fallidos_maximos',
         'seguridad.minutos_bloqueo',
+        'seguridad.sso_alta_automatica',
+        'seguridad.sso_dominios_permitidos',
         'sistema.permite_datos_demo',
       ].sort(),
     );
+  });
+
+  it('ADR-027: seguridad.sso_alta_automatica es BOOLEAN, true por defecto y exige parametros.configurar', () => {
+    expect(rule('seguridad.sso_alta_automatica')).toMatchObject({
+      type: 'BOOLEAN',
+      editor: 'boolean',
+      defaultValue: 'true',
+      requiresConfigure: true,
+      readOnly: false,
+    });
+  });
+
+  it('ADR-027: seguridad.sso_dominios_permitidos es STRING sembrado con somosgrupoag.com y exige parametros.configurar', () => {
+    expect(rule('seguridad.sso_dominios_permitidos')).toMatchObject({
+      type: 'STRING',
+      defaultValue: 'somosgrupoag.com',
+      requiresConfigure: true,
+      readOnly: false,
+    });
+  });
+
+  it('seguridad.sso_dominios_permitidos se guarda en forma canónica (minúsculas, sin espacios ni repetidos)', () => {
+    const result = applyRule(rule('seguridad.sso_dominios_permitidos'), ' SomosGrupoAG.com , otro.example.invalid,somosgrupoag.com ');
+    expect(result).toMatchObject({ ok: true, stored: 'somosgrupoag.com,otro.example.invalid' });
   });
 
   describe('Ajustes 1 · parámetros de interfaz (§5.3, RN-AJ1.14)', () => {

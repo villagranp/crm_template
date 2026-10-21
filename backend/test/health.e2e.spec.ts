@@ -11,6 +11,7 @@ import { PrismaService } from '@/infrastructure/database/prisma/prisma.service';
  */
 describe('Health endpoints (e2e)', () => {
   let app: INestApplication;
+  let isDatabaseUp = true;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -18,7 +19,7 @@ describe('Health endpoints (e2e)', () => {
     })
       .overrideProvider(PrismaService)
       .useValue({
-        checkConnection: async () => true,
+        checkConnection: async () => isDatabaseUp,
         onModuleInit: async () => undefined,
         onModuleDestroy: async () => undefined,
       })
@@ -35,16 +36,36 @@ describe('Health endpoints (e2e)', () => {
     await app.close();
   });
 
+  afterEach(() => {
+    isDatabaseUp = true;
+  });
+
   it('GET /api/v1/health returns 200 without authentication', async () => {
     const response = await request(app.getHttpServer()).get('/api/v1/health').expect(200);
 
-    expect(response.body.status).toBe('ok');
+    // Solo estado y hora: ni nombre de la app, versión, host ni dependencias.
+    expect(response.body).toEqual({ status: 'ok', timestamp: expect.any(String) });
   });
 
   it('GET /api/v1/ready returns 200 when dependencies are up', async () => {
     const response = await request(app.getHttpServer()).get('/api/v1/ready').expect(200);
 
-    expect(response.body.status).toBe('ready');
+    expect(response.body).toEqual({ status: 'ready', timestamp: expect.any(String) });
+  });
+
+  it('GET /api/v1/ready returns 503 SERVICE_NOT_READY without naming the failing dependency', async () => {
+    isDatabaseUp = false;
+
+    const response = await request(app.getHttpServer()).get('/api/v1/ready').expect(503);
+
+    expect(response.body).toEqual({
+      statusCode: 503,
+      code: 'SERVICE_NOT_READY',
+      message: 'El servicio no está listo',
+      details: [],
+      correlationId: expect.any(String),
+    });
+    expect(JSON.stringify(response.body).toLowerCase()).not.toContain('database');
   });
 
   it('returns a correlation id header on every response', async () => {

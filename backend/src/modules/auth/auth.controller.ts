@@ -16,6 +16,7 @@ import type { Response } from 'express';
 import { AllowPendingPasswordChange } from '@/common/decorators/allow-pending-password-change.decorator';
 import { AuthenticatedOnly } from '@/common/decorators/authenticated-only.decorator';
 import { Public } from '@/common/decorators/public.decorator';
+import { RequireRequestedWithHeader } from '@/common/decorators/require-requested-with-header.decorator';
 import { ErrorResponseDto } from '@/common/dto/error-response.dto';
 import { AuthenticationFailedError } from '@/common/errors/application-error';
 import type { AppRequest } from '@/common/types/request-context';
@@ -75,6 +76,7 @@ export class AuthController {
 
   @Post('refresh')
   @Public('La credencial es la cookie HttpOnly de refresco, no un access token, que puede haber caducado')
+  @RequireRequestedWithHeader()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Renueva el access token y rota la cookie de refresco (D3).' })
   @ApiOkResponse({ type: SessionResponseDto })
@@ -88,7 +90,7 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response,
   ): Promise<SessionResponseDto> {
     try {
-      const session = await this.authService.refresh(readRefreshCookie(request), requestContext(request));
+      const session = await this.authService.refresh(readRefreshCookie(request, this.config), requestContext(request));
       return this.respondWithSession(response, session);
     } catch (error) {
       // Una cookie que ya no sirve se borra para que el navegador deje de enviarla.
@@ -101,11 +103,12 @@ export class AuthController {
 
   @Post('logout')
   @Public('Debe funcionar con el access token caducado: revoca la sesión de la cookie')
+  @RequireRequestedWithHeader()
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Cierra la sesión de la cookie y la borra. Siempre 204.' })
+  @ApiOperation({ summary: 'Cierra la sesión de la cookie y la borra. 204 con la cabecera anti-CSRF, haya o no sesión.' })
   @ApiNoContentResponse()
   async logout(@Req() request: AppRequest, @Res({ passthrough: true }) response: Response): Promise<void> {
-    await this.authService.logout(readRefreshCookie(request));
+    await this.authService.logout(readRefreshCookie(request, this.config));
     clearRefreshCookie(response, this.config);
   }
 

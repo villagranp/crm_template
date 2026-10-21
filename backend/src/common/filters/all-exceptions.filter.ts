@@ -74,6 +74,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
       });
     }
 
+    if (statusCode === HttpStatus.TOO_MANY_REQUESTS) {
+      this.logRateLimited(request);
+    }
+
     const body: ErrorResponseDto = {
       statusCode,
       code,
@@ -83,6 +87,24 @@ export class AllExceptionsFilter implements ExceptionFilter {
     };
 
     response.status(statusCode).json(body);
+  }
+
+  /**
+   * Rechazo por límite de peticiones (ASVS G-26). Los 429 los lanzan guards
+   * (`ThrottlerGuard` global, `ReportExportThrottleGuard`) que corren antes del
+   * interceptor de peticiones, así que este es el único punto donde quedan
+   * registrados. La ruta es la plantilla (`/api/v1/customers/:id`), nunca la URL
+   * con identificadores ni la query; la IP del cliente es necesaria para
+   * investigar abusos. No se registran cabeceras, cuerpo ni tokens.
+   */
+  private logRateLimited(request: AppRequest): void {
+    this.logger.warn('rate_limited', {
+      correlationId: request.correlationId,
+      method: request.method,
+      path: request.route?.path,
+      clientIp: request.ip,
+      principalId: request.principal?.subjectId,
+    });
   }
 
   private toErrorShape(exception: unknown): {

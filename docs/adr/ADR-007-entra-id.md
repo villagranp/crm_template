@@ -31,3 +31,15 @@ aplicación mediante un mapeo explícito y versionado. Toda la configuración po
 Se rechaza cualquier token cuya audiencia o issuer no coincidan con los esperados. El JWKS se
 cachea con soporte de rotación de llaves. La identidad se basa en `oid`/`sub`, nunca en el correo.
 Ningún client secret ni certificado se versiona.
+
+## Addendum 2026-10-15 — De identidad de Entra ID a cuenta local
+
+**Estado:** Accepted — 2026-10-15. Aclara este ADR; no lo modifica. Detalle y decisiones en
+[ADR-027](ADR-027-sso-entra-id-alta-primer-ingreso-y-corte-directo.md).
+
+- La identidad es **siempre el `oid`** (GUID, en minúsculas); el respaldo al `sub` se elimina (es *pairwise*
+  por aplicación y no sirve para vincular) y un token sin `oid` válido se rechaza. Se fija RS256.
+- Un `oid` sin vínculo **no se resuelve por correo**: si no existe un usuario local con ese correo, se crea al
+  primer ingreso **sin roles ni permisos** (interruptor `seguridad.sso_alta_automatica`); si existe, `403
+  IDENTITY_NOT_LINKED` hasta que un administrador lo vincule.
+- Los claims no conceden permisos (sin cambio): los roles se asignan en el CRM (ADR-020).

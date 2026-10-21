@@ -9,24 +9,33 @@
 # Stages: deps -> build -> development | production
 # =============================================================================
 
+# Base images are pinned by DIGEST (ASVS 5.0 G-22): the tag alone can be
+# re-pointed upstream. The digest is the multi-arch index of that exact tag on
+# Docker Hub; when Docker gets both, it pulls the digest and ignores the tag, so
+# a version bump MUST update the digest too:
+#   docker buildx imagetools inspect node:<version>-alpine   (line "Digest:")
+# or, without Docker, GET https://hub.docker.com/v2/repositories/library/node/tags/<version>-alpine
+# (field "digest").
 ARG NODE_VERSION=22.20.0
+ARG NODE_DIGEST=sha256:dbcedd8aeab47fbc0f4dd4bffa55b7c3c729a707875968d467aaaea42d6225af
 
 # ---------- deps ----------
-FROM node:${NODE_VERSION}-alpine AS deps
+FROM node:${NODE_VERSION}-alpine@${NODE_DIGEST} AS deps
 WORKDIR /repo
 RUN corepack enable
-COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml .npmrc ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY backend/package.json backend/
-RUN pnpm install --filter @app/backend... --frozen-lockfile \
-    || pnpm install --filter @app/backend...
+# Always the committed lockfile (ASVS 5.0 G-22): no fallback that would
+# resolve versions at build time. A stale lockfile fails the build, as in CI.
+RUN pnpm install --filter @app/backend... --frozen-lockfile
 
 # ---------- build ----------
-FROM node:${NODE_VERSION}-alpine AS build
+FROM node:${NODE_VERSION}-alpine@${NODE_DIGEST} AS build
 WORKDIR /repo
 RUN corepack enable
 COPY --from=deps /repo/node_modules ./node_modules
 COPY --from=deps /repo/backend/node_modules ./backend/node_modules
-COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml tsconfig.base.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY backend ./backend
 WORKDIR /repo/backend
 RUN pnpm prisma generate && pnpm run build
@@ -40,7 +49,7 @@ RUN pnpm --filter @app/backend deploy --prod /out \
  && /repo/backend/node_modules/.bin/prisma generate --schema /out/prisma/schema.prisma
 
 # ---------- development ----------
-FROM node:${NODE_VERSION}-alpine AS development
+FROM node:${NODE_VERSION}-alpine@${NODE_DIGEST} AS development
 WORKDIR /repo
 RUN corepack enable
 ENV NODE_ENV=development
@@ -54,7 +63,7 @@ USER node
 CMD ["pnpm", "run", "dev"]
 
 # ---------- production ----------
-FROM node:${NODE_VERSION}-alpine AS production
+FROM node:${NODE_VERSION}-alpine@${NODE_DIGEST} AS production
 WORKDIR /app
 ENV NODE_ENV=production
 

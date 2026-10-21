@@ -7,6 +7,7 @@ import { PrismaVisibilityScopeRepository } from '@/infrastructure/database/prism
 import { AuthCoreModule } from '@/modules/auth/auth-core.module';
 
 import { AccessService } from './access.service';
+import { EntraIdentityLinkService } from './entra-identity-link.service';
 import { MeController } from './me.controller';
 import { MenuOptionsController } from './menu-options.controller';
 import { MenuOptionsService } from './menu-options.service';
@@ -15,6 +16,7 @@ import { USER_PREFERENCES_REPOSITORY } from './ports/user-preferences.repository
 import { VISIBILITY_SCOPE_READER } from './ports/visibility-scope.port';
 import { RolesController } from './roles.controller';
 import { RolesService } from './roles.service';
+import { SsoProvisioningService } from './sso-provisioning.service';
 import { UiSettingsService } from './ui-settings.service';
 import { UserPreferencesService } from './user-preferences.service';
 import { UsersController } from './users.controller';
@@ -37,6 +39,8 @@ import { VisibilityScopeResolver } from './visibility-scope.resolver';
   controllers: [MeController, UsersController, RolesController, MenuOptionsController],
   providers: [
     AccessService,
+    SsoProvisioningService,
+    EntraIdentityLinkService,
     UsersService,
     RolesService,
     MenuOptionsService,
@@ -47,6 +51,6 @@ import { VisibilityScopeResolver } from './visibility-scope.resolver';
     { provide: ACCESS_REPOSITORY, useClass: PrismaAccessRepository },
     { provide: VISIBILITY_SCOPE_READER, useClass: PrismaVisibilityScopeRepository },
   ],
-  exports: [AccessService, VisibilityScopeResolver],
+  exports: [AccessService, SsoProvisioningService, EntraIdentityLinkService, VisibilityScopeResolver],
 })
 export class AccessModule {}

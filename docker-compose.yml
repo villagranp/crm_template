@@ -64,7 +64,13 @@ services:
       JWT_REFRESH_TOKEN_TTL: ${JWT_REFRESH_TOKEN_TTL:-8h}
       AUTH_DEFAULT_PASSWORD: ${AUTH_DEFAULT_PASSWORD:-}
       JWT_REFRESH_TOKEN_SECRET: ${JWT_REFRESH_TOKEN_SECRET:-change-me-in-local-only}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost}
+      # Vacío: SPA y API comparten origen detrás de NGINX. Con NODE_ENV=production la API
+      # solo admite orígenes https:// exactos (o ninguno).
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      # Saltos de proxy de confianza: 1 con solo el NGINX de borde delante; 2 si un
+      # WAF/Front Door termina TLS delante de NGINX (ver el `geo` de
+      # infrastructure/nginx/nginx.conf).
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_PRETTY: 'false'
       SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
@@ -99,7 +105,9 @@ services:
     networks: [app-network]
 
   nginx:
-    image: nginx:1.27-alpine
+    # Por digest (ASVS 5.0 G-22): el mismo índice multiarquitectura que
+    # NGINX_DIGEST de frontend/Dockerfile. Al cambiar de versión se actualizan los dos.
+    image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
     restart: unless-stopped
     ports:
       - '80:80'

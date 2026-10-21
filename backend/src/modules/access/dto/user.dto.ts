@@ -3,6 +3,7 @@ import { Transform } from 'class-transformer';
 import {
   ArrayUnique,
   IsArray,
+  IsBoolean,
   IsEmail,
   IsEnum,
   IsIn,
@@ -81,6 +82,16 @@ export class ListUsersQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsUUID()
   countryId?: string;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      '`true`: solo usuarios pendientes de acceso (`ACTIVE`, sin ningún rol vigente ni permiso directo vigente: p. ej. los dados de alta automáticamente al primer ingreso con Entra ID, ADR-027). `false`: solo los demás. Omitido: todos.',
+  })
+  @IsOptional()
+  @Transform(({ value }) => (value === 'true' ? true : value === 'false' ? false : value))
+  @IsBoolean()
+  pendingAccess?: boolean;
 }
 
 /** Mismos filtros que la lista, sin paginación: exporta todo lo filtrado (D13). */
@@ -265,6 +276,12 @@ export class UserListItemDto extends UserResponseDto {
 
   @ApiProperty({ format: 'date-time' })
   createdAt!: Date;
+
+  @ApiProperty({
+    description:
+      'Calculado en el servidor: `true` si la cuenta está `ACTIVE` y no tiene ningún rol vigente (asignación sin caducar de un rol activo) ni permiso directo vigente. Puede autenticar pero no ve ni hace nada hasta que un administrador le asigne acceso (ADR-027). Filtra con `GET /users?pendingAccess=true`.',
+  })
+  pendingAccess!: boolean;
 }
 
 class UserRoleAssignmentDto {
@@ -354,6 +371,12 @@ export class UserDetailResponseDto {
 
   @ApiProperty({ format: 'date-time' })
   createdAt!: Date;
+
+  @ApiProperty({
+    description:
+      'Calculado en el servidor, con la misma definición que en la lista: `true` si la cuenta está `ACTIVE` y no tiene ningún rol vigente ni permiso directo vigente (ADR-027).',
+  })
+  pendingAccess!: boolean;
 
   @ApiProperty({ format: 'date-time' })
   updatedAt!: Date;

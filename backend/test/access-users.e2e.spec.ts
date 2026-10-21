@@ -179,7 +179,7 @@ describe('POST /users/:id/suspend y /reactivate (D3, D4)', () => {
       .send({ email: target.email, password: TEST_PASSWORD })
       .expect(200);
     const targetToken = login.body.accessToken as string;
-    const cookie = (login.headers['set-cookie'] as unknown as string[]).find((value) => value.startsWith('refresh_token='));
+    const cookie = (login.headers['set-cookie'] as unknown as string[]).find((value) => value.startsWith('__Secure-refresh_token='));
 
     const suspended = await api()
       .post(`/api/v1/users/${target.id}/suspend`)
@@ -192,6 +192,7 @@ describe('POST /users/:id/suspend y /reactivate (D3, D4)', () => {
     const refresh = await api()
       .post('/api/v1/auth/refresh')
       .set('X-Forwarded-For', uniqueIp())
+      .set('X-Requested-With', 'XMLHttpRequest')
       .set('Cookie', cookie?.split(';')[0] ?? '');
     expect([401, 403]).toContain(refresh.status);
     await api().get('/api/v1/me').set('Authorization', `Bearer ${targetToken}`).expect(401);

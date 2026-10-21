@@ -8,6 +8,8 @@ import request, { type Response } from 'supertest';
 
 import { AppModule } from '@/app.module';
 import { createValidationPipe } from '@/common/filters/validation-exception.factory';
+import { AppConfigService } from '@/config/app-config.service';
+import { AppLogger } from '@/infrastructure/logging/app-logger.service';
 import { PasswordService } from '@/modules/auth/password.service';
 
 import { INTEGRATION_ENV } from './support/integration-env';
@@ -79,16 +81,33 @@ function login(email: string, password: string, ip = nextIp()) {
   return api().post('/api/v1/auth/login').set('X-Forwarded-For', ip).send({ email, password });
 }
 
-function refreshCookieOf(response: Response): string | undefined {
+/** Fuera de desarrollo la cookie es `Secure` y lleva el prefijo `__Secure-` (G-18). */
+const COOKIE = '__Secure-refresh_token';
+/** Cabecera anti-CSRF que exigen refresh y logout (G-20). */
+const CSRF_HEADER = ['X-Requested-With', 'XMLHttpRequest'] as const;
+
+function setCookieOf(response: Response, name = COOKIE): string | undefined {
   const header = response.headers['set-cookie'] as unknown as string[] | undefined;
-  const cookie = header?.find((value) => value.startsWith('refresh_token='));
-  const value = cookie?.split(';')[0]?.slice('refresh_token='.length);
+  return header?.find((value) => value.startsWith(`${name}=`));
+}
+
+function refreshCookieOf(response: Response): string | undefined {
+  const value = setCookieOf(response)?.split(';')[0]?.slice(`${COOKIE}=`.length);
   return value ? value : undefined;
 }
 
 function refresh(cookie: string | undefined) {
-  const call = api().post('/api/v1/auth/refresh').set('X-Forwarded-For', nextIp());
-  return cookie ? call.set('Cookie', `refresh_token=${cookie}`) : call;
+  const call = api().post('/api/v1/auth/refresh').set('X-Forwarded-For', nextIp()).set(...CSRF_HEADER);
+  return cookie ? call.set('Cookie', `${COOKIE}=${cookie}`) : call;
+}
+
+function logout(cookie: string | undefined) {
+  const call = api().post('/api/v1/auth/logout').set(...CSRF_HEADER);
+  return cookie ? call.set('Cookie', `${COOKIE}=${cookie}`) : call;
+}
+
+async function activeSessionsOf(userId: string): Promise<number> {
+  return prisma.userSession.count({ where: { userId, revokedAt: null } });
 }
 
 /** Cuerpo de error sin el correlationId, que cambia en cada petición. */
@@ -104,7 +123,7 @@ beforeAll(async () => {
 
   const nestApp = moduleRef.createNestApplication<NestExpressApplication>();
   // Mismo arranque que main.ts en lo que afecta a estas pruebas.
-  nestApp.set('trust proxy', 1);
+  nestApp.set('trust proxy', nestApp.get(AppConfigService).get('TRUST_PROXY_HOPS'));
   nestApp.setGlobalPrefix('api');
   nestApp.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
   nestApp.useGlobalPipes(createValidationPipe());
@@ -131,9 +150,8 @@ describe('POST /auth/login', () => {
     expect(response.body.user.permissions).toContain('usuarios.ver');
     expect(new Date(response.body.expiresAt).getTime()).toBeGreaterThan(Date.now());
 
-    const cookie = (response.headers['set-cookie'] as unknown as string[]).find((value) =>
-      value.startsWith('refresh_token='),
-    );
+    const cookie = setCookieOf(response);
+    expect(setCookieOf(response, 'refresh_token')).toBeUndefined();
     expect(cookie).toMatch(/HttpOnly/);
     expect(cookie).toMatch(/SameSite=Lax/);
     expect(cookie).toMatch(/Path=\/api\/v1\/auth/);
@@ -230,7 +248,22 @@ describe('POST /auth/login', () => {
     for (let attempt = 1; attempt <= 10; attempt += 1) {
       await login(email, 'contrasena-incorrecta', ip).expect(401);
     }
-    await login(email, 'contrasena-incorrecta', ip).expect(429);
+    const warn = jest.spyOn(app.get(AppLogger), 'warn');
+    try {
+      const response = await login(email, 'contrasena-incorrecta', ip).expect(429);
+
+      // G-26: el rechazo queda registrado con la ruta plantilla y la IP real del cliente.
+      expect(warn).toHaveBeenCalledWith('rate_limited', {
+        correlationId: response.headers['x-correlation-id'],
+        method: 'POST',
+        path: '/api/v1/auth/login',
+        clientIp: ip,
+        principalId: undefined,
+      });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(email);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('valida el cuerpo: 400 sin correo válido', async () => {
@@ -276,10 +309,7 @@ describe('POST /auth/refresh', () => {
   it('una cookie inválida se borra', async () => {
     const response = await refresh('A'.repeat(43)).expect(401);
 
-    const cookie = (response.headers['set-cookie'] as unknown as string[] | undefined)?.find((value) =>
-      value.startsWith('refresh_token='),
-    );
-    expect(cookie).toMatch(/Expires=Thu, 01 Jan 1970/);
+    expect(setCookieOf(response)).toMatch(/Expires=Thu, 01 Jan 1970/);
   });
 
   it('si la cuenta se suspende con la sesión abierta, el refresh deja de funcionar', async () => {
@@ -297,13 +327,113 @@ describe('POST /auth/logout', () => {
     const user = await createUser();
     const cookie = refreshCookieOf(await login(user.email, PASSWORD).expect(200));
 
-    await api().post('/api/v1/auth/logout').set('Cookie', `refresh_token=${cookie}`).expect(204);
+    await logout(cookie).expect(204);
 
     await refresh(cookie).expect(401);
   });
 
   it('responde 204 aunque no haya cookie', async () => {
-    await api().post('/api/v1/auth/logout').expect(204);
+    await logout(undefined).expect(204);
+  });
+});
+
+describe('Cookie __Secure- (G-18)', () => {
+  it('la cookie sin prefijo ya no se acepta: solo se lee el nombre vigente', async () => {
+    const user = await createUser();
+    const cookie = refreshCookieOf(await login(user.email, PASSWORD).expect(200));
+
+    const response = await api()
+      .post('/api/v1/auth/refresh')
+      .set('X-Forwarded-For', nextIp())
+      .set(...CSRF_HEADER)
+      .set('Cookie', `refresh_token=${cookie}`)
+      .expect(401);
+
+    expect(response.body.code).toBe('INVALID_REFRESH_TOKEN');
+    await refresh(cookie).expect(200);
+  });
+});
+
+describe('Cabecera anti-CSRF en refresh y logout (G-20)', () => {
+  const CSRF_ERROR = {
+    status: 403,
+    body: {
+      statusCode: 403,
+      code: 'CSRF_HEADER_REQUIRED',
+      message: 'Esta operación exige la cabecera X-Requested-With: XMLHttpRequest',
+      details: [],
+    },
+  };
+
+  it('refresh sin la cabecera responde 403 CSRF_HEADER_REQUIRED y no rota ni borra la cookie', async () => {
+    const user = await createUser();
+    const cookie = refreshCookieOf(await login(user.email, PASSWORD).expect(200));
+
+    const response = await api()
+      .post('/api/v1/auth/refresh')
+      .set('X-Forwarded-For', nextIp())
+      .set('Cookie', `${COOKIE}=${cookie}`);
+
+    expect(errorShape(response)).toEqual(CSRF_ERROR);
+    expect(response.headers['set-cookie']).toBeUndefined();
+    // Sin efectos: la misma cookie sigue sirviendo (no se rotó ni se marcó como reutilizada).
+    await refresh(cookie).expect(200);
+  });
+
+  it.each([
+    ['otro valor', 'fetch'],
+    ['otro uso de mayúsculas en el valor', 'xmlhttprequest'],
+    ['vacía', ''],
+  ])('refresh con la cabecera %s responde 403', async (_name, value) => {
+    const user = await createUser();
+    const cookie = refreshCookieOf(await login(user.email, PASSWORD).expect(200));
+
+    const response = await api()
+      .post('/api/v1/auth/refresh')
+      .set('X-Forwarded-For', nextIp())
+      .set('X-Requested-With', value)
+      .set('Cookie', `${COOKIE}=${cookie}`);
+
+    expect(errorShape(response)).toEqual(CSRF_ERROR);
+    await refresh(cookie).expect(200);
+  });
+
+  it('el nombre de la cabecera no distingue mayúsculas', async () => {
+    const user = await createUser();
+    const cookie = refreshCookieOf(await login(user.email, PASSWORD).expect(200));
+
+    await api()
+      .post('/api/v1/auth/refresh')
+      .set('X-Forwarded-For', nextIp())
+      .set('x-requested-with', 'XMLHttpRequest')
+      .set('Cookie', `${COOKIE}=${cookie}`)
+      .expect(200);
+  });
+
+  it('logout sin la cabecera responde 403 CSRF_HEADER_REQUIRED y no revoca la sesión', async () => {
+    const user = await createUser();
+    const cookie = refreshCookieOf(await login(user.email, PASSWORD).expect(200));
+
+    const response = await api().post('/api/v1/auth/logout').set('Cookie', `${COOKIE}=${cookie}`);
+
+    expect(errorShape(response)).toEqual(CSRF_ERROR);
+    expect(response.headers['set-cookie']).toBeUndefined();
+    expect(await activeSessionsOf(user.id)).toBe(1);
+    await refresh(cookie).expect(200);
+  });
+
+  it('logout con un valor distinto responde 403', async () => {
+    const response = await api().post('/api/v1/auth/logout').set('X-Requested-With', 'XMLHttpRequest2');
+
+    expect(errorShape(response)).toEqual(CSRF_ERROR);
+  });
+
+  it('el login no exige la cabecera', async () => {
+    const user = await createUser();
+
+    const response = await login(user.email, PASSWORD).expect(200);
+
+    expect(refreshCookieOf(response)).toBeDefined();
   });
 });
 

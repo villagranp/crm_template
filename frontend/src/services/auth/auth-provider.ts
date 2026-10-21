@@ -35,6 +35,15 @@ export interface SignInCredentials {
   password: string;
 }
 
+/** Options of a redirect sign-in; ignored by providers that own the credential (local). */
+export interface SignInOptions {
+  /**
+   * Make the identity provider show its account picker instead of silently reusing the session it
+   * already has (needed after a rejected account, or the same wrong account comes back forever).
+   */
+  selectAccount?: boolean;
+}
+
 export interface PasswordChangeInput {
   currentPassword: string;
   newPassword: string;
@@ -58,7 +67,7 @@ export interface AuthProvider {
    * Starts the sign-in flow. May redirect the browser.
    * Rejects with the provider error (e.g. `ApiError`) so the UI can explain it.
    */
-  signIn(credentials?: SignInCredentials): Promise<AuthSession | null>;
+  signIn(credentials?: SignInCredentials, options?: SignInOptions): Promise<AuthSession | null>;
 
   /** Clears the local session and, where applicable, the provider session. */
   signOut(): Promise<void>;
@@ -71,6 +80,14 @@ export interface AuthProvider {
    * implement it; with a federated provider the identity provider does it.
    */
   changePassword?(input: PasswordChangeInput): Promise<AuthSession>;
+
+  /**
+   * Redirect-based providers only. Returns, and forgets, the failure that
+   * `initialize()` hit while completing a sign-in that came back from the
+   * identity provider (e.g. `403 IDENTITY_NOT_LINKED` from `GET /me`), so the UI
+   * can explain it. `initialize()` itself never throws.
+   */
+  consumeSignInError?(): unknown;
 
   /**
    * Notifies session changes the application did not initiate: a background

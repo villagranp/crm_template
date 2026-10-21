@@ -177,6 +177,76 @@ docker compose --profile local-db up -d postgres
 Úsalo solo con motivo (una versión distinta de PostgreSQL, una prueba
 destructiva): te separa del modelo de los entornos de arriba.
 
+## Borde, proxies y exposición a internet
+
+Configuración que cada entorno debe fijar al desplegar desde la rama
+`feature/endurecimiento-internet` ([plan de exposición a internet](../security/plan-exposicion-internet.md)
+§2; diseño del borde en el addendum 2026-10-20 de [ADR-011](../adr/ADR-011-nginx.md)).
+
+### Variables de la API
+
+| Variable | Regla |
+|---|---|
+| `TRUST_PROXY_HOPS` | Entero ≥ 0, por defecto `1`. Saltos de proxy delante de la API cuyo `X-Forwarded-For` se acepta (IP real del cliente para el límite de peticiones y los registros). `1` = solo NGINX (Compose y QA hoy); `2` = WAF, Front Door o balanceador delante de NGINX; `0` = sin proxy. **Nunca más que los saltos reales**: un valor mayor permite al cliente falsear su IP. Con un ingress delante hay que declarar además sus rangos en el `geo $from_trusted_ingress` de `infrastructure/nginx/nginx.conf` |
+| `CORS_ALLOWED_ORIGINS` | Con `NODE_ENV=production` solo orígenes `https://` exactos, separados por coma (sin `*`, sin ruta, sin barra final; con puerto si no es el 443), o vacío si la SPA y la API comparten origen detrás de NGINX. Cualquier otro valor impide arrancar la API. En `docker-compose.yml` el valor por defecto es vacío. Sin la variable, el valor por defecto es de desarrollo (`http://`) y en producción tampoco arranca |
+
+### HSTS
+
+Solo en producción, con dominio propio y certificado de una CA pública. Lo decide el `map`
+`$hsts_header` de cada `nginx.conf`: vacío (no se envía) en Docker y en QA. Para activarlo en
+producción se descomenta la línea de un año (`max-age=31536000; includeSubDomains`) de
+`infrastructure/nginx/nginx.conf`; si hay dudas, se empieza con un `max-age` corto. Un `max-age`
+erróneo es difícil de deshacer y `preload` es una decisión aparte.
+
+### Imágenes base fijadas por digest
+
+Las imágenes base se fijan por **etiqueta y digest**; con ambos, Docker descarga el digest e ignora
+la etiqueta. Los Dockerfile instalan siempre con `--frozen-lockfile`, sin respaldo: un lockfile
+desactualizado rompe la construcción, como en CI.
+
+| Imagen | Dónde |
+|---|---|
+| `node:22.20.0-alpine@sha256:dbcedd8a…` | `ARG NODE_DIGEST` de `backend/Dockerfile` y `frontend/Dockerfile` |
+| `nginx:1.27-alpine@sha256:65645c7b…` | `ARG NGINX_DIGEST` de `frontend/Dockerfile` y `image` del servicio `nginx` en `docker-compose.yml` (deben coincidir) |
+
+Al cambiar de versión se actualizan **la etiqueta y el digest** en todos los sitios de la tabla. El
+digest es el del índice multiarquitectura de esa etiqueta: `docker buildx imagetools inspect
+node:<versión>-alpine` (línea `Digest:`) o, sin Docker, el campo `digest` de
+`https://hub.docker.com/v2/repositories/library/<imagen>/tags/<etiqueta>`. El procedimiento está
+también comentado en los Dockerfile.
+
+### Mapas de código fuente del frontend
+
+El build de producción no genera `.map` y NGINX responde `404` a `*.map`. Si una herramienta de
+monitorización de errores los necesita, se compila con la variable de entorno
+`FRONTEND_BUILD_SOURCEMAP=hidden` (`FRONTEND_BUILD_SOURCEMAP=hidden pnpm build`): genera los `.map`
+sin la referencia `sourceMappingURL` en los bundles, y el pipeline debe subirlos a esa herramienta y
+**borrarlos de `dist`** antes de empaquetar. No es un `ARG` de `frontend/Dockerfile`; apagada por
+defecto.
+
+### Despliegue conjunto de backend y frontend
+
+El backend exige `X-Requested-With: XMLHttpRequest` en `POST /auth/refresh` y `POST /auth/logout`, y
+solo el frontend de esta versión la envía: **se despliegan juntos**. Con un frontend anterior la
+sesión no se renueva y cada usuario tendría que volver a entrar al caducar el access token. Además,
+al cambiar el nombre de la cookie a `__Secure-refresh_token`, las sesiones locales vigentes se
+pierden **una vez** ([`AUTHENTICATION.md`](../../AUTHENTICATION.md) §3).
+
+### Comprobaciones tras actualizar el borde
+
+Sustituir `<host>` por el nombre del entorno (`-k` solo con certificado autofirmado o interno).
+
+| Comprobación | Resultado esperado |
+|---|---|
+| `nginx -t` (en QA, el comando del paso 9 de [`qa-windows.md`](qa-windows.md)) | Sintaxis correcta |
+| `curl -skI https://<host>/` | Una sola cabecera de cada tipo; `Content-Security-Policy` con `'nonce-…'`; `Cache-Control: no-store` |
+| `curl -sk https://<host>/ \| grep csp-nonce` | El `content` del meta es el mismo nonce que el de la cabecera CSP de esa respuesta (dos peticiones dan nonces distintos) |
+| `curl -skI https://<host>/api/v1/health` | Una sola cabecera de cada tipo (sin las de helmet duplicadas); sin HSTS salvo en producción |
+| `curl -sk -X TRACE https://<host>/` | `405` |
+| `curl -sk -o /dev/null -w '%{http_code}' https://<host>/assets/x.js.map` | `404` |
+| `curl -sk https://<host>/api/v1/ready` | `{"status":"ready","timestamp":"…"}` |
+| Construcción de imágenes (`docker compose build`) | Termina sin resolver dependencias fuera del lockfile |
+
 ## Despliegue
 
 Los pipelines construyen y verifican imágenes, pero **no despliegan**: el

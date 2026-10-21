@@ -19,7 +19,7 @@ export class SessionUserDto {
 
 /**
  * Respuesta de login, refresh y cambio de contraseña. El refresh token no
- * viaja aquí: va en la cookie HttpOnly `refresh_token`.
+ * viaja aquí: va en la cookie HttpOnly `__Secure-refresh_token` (`refresh_token` en desarrollo).
  */
 export class SessionResponseDto {
   @ApiProperty({ description: 'JWT de acceso. Guardarlo solo en memoria.' })

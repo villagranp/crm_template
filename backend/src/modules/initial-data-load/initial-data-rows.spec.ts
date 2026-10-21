@@ -7,6 +7,7 @@ import {
   parseOwnerReference,
   sanitizeSheet,
   SheetCollector,
+  validateEntraIdentityRows,
   validateFamilyRows,
   validateMinuteRows,
   validateProductRows,
@@ -18,6 +19,7 @@ const PROJECTS = ENTITY_DEFINITIONS.projects.sheets[0]!;
 const FAMILIES = ENTITY_DEFINITIONS.products.sheets[0]!;
 const PRODUCTS = ENTITY_DEFINITIONS.products.sheets[1]!;
 const MINUTES = ENTITY_DEFINITIONS['safety-minutes'].sheets[0]!;
+const IDENTITIES = ENTITY_DEFINITIONS['entra-identities'].sheets[0]!;
 
 type Cell = XlsxCellValue | string | null;
 
@@ -306,5 +308,52 @@ describe('SheetCollector', () => {
     expect(collector.hasError(2)).toBe(true);
     expect(collector.isExisting(3)).toBe(true);
     expect(collector.entries.map((entry) => entry.status)).toEqual(['ERROR', 'ERROR', 'EXISTS']);
+  });
+});
+
+describe('validateEntraIdentityRows (ADR-027)', () => {
+  const OID_A = '3F2504E0-4F89-11D3-9A0C-0305E82C3301';
+  const OID_B = '00000000-0000-4000-8000-000000000002';
+
+  it('normaliza el oid a minúsculas y reconoce correo o código de colaborador', () => {
+    const { rows, collector } = load(IDENTITIES, [
+      { user: ' Ana@Example.INVALID ', oid: OID_A },
+      { user: 'EMP-7', oid: OID_B },
+    ]);
+    expect(validateEntraIdentityRows(rows, collector)).toEqual([
+      { fileRow: 2, user: { kind: 'email', value: 'ana@example.invalid' }, oid: OID_A.toLowerCase() },
+      { fileRow: 3, user: { kind: 'employeeCode', value: 'EMP-7' }, oid: OID_B },
+    ]);
+    expect(errors(collector)).toEqual([]);
+  });
+
+  it.each(['no-es-un-guid', '3f2504e0-4f89-11d3-9a0c-0305e82c330', '{3f2504e0-4f89-11d3-9a0c-0305e82c3301}'])('rechaza el oid %p con INVALID_FORMAT', (oid) => {
+    const { rows, collector } = load(IDENTITIES, [{ user: 'a@example.invalid', oid }]);
+    expect(validateEntraIdentityRows(rows, collector)).toEqual([]);
+    expect(errors(collector).map(([row, , code]) => [row, code])).toContainEqual([2, oid.length > 36 ? 'MAX_LENGTH' : 'INVALID_FORMAT']);
+  });
+
+  it('exige ambas columnas', () => {
+    const { rows, collector } = load(IDENTITIES, [{ user: 'a@example.invalid' }, { oid: OID_A }]);
+    expect(validateEntraIdentityRows(rows, collector)).toEqual([]);
+    expect(errors(collector)).toEqual([
+      [2, 'Object ID (oid)', 'REQUIRED_FIELD_MISSING'],
+      [3, 'Correo o código de colaborador', 'REQUIRED_FIELD_MISSING'],
+    ]);
+  });
+
+  it('marca como duplicados el mismo oid (aunque cambie la capitalización) y el mismo usuario repetido', () => {
+    const { rows, collector } = load(IDENTITIES, [
+      { user: 'a@example.invalid', oid: OID_A },
+      { user: 'b@example.invalid', oid: OID_A.toLowerCase() },
+      { user: 'A@example.invalid', oid: OID_B },
+    ]);
+    expect(validateEntraIdentityRows(rows, collector)).toEqual([]);
+    expect(errors(collector)).toEqual([
+      [2, 'Object ID (oid)', 'DUPLICATE_IN_FILE'],
+      [3, 'Object ID (oid)', 'DUPLICATE_IN_FILE'],
+      [2, 'Correo o código de colaborador', 'DUPLICATE_IN_FILE'],
+      [4, 'Correo o código de colaborador', 'DUPLICATE_IN_FILE'],
+    ]);
   });
 });

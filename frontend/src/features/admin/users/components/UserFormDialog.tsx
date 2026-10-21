@@ -20,6 +20,7 @@ import {
   FormSection,
   FullRow,
 } from '@/features/admin/common';
+import { env } from '@/config/env';
 import { useCan, useIsAdministrador } from '@/hooks/use-permission';
 
 import {
@@ -59,6 +60,13 @@ export interface UserFormDialogProps {
 }
 
 /** Errores cuyos `details[].issue` son útiles para la persona (validación de campos). */
+/** Qué le pasa a la persona recién creada: depende de quién guarda la credencial. */
+const NEW_USER_HINT = {
+  local: 'Nace como «Invitado» y debe cambiar la contraseña inicial al entrar.',
+  entra:
+    'La persona entrará con su cuenta corporativa. El administrador debe vincular su identidad antes de que pueda entrar; hasta entonces recibirá un aviso de cuenta no vinculada.',
+} as const;
+
 const SHOW_ISSUES_FOR = new Set(['VALIDATION_FAILED']);
 
 function defaults(user: UserDetail | null): UserFormValues {
@@ -372,8 +380,7 @@ export function UserFormDialog({ open, user, onClose, onSaved }: UserFormDialogP
                   </FormGroup>
                 )}
                 <FormHelperText>
-                  {errors.roleIds?.message ??
-                    'Nace como «Invitado» y debe cambiar la contraseña inicial al entrar.'}
+                  {errors.roleIds?.message ?? NEW_USER_HINT[env.VITE_AUTH_PROVIDER]}
                 </FormHelperText>
                 {isAdministrador ? null : (
                   <FormHelperText>

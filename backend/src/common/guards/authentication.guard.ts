@@ -12,7 +12,12 @@ import { IS_PUBLIC_KEY } from '@/common/decorators/public.decorator';
 import {
   AUTHENTICATION_PROVIDER,
   type AuthenticationProvider,
+  InvalidTokenError,
 } from '@/infrastructure/authentication/ports/authentication-provider.port';
+import {
+  PRINCIPAL_ADMISSION,
+  type PrincipalAdmission,
+} from '@/infrastructure/authentication/ports/principal-admission.port';
 import { AppLogger } from '@/infrastructure/logging/app-logger.service';
 import type { AppRequest } from '@/common/types/request-context';
 
@@ -26,6 +31,8 @@ export class AuthenticationGuard implements CanActivate {
     private readonly reflector: Reflector,
     @Inject(AUTHENTICATION_PROVIDER)
     private readonly authenticationProvider: AuthenticationProvider,
+    @Inject(PRINCIPAL_ADMISSION)
+    private readonly admission: PrincipalAdmission,
     private readonly logger: AppLogger,
   ) {}
 
@@ -48,14 +55,23 @@ export class AuthenticationGuard implements CanActivate {
 
     try {
       request.principal = await this.authenticationProvider.verifyAccessToken(token);
-    } catch {
-      // El detalle del fallo se registra, pero nunca se devuelve al cliente.
+    } catch (error) {
+      // Se registra solo el código del rechazo (p. ej. ERR_JWT_EXPIRED): ni el mensaje, que puede citar
+      // claims del token, ni el token. Nada de esto se devuelve al cliente.
       this.logger.warn('authentication_failed', {
         correlationId: request.correlationId,
         path: request.originalUrl.split('?')[0],
+        reason: error instanceof InvalidTokenError ? (error.code ?? 'ERR_TOKEN_INVALID') : 'ERR_UNEXPECTED',
       });
       throw new UnauthorizedException('Invalid or expired access token');
     }
+
+    // ADR-027: con Entra ID, un token válido no basta: la identidad debe tener cuenta local (o crearla en el
+    // primer ingreso). Los 403 `IDENTITY_*` y `SSO_PROVISIONING_DISABLED` salen de aquí, no se convierten en 401.
+    await this.admission.admit(request.principal, {
+      correlationId: request.correlationId,
+      ipAddress: request.ip ?? null,
+    });
 
     // D13: con una contraseña asignada por otro, la sesión solo sirve para cambiarla.
     if (request.principal.passwordChangeRequired && !this.allowsPendingPasswordChange(context)) {

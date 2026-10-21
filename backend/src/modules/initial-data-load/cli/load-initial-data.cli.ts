@@ -42,7 +42,7 @@ const VALUE_OPTIONS = ['--file', '--actor', '--report', '--format', '--out'] as 
 const FLAG_OPTIONS = ['--confirm-production', '--force', '--help'] as const;
 
 export const USAGE = [
-  'Carga inicial de datos por scripts (proyectos, productos y familias, minutos de seguridad).',
+  'Carga inicial de datos por scripts (proyectos, productos y familias, minutos de seguridad, vínculos con Entra ID).',
   '',
   'Uso:',
   '  pnpm --filter @app/backend run load:data -- template <entidad> [--format xlsx|csv] [--out <carpeta>] [--force]',

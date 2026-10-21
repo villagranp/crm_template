@@ -1,7 +1,7 @@
 # Plantillas de la carga inicial de datos
 
-Plantillas para cargar **proyectos**, **productos y familias** y **minutos de seguridad** con el
-script `load:data`. Diseño, reglas y decisiones:
+Plantillas para cargar **proyectos**, **productos y familias**, **minutos de seguridad** y
+**vínculos de usuarios con Entra ID** con el script `load:data`. Diseño, reglas y decisiones:
 [`docs/implementation-plans/CARGA-INICIAL.md`](../implementation-plans/CARGA-INICIAL.md). Versión de
 plantilla: **1**.
 
@@ -10,6 +10,7 @@ plantilla: **1**.
 | Proyectos | `plantilla-proyectos.xlsx`, `plantilla-proyectos.csv` | Hoja «Proyectos» |
 | Productos y familias | `plantilla-productos.xlsx` (hojas «Familias» y «Productos»); en CSV, `plantilla-productos.csv` (productos) y `plantilla-productos-familias.csv` (familias) | Dos hojas |
 | Minuto de seguridad | `plantilla-minuto-seguridad.xlsx`, `plantilla-minuto-seguridad.csv` | Hoja «Minutos» |
+| Vínculos con Entra ID | `plantilla-vinculos-entra.xlsx`, `plantilla-vinculos-entra.csv` | Hoja «Vínculos»: «Correo o código de colaborador» y «Object ID (oid)» |
 
 Cada libro XLSX trae la hoja de datos **vacía**, una hoja «Instrucciones» (columna, si es
 obligatoria, formato, longitud y un ejemplo ficticio) y una hoja «Valores válidos». Los valores
@@ -36,7 +37,7 @@ reales de clientes, colaboradores ni proveedores; los ejemplos usan correos `exa
 
 ## Pasos exactos
 
-Desde la raíz del repositorio. Sustituya `<entidad>` por `projects`, `products` o `safety-minutes`.
+Desde la raíz del repositorio. Sustituya `<entidad>` por `projects`, `products`, `safety-minutes` o `entra-identities`.
 
 **1. Obtener la plantilla con los valores activos de su base** (opcional si usa la de este
 directorio y sus códigos coinciden):
@@ -109,6 +110,7 @@ columna y el motivo; nunca repite el valor de la celda.
 | `EXISTS_DIFFERENT` (estado «Advertencia») | El código, SKU o proyecto ya existe pero con datos distintos: se omitió **sin modificar**. Revise si el archivo o lo cargado es lo correcto (cambiar lo ya cargado se hace en la aplicación). No impide la carga |
 | `CLASSIFICATION_FAILED` (estado «Advertencia») | El proyecto se creó pero no se guardó su tipo y sector: ábralo en Proyectos y clasifíquelo. Repetir la carga lo omite |
 | `PAST_DATE` | El minuto de seguridad solo admite hoy o fechas futuras |
+| `IDENTITY_TAKEN` | (`entra-identities`) Ese Object ID ya está vinculado a otro usuario: revise el archivo; un `oid` identifica a una sola persona |
 | `ALREADY_EXISTS` (estado «Ya existe (omitida)») | No es un error: ya estaba cargado y no se modifica |
 | Otro código (p. ej. `RESOURCE_CONFLICT`, `PROJECT_CODE_TAKEN`) | El sistema rechazó la fila por una regla de negocio; el informe indica el campo |
 
@@ -150,6 +152,35 @@ VAR-3-8,Varilla corrugada 3/8 (ejemplo),ACERO-LARGO,VAR
 Fecha de visualización,Mensaje
 2027-02-01,Mensaje ficticio de ejemplo: use siempre el casco en la obra.
 ```
+
+## Vínculos con Microsoft Entra ID (`entra-identities`)
+
+Para el corte a Entra ID ([ADR-027](../adr/ADR-027-sso-entra-id-alta-primer-ingreso-y-corte-directo.md),
+runbook en [`AUTHENTICATION.md`](../../AUTHENTICATION.md) §4.3). Vincula **usuarios que ya existen** con su
+**Object ID** de Entra ID (Azure Portal > Microsoft Entra ID > Usuarios > Id. de objeto). **Siempre por `oid`,
+nunca por correo**: el correo de la primera columna solo sirve para localizar al usuario del CRM.
+
+```bash
+pnpm --filter @app/backend run load:data -- validate entra-identities --file ./vinculos.xlsx
+pnpm --filter @app/backend run load:data -- apply entra-identities --file ./vinculos.xlsx --actor admin@su-empresa.example
+```
+
+Una fila válida (el `oid` es ficticio; el correo, de ejemplo; **la hoja de datos de la plantilla va vacía**):
+
+```csv
+Correo o código de colaborador,Object ID (oid)
+colaborador@example.invalid,00000000-0000-0000-0000-000000000001
+```
+
+Reglas: el usuario debe existir y no estar eliminado (puede estar suspendido); el `oid` es un GUID de 36
+caracteres; **un `oid` ya vinculado a otro usuario es error** (`IDENTITY_TAKEN`); si el usuario **ya está
+vinculado con ese mismo `oid`** se reporta «ya existe»; si lo está con **otro** `oid` se omite con la
+advertencia `EXISTS_DIFFERENT` (no se modifica); un `oid` o un usuario repetido en el archivo es error
+(`DUPLICATE_IN_FILE`). Crea **solo** la identidad: nunca toca roles, permisos, equipos ni estado. Cada
+vinculación queda en la bitácora como `user.identity_linked`. `apply` exige un administrador activo con
+`usuarios.editar` en `--actor`. Es idempotente. El informe **avisa de cuántas filas apuntan a usuarios con rol de administrador** (`ADMINISTRATOR_ROWS`, `LINKS_TO_ADMINISTRATOR`): no bloquea, pero revíselas, porque quien controle ese `oid` entra con todos los permisos. Vincule **antes** de que la gente entre por Entra ID.
+
+Después de vincular, `auth:revoke-local` retira las credenciales locales (ver el runbook).
 
 ## Mantenimiento de estas plantillas
 

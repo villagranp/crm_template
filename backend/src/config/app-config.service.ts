@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { AppEnvironment } from './env.schema';
+import { type AppEnvironment, parseOrigins } from './env.schema';
 
 /**
  * Acceso tipado a la configuracion. El resto de la aplicacion no lee process.env.
@@ -20,10 +20,7 @@ export class AppConfigService {
   }
 
   get corsAllowedOrigins(): string[] {
-    return this.get('CORS_ALLOWED_ORIGINS')
-      .split(',')
-      .map((origin) => origin.trim())
-      .filter((origin) => origin.length > 0);
+    return parseOrigins(this.get('CORS_ALLOWED_ORIGINS'));
   }
 
   get isEntraEnabled(): boolean {

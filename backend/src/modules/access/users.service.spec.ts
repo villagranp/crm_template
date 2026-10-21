@@ -16,10 +16,10 @@ import type {
 } from './ports/access.repository.port';
 import { UsersService } from './users.service';
 
-const ADMIN_ROLE = { id: 'role-admin', code: 'administrador', name: 'Administrador', isSystem: true, expiresAt: null };
-const USER_ROLE = { id: 'role-user', code: 'usuario', name: 'Usuario', isSystem: true, expiresAt: null };
-const ACCESS_MANAGER_ROLE = { id: 'role-gestor', code: 'gestor-accesos', name: 'Gestor', isSystem: true, expiresAt: null };
-const ADVISOR_ROLE = { id: 'role-asesor', code: 'asesor', name: 'Asesor', isSystem: true, expiresAt: null };
+const ADMIN_ROLE = { id: 'role-admin', code: 'administrador', name: 'Administrador', isSystem: true, expiresAt: null, isActive: true };
+const USER_ROLE = { id: 'role-user', code: 'usuario', name: 'Usuario', isSystem: true, expiresAt: null, isActive: true };
+const ACCESS_MANAGER_ROLE = { id: 'role-gestor', code: 'gestor-accesos', name: 'Gestor', isSystem: true, expiresAt: null, isActive: true };
+const ADVISOR_ROLE = { id: 'role-asesor', code: 'asesor', name: 'Asesor', isSystem: true, expiresAt: null, isActive: true };
 const ROLES_BY_ID = new Map([ADMIN_ROLE, USER_ROLE, ACCESS_MANAGER_ROLE, ADVISOR_ROLE].map((role) => [role.id, role]));
 
 const GT = { id: 'country-gt', isoCode: 'GT', name: 'Guatemala' };
@@ -68,6 +68,7 @@ function detail(overrides: Partial<UserDetailRecord> = {}): UserDetailRecord {
     directPermissions: [],
     directMenuOptions: [],
     hasCompletedActivation: true,
+    pendingAccess: false,
     ...overrides,
   };
 }

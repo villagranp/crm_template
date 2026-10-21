@@ -13,13 +13,13 @@ import type { SanitizableColumn } from '@/modules/customer-imports/cell-sanitize
 
 export const INITIAL_DATA_TEMPLATE_VERSION = '1';
 
-export const INITIAL_DATA_ENTITIES = ['projects', 'products', 'safety-minutes'] as const;
+export const INITIAL_DATA_ENTITIES = ['projects', 'products', 'safety-minutes', 'entra-identities'] as const;
 export type InitialDataEntity = (typeof INITIAL_DATA_ENTITIES)[number];
 
 /** Cómo se interpreta el valor de la celda. */
 export type LoadValueType = 'text' | 'code' | 'date' | 'integer';
 
-export type SheetId = 'projects' | 'families' | 'products' | 'safety-minutes';
+export type SheetId = 'projects' | 'families' | 'products' | 'safety-minutes' | 'entra-identities';
 
 export interface LoadColumn {
   readonly key: string;
@@ -227,6 +227,31 @@ const MINUTE_COLUMNS: readonly LoadColumn[] = [
   },
 ];
 
+const ENTRA_IDENTITY_COLUMNS: readonly LoadColumn[] = [
+  {
+    key: 'user',
+    header: 'Correo o código de colaborador',
+    required: true,
+    valueType: 'code',
+    maxLength: 320,
+    isFreeText: false,
+    description:
+      'Correo o código de colaborador de un usuario que ya existe en el CRM y no está eliminado (puede estar suspendido). Si contiene @ se busca por correo; si no, por código de colaborador.',
+    example: 'colaborador@example.invalid',
+  },
+  {
+    key: 'oid',
+    header: 'Object ID (oid)',
+    required: true,
+    valueType: 'code',
+    maxLength: 36,
+    isFreeText: false,
+    description:
+      'Object ID del usuario en Microsoft Entra ID (Azure Portal > Microsoft Entra ID > Usuarios > Id. de objeto): un GUID de 36 caracteres. Se vincula siempre por este identificador, nunca por correo.',
+    example: '00000000-0000-0000-0000-000000000001',
+  },
+];
+
 export const ENTITY_DEFINITIONS: Readonly<Record<InitialDataEntity, EntityDefinition>> = {
   projects: {
     entity: 'projects',
@@ -248,6 +273,12 @@ export const ENTITY_DEFINITIONS: Readonly<Record<InitialDataEntity, EntityDefini
     label: 'minutos de seguridad',
     fileBase: 'plantilla-minuto-seguridad',
     sheets: [{ id: 'safety-minutes', sheetName: 'Minutos', csvSuffix: '', optionalInCsv: false, columns: MINUTE_COLUMNS }],
+  },
+  'entra-identities': {
+    entity: 'entra-identities',
+    label: 'vínculos con Entra ID',
+    fileBase: 'plantilla-vinculos-entra',
+    sheets: [{ id: 'entra-identities', sheetName: 'Vínculos', csvSuffix: '', optionalInCsv: false, columns: ENTRA_IDENTITY_COLUMNS }],
   },
 };
 

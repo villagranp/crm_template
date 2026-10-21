@@ -4,6 +4,7 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import { ApplicationError, ResourceConflictError } from '@/common/errors/application-error';
 import { AccessService } from '@/modules/access/access.service';
+import { EntraIdentityLinkService } from '@/modules/access/entra-identity-link.service';
 import { CustomerReferenceGuard } from '@/modules/customers/customer-reference.guard';
 import { normalizeName } from '@/modules/customers/customer-normalization';
 import { PRODUCT_CONFIGURE_PERMISSION } from '@/modules/products/product-masters.mappers';
@@ -20,6 +21,7 @@ import { SafetyMinutesService } from '@/modules/safety-minutes/safety-minutes.se
 
 import { DEFAULT_READ_LIMITS, type LoadReadLimits, type LoadSource, type ParsedSheet, readLoadSource } from './initial-data-file-reader';
 import {
+  type EntraIdentityDraft,
   type FamilyDraft,
   type LoadRow,
   type MinuteDraft,
@@ -27,6 +29,7 @@ import {
   type ProjectDraft,
   sanitizeSheet,
   SheetCollector,
+  validateEntraIdentityRows,
   validateFamilyRows,
   validateMinuteRows,
   validateProductRows,
@@ -64,6 +67,8 @@ const ENTITY_PERMISSIONS: Readonly<Record<InitialDataEntity, readonly string[]>>
   projects: [PROJECT_PERMISSIONS.create, PROJECT_PERMISSIONS.administer],
   products: [PRODUCT_CONFIGURE_PERMISSION],
   'safety-minutes': [SAFETY_MINUTE_CREATE_PERMISSION],
+  // Vincular una identidad es dar acceso a una cuenta: administrador (ADR-020) con permiso para editar usuarios.
+  'entra-identities': ['usuarios.editar'],
 };
 
 /**
@@ -112,11 +117,17 @@ interface ProductPlan {
   readonly baseUnitId: string;
 }
 
+interface EntraIdentityPlan {
+  readonly draft: EntraIdentityDraft;
+  readonly userId: string;
+}
+
 interface Plan {
   readonly families: FamilyDraft[];
   readonly products: ProductPlan[];
   readonly projects: ProjectPlan[];
   readonly minutes: MinuteDraft[];
+  readonly identities: EntraIdentityPlan[];
 }
 
 interface Prepared {
@@ -137,6 +148,7 @@ const FIELD_COLUMNS: Readonly<Record<InitialDataEntity, Readonly<Record<string, 
   },
   products: { code: 'code', sku: 'sku', familyId: 'family', baseUnitId: 'baseUnit' },
   'safety-minutes': { displayDate: 'displayDate', message: 'message' },
+  'entra-identities': { identitySubject: 'oid' },
 };
 
 /**
@@ -163,6 +175,7 @@ export class InitialDataLoader {
     private readonly masters: ProductMastersService,
     private readonly safetyMinutes: SafetyMinutesService,
     private readonly parameters: ParameterReader,
+    private readonly identityLinks: EntraIdentityLinkService,
   ) {}
 
   templateValues(): Promise<TemplateValueSet> {
@@ -264,6 +277,8 @@ export class InitialDataLoader {
         return plan.projects.length;
       case 'safety-minutes':
         return plan.minutes.length;
+      case 'entra-identities':
+        return plan.identities.length;
     }
   }
 
@@ -280,9 +295,11 @@ export class InitialDataLoader {
     const collectorOf = (id: string): SheetCollector => collectors.get(id) as SheetCollector;
     const rows = (id: string): LoadRow[] => rowsOf.get(id) ?? [];
 
-    let plan: Plan = { families: [], products: [], projects: [], minutes: [] };
+    let plan: Plan = { families: [], products: [], projects: [], minutes: [], identities: [] };
     if (entity === 'safety-minutes') {
       plan = { ...plan, minutes: await this.planMinutes(rows('safety-minutes'), collectorOf('safety-minutes')) };
+    } else if (entity === 'entra-identities') {
+      plan = { ...plan, identities: await this.planEntraIdentities(rows('entra-identities'), collectorOf('entra-identities')) };
     } else if (entity === 'products') {
       plan = { ...plan, ...(await this.planProducts(rows('families'), collectorOf('families'), rows('products'), collectorOf('products'))) };
     } else {
@@ -311,6 +328,78 @@ export class InitialDataLoader {
     for (const draft of candidates) {
       if (existing.has(draft.displayDate)) collector.exists(draft.fileRow, 'displayDate', 'Ya existe un minuto de seguridad para esa fecha; no se modifica.');
       else planned.push(draft);
+    }
+    return planned;
+  }
+
+  // -------------------------------------------------------------------------
+  // Vínculos con Entra ID (ADR-027)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Cada fila vincula un usuario existente (y no eliminado) con un `oid`. «Ya existe» si ese usuario ya
+   * tiene ese mismo `oid`; error si el `oid` ya es de otro usuario; advertencia `EXISTS_DIFFERENT` (y se
+   * omite, sin modificar) si el usuario ya tiene otro `oid`. Nunca se vincula por correo coincidente.
+   */
+  private async planEntraIdentities(rows: readonly LoadRow[], collector: SheetCollector): Promise<EntraIdentityPlan[]> {
+    const drafts = validateEntraIdentityRows(rows, collector);
+    const unique = <T>(values: readonly (T | null)[]): T[] => [...new Set(values.filter((value): value is T => value !== null))];
+    const users = await this.lookup.findUsers({
+      emails: unique(drafts.map((draft) => (draft.user.kind === 'email' ? draft.user.value : null))),
+      employeeCodes: unique(drafts.map((draft) => (draft.user.kind === 'employeeCode' ? draft.user.value : null))),
+    });
+    const userByEmail = new Map(users.map((user) => [user.email, user]));
+    const userByCode = new Map(users.flatMap((user) => (user.employeeCode ? [[user.employeeCode, user] as const] : [])));
+
+    const resolved: EntraIdentityPlan[] = [];
+    for (const draft of drafts) {
+      const user: LookupUser | undefined = draft.user.kind === 'email' ? userByEmail.get(draft.user.value) : userByCode.get(draft.user.value);
+      if (!user) collector.error(draft.fileRow, 'user', 'UNKNOWN_REFERENCE', 'No existe un usuario con ese correo o código de colaborador.');
+      else if (user.isDeleted) collector.error(draft.fileRow, 'user', 'INACTIVE_REFERENCE', 'El usuario está eliminado.');
+      else resolved.push({ draft, userId: user.id });
+    }
+
+    // Dos referencias distintas (correo y código) pueden ser el mismo usuario.
+    const rowsOfUser = new Map<string, number[]>();
+    for (const item of resolved) rowsOfUser.set(item.userId, [...(rowsOfUser.get(item.userId) ?? []), item.draft.fileRow]);
+    const clean = resolved.filter((item) => {
+      const sameUser = rowsOfUser.get(item.userId) ?? [];
+      if (sameUser.length < 2) return true;
+      const other = sameUser.find((fileRow) => fileRow !== item.draft.fileRow);
+      collector.error(item.draft.fileRow, 'user', 'DUPLICATE_IN_FILE', `El usuario se repite en la fila ${other} del archivo (con otra referencia).`);
+      return false;
+    });
+
+    const identities = await this.lookup.findEntraIdentities({ subjects: clean.map((item) => item.draft.oid), userIds: clean.map((item) => item.userId) });
+    const ownerOfSubject = new Map(identities.map((identity) => [identity.subject, identity.userId]));
+    const subjectsOfUser = new Map<string, string[]>();
+    for (const identity of identities) subjectsOfUser.set(identity.userId, [...(subjectsOfUser.get(identity.userId) ?? []), identity.subject]);
+
+    const planned: EntraIdentityPlan[] = [];
+    for (const item of clean) {
+      const owner = ownerOfSubject.get(item.draft.oid);
+      if (owner !== undefined && owner !== item.userId) {
+        collector.error(item.draft.fileRow, 'oid', 'IDENTITY_TAKEN', 'Ese Object ID ya está vinculado a otro usuario.');
+      } else if (owner === item.userId) {
+        collector.exists(item.draft.fileRow, 'oid', 'El usuario ya está vinculado con ese Object ID; no se modifica.');
+      } else if ((subjectsOfUser.get(item.userId) ?? []).length > 0) {
+        collector.existsDifferent(item.draft.fileRow, 'oid', 'El usuario ya está vinculado con otro Object ID; se omite sin modificarlo.');
+      } else {
+        planned.push(item);
+      }
+    }
+
+    // Vincular una identidad a una cuenta de administrador es el vínculo más delicado: quien controle ese
+    // `oid` entra con todos los permisos. No bloquea, pero el informe lo pone delante (ADR-027).
+    let administrators = 0;
+    for (const item of planned) {
+      if (await this.access.isAdministrador(item.userId)) {
+        administrators += 1;
+        collector.note(item.draft.fileRow, 'oid', 'LINKS_TO_ADMINISTRATOR', 'El usuario tiene el rol de administrador: confirme que este Object ID es el suyo antes de aplicar.');
+      }
+    }
+    if (administrators > 0) {
+      collector.note(null, null, 'ADMINISTRATOR_ROWS', `${administrators} fila(s) vinculan a usuarios con rol de administrador: revíselas (cada una está señalada en su fila).`);
     }
     return planned;
   }
@@ -544,6 +633,15 @@ export class InitialDataLoader {
         await this.attempt(entity, collector('safety-minutes'), draft.fileRow, async () => {
           await this.safetyMinutes.create({ message: draft.message, displayDate: draft.displayDate }, masterActor);
           bump('safety-minutes');
+        });
+      }
+    } else if (entity === 'entra-identities') {
+      for (const item of prepared.plan.identities) {
+        await this.attempt(entity, collector('entra-identities'), item.draft.fileRow, async () => {
+          const outcome = await this.identityLinks.link(item.userId, item.draft.oid, actor.context.audit);
+          if (outcome.kind === 'linked') bump('entra-identities');
+          else if (outcome.kind === 'already_linked') collector('entra-identities').exists(item.draft.fileRow, 'oid', 'El usuario ya está vinculado con ese Object ID; no se modifica.');
+          else collector('entra-identities').error(item.draft.fileRow, 'oid', 'IDENTITY_TAKEN', 'Ese Object ID ya está vinculado a otro usuario (otra carga a la vez).');
         });
       }
     } else if (entity === 'products') {

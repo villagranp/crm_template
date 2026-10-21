@@ -16,6 +16,13 @@ export interface LookupUser {
   readonly isDeleted: boolean;
 }
 
+/** Identidad `ENTRA_ID` ya vinculada: a qué usuario pertenece cada `oid`. */
+export interface LookupEntraIdentity {
+  readonly userId: string;
+  /** `oid` en minúsculas. */
+  readonly subject: string;
+}
+
 export interface LookupCustomer {
   readonly id: string;
   readonly crmCode: string;
@@ -62,6 +69,11 @@ export interface InitialDataLookup {
   findUsers(identifiers: { readonly emails: readonly string[]; readonly employeeCodes: readonly string[] }): Promise<LookupUser[]>;
   /** Por código CRM (`customers.crm_code`, único en todo el sistema). */
   findCustomersByCrmCode(crmCodes: readonly string[]): Promise<LookupCustomer[]>;
+  /**
+   * Identidades `ENTRA_ID` cuyo `oid` está en `subjects` **o** que pertenecen a alguno de `userIds`,
+   * para decidir «ya existe», «otro `oid`» y «`oid` de otro usuario» (ADR-027).
+   */
+  findEntraIdentities(query: { readonly subjects: readonly string[]; readonly userIds: readonly string[] }): Promise<LookupEntraIdentity[]>;
   findCountriesByIso(isoCodes: readonly string[]): Promise<LookupReference[]>;
   findCatalogItems(catalogKey: string, codes: readonly string[]): Promise<LookupReference[]>;
   findFamilies(codes: readonly string[]): Promise<LookupFamily[]>;

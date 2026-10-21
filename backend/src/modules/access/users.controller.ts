@@ -78,7 +78,7 @@ export class UsersController {
   @ApiOperation({
     summary: 'Lista de usuarios con filtros, orden y paginación',
     description:
-      '`search` busca en nombre, correo y código de colaborador. Filtros: `status`, `roleCode`, `teamId`, `countryId`. Cada fila trae `employeeCode` y `country` (`null` si no tiene).',
+      '`search` busca en nombre, correo y código de colaborador. Filtros: `status`, `roleCode`, `teamId`, `countryId`, `pendingAccess` (`true`: solo cuentas `ACTIVE` sin ningún rol vigente, p. ej. las dadas de alta automáticamente con Entra ID, ADR-027). Cada fila trae `employeeCode`, `country` (`null` si no tiene) y `pendingAccess` (calculado en el servidor).',
   })
   @ApiOkResponse({ description: '`{ data: UserListItemDto[], pagination }`' })
   @ApiBadRequestResponse({ type: ErrorResponseDto })
@@ -97,6 +97,7 @@ export class UsersController {
       country: item.country,
       lastLoginAt: item.lastLoginAt,
       createdAt: item.createdAt,
+      pendingAccess: item.pendingAccess,
     }));
 
     return PaginatedResponseDto.of(items, query.page, query.pageSize, result.totalItems);
@@ -108,7 +109,7 @@ export class UsersController {
   @Header('Cache-Control', 'no-store')
   @ApiOperation({
     summary: 'Exporta los usuarios filtrados a CSV (D13)',
-    description: `Mismos filtros que la lista (incluido \`countryId\`). Columnas: Código de colaborador, Correo, Nombre, País, Puesto, Estado, Roles, Equipos, Último acceso, Alta. Como mucho ${MAX_EXPORT_ROWS} filas; si se alcanza el tope responde ${EXPORT_TRUNCATED_HEADER}: true. Cada exportación queda en la bitácora como \`user.exported\`.`,
+    description: `Mismos filtros que la lista (incluidos \`countryId\` y \`pendingAccess\`). Columnas: Código de colaborador, Correo, Nombre, País, Puesto, Estado, Roles, Equipos, Último acceso, Alta. Como mucho ${MAX_EXPORT_ROWS} filas; si se alcanza el tope responde ${EXPORT_TRUNCATED_HEADER}: true. Cada exportación queda en la bitácora como \`user.exported\`.`,
   })
   @ApiProduces('text/csv')
   @ApiOkResponse({ description: 'Archivo CSV (UTF-8 con BOM)', schema: { type: 'string', format: 'binary' } })
@@ -148,7 +149,7 @@ export class UsersController {
   })
   @ApiCreatedResponse({
     type: UserListItemDto,
-    description: 'El usuario creado, con la misma forma que un elemento de `GET /users` (incluye `employeeCode`, `country`, `lastLoginAt` y `createdAt`).',
+    description: 'El usuario creado, con la misma forma que un elemento de `GET /users` (incluye `employeeCode`, `country`, `lastLoginAt`, `createdAt` y `pendingAccess`).',
   })
   @ApiBadRequestResponse({ type: ErrorResponseDto })
   @ApiForbiddenResponse({
@@ -187,6 +188,7 @@ export class UsersController {
       country: user.country,
       lastLoginAt: user.lastLoginAt,
       createdAt: user.createdAt,
+      pendingAccess: user.pendingAccess,
     };
   }
 
@@ -371,7 +373,8 @@ function toDetailDto(user: UserDetailRecord): UserDetailResponseDto {
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
     teams: user.teams,
-    roles: user.roles,
+    roles: user.roles.map(({ id, code, name, isSystem, expiresAt }) => ({ id, code, name, isSystem, expiresAt })),
+    pendingAccess: user.pendingAccess,
     directPermissions: user.directPermissions,
     directMenuOptions: user.directMenuOptions,
   };

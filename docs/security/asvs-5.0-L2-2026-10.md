@@ -655,6 +655,7 @@ Sustituir `<host>` por el nombre o la dirección del entorno. Ningún comando re
 |---|---|---|---|
 | 1 | 2026-10-15 | `60573a8a17cb44e85befe90cd39a270777527a11` | Versión inicial: 112 Cumple de 183 aplicables (61 %), 51 Parcial |
 | 2 | 2026-10-15 | `20c9bc289d4c0578698535f72f55d1efdb3e740f` | Re-verificación de lo afectado por los commits `5674f38`, `ae3a396` y `20c9bc2` y por la corrección de `SECURITY.md` |
+| Nota (sin re-verificación) | 2026-10-20 | — (rama `feature/endurecimiento-internet`, sin commit verificado) | En esa rama se implementaron remediaciones para **G-11, G-17, G-18, G-20, G-21 y G-22**, y parcialmente para **G-25** y **G-26** ([`plan-exposicion-internet.md`](plan-exposicion-internet.md) §2). No cambia ningún estado de la matriz, que sigue describiendo el commit de la versión 2: sus estados se re-verificarán en la próxima verificación (las del borde, también en el entorno real) |
 
 **Qué cambió respecto a la versión 1 (solo lo afectado; el resto de filas no se tocó):**
 - **V14.3.1** pasa de Parcial a **Cumple**: la caché de consultas se vacía al cambiar la identidad (`auth.store.ts:131-142`), con pruebas de aislamiento entre usuarios. **G-13 resuelta** (se conserva en la tabla de brechas como historial). Es un requisito de nivel 1: el nivel 1 pasa de 45 a 46 cumplidos.

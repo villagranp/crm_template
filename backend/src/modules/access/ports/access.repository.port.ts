@@ -5,6 +5,48 @@ export type DataScope = 'OWN' | 'TEAM' | 'COUNTRY' | 'ORGANIZATION';
 
 export type AssignmentEffect = 'GRANT' | 'DENY';
 
+/** Proveedor de una identidad vinculada (`UserIdentity.provider`). */
+export type IdentityProviderName = 'LOCAL' | 'ENTRA_ID';
+
+export interface IdentityOwnerRecord {
+  userId: string;
+  status: UserStatus;
+  /** El usuario dueño está eliminado (borrado lógico). */
+  userDeleted: boolean;
+}
+
+export interface ProvisionExternalUserInput {
+  provider: IdentityProviderName;
+  subject: string;
+  tenantId: string | null;
+  /** Ya en minúsculas y recortado. */
+  email: string;
+  firstName: string;
+  lastName: string;
+  displayName: string;
+}
+
+export type ProvisionExternalUserOutcome =
+  | { kind: 'created'; userId: string }
+  /** Otra petición simultánea ya había creado el usuario de esa identidad. */
+  | { kind: 'linked'; userId: string }
+  /** El correo ya pertenece a otro usuario (incluso eliminado). */
+  | { kind: 'email_taken' };
+
+export interface LinkIdentityInput {
+  userId: string;
+  provider: IdentityProviderName;
+  subject: string;
+  tenantId: string | null;
+}
+
+export type LinkIdentityOutcome =
+  | { kind: 'linked' }
+  /** El usuario ya tenía exactamente esa identidad. */
+  | { kind: 'already_linked' }
+  /** Esa identidad pertenece a otro usuario. */
+  | { kind: 'identity_taken' };
+
 export type UserStatus = 'INVITED' | 'ACTIVE' | 'SUSPENDED' | 'LOCKED';
 
 export type SortOrder = 'asc' | 'desc';
@@ -45,6 +87,12 @@ export interface UserListItem extends AccessUserRecord {
   roles: string[];
   lastLoginAt: Date | null;
   createdAt: Date;
+  /**
+   * `true` si la cuenta está `ACTIVE` y no tiene ningún rol vigente ni permiso directo vigente
+   * (`isPendingAccess`, una sola definición): puede autenticar pero no ve ni hace nada hasta que el
+   * administrador le asigne acceso (ADR-027).
+   */
+  pendingAccess: boolean;
 }
 
 /** Asignación directa tal como se guarda: con su razón y su vigencia. */
@@ -72,7 +120,7 @@ export interface UserDetailRecord {
   createdAt: Date;
   updatedAt: Date;
   teams: { id: string; name: string; isPrimary: boolean }[];
-  roles: { id: string; code: string; name: string; isSystem: boolean; expiresAt: Date | null }[];
+  roles: { id: string; code: string; name: string; isSystem: boolean; expiresAt: Date | null; isActive: boolean }[];
   directPermissions: (DirectAssignmentRecord & { code: string; name: string })[];
   directMenuOptions: (DirectAssignmentRecord & { key: string; label: string })[];
   /**
@@ -81,6 +129,8 @@ export interface UserDetailRecord {
    * devuelve `ACTIVE` o `INVITED` (PLAN-ADMIN D4).
    */
   hasCompletedActivation: boolean;
+  /** Calculado con `isPendingAccess` (`access-rules`): `ACTIVE` sin rol vigente ni permisos directos vigentes. */
+  pendingAccess: boolean;
 }
 
 /**
@@ -180,6 +230,8 @@ export interface ListUsersFilter {
   roleCode?: string;
   teamId?: string;
   countryId?: string;
+  /** `true`: solo cuentas pendientes de acceso; `false`: solo las demás; omitido: todas (ADR-027). */
+  pendingAccess?: boolean;
   sortBy?: UserSortField;
   sortOrder?: SortOrder;
 }
@@ -297,8 +349,26 @@ export interface AccessRepository {
   withMenuHierarchyLock<T>(work: (repository: AccessRepository) => Promise<T>): Promise<T>;
 
   /** Devuelve el usuario por el sujeto del proveedor de identidad. */
-  findUserBySubject(provider: 'LOCAL' | 'ENTRA_ID', subject: string): Promise<AccessUserRecord | null>;
+  findUserBySubject(provider: 'LOCAL' | 'ENTRA_ID', subject: string, tenantId?: string): Promise<AccessUserRecord | null>;
+  /** ¿El usuario (no eliminado) tiene una identidad de ese proveedor vinculada? */
+  userHasIdentity(userId: string, provider: IdentityProviderName): Promise<boolean>;
   findUserByEmail(email: string): Promise<AccessUserRecord | null>;
+  /**
+   * Dueño de una identidad externa, **incluidos los usuarios eliminados**: consulta
+   * mínima por el índice único (proveedor, sujeto), la que se hace en cada petición
+   * del modo `entra` (ADR-027). Con `tenantId`, una identidad guardada con **otro** tenant no
+   * cuenta (una identidad sin tenant guardado sí: es la vinculada a mano sin `ENTRA_TENANT_ID`).
+   */
+  findIdentityOwner(provider: IdentityProviderName, subject: string, tenantId?: string): Promise<IdentityOwnerRecord | null>;
+  /**
+   * Alta de un usuario por primer ingreso con una identidad externa (ADR-027): crea el
+   * usuario `ACTIVE` **sin roles, permisos ni equipos** y su identidad, atómicamente.
+   * A prueba de carreras: si la identidad o el correo ya existen (violación de unicidad)
+   * no lanza, relee y devuelve `linked` o `email_taken`.
+   */
+  provisionExternalUser(input: ProvisionExternalUserInput): Promise<ProvisionExternalUserOutcome>;
+  /** Vincula una identidad externa a un usuario existente (carga por script, ADR-027). */
+  linkIdentity(input: LinkIdentityInput): Promise<LinkIdentityOutcome>;
   /**
    * Id del usuario que tiene ese código de colaborador (ya normalizado),
    * **incluidos los eliminados**: el código es único en todo el sistema (RN-07.1).

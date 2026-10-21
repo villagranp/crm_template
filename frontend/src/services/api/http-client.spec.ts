@@ -39,6 +39,18 @@ describe('httpClient', () => {
     expect(headers.get('Authorization')).toBe('Bearer test-token');
   });
 
+  it('envía X-Requested-With en toda petición, también en las públicas (anti-CSRF, G-20)', async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ status: 'ok' })));
+
+    await httpClient.post('/auth/refresh', { isPublic: true });
+    await httpClient.get('/health');
+
+    for (const [, init] of fetchMock.mock.calls as [string, RequestInit][]) {
+      expect((init.headers as Headers).get('X-Requested-With')).toBe('XMLHttpRequest');
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('omits the Authorization header for public requests', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ status: 'ok' }));
 
@@ -401,6 +413,7 @@ describe('httpClient.upload', () => {
     expect(xhr?.body).toBe(body);
     expect(xhr?.requestHeaders.Authorization).toBe('Bearer test-token');
     expect(xhr?.requestHeaders[CORRELATION_ID_HEADER]).toBeTruthy();
+    expect(xhr?.requestHeaders['X-Requested-With']).toBe('XMLHttpRequest');
     expect(xhr?.requestHeaders['Content-Type']).toBeUndefined();
     expect(onProgress).toHaveBeenNthCalledWith(1, { loaded: 50, total: 200, percent: 25 });
     expect(onProgress).toHaveBeenLastCalledWith({ loaded: 200, total: 200, percent: 100 });

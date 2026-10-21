@@ -13,6 +13,30 @@ export function canonicalEmployeeCode(value: string): string {
   return value.trim().toUpperCase();
 }
 
+/** Lo que decide si una cuenta está pendiente de acceso: su estado y lo que tiene asignado, con vigencias. */
+export interface PendingAccessInput {
+  status: string;
+  /** Asignaciones de rol (de cualquier vigencia); `isActive` es el estado del rol (los borrados no se pasan). */
+  roles: readonly { expiresAt: Date | null; isActive: boolean }[];
+  /** Concesiones directas de permiso (`GRANT`); las denegaciones no dan nada y no cuentan. */
+  grantedPermissionExpiries: readonly (Date | null)[];
+}
+
+/**
+ * **Definición única** de «pendiente de acceso» (ADR-027): la cuenta está `ACTIVE`, no tiene **ningún rol
+ * vigente** (asignación sin caducar de un rol activo y no borrado) y **ningún permiso directo vigente**
+ * (concesión `GRANT` sin caducar). Es lo que ve la lista (`pendingAccess` y su filtro), el alta y el
+ * detalle; el filtro de la base la replica con la misma vigencia (`PrismaAccessRepository`).
+ */
+export function isPendingAccess(input: PendingAccessInput, now: Date = new Date()): boolean {
+  const current = (expiresAt: Date | null): boolean => expiresAt === null || expiresAt > now;
+  return (
+    input.status === 'ACTIVE' &&
+    !input.roles.some((role) => role.isActive && current(role.expiresAt)) &&
+    !input.grantedPermissionExpiries.some(current)
+  );
+}
+
 /** Rol cuyo último titular activo no puede perderse (PLAN-ADMIN D3). */
 export const ADMIN_ROLE_CODE = 'administrador';
 

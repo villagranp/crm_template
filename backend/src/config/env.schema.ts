@@ -7,6 +7,28 @@ import { DURATION_PATTERN } from './duration';
  * La aplicacion falla al arrancar si falta o es invalida una variable obligatoria (fail fast).
  * Toda variable nueva se agrega aqui Y en el .env.example de la raiz.
  */
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Lista de orígenes CORS separada por comas, sin vacíos. La usa también `AppConfigService`. */
+export function parseOrigins(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+}
+
+/** `https://host[:puerto]` tal cual lo envía el navegador en `Origin`: nada de `*`, `http://`, rutas ni barra final. */
+function isExactHttpsOrigin(origin: string): boolean {
+  if (!origin.startsWith('https://') || origin.includes('*')) {
+    return false;
+  }
+  try {
+    return new URL(origin).origin === origin;
+  } catch {
+    return false;
+  }
+}
+
 export const envSchema = z
   .object({
     // APP
@@ -49,9 +71,23 @@ export const envSchema = z
     ENTRA_AUDIENCE: z.string().optional(),
     ENTRA_AUTHORITY: z.string().optional(),
     ENTRA_JWKS_URI: z.string().optional(),
+    // ADR-027: scope delegado que debe traer el token (`scp`) y clientes (`azp`) que pueden pedirlo, separados
+    // por comas. Se aplican siempre que esten configurados; con NODE_ENV=production y AUTH_PROVIDER=entra
+    // son obligatorios (abajo).
+    ENTRA_REQUIRED_SCOPE: z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), z.string().trim().optional()),
+    ENTRA_ALLOWED_CLIENT_IDS: z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), z.string().trim().optional()),
 
-    // CORS
+    // CORS. Con NODE_ENV=production solo admite orígenes https:// exactos o ninguno (abajo).
     CORS_ALLOWED_ORIGINS: z.string().default('http://localhost:5173'),
+
+    // PROXIES DE CONFIANZA
+    // Saltos de proxy delante de la API cuyo X-Forwarded-For se acepta (`trust proxy` de Express).
+    // 1 = solo NGINX (Compose, QA). 2 = WAF/Front Door/balanceador + NGINX. 0 = ningún proxy.
+    // Un valor mayor que los saltos reales permite al cliente falsear su IP (rate limit y registros).
+    TRUST_PROXY_HOPS: z.preprocess(
+      (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+      z.coerce.number().int('TRUST_PROXY_HOPS debe ser un entero').min(0, 'TRUST_PROXY_HOPS no puede ser negativo').default(1),
+    ),
 
     // LOGGING
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
@@ -92,6 +128,18 @@ export const envSchema = z
     SNOWFLAKE_SCHEMA: z.string().optional(),
   })
   .superRefine((env, ctx) => {
+    if (env.NODE_ENV === 'production') {
+      for (const origin of parseOrigins(env.CORS_ALLOWED_ORIGINS)) {
+        if (!isExactHttpsOrigin(origin)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['CORS_ALLOWED_ORIGINS'],
+            message: `CORS_ALLOWED_ORIGINS en producción solo admite orígenes https:// exactos (sin comodín, ruta ni barra final); se rechaza "${origin}". Déjalo vacío si la SPA y la API comparten origen`,
+          });
+        }
+      }
+    }
+
     const requiresLocalJwt = env.AUTH_PROVIDER === 'local' || env.AUTH_PROVIDER === 'hybrid';
     if (requiresLocalJwt && env.NODE_ENV === 'production' && !env.JWT_ACCESS_TOKEN_SECRET) {
       ctx.addIssue({
@@ -112,6 +160,36 @@ export const envSchema = z
           path: [key],
           message: `${key} es obligatorio cuando AUTH_PROVIDER incluye Entra ID`,
         });
+      }
+
+      const issue = (key: string, message: string): void => {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message });
+      };
+      const tenant = env.ENTRA_TENANT_ID;
+      if (tenant && !GUID.test(tenant)) {
+        issue('ENTRA_TENANT_ID', 'ENTRA_TENANT_ID debe ser un GUID');
+      }
+      if (env.ENTRA_AUTHORITY) {
+        const authority = env.ENTRA_AUTHORITY;
+        const valid = authority.startsWith('https://') && authority.endsWith('/v2.0') && (!tenant || authority.toLowerCase().includes(tenant.toLowerCase()));
+        if (!valid) {
+          issue('ENTRA_AUTHORITY', 'ENTRA_AUTHORITY debe ser HTTPS, contener el tenant y terminar en /v2.0 (se aceptan solo tokens v2)');
+        }
+      }
+      if (env.ENTRA_JWKS_URI && !env.ENTRA_JWKS_URI.startsWith('https://')) {
+        issue('ENTRA_JWKS_URI', 'ENTRA_JWKS_URI debe ser HTTPS');
+      }
+      const clients = (env.ENTRA_ALLOWED_CLIENT_IDS ?? '').split(',').map((id) => id.trim()).filter((id) => id.length > 0);
+      if (clients.some((id) => !GUID.test(id))) {
+        issue('ENTRA_ALLOWED_CLIENT_IDS', 'ENTRA_ALLOWED_CLIENT_IDS debe ser una lista de GUID separados por comas');
+      }
+      if (env.NODE_ENV === 'production') {
+        if (!env.ENTRA_REQUIRED_SCOPE) {
+          issue('ENTRA_REQUIRED_SCOPE', 'ENTRA_REQUIRED_SCOPE es obligatorio en producción con Entra ID (el scope que expone la API)');
+        }
+        if (clients.length === 0) {
+          issue('ENTRA_ALLOWED_CLIENT_IDS', 'ENTRA_ALLOWED_CLIENT_IDS es obligatorio en producción con Entra ID (el client id de la SPA)');
+        }
       }
     }
   });

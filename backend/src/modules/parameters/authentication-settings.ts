@@ -22,6 +22,21 @@ export const LOGIN_SECURITY_PARAMETER_KEYS = [
   LOGIN_SECURITY_PARAMETERS.passwordExpiryDays,
 ] as const;
 
+/**
+ * Interruptor del alta automática al primer ingreso con Entra ID (ADR-027). No es un parámetro del
+ * login local, así que no forma parte de `LOGIN_SECURITY_PARAMETER_KEYS`. BOOLEAN, `true` por
+ * defecto, grupo `seguridad`: cambiarlo exige `parametros.editar` y `parametros.configurar`.
+ */
+export const SSO_AUTO_PROVISIONING_PARAMETER = 'seguridad.sso_alta_automatica';
+
+/**
+ * Dominios de correo autorizados para el alta automática (ADR-027), separados por comas, comparación sin
+ * distinguir mayúsculas y por dominio **exacto**. STRING, grupo `seguridad`, sembrado `somosgrupoag.com`;
+ * cambiarlo exige `parametros.configurar`. Solo frena altas nuevas: no afecta a quien ya está vinculado.
+ * Una lista vacía o ilegible en la base no autoriza a nadie.
+ */
+export const SSO_ALLOWED_DOMAINS_PARAMETER = 'seguridad.sso_dominios_permitidos';
+
 export interface AuthenticationSettings {
   readonly provider: AuthProviderSetting;
   /** `false` con `entra`: los parámetros de login local no aplican (07 K.3). */

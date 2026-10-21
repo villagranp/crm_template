@@ -9,6 +9,8 @@
 export const ROUTE_PATHS = {
   home: '/',
   login: '/acceso',
+  /** Redirect URI de Entra ID (ADR-027): pública, procesa la respuesta de Microsoft. */
+  authCallback: '/auth/callback',
   changePassword: '/cambiar-contrasena',
   admin: {
     users: '/administracion/usuarios',

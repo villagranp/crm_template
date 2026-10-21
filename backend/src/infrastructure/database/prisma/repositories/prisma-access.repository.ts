@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { ResourceConflictError } from '@/common/errors/application-error';
+import { isPendingAccess } from '@/modules/access/access-rules';
 
 import {
   type AccessRepository,
@@ -11,6 +12,10 @@ import {
   type CreateRoleInput,
   type CreateUserInput,
   type DirectAssignmentInput,
+  type IdentityOwnerRecord,
+  type IdentityProviderName,
+  type LinkIdentityInput,
+  type LinkIdentityOutcome,
   type ListRolesFilter,
   type ListUsersFilter,
   type MenuOptionRecord,
@@ -18,6 +23,8 @@ import {
   type ModuleRecord,
   type Paginated,
   type PermissionRecord,
+  type ProvisionExternalUserInput,
+  type ProvisionExternalUserOutcome,
   type RoleGrantRecord,
   type RoleRecord,
   type UpdateMenuOptionInput,
@@ -44,6 +51,23 @@ const MENU_OPTION_INCLUDE = { module: true, requiredPermission: { select: { code
 const USER_COUNTRY_SELECT = { select: { id: true, isoCode: true, name: true } } as const;
 
 const UNIQUE_VIOLATION = 'P2002';
+
+/** Asignación de rol vigente: sin caducar y de un rol activo y no borrado. */
+function currentRoleAssignment(now: Date): Prisma.UserRoleWhereInput {
+  return {
+    OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+    role: { isActive: true, deletedAt: null },
+  };
+}
+
+/** Una identidad sin tenant guardado sirve con cualquiera; con tenant guardado, solo con el mismo. */
+function tenantMatches(stored: string | null, expected: string | undefined): boolean {
+  return stored === null || expected === undefined || stored === expected;
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === UNIQUE_VIOLATION;
+}
 
 /**
  * Carrera entre la comprobación de unicidad del servicio y la escritura: el
@@ -128,13 +152,13 @@ export class PrismaAccessRepository implements AccessRepository {
     return results as { [K in keyof P]: Awaited<P[K]> };
   }
 
-  async findUserBySubject(provider: 'LOCAL' | 'ENTRA_ID', subject: string): Promise<AccessUserRecord | null> {
+  async findUserBySubject(provider: 'LOCAL' | 'ENTRA_ID', subject: string, tenantId?: string): Promise<AccessUserRecord | null> {
     const identity = await this.db.userIdentity.findUnique({
       where: { provider_subject: { provider, subject } },
       include: { user: { include: { teams: { include: { team: true } } } } },
     });
 
-    if (!identity || identity.user.deletedAt) {
+    if (!identity || identity.user.deletedAt || !tenantMatches(identity.tenantId, tenantId)) {
       return null;
     }
 
@@ -148,6 +172,82 @@ export class PrismaAccessRepository implements AccessRepository {
     });
 
     return user && !user.deletedAt ? toUserRecord(user) : null;
+  }
+
+  async userHasIdentity(userId: string, provider: IdentityProviderName): Promise<boolean> {
+    const count = await this.db.userIdentity.count({ where: { userId, provider, user: { deletedAt: null } } });
+    return count > 0;
+  }
+
+  async findIdentityOwner(provider: IdentityProviderName, subject: string, tenantId?: string): Promise<IdentityOwnerRecord | null> {
+    const identity = await this.db.userIdentity.findUnique({
+      where: { provider_subject: { provider, subject } },
+      select: { userId: true, tenantId: true, user: { select: { status: true, deletedAt: true } } },
+    });
+
+    return identity && tenantMatches(identity.tenantId, tenantId)
+      ? { userId: identity.userId, status: identity.user.status, userDeleted: identity.user.deletedAt !== null }
+      : null;
+  }
+
+  async provisionExternalUser(input: ProvisionExternalUserInput): Promise<ProvisionExternalUserOutcome> {
+    try {
+      // Una sola sentencia anidada: el usuario y su identidad se confirman juntos o ninguno.
+      // Sin `roles`, `permissions` ni `teams`: el acceso lo asigna el administrador (ADR-020, ADR-027).
+      const user = await this.db.user.create({
+        data: {
+          email: input.email,
+          emailNormalized: input.email,
+          firstName: input.firstName,
+          lastName: input.lastName,
+          displayName: input.displayName,
+          status: 'ACTIVE',
+          identities: { create: { provider: input.provider, subject: input.subject, tenantId: input.tenantId } },
+        },
+        select: { id: true },
+      });
+      return { kind: 'created', userId: user.id };
+    } catch (error) {
+      if (!isUniqueViolation(error)) {
+        throw error;
+      }
+      // Carrera: otra petición del mismo primer ingreso ganó (su transacción ya se confirmó,
+      // porque el índice único espera a que termine), o el correo lo ocupa otro usuario.
+      const owner = await this.findIdentityOwner(input.provider, input.subject, input.tenantId ?? undefined);
+      if (owner) {
+        return { kind: 'linked', userId: owner.userId };
+      }
+      // Otra identidad con ese sujeto pero de otro tenant: no es la misma persona ni se pisa.
+      if (await this.findIdentityOwner(input.provider, input.subject)) {
+        return { kind: 'email_taken' };
+      }
+      const byEmail = await this.db.user.findUnique({ where: { emailNormalized: input.email }, select: { id: true } });
+      if (byEmail) {
+        return { kind: 'email_taken' };
+      }
+      throw error;
+    }
+  }
+
+  async linkIdentity(input: LinkIdentityInput): Promise<LinkIdentityOutcome> {
+    try {
+      await this.db.userIdentity.create({
+        data: { userId: input.userId, provider: input.provider, subject: input.subject, tenantId: input.tenantId },
+      });
+      return { kind: 'linked' };
+    } catch (error) {
+      if (!isUniqueViolation(error)) {
+        throw error;
+      }
+      const owner = await this.findIdentityOwner(input.provider, input.subject);
+      if (owner?.userId === input.userId) {
+        return { kind: 'already_linked' };
+      }
+      if (owner) {
+        return { kind: 'identity_taken' };
+      }
+      throw error;
+    }
   }
 
   async findUserIdByEmployeeCode(employeeCode: string): Promise<string | null> {
@@ -236,8 +336,19 @@ export class PrismaAccessRepository implements AccessRepository {
   // --- Usuarios --------------------------------------------------------------
 
   async listUsers(filter: ListUsersFilter): Promise<Paginated<UserListItem>> {
+    const now = new Date();
+    // Cuenta pendiente de acceso (ADR-027): ACTIVE y sin ningún rol vigente, con el mismo criterio de
+    // vigencia que `getUserAccessSnapshot` (asignación sin caducar de un rol activo y no borrado).
+    const pending: Prisma.UserWhereInput = {
+      status: 'ACTIVE',
+      roles: { none: currentRoleAssignment(now) },
+      // También sin permisos directos vigentes (`isPendingAccess`): las denegaciones no dan nada y no cuentan.
+      permissions: { none: { effect: 'GRANT', OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] } },
+    };
     const where: Prisma.UserWhereInput = {
       deletedAt: null,
+      ...(filter.pendingAccess === true ? { AND: [pending] } : {}),
+      ...(filter.pendingAccess === false ? { NOT: pending } : {}),
       ...(filter.status ? { status: filter.status } : {}),
       ...(filter.roleCode ? { roles: { some: { role: { code: filter.roleCode } } } } : {}),
       ...(filter.teamId ? { teams: { some: { teamId: filter.teamId } } } : {}),
@@ -265,7 +376,8 @@ export class PrismaAccessRepository implements AccessRepository {
         where,
         include: {
           teams: { include: { team: true } },
-          roles: { include: { role: { select: { code: true } } } },
+          roles: { include: { role: { select: { code: true, isActive: true, deletedAt: true } } } },
+          permissions: { where: { effect: 'GRANT' }, select: { expiresAt: true } },
           country: USER_COUNTRY_SELECT,
         },
         orderBy,
@@ -283,6 +395,16 @@ export class PrismaAccessRepository implements AccessRepository {
         roles: user.roles.map((assignment) => assignment.role.code),
         lastLoginAt: user.lastLoginAt,
         createdAt: user.createdAt,
+        pendingAccess: isPendingAccess(
+          {
+            status: user.status,
+            roles: user.roles
+              .filter((assignment) => assignment.role.deletedAt === null)
+              .map((assignment) => ({ expiresAt: assignment.expiresAt, isActive: assignment.role.isActive })),
+            grantedPermissionExpiries: user.permissions.map((permission) => permission.expiresAt),
+          },
+          now,
+        ),
       })),
       totalItems,
     };
@@ -329,6 +451,7 @@ export class PrismaAccessRepository implements AccessRepository {
           name: assignment.role.name,
           isSystem: assignment.role.isSystem,
           expiresAt: assignment.expiresAt,
+          isActive: assignment.role.isActive,
         })),
       directPermissions: user.permissions.map((item) => ({
         targetId: item.permissionId,
@@ -350,6 +473,11 @@ export class PrismaAccessRepository implements AccessRepository {
       })),
       hasCompletedActivation:
         Boolean(user.credential?.passwordChangedAt) || user.identities.some((identity) => identity.provider === 'ENTRA_ID'),
+      pendingAccess: isPendingAccess({
+        status: user.status,
+        roles: user.roles.filter((assignment) => !assignment.role.deletedAt).map((assignment) => ({ expiresAt: assignment.expiresAt, isActive: assignment.role.isActive })),
+        grantedPermissionExpiries: user.permissions.filter((item) => item.effect === 'GRANT').map((item) => item.expiresAt),
+      }),
     };
   }
 
