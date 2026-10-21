@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="description" content="Mi Cliente AG, de Grupo AG" />
     <meta name="theme-color" content="#29478D" />
+    <!--
+      Nonce de la CSP (ASVS 5.0 G-11). NGINX sustituye el marcador por un valor
+      distinto en cada respuesta y la caché de Emotion lo pone en sus <style>
+      (src/theme/emotion-cache.ts). Sin NGINX (Vite, pruebas) queda tal cual y se ignora.
+    -->
+    <meta name="csp-nonce" content="__CSP_NONCE__" />
     <link rel="icon" type="image/webp" href="/brand/favico.webp" />
     <title>Mi Cliente AG</title>
   </head>

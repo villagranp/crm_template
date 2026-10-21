@@ -30,7 +30,13 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    // Sin mapas de código fuente en el build de producción (ASVS 5.0 G-17): NGINX
+    // sirve todo lo que hay en `dist`, y un `.map` publica el código original.
+    // Vía opcional para una herramienta de monitorización de errores:
+    // `FRONTEND_BUILD_SOURCEMAP=hidden pnpm build` genera los `.map` SIN la referencia
+    // `sourceMappingURL` en los bundles; el pipeline debe subirlos a esa herramienta
+    // y BORRARLOS de `dist` antes de empaquetar. Apagado por defecto.
+    sourcemap: process.env.FRONTEND_BUILD_SOURCEMAP === 'hidden' ? 'hidden' : false,
   },
   test: {
     globals: true,

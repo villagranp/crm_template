@@ -129,6 +129,9 @@ importers:
       '@azure/msal-browser':
         specifier: 4.30.0
         version: 4.30.0
+      '@emotion/cache':
+        specifier: ^11.14.0
+        version: 11.14.0
       '@emotion/react':
         specifier: ^11.13.3
         version: 11.14.0(@types/react@18.3.31)(react@18.3.1)

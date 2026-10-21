@@ -15,6 +15,17 @@ import { CORRELATION_ID_HEADER, createCorrelationId } from './correlation-id';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+/**
+ * Cabecera anti-CSRF (ASVS 5.0 G-20). La API la exige en `POST /auth/refresh` y
+ * `POST /auth/logout` (si falta responde `403 CSRF_HEADER_REQUIRED`), porque esas
+ * dos llamadas se autentican solo con la cookie de refresco. Un formulario o un
+ * enlace de otro sitio no puede añadir cabeceras propias, y `fetch` desde otro
+ * origen exigiría un preflight CORS que la API no concede. Se envía en TODAS las
+ * peticiones: la API es del mismo origen, así que no añade preflight.
+ */
+export const REQUESTED_WITH_HEADER = 'X-Requested-With';
+export const REQUESTED_WITH_VALUE = 'XMLHttpRequest';
+
 export type AccessTokenProvider = (options?: { forceRefresh?: boolean }) => Promise<string | null>;
 export type UnauthorizedHandler = () => void;
 export type PasswordChangeRequiredHandler = () => void;
@@ -118,6 +129,7 @@ async function send(
   const headers = new Headers({
     Accept: 'application/json',
     [CORRELATION_ID_HEADER]: correlationId,
+    [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE,
   });
 
   if (options.body !== undefined) {
@@ -328,6 +340,7 @@ function sendWithXhr(
     xhr.timeout = options.timeoutMs ?? DEFAULT_UPLOAD_TIMEOUT_MS;
     xhr.setRequestHeader('Accept', 'application/json');
     xhr.setRequestHeader(CORRELATION_ID_HEADER, correlationId);
+    xhr.setRequestHeader(REQUESTED_WITH_HEADER, REQUESTED_WITH_VALUE);
     if (accessToken) {
       xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
     }
