@@ -32,6 +32,9 @@ se crea uno nuevo que lo supersede.
 | [ADR-025](ADR-025-inmutabilidad-de-la-auditoria-con-disparadores.md) | Inmutabilidad de la bitácora de auditoría con disparadores en la base | Accepted |
 | [ADR-026](ADR-026-runtime-de-qa-en-windows-server-nativo.md) | Runtime de QA: Windows Server nativo con NGINX y servicios de Windows | Accepted |
 | [ADR-027](ADR-027-sso-entra-id-alta-primer-ingreso-y-corte-directo.md) | SSO con Entra ID: alta al primer ingreso sin permisos, vinculación por `oid` y corte directo | Accepted |
+| [ADR-028](ADR-028-paises-solo-clientes-y-lista-de-correos-en-la-carga.md) | Países «solo clientes» y lista de correos en la carga de clientes | Accepted |
+| [ADR-029](ADR-029-telefono-invalido-es-advertencia-en-la-carga.md) | Teléfono con formato inválido: advertencia, no error, en la carga de clientes | Accepted |
+| [ADR-030](ADR-030-carga-masiva-de-usuarios-y-equipos-por-canal.md) | Carga masiva de usuarios por script y equipos por canal en la semilla | Accepted |
 
 Los **addenda** se añaden al final del ADR que precisan, con fecha y estado propios,
 cuando la decisión lo amplía sin contradecirlo; si lo contradice, se crea un ADR nuevo

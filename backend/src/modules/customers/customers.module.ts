@@ -49,6 +49,6 @@ import { CUSTOMERS_REPOSITORY } from './ports/customers.repository.port';
     { provide: CUSTOMERS_REPOSITORY, useClass: PrismaCustomersRepository },
     { provide: CONTACTS_REPOSITORY, useClass: PrismaContactsRepository },
   ],
-  exports: [CustomerValidationService, CustomerCreationService, CustomerReferenceGuard, CustomerActorResolver, CustomersService],
+  exports: [CustomerValidationService, CustomerCreationService, CustomerReferenceGuard, CustomerActorResolver, CustomersService, ContactsService],
 })
 export class CustomersModule {}

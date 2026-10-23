@@ -62,6 +62,7 @@ describe('ImportRowValidator (06 RN-06.12–RN-06.18)', () => {
       actor: ACTOR,
       context: { codeUniqueness: 'PAIS', duplicateRules: {} },
       referenceCache: expect.any(CustomerReferenceCache),
+      lenientPhone: true,
     });
     // La misma memoria para todas las filas del archivo.
     expect(validation.validate.mock.calls[0]?.[1].referenceCache).toBe(validation.validate.mock.calls[1]?.[1].referenceCache);
@@ -137,5 +138,12 @@ describe('ImportRowValidator (06 RN-06.12–RN-06.18)', () => {
       expect.objectContaining({ field: 'taxId', code: 'DUPLICATE_TAX_ID', severity: 'WARNING', candidateIds: ['cust-1'] }),
       expect.objectContaining({ field: 'legalName', code: 'POSSIBLE_DUPLICATE', severity: 'WARNING', candidateIds: ['cust-2'] }),
     ]);
+  });
+  it('un teléfono con formato inválido es una advertencia en una fila VALID y la validación se pide con lenientPhone (ADR-029)', async () => {
+    outcomes.set('T', { ...OK, phoneFormatWarning: true });
+    const [row] = await validator.validate(file([{ legalName: 'T', phone: '0000' }]), ACTOR);
+    expect(row?.status).toBe('VALID');
+    expect(row?.issues).toEqual([expect.objectContaining({ field: 'phone', code: 'INVALID_PHONE_FORMAT', severity: 'WARNING' })]);
+    expect(validation.validate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ lenientPhone: true }));
   });
 });

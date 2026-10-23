@@ -13,13 +13,13 @@ import type { SanitizableColumn } from '@/modules/customer-imports/cell-sanitize
 
 export const INITIAL_DATA_TEMPLATE_VERSION = '1';
 
-export const INITIAL_DATA_ENTITIES = ['projects', 'products', 'safety-minutes', 'entra-identities'] as const;
+export const INITIAL_DATA_ENTITIES = ['projects', 'products', 'safety-minutes', 'entra-identities', 'users'] as const;
 export type InitialDataEntity = (typeof INITIAL_DATA_ENTITIES)[number];
 
 /** Cómo se interpreta el valor de la celda. */
 export type LoadValueType = 'text' | 'code' | 'date' | 'integer';
 
-export type SheetId = 'projects' | 'families' | 'products' | 'safety-minutes' | 'entra-identities';
+export type SheetId = 'projects' | 'families' | 'products' | 'safety-minutes' | 'entra-identities' | 'users';
 
 export interface LoadColumn {
   readonly key: string;
@@ -252,6 +252,61 @@ const ENTRA_IDENTITY_COLUMNS: readonly LoadColumn[] = [
   },
 ];
 
+const USER_COLUMNS: readonly LoadColumn[] = [
+  {
+    key: 'email',
+    header: 'Correo',
+    required: true,
+    valueType: 'code',
+    maxLength: 320,
+    isFreeText: false,
+    description: 'Correo corporativo del usuario (el de su cuenta de Microsoft). Es único: si ya existe un usuario con ese correo, la fila se omite.',
+    example: 'colaborador@example.invalid',
+  },
+  { key: 'firstName', header: 'Nombre', required: true, valueType: 'text', maxLength: 80, isFreeText: true, description: 'Nombre(s) del usuario.', example: 'Nombre' },
+  { key: 'lastName', header: 'Apellido', required: true, valueType: 'text', maxLength: 80, isFreeText: true, description: 'Apellido(s) del usuario.', example: 'Apellido' },
+  {
+    key: 'employeeCode',
+    header: 'Código de colaborador',
+    required: true,
+    valueType: 'code',
+    maxLength: 40,
+    isFreeText: false,
+    description: 'Código único del colaborador (se guarda en mayúsculas). Obligatorio con un rol comercial.',
+    example: 'EC-00001',
+  },
+  {
+    key: 'country',
+    header: 'País',
+    required: true,
+    valueType: 'code',
+    maxLength: null,
+    isFreeText: false,
+    description: 'Código ISO de dos letras de un país activo. Obligatorio con un rol comercial.',
+    example: 'EC',
+  },
+  {
+    key: 'role',
+    header: 'Rol',
+    required: true,
+    valueType: 'code',
+    maxLength: 60,
+    isFreeText: false,
+    description: 'Código de un rol activo (p. ej. asesor). Se asigna un solo rol; más roles se dan después desde Administración.',
+    example: 'asesor',
+  },
+  {
+    key: 'team',
+    header: 'Equipo',
+    required: false,
+    valueType: 'code',
+    maxLength: 40,
+    isFreeText: false,
+    description: 'Código de un equipo activo (p. ej. CONST, DISTR, INDST). Vacío: sin equipo.',
+    example: 'CONST',
+  },
+];
+
 export const ENTITY_DEFINITIONS: Readonly<Record<InitialDataEntity, EntityDefinition>> = {
   projects: {
     entity: 'projects',
@@ -279,6 +334,12 @@ export const ENTITY_DEFINITIONS: Readonly<Record<InitialDataEntity, EntityDefini
     label: 'vínculos con Entra ID',
     fileBase: 'plantilla-vinculos-entra',
     sheets: [{ id: 'entra-identities', sheetName: 'Vínculos', csvSuffix: '', optionalInCsv: false, columns: ENTRA_IDENTITY_COLUMNS }],
+  },
+  users: {
+    entity: 'users',
+    label: 'usuarios',
+    fileBase: 'plantilla-usuarios',
+    sheets: [{ id: 'users', sheetName: 'Usuarios', csvSuffix: '', optionalInCsv: false, columns: USER_COLUMNS }],
   },
 };
 

@@ -31,6 +31,8 @@ export interface CustomerCreationContext {
   readonly sourceImportId?: string;
   /** Confirmación de avisos de duplicado (RN-02.14). En `IMPORT`, la traduce el Módulo 6 (D-06.6). */
   readonly acknowledgedDuplicateIds?: readonly string[];
+  /** Admite un teléfono con formato inválido para el país (carga masiva, ADR-029). */
+  readonly lenientPhone?: boolean;
   /**
    * Escritura del llamador en la **misma** transacción del alta, tras el `INSERT`
    * (la importación marca su fila `IMPORTED` con el cliente creado, 06 RN-06.21).
@@ -84,7 +86,13 @@ export class CustomerCreationService {
         if (codeNormalized && uniqueness === 'GLOBAL') {
           await this.customers.lockCustomerCode(codeNormalized, tx);
         }
-        const outcome = await this.validation.validate(draft, { mode: context.mode, actor, tx, context: prepared });
+        const outcome = await this.validation.validate(draft, {
+          mode: context.mode,
+          actor,
+          tx,
+          context: prepared,
+          ...(context.lenientPhone ? { lenientPhone: true } : {}),
+        });
         assertCustomerOutcome(outcome, context.acknowledgedDuplicateIds);
         const normalized = outcome.normalized;
         if (!normalized) throw new Error('Validation outcome without normalized values');

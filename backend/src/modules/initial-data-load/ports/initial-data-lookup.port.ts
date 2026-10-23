@@ -75,6 +75,10 @@ export interface InitialDataLookup {
    */
   findEntraIdentities(query: { readonly subjects: readonly string[]; readonly userIds: readonly string[] }): Promise<LookupEntraIdentity[]>;
   findCountriesByIso(isoCodes: readonly string[]): Promise<LookupReference[]>;
+  /** Roles por código (sin distinguir mayúsculas), con su estado. */
+  findRoles(codes: readonly string[]): Promise<LookupReference[]>;
+  /** Equipos no eliminados por código (sin distinguir mayúsculas), con su estado. */
+  findTeams(codes: readonly string[]): Promise<LookupReference[]>;
   findCatalogItems(catalogKey: string, codes: readonly string[]): Promise<LookupReference[]>;
   findFamilies(codes: readonly string[]): Promise<LookupFamily[]>;
   findUnits(codes: readonly string[]): Promise<LookupReference[]>;

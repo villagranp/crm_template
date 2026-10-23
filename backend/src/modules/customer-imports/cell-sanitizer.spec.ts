@@ -1,4 +1,4 @@
-import { parseRowValues, sanitizeCell, sanitizeRow } from './cell-sanitizer';
+import { extraEmails, type ImportRowValues, parseRowValues, sanitizeCell, sanitizeRow, splitEmailList, toCustomerDraft } from './cell-sanitizer';
 import { IMPORT_COLUMNS, type ImportColumnKey } from './import-template';
 
 function column(key: ImportColumnKey) {
@@ -81,5 +81,29 @@ describe('sanitizeRow y parseRowValues', () => {
     expect(parseRowValues({})).toBeNull();
     expect(parseRowValues([])).toBeNull();
     expect(parseRowValues({ legalName: 'A', taxId: 3 })).toMatchObject({ legalName: 'A', taxId: null });
+  });
+});
+
+describe('lista de correos en la celda «Correo» (ADR-028)', () => {
+  const rowWith = (email: string | null): ImportRowValues => ({
+    customerCode: null, legalName: 'X', tradeName: null, country: 'EC', city: null, address: null, phone: null,
+    email, companyType: null, status: null, rating: null, salesOwner: null, taxId: null,
+  });
+
+  it('separa por coma o punto y coma, recorta y no repite sin distinguir mayúsculas', () => {
+    expect(splitEmailList(' a@x.com , B@y.com;A@X.com ,, c@z.com ')).toEqual(['a@x.com', 'B@y.com', 'c@z.com']);
+    expect(splitEmailList('solo@x.com')).toEqual(['solo@x.com']);
+    expect(splitEmailList(null)).toEqual([]);
+  });
+
+  it('el borrador del cliente lleva solo el primer correo', () => {
+    expect(toCustomerDraft(rowWith('a@x.com, b@y.com')).email).toBe('a@x.com');
+    expect(toCustomerDraft(rowWith('a@x.com')).email).toBe('a@x.com');
+    expect(toCustomerDraft(rowWith(null)).email).toBeNull();
+  });
+
+  it('los adicionales válidos van a contactos y los que no parecen un correo se descartan y se cuentan', () => {
+    expect(extraEmails(rowWith('a@x.com, b@y.com, sin-arroba, c@z.com'))).toEqual({ extras: ['b@y.com', 'c@z.com'], discarded: 1 });
+    expect(extraEmails(rowWith('a@x.com'))).toEqual({ extras: [], discarded: 0 });
   });
 });

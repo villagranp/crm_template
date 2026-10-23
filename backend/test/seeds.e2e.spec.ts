@@ -145,10 +145,13 @@ describe('semilla esencial (00 §8.2)', () => {
     afterFirstRun = await counts();
 
     expect(await prisma.currency.findMany({ orderBy: { code: 'asc' }, select: { code: true } })).toEqual(
-      ['CRC', 'GTQ', 'HNL', 'USD', 'VES'].map((code) => ({ code })),
+      ['BBD', 'BRL', 'CLP', 'CNY', 'COP', 'CRC', 'DKK', 'DOP', 'EUR', 'GTQ', 'GYD', 'HNL', 'HTG', 'IDR', 'JMD', 'MXN', 'PEN', 'SRD', 'TTD', 'USD', 'UYU', 'VES'].map(
+        (code) => ({ code }),
+      ),
     );
     const countries = await prisma.country.findMany({ orderBy: { sortOrder: 'asc' }, select: { isoCode: true, currencyCode: true, taxIdLabel: true } });
-    expect(countries).toEqual([
+    // Los seis países operativos van primero (DM-2); detrás, los «solo clientes» (ADR-028, sortOrder ≥ 100).
+    expect(countries.slice(0, 6)).toEqual([
       { isoCode: 'GT', currencyCode: 'GTQ', taxIdLabel: 'NIT' },
       { isoCode: 'SV', currencyCode: 'USD', taxIdLabel: 'NIT' },
       { isoCode: 'HN', currencyCode: 'HNL', taxIdLabel: 'RTN' },
@@ -156,12 +159,16 @@ describe('semilla esencial (00 §8.2)', () => {
       { isoCode: 'VE', currencyCode: 'VES', taxIdLabel: 'RIF' },
       { isoCode: 'EC', currencyCode: 'USD', taxIdLabel: 'RUC' },
     ]);
+    expect(countries).toHaveLength(28);
+    expect(countries.slice(6).map((country) => country.isoCode)).toEqual(
+      expect.arrayContaining(['US', 'PR', 'PA', 'MX', 'CO', 'PE', 'CL', 'BR', 'JM', 'BE', 'CN', 'ID']),
+    );
     // Las tasas reales las entrega el negocio: la esencial no inventa ninguna.
     expect(afterFirstRun.exchangeRates).toBe(0);
     expect(afterFirstRun.units).toBe(9);
     expect(afterFirstRun.conversionRules).toBe(4);
     expect(afterFirstRun.products).toBe(0);
-    expect(afterFirstRun.teams).toBe(0);
+    expect(afterFirstRun.teams).toBe(3);
 
     expect(await prisma.catalog.count({ where: { key: { startsWith: 'crm.' }, isSystem: true } })).toBe(17);
     const stage = await prisma.catalogItem.findFirstOrThrow({ where: { code: 'GANADO', catalog: { key: 'crm.etapa_oportunidad' } } });
@@ -615,9 +622,10 @@ describe('semilla de demostración (00 §8.1, §8.3)', () => {
     const purge = run('prisma/seed-demo.ts', { SEED_DEMO: 'true' }, ['--purge']);
     expect(purge.status).toBe(0);
 
+    // 1 equipo real + los 3 de la semilla esencial (un equipo por canal, ADR-030).
     const after = await counts();
     expect(after).toMatchObject({
-      customers: 1, projects: 0, visits: 0, activities: 0, products: 1, families: 1, teams: 1, exchangeRates: 0, conversionRules: 4, users: 1,
+      customers: 1, projects: 0, visits: 0, activities: 0, products: 1, families: 1, teams: 4, exchangeRates: 0, conversionRules: 4, users: 1,
       attachments: 1, storedFiles: 1,
     });
     // Filas y binarios demo eliminados; el adjunto real y su binario sobreviven.

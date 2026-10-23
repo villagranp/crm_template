@@ -1,6 +1,6 @@
 # Plan de implementación — Carga inicial de datos por scripts con plantilla
 
-- **Origen:** decisión del responsable de negocio (2026-10-15): la vía de carga es **scripts con plantilla ejecutados por quien administra el sistema**, no pantallas en la aplicación. Entidades: **proyectos**, **productos y familias**, **minuto de seguridad**. Tipos de cambio y usuarios no entran.
+- **Origen:** decisión del responsable de negocio (2026-10-15): la vía de carga es **scripts con plantilla ejecutados por quien administra el sistema**, no pantallas en la aplicación. Entidades: **proyectos**, **productos y familias**, **minuto de seguridad**. Tipos de cambio no entran. Los usuarios se añadieron el 2026-10-23 (ADR-030).
 - **Estado:** **implementado (2026-10-15)**; lo que difiere de lo definido está en [§11](#11-desviaciones-de-la-implementación).
 - **Decisiones que lo enmarcan:** [DM-23](crm/00-modelo-de-datos.md) (catálogo real de productos y familias «por script versionado desde un archivo del negocio»), [06 — Integraciones](crm/06-integraciones.md) (patrón de plantilla, lectura segura y validación), [AJUSTES-1](AJUSTES-1.md) (minuto de seguridad), [ADR-004](../adr/) (puertos y adaptadores), [ADR-025](../adr/ADR-025-inmutabilidad-de-la-auditoria-con-disparadores.md).
 - **Skills aplicables:** `feature-development`, `requirements-analysis`, `architecture`, `backend-nestjs`, `database`, `security`, `testing`, `coding-standards`, `documentation`, `code-review`. No aplican `api-design`, `authorization` de endpoints ni `frontend-react`: no hay endpoints ni pantallas.
@@ -28,7 +28,7 @@ Cargar de una sola vez los datos de arranque del sistema —proyectos, el catál
 
 ### 1.3 Fuera de alcance
 
-- Tipos de cambio y usuarios (decisión del responsable).
+- Tipos de cambio (decisión del responsable). Los **usuarios** entraron después (2026-10-23, ADR-030): entidad `users`.
 - **Actualizar** lo que ya existe: la carga solo crea; lo existente se reporta y se omite (D-CI.6).
 - Pantallas de carga en la aplicación y endpoints HTTP: no hay ninguno; nada se expone por red.
 - Cargar clientes: ya existe la carga masiva (Módulo 6) y es requisito previo (§5.1).

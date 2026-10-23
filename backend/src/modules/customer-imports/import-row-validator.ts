@@ -96,7 +96,7 @@ export class ImportRowValidator {
       const draft = toCustomerDraft(row.values);
       const [keys, outcome] = await Promise.all([
         this.validation.duplicateKeys(draft, context),
-        this.validation.validate(draft, { mode: 'BY_NATURAL_KEY', actor, context, referenceCache }),
+        this.validation.validate(draft, { mode: 'BY_NATURAL_KEY', actor, context, referenceCache, lenientPhone: true }),
       ]);
       return { row, keys: { rowNumber: row.rowNumber, ...keys } satisfies RowDuplicateKeys, outcome };
     });
@@ -123,6 +123,8 @@ export class ImportRowValidator {
       .filter((issue) => !cellFields.has(issue.field));
     const issues: StoredImportIssue[] = [...row.issues, ...customerIssues];
     const warnings: StoredImportIssue[] = [...duplicateWarnings(outcome.duplicates)];
+    // Teléfono con formato inválido para el país: pasa, pero se avisa (ADR-029).
+    if (outcome.phoneFormatWarning) warnings.push(importIssue('phone', IMPORT_ISSUE_CODES.invalidPhoneFormat, 'WARNING'));
     // El NIT repetido frente a un existente y frente a otra fila son dos avisos distintos: se listan ambos.
     if (inFile.taxId !== undefined) warnings.push(taxIdInFileWarning(fileRowNumber(inFile.taxId)));
     if (inFile.legalName !== undefined) warnings.push(legalNameInFileWarning(fileRowNumber(inFile.legalName)));

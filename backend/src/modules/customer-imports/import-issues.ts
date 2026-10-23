@@ -39,6 +39,7 @@ export const IMPORT_ISSUE_CODES = {
   duplicateBlocked: 'DUPLICATE_BLOCKED',
   importInterrupted: 'IMPORT_INTERRUPTED',
   createFailed: 'CREATE_FAILED',
+  invalidPhoneFormat: 'INVALID_PHONE_FORMAT',
 } as const;
 
 /** Campo del Módulo 2 (`details[].field` del alta) → columna de la plantilla. */

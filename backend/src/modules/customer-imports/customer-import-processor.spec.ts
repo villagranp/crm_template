@@ -2,10 +2,11 @@ import { BusinessRuleViolationError, ResourceConflictError } from '@/common/erro
 import type { TransactionContext } from '@/infrastructure/database/ports/transaction.port';
 import type { AppLogger } from '@/infrastructure/logging/app-logger.service';
 import type { AuditService } from '@/modules/audit/audit.service';
+import type { ContactsService } from '@/modules/customers/contacts.service';
 import type { CustomerActor } from '@/modules/customers/customer-actor.resolver';
 import type { CustomerCreationContext, CustomerCreationService } from '@/modules/customers/customer-creation.service';
 
-import { CustomerImportProcessor, HEARTBEAT_EVERY_ROWS } from './customer-import-processor';
+import { CustomerImportProcessor, EXTRA_EMAIL_CONTACT_FIRST_NAME, HEARTBEAT_EVERY_ROWS } from './customer-import-processor';
 import type { ImportRowValues } from './cell-sanitizer';
 import type { StoredImportIssue } from './import-issues';
 import type { CustomerImportsRepository, PendingImportRow } from './ports/customer-imports.repository.port';
@@ -34,6 +35,7 @@ describe('CustomerImportProcessor (06 RN-06.18, RN-06.21–RN-06.25)', () => {
   let rows: PendingImportRow[];
   let repository: Record<'listPendingRows' | 'markRowImported' | 'markRowRejected' | 'touch' | 'complete' | 'findById' | 'failStale', jest.Mock>;
   let creation: { create: jest.Mock };
+  let contacts: { create: jest.Mock };
   let audit: { record: jest.Mock };
   let logger: { info: jest.Mock; error: jest.Mock; warn: jest.Mock };
   let processor: CustomerImportProcessor;
@@ -61,6 +63,7 @@ describe('CustomerImportProcessor (06 RN-06.18, RN-06.21–RN-06.25)', () => {
         return { id };
       }),
     };
+    contacts = { create: jest.fn().mockResolvedValue({ id: 'contact-1' }) };
     audit = { record: jest.fn().mockResolvedValue(undefined) };
     logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn() };
     processor = new CustomerImportProcessor(
@@ -68,6 +71,7 @@ describe('CustomerImportProcessor (06 RN-06.18, RN-06.21–RN-06.25)', () => {
       creation as unknown as CustomerCreationService,
       audit as unknown as AuditService,
       logger as unknown as AppLogger,
+      contacts as unknown as ContactsService,
     );
   });
 
@@ -78,6 +82,7 @@ describe('CustomerImportProcessor (06 RN-06.18, RN-06.21–RN-06.25)', () => {
       actor: ACTOR,
       mode: 'BY_NATURAL_KEY',
       source: 'IMPORT',
+      lenientPhone: true,
       sourceImportId: 'imp-1',
       auditMetadata: { rowNumber: 1 },
     }));
@@ -153,5 +158,41 @@ describe('CustomerImportProcessor (06 RN-06.18, RN-06.21–RN-06.25)', () => {
     expect(repository.complete).not.toHaveBeenCalled();
     await processor.whenIdle();
     expect(repository.complete).toHaveBeenCalled();
+  });
+  describe('correos adicionales de la celda «Correo» (ADR-028)', () => {
+    const withEmails = (email: string): PendingImportRow => ({ ...pending(1), values: { ...values('Cliente 1'), email } });
+
+    it('crea el cliente con el primer correo y los demás como contactos, sin repetir', async () => {
+      rows = [withEmails('uno@ejemplo.com, dos@ejemplo.com; DOS@ejemplo.com ,tres@ejemplo.com')];
+
+      await processor.run(options());
+
+      expect(creation.create).toHaveBeenCalledWith(expect.objectContaining({ email: 'uno@ejemplo.com' }), expect.anything());
+      expect(contacts.create).toHaveBeenCalledTimes(2);
+      expect(contacts.create).toHaveBeenNthCalledWith(1, ACTOR, 'cust-1', expect.objectContaining({
+        firstName: EXTRA_EMAIL_CONTACT_FIRST_NAME,
+        lastName: 'dos',
+        email: 'dos@ejemplo.com',
+        comments: 'Correo adicional de la carga IMP-2026-0001',
+      }));
+      expect(contacts.create).toHaveBeenNthCalledWith(2, ACTOR, 'cust-1', expect.objectContaining({ email: 'tres@ejemplo.com' }));
+      expect(repository.markRowRejected).not.toHaveBeenCalled();
+    });
+
+    it('no crea contactos con un solo correo', async () => {
+      rows = [withEmails('uno@ejemplo.com')];
+      await processor.run(options());
+      expect(contacts.create).not.toHaveBeenCalled();
+    });
+
+    it('un contacto que falla o un correo adicional inválido no rechazan la fila: se cuentan en el registro', async () => {
+      rows = [withEmails('uno@ejemplo.com, dos@ejemplo.com, no-es-correo')];
+      contacts.create.mockRejectedValueOnce(new Error('sin permiso'));
+
+      await processor.run(options());
+
+      expect(repository.markRowRejected).not.toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalledWith('customer_import_email_contacts', expect.objectContaining({ rowNumber: 1, created: 0, failed: 2 }));
+    });
   });
 });

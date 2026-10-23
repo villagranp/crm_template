@@ -359,18 +359,16 @@ describe('subida y vista previa (PF-06.3–PF-06.7, PF-06.19–PF-06.21, PF-06.3
       { country: J1 },
       { legalName: name('Sin país') },
       row(J1, { email: 'no-es-correo' }),
-      row(J1, { phone: '+1' }),
       row(J1, { taxId: 'x' }),
       row(J1, { legalName: 'x'.repeat(201) }),
     ];
     const body = await uploadOk(author.token, badRows);
-    expect(body).toMatchObject({ totalRows: 6, validRows: 0, invalidRows: 6, canConfirm: false, hasErrorFile: true });
+    expect(body).toMatchObject({ totalRows: 5, validRows: 0, invalidRows: 5, canConfirm: false, hasErrorFile: true });
     const preview = await rowsOf(author.token, body.id);
     expect(preview.map((current) => current.issues.map((issue) => `${issue.field}:${issue.code}`))).toEqual([
       ['legalName:REQUIRED_FIELD_MISSING'],
       ['country:REQUIRED_FIELD_MISSING'],
       ['email:VALIDATION_FAILED'],
-      ['phone:INVALID_PHONE_FORMAT'],
       ['taxId:INVALID_TAX_ID_FORMAT'],
       ['legalName:MAX_LENGTH'],
     ]);
@@ -382,6 +380,26 @@ describe('subida y vista previa (PF-06.3–PF-06.7, PF-06.19–PF-06.21, PF-06.3
     expect(JSON.stringify(preview.map((current) => current.issues))).not.toContain('no-es-correo');
   });
 
+  it('un teléfono con formato inválido para el país pasa como advertencia y se guarda tal cual al confirmar con la marca (ADR-029)', async () => {
+    const body = await uploadOk(author.token, [row(J1, { phone: '+1', status: '' })]);
+    expect(body).toMatchObject({ totalRows: 1, validRows: 1, invalidRows: 0 });
+    const preview = await rowsOf(author.token, body.id);
+    expect(preview[0]).toMatchObject({ status: 'VALID' });
+    expect(preview[0]?.issues.map((issue) => `${issue.field}:${issue.code}`)).toEqual(['phone:INVALID_PHONE_FORMAT']);
+
+    const final = await confirm(author.token, body, true);
+    expect(final).toMatchObject({ status: 'COMPLETED', importedRows: 1, rejectedRows: 0 });
+    const customer = await context.prisma.customer.findFirstOrThrow({ where: { sourceImportId: body.id } });
+    expect(customer.phone).toBe('+1');
+  });
+
+  it('sin la marca de advertencias, la fila con teléfono inválido no se importa', async () => {
+    const body = await uploadOk(author.token, [row(J1, { phone: '+1', status: '' })]);
+    const final = await confirm(author.token, body, false);
+    expect(final).toMatchObject({ importedRows: 0, rejectedRows: 1 });
+    expect(await context.prisma.customer.count({ where: { sourceImportId: body.id } })).toBe(0);
+  });
+
   it('catálogo de otro catálogo, inactivo o etiqueta; país inactivo o no admitido; responsable inexistente o ajeno (PF-06.20, PF-06.54)', async () => {
     const outsider = await crmUser(context, { roleCodes: ['asesor'], countryId: j1 });
     const body = await uploadOk(author.token, [
@@ -389,7 +407,7 @@ describe('subida y vista previa (PF-06.3–PF-06.7, PF-06.19–PF-06.21, PF-06.3
       row(J1, { companyType: 'Ferretería' }),
       row('J3'),
       row('NI'),
-      row('PA'),
+      row('ZZ'),
       row(J1, { salesOwner: 'nadie@example.invalid' }),
       row(J1, { salesOwner: outsider.email }),
     ]);
@@ -620,6 +638,22 @@ describe('confirmación e importación (PF-06.8–PF-06.10, PF-06.13, PF-06.22, 
     expect(search.body.data.map((customer: { id: string }) => customer.id)).toContain(imported[0]?.customer?.id);
   });
 
+  it('una celda «Correo» con varios correos: el cliente queda con el primero y los demás como contactos (ADR-028)', async () => {
+    const tag = Date.now().toString(36);
+    const body = await uploadOk(author.token, [
+      row(J1, { email: `uno-${tag}@example.invalid, dos-${tag}@example.invalid; DOS-${tag}@example.invalid, tres-${tag}@example.invalid`, status: '' }),
+    ]);
+    expect(body.validRows).toBe(1);
+    const final = await confirm(author.token, body);
+    expect(final).toMatchObject({ status: 'COMPLETED', importedRows: 1, rejectedRows: 0 });
+
+    const customer = await context.prisma.customer.findFirstOrThrow({ where: { sourceImportId: body.id } });
+    expect(customer.email).toBe(`uno-${tag}@example.invalid`);
+    const contacts = await context.prisma.contact.findMany({ where: { customerId: customer.id }, orderBy: { email: 'asc' } });
+    expect(contacts.map((contact) => contact.email)).toEqual([`dos-${tag}@example.invalid`, `tres-${tag}@example.invalid`]);
+    expect(contacts.every((contact) => contact.firstName === 'Contacto' && contact.isActive)).toBe(true);
+  });
+
   it('errores de confirmación: sin filas válidas 422, expectedValidRows distinto 409, ya completada o cancelada 409 (PF-06.22, PF-06.13)', async () => {
     const invalid = await uploadOk(author.token, [{ country: J1 }]);
     const noRows = await api(context, author.token).post(`/customer-imports/${invalid.id}/confirmation`).send({ expectedValidRows: 1 }).expect(422);
@@ -836,8 +870,8 @@ describe('historial, archivo de errores, purga y habilitación (PF-06.11, PF-06.
     const good = row(J1);
     const bad: FixtureRow[] = [
       { legalName: '=cmd', country: J1 },
-      { legalName: name('Teléfono'), country: J1, phone: '+1' },
-      { legalName: name('Guion'), country: J1, phone: '-2' },
+      { legalName: name('Correo uno'), country: J1, email: '+1' },
+      { legalName: name('Correo dos'), country: J1, email: '-2' },
       { legalName: '@x', country: J1 },
     ];
     const body = await uploadOk(author.token, [good, ...bad]);
@@ -861,8 +895,8 @@ describe('historial, archivo de errores, purga y habilitación (PF-06.11, PF-06.
     // Corregido y vuelto a subir: el lector ignora las columnas añadidas y quita el apóstrofo.
     const fixed = text
       .replace("'=cmd", name('Corregida'))
-      .replace("'+1", '+502 2222 3333')
-      .replace("'-2", '2222-3333')
+      .replace("'+1", 'uno@example.invalid')
+      .replace("'-2", 'dos@example.invalid')
       .replace("'@x", name('Arroba'));
     const reupload = (await upload(author.token, Buffer.from(fixed, 'utf8')).expect(201)).body as ImportBody;
     expect(reupload).toMatchObject({ totalRows: 4, validRows: 4 });
@@ -870,7 +904,7 @@ describe('historial, archivo de errores, purga y habilitación (PF-06.11, PF-06.
 
   it('archivo de errores XLSX: celdas de texto neutralizadas; sin filas no importadas → 404 (PF-06.12, PF-06.28, PF-06.30)', async () => {
     const cells = (overrides: Record<string, unknown>): unknown[] => TEMPLATE_HEADERS.map((header) => overrides[header] ?? '');
-    const buffer = await xlsxFile([cells({ 'Razón social': name('Tel'), País: J1, Teléfono: '+1' }), cells({ 'Razón social': name('Ok'), País: J1 })] as never);
+    const buffer = await xlsxFile([cells({ 'Razón social': name('Tel'), País: J1, Correo: '+1' }), cells({ 'Razón social': name('Ok'), País: J1 })] as never);
     const body = (await upload(author.token, buffer, 'e.xlsx', XLSX_TYPE).expect(201)).body as ImportBody;
     const response = await downloadBuffer(author.token, `/customer-imports/${body.id}/error-file`);
     expect(response.headers['content-type']).toContain(XLSX_TYPE);
@@ -878,7 +912,7 @@ describe('historial, archivo de errores, purga y habilitación (PF-06.11, PF-06.
     await workbook.xlsx.load(response.body as unknown as ExcelJS.Buffer);
     const sheet = workbook.getWorksheet('Clientes');
     expect(sheet?.rowCount).toBe(2);
-    const cell = sheet?.getRow(2).getCell(TEMPLATE_HEADERS.indexOf('Teléfono') + 2);
+    const cell = sheet?.getRow(2).getCell(TEMPLATE_HEADERS.indexOf('Correo') + 2);
     expect(cell?.value).toBe("'+1");
     expect(cell?.type).toBe(ExcelJS.ValueType.String);
 
