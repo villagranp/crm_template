@@ -51,6 +51,6 @@ import { VisibilityScopeResolver } from './visibility-scope.resolver';
     { provide: ACCESS_REPOSITORY, useClass: PrismaAccessRepository },
     { provide: VISIBILITY_SCOPE_READER, useClass: PrismaVisibilityScopeRepository },
   ],
-  exports: [AccessService, SsoProvisioningService, EntraIdentityLinkService, VisibilityScopeResolver],
+  exports: [AccessService, SsoProvisioningService, EntraIdentityLinkService, VisibilityScopeResolver, UsersService],
 })
 export class AccessModule {}

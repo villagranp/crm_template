@@ -4,11 +4,12 @@ import { ApplicationError } from '@/common/errors/application-error';
 import { AppLogger } from '@/infrastructure/logging/app-logger.service';
 import { AuditService } from '@/modules/audit/audit.service';
 import type { CustomerActor } from '@/modules/customers/customer-actor.resolver';
+import { ContactsService } from '@/modules/customers/contacts.service';
 import { CustomerCreationService } from '@/modules/customers/customer-creation.service';
 import { CUSTOMER_ERROR_CODES } from '@/modules/customers/customer-errors';
 
 import { CUSTOMER_IMPORT_AUDIT_EVENTS, CUSTOMER_IMPORT_AUDIT_RESOURCE } from './customer-import-audit';
-import { toCustomerDraft } from './cell-sanitizer';
+import { extraEmails, type ImportRowValues, toCustomerDraft } from './cell-sanitizer';
 import { IMPORT_ISSUE_CODES, importFieldOf, importIssue, type StoredImportIssue } from './import-issues';
 import { duplicateWarnings } from './import-row-validator';
 import { CUSTOMER_IMPORTS_REPOSITORY, type CustomerImportsRepository, type PendingImportRow } from './ports/customer-imports.repository.port';
@@ -25,6 +26,10 @@ export interface ImportRunOptions {
   readonly actor: CustomerActor;
   readonly includeRowsWithWarnings: boolean;
 }
+
+/** Nombre de los contactos creados a partir de los correos adicionales de la celda (ADR-028). */
+export const EXTRA_EMAIL_CONTACT_FIRST_NAME = 'Contacto';
+const MAX_CONTACT_LAST_NAME = 80;
 
 /** La fila dejó de estar `VALID` (carga marcada interrumpida): el alta se deshace sin tocar la fila. */
 class RowNoLongerPendingError extends Error {}
@@ -55,6 +60,7 @@ export class CustomerImportProcessor {
     private readonly creation: CustomerCreationService,
     private readonly audit: AuditService,
     private readonly logger: AppLogger,
+    private readonly contacts: ContactsService,
   ) {}
 
   /** Lanza el procesamiento sin esperar (la confirmación responde `202`). */
@@ -146,12 +152,14 @@ export class CustomerImportProcessor {
         mode: 'BY_NATURAL_KEY',
         source: 'IMPORT',
         sourceImportId: options.importId,
+        lenientPhone: true,
         ...(acknowledgedDuplicateIds ? { acknowledgedDuplicateIds } : {}),
         auditMetadata: { rowNumber: row.rowNumber },
         withinTransaction: async (customerId, tx) => {
           if (!(await this.imports.markRowImported(row.id, customerId, tx))) throw new RowNoLongerPendingError();
         },
       });
+      await this.addEmailContacts(customer.id, row, options);
       return customer.id;
     } catch (error) {
       if (error instanceof RowNoLongerPendingError) return null;
@@ -159,6 +167,38 @@ export class CustomerImportProcessor {
       await this.imports.markRowRejected(row.id, rejection.issues, rejection.duplicateOfCustomerId);
       return null;
     }
+  }
+
+  /**
+   * Correos adicionales de la celda «Correo» → contactos del cliente recién creado (ADR-028). La fila ya está
+   * importada: un fallo aquí (permiso, correo repetido) no la rechaza, solo se cuenta en el registro.
+   */
+  private async addEmailContacts(customerId: string, row: PendingImportRow, options: ImportRunOptions): Promise<void> {
+    if (!row.values) return;
+    const { extras, discarded } = extraEmails(row.values as ImportRowValues);
+    if (extras.length === 0 && discarded === 0) return;
+    let created = 0;
+    let failed = discarded;
+    for (const email of extras) {
+      try {
+        await this.contacts.create(options.actor, customerId, {
+          firstName: EXTRA_EMAIL_CONTACT_FIRST_NAME,
+          lastName: [...email.split('@')[0]!].slice(0, MAX_CONTACT_LAST_NAME).join(''),
+          email,
+          comments: `Correo adicional de la carga ${options.importCode}`,
+        });
+        created += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    this.logger.info('customer_import_email_contacts', {
+      correlationId: options.actor.audit.correlationId,
+      importId: options.importId,
+      rowNumber: row.rowNumber,
+      created,
+      failed,
+    });
   }
 
   /** Traduce el error del alta a incidencias de fila (mismos códigos que el Módulo 2). */

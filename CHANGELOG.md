@@ -6,6 +6,21 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 ## [Unreleased]
 
 ### Added
+- **Carga de clientes: países «solo clientes» y lista de correos** ([ADR-028](docs/adr/ADR-028-paises-solo-clientes-y-lista-de-correos-en-la-carga.md)).
+  - Se siembran activos 22 países donde solo hay clientes (EE. UU., Puerto Rico, Panamá, México, Colombia,
+    Perú, Chile, Brasil, Uruguay, Rep. Dominicana, Haití, Jamaica, Trinidad y Tobago, Barbados, Guyana, Surinam,
+    Bélgica, Dinamarca, Italia, Eslovaquia, China e Indonesia) y sus monedas. Hay que ejecutar `prisma:seed` en
+    cada entorno; no hay migración.
+  - La celda «Correo» de la plantilla admite varios correos separados por coma o punto y coma: el primero queda
+    en el cliente y los demás se crean como contactos. Un fallo en un contacto no rechaza la fila.
+- **Carga de clientes: el teléfono con formato inválido es una advertencia** ([ADR-029](docs/adr/ADR-029-telefono-invalido-es-advertencia-en-la-carga.md)).
+  La fila pasa y el teléfono se guarda tal cual; se importa con la marca de incluir filas con advertencias.
+  El alta manual y la edición siguen rechazándolo.
+- **Carga inicial de usuarios por script y equipos por canal** ([ADR-030](docs/adr/ADR-030-carga-masiva-de-usuarios-y-equipos-por-canal.md)).
+  `load:data` admite la entidad `users` (plantilla `plantilla-usuarios`: correo, nombre, apellido, código de
+  colaborador, país, rol y equipo): cada fila usa el alta de usuarios de Administración y nace sin vínculo con Entra ID
+  (se vincula después por `oid`). La semilla esencial crea tres equipos, uno por canal (`CONST`, `DISTR`, `INDST`);
+  hay que ejecutar `prisma:seed` en cada entorno.
 - **Endurecimiento para exposición a internet** ([plan](docs/security/plan-exposicion-internet.md) §2;
   backend, frontend, NGINX y contenedores; brechas ASVS G-11, G-17, G-18, G-20, G-21, G-22 y,
   parcialmente, G-25 y G-26). Lo que depende del borde y de las imágenes está hecho en código y

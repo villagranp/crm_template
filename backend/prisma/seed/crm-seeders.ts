@@ -7,6 +7,7 @@
  * | Moneda               | code                              | nombre, símbolo y decimales (solo lectura en la UI)    |
  * | País                 | isoCode                           | datos descriptivos; nunca `isActive` ni los patrones   |
  * | Tipo de cambio       | (currencyCode, effectiveDate)     | nada: no pisa una tasa corregida en Administración     |
+ * | Equipo               | code                              | nombre y descripción; nunca estado ni responsable      |
  * | Unidad de medida     | code                              | nada (mantenible desde Administración, D-07.9)         |
  * | Regla de conversión  | (fromUnit, toUnit, scopeKey)      | nada (el factor lo mantiene el negocio)                |
  * | Secuencia            | key                               | nada: `currentValue` nunca se pisa                     |
@@ -17,7 +18,7 @@ import type { PrismaClient } from '@prisma/client';
 
 import { CRM_CATALOGS } from './crm-catalogs';
 import { INITIAL_EXCHANGE_RATES } from './crm-exchange-rates';
-import { COUNTRIES, CRM_SEQUENCES, CURRENCIES, GLOBAL_CONVERSIONS, UNITS_OF_MEASURE } from './crm-masters';
+import { COUNTRIES, CRM_SEQUENCES, CURRENCIES, GLOBAL_CONVERSIONS, TEAMS, UNITS_OF_MEASURE } from './crm-masters';
 
 type Log = (message: string) => void;
 
@@ -35,6 +36,15 @@ export async function seedCountries(prisma: PrismaClient): Promise<number> {
     await prisma.country.upsert({ where: { isoCode }, update: descriptive, create: country });
   }
   return COUNTRIES.length;
+}
+
+export async function seedTeams(prisma: PrismaClient): Promise<number> {
+  for (const team of TEAMS) {
+    const { code, ...descriptive } = team;
+    // Al re-ejecutar solo se refrescan nombre y descripción: el estado y el responsable son del negocio.
+    await prisma.team.upsert({ where: { code }, update: descriptive, create: team });
+  }
+  return TEAMS.length;
 }
 
 export async function seedExchangeRates(prisma: PrismaClient): Promise<number> {
@@ -115,6 +125,7 @@ export async function seedCatalogs(prisma: PrismaClient): Promise<{ catalogs: nu
 export async function seedCrmEssentials(prisma: PrismaClient, log: Log): Promise<void> {
   log(`monedas: ${await seedCurrencies(prisma)}`);
   log(`países: ${await seedCountries(prisma)}`);
+  log(`equipos: ${await seedTeams(prisma)}`);
   const rates = await seedExchangeRates(prisma);
   log(`tipos de cambio iniciales: ${rates}${rates === 0 ? ' (pendientes de entrega del negocio)' : ''}`);
   const unitIds = await seedUnits(prisma);

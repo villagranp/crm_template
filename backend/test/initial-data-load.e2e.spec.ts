@@ -50,6 +50,7 @@ const PROJECT_HEADERS = ENTITY_DEFINITIONS.projects.sheets[0]!.columns.map((colu
 const FAMILY_HEADERS = ENTITY_DEFINITIONS.products.sheets[0]!.columns.map((column) => column.header);
 const PRODUCT_HEADERS = ENTITY_DEFINITIONS.products.sheets[1]!.columns.map((column) => column.header);
 const MINUTE_HEADERS = ENTITY_DEFINITIONS['safety-minutes'].sheets[0]!.columns.map((column) => column.header);
+const USER_HEADERS = ENTITY_DEFINITIONS.users.sheets[0]!.columns.map((column) => column.header);
 
 interface Run {
   readonly code: number;
@@ -447,6 +448,44 @@ describe('actor y entorno', () => {
     const allowed = await run(['apply', 'safety-minutes', '--file', file, '--actor', adminEmail, '--confirm-production'], { NODE_ENV: 'production' });
     expect(allowed.code).toBe(EXIT_OK);
     expect(await context.prisma.safetyMinute.count({ where: { displayDate: fromCalendarDate('2040-03-22') } })).toBe(1);
+  });
+});
+
+describe('usuarios (ADR-030)', () => {
+  it('validar no escribe; apply da de alta con rol, país, código y equipo y deja auditoría; repetir reporta «ya existe»', async () => {
+    const tag = uniqueSuffix().toLowerCase();
+    const team = await context.prisma.team.upsert({ where: { code: 'CONST' }, update: {}, create: { code: 'CONST', name: 'Construcción' } });
+    const rows = [
+      { Correo: `Carga.Uno.${tag}@example.invalid`, Nombre: 'Carga', Apellido: 'Uno', 'Código de colaborador': `ec-u1-${tag}`, País: COUNTRY_ISO, Rol: 'asesor', Equipo: 'const' },
+      { Correo: `carga.dos.${tag}@example.invalid`, Nombre: 'Carga', Apellido: 'Dos', 'Código de colaborador': `ec-u2-${tag}`, País: COUNTRY_ISO, Rol: 'asesor', Equipo: '' },
+    ];
+    const file = await csvFile('usuarios-ok.csv', USER_HEADERS, rows);
+
+    const validated = await run(['validate', 'users', '--file', file]);
+    expect(validated.code).toBe(EXIT_OK);
+    expect(await context.prisma.user.count({ where: { emailNormalized: { in: rows.map((item) => item.Correo.toLowerCase()) } } })).toBe(0);
+
+    const applied = await run(['apply', 'users', '--file', file, '--actor', adminEmail]);
+    expect(applied.code).toBe(EXIT_OK);
+    const stored = await context.prisma.user.findMany({
+      where: { emailNormalized: { in: rows.map((item) => item.Correo.toLowerCase()) } },
+      include: { roles: { include: { role: true } }, teams: true },
+      orderBy: { emailNormalized: 'asc' },
+    });
+    // Orden por correo: «dos» antes que «uno». El correo se guarda en minúsculas y el código en mayúsculas.
+    expect(stored.map((user) => [user.email, user.employeeCode, user.countryId, user.status, user.roles.map((entry) => entry.role.code)])).toEqual([
+      [rows[1]!.Correo, `EC-U2-${tag}`.toUpperCase(), countryId, 'INVITED', ['asesor']],
+      [rows[0]!.Correo.toLowerCase(), `EC-U1-${tag}`.toUpperCase(), countryId, 'INVITED', ['asesor']],
+    ]);
+    expect(stored[1]!.teams.map((entry) => entry.teamId)).toEqual([team.id]);
+    expect(stored[0]!.teams).toHaveLength(0);
+    // Nacen sin vínculo con Entra ID: se vinculan después por oid.
+    expect(await context.prisma.userIdentity.count({ where: { userId: { in: stored.map((user) => user.id) } } })).toBe(0);
+    expect(await context.prisma.auditLog.count({ where: { event: 'user.created', resourceId: { in: stored.map((user) => user.id) } } })).toBe(2);
+
+    const again = await run(['apply', 'users', '--file', file, '--actor', adminEmail]);
+    expect(again.code).toBe(EXIT_OK);
+    expect(again.out).toContain('por crear 0 - creadas 0 - ya existen 2 - con errores 0');
   });
 });
 

@@ -79,6 +79,22 @@ export class PrismaInitialDataLookupRepository implements InitialDataLookup {
     return rows.map((row) => ({ id: row.id, code: row.isoCode, isActive: row.isActive }));
   }
 
+  async findRoles(codes: readonly string[]): Promise<LookupReference[]> {
+    if (codes.length === 0) return [];
+    return this.prisma.role.findMany({
+      where: { OR: codes.map((code) => ({ code: { equals: code, mode: 'insensitive' as const } })) },
+      select: { id: true, code: true, isActive: true },
+    });
+  }
+
+  async findTeams(codes: readonly string[]): Promise<LookupReference[]> {
+    if (codes.length === 0) return [];
+    return this.prisma.team.findMany({
+      where: { deletedAt: null, OR: codes.map((code) => ({ code: { equals: code, mode: 'insensitive' as const } })) },
+      select: { id: true, code: true, isActive: true },
+    });
+  }
+
   async findCatalogItems(catalogKey: string, codes: readonly string[]): Promise<LookupReference[]> {
     if (codes.length === 0) return [];
     const rows = await this.prisma.catalogItem.findMany({

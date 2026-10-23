@@ -1,3 +1,5 @@
+import { isEmail } from 'class-validator';
+
 import type { XlsxCellValue } from '@/common/xlsx';
 import type { CustomerDraft } from '@/modules/customers/customer-validation.service';
 import { startsWithFormula } from '@/modules/customers/customer-normalization';
@@ -105,9 +107,40 @@ export function sanitizeRow(cells: readonly XlsxCellValue[], columnIndexes: Read
   return { values, issues };
 }
 
-/** Borrador del Módulo 2 (modo `BY_NATURAL_KEY`) a partir de los valores leídos (RN-06.12). */
+/** Separadores de una lista de correos en la celda «Correo» (coma o punto y coma). */
+const EMAIL_LIST_SEPARATOR = /[,;]/;
+
+/**
+ * Celda «Correo» → correos de la lista, recortados y sin repetir (sin distinguir mayúsculas). El primero es el
+ * del cliente; los demás se guardan como contactos (ADR-028). Una celda sin lista devuelve un solo elemento.
+ */
+export function splitEmailList(value: string | null): string[] {
+  if (!value) return [];
+  const seen = new Set<string>();
+  const emails: string[] = [];
+  for (const part of value.split(EMAIL_LIST_SEPARATOR)) {
+    const email = part.replace(EDGE_SPACES, '');
+    if (email === '' || seen.has(email.toLowerCase())) continue;
+    seen.add(email.toLowerCase());
+    emails.push(email);
+  }
+  return emails;
+}
+
+/** Correos adicionales de la celda: los válidos (`extras`) y cuántos se descartan por no tener forma de correo. */
+export function extraEmails(values: ImportRowValues): { extras: string[]; discarded: number } {
+  const [, ...rest] = splitEmailList(values.email);
+  const extras = rest.filter((email) => isEmail(email));
+  return { extras, discarded: rest.length - extras.length };
+}
+
+/**
+ * Borrador del Módulo 2 (modo `BY_NATURAL_KEY`) a partir de los valores leídos (RN-06.12). Del correo solo
+ * pasa el primero de la lista: los demás son contactos que añade el procesador tras el alta (ADR-028).
+ */
 export function toCustomerDraft(values: ImportRowValues): CustomerDraft {
-  return { ...values };
+  const [firstEmail] = splitEmailList(values.email);
+  return { ...values, email: firstEmail ?? values.email };
 }
 
 /** Valores guardados en `raw_data` (sin confiar en su forma: filas purgadas o antiguas). */

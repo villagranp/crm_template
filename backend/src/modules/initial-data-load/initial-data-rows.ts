@@ -6,6 +6,7 @@ import { normalizeName } from '@/modules/customers/customer-normalization';
 import { FAMILY_CODE_PATTERN, normalizeCode, SKU_PATTERN } from '@/modules/products/master-data-rules';
 import { normalizeProjectCode } from '@/modules/projects/project-rules';
 import { canonicalOid, isGuid } from '@/common/identity-claims';
+import { isEmail } from 'class-validator';
 
 import type { ParsedSheet } from './initial-data-file-reader';
 import type { ReportEntry } from './initial-data-report';
@@ -409,5 +410,47 @@ export function validateEntraIdentityRows(rows: readonly LoadRow[], collector: S
       fileRow: row.fileRow,
       user: parseOwnerReference(value(row, 'user') ?? ''),
       oid: canonicalOid(value(row, 'oid') ?? ''),
+    }));
+}
+
+// ---------------------------------------------------------------------------
+// Usuarios (ADR-030)
+// ---------------------------------------------------------------------------
+
+export interface UserDraft {
+  readonly fileRow: number;
+  /** Minúsculas, como se guarda para la unicidad. */
+  readonly email: string;
+  readonly firstName: string;
+  readonly lastName: string;
+  /** Recortado y en mayúsculas, como lo guarda el alta de usuarios. */
+  readonly employeeCode: string;
+  /** ISO en mayúsculas. */
+  readonly country: string;
+  /** Código de rol en minúsculas. */
+  readonly role: string;
+  /** Código de equipo en mayúsculas, o `null`. */
+  readonly team: string | null;
+}
+
+/** Valida las filas de usuarios: correo con forma de correo y sin repetirse, y código sin repetirse. Las referencias las resuelve el cargador. */
+export function validateUserRows(rows: readonly LoadRow[], collector: SheetCollector): UserDraft[] {
+  for (const row of rows) {
+    const email = value(row, 'email');
+    if (email !== null && !isEmail(email)) collector.error(row.fileRow, 'email', 'INVALID_FORMAT', 'El correo no tiene un formato válido.');
+  }
+  markDuplicates(collector, rows, (row) => value(row, 'email')?.toLowerCase() ?? null, 'email', 'El correo');
+  markDuplicates(collector, rows, (row) => value(row, 'employeeCode')?.toUpperCase() ?? null, 'employeeCode', 'El código de colaborador');
+  return rows
+    .filter((row) => !collector.hasError(row.fileRow))
+    .map((row) => ({
+      fileRow: row.fileRow,
+      email: (value(row, 'email') ?? '').toLowerCase(),
+      firstName: value(row, 'firstName') ?? '',
+      lastName: value(row, 'lastName') ?? '',
+      employeeCode: (value(row, 'employeeCode') ?? '').toUpperCase(),
+      country: (value(row, 'country') ?? '').toUpperCase(),
+      role: (value(row, 'role') ?? '').toLowerCase(),
+      team: value(row, 'team')?.toUpperCase() ?? null,
     }));
 }

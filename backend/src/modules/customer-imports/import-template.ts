@@ -50,8 +50,17 @@ export const IMPORT_COLUMNS: readonly ImportColumn[] = [
   },
   { key: 'city', header: 'Ciudad', maxLength: 120, kind: 'text', isFreeText: true, description: 'Ciudad, texto libre.', example: 'Ciudad de Guatemala' },
   { key: 'address', header: 'Dirección', maxLength: 300, kind: 'text', isFreeText: true, description: 'Dirección del establecimiento.', example: 'Avenida 1, zona 1' },
-  { key: 'phone', header: 'Teléfono', maxLength: 40, kind: 'code', isFreeText: false, description: 'Teléfono con el formato del país.', example: '+502 2222 3333' },
-  { key: 'email', header: 'Correo', maxLength: 320, kind: 'text', isFreeText: false, description: 'Correo electrónico de la empresa.', example: 'contacto@ejemplo.com' },
+  { key: 'phone', header: 'Teléfono', maxLength: 40, kind: 'code', isFreeText: false, description: 'Teléfono con el formato del país. Si no lo cumple, la fila se importa con una advertencia y se guarda tal cual.', example: '+502 2222 3333' },
+  {
+    key: 'email',
+    header: 'Correo',
+    // Cabe una lista: cada correo sigue limitado a 320 caracteres al validar el cliente (el primero) y el contacto.
+    maxLength: 2000,
+    kind: 'text',
+    isFreeText: false,
+    description: 'Correo electrónico de la empresa. Si hay varios, sepárelos con coma: el primero queda en el cliente y los demás se guardan como contactos.',
+    example: 'contacto@ejemplo.com',
+  },
   {
     key: 'companyType',
     header: 'Tipo de empresa',

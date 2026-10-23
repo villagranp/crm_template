@@ -136,6 +136,11 @@ export interface ValidationOutcome {
   readonly codeConflict: CustomerCodeConflictDetails | null;
   /** Solo si no hay `errors`. */
   readonly normalized: NormalizedCustomer | null;
+  /**
+   * El teléfono no tiene el formato del país pero se admitió por `lenientPhone` (carga masiva, ADR-029): no es
+   * un error de `errors`, el llamador decide cómo avisar. Ausente = sin aviso.
+   */
+  readonly phoneFormatWarning?: boolean;
 }
 
 export interface CustomerValidationOptions {
@@ -159,6 +164,11 @@ export interface CustomerValidationOptions {
    * vuelve a leer dentro de su transacción.
    */
   readonly referenceCache?: CustomerReferenceCache;
+  /**
+   * Admite un teléfono con formato inválido para el país (la carga masiva lo avisa como advertencia, ADR-029).
+   * Longitud y fórmulas se siguen validando; el valor se guarda tal como llegó.
+   */
+  readonly lenientPhone?: boolean;
 }
 
 /**
@@ -334,6 +344,7 @@ export class CustomerValidationService {
     const { existing, tx, mode, actor, context } = options;
     const isEdit = existing !== undefined;
     const issues: Issue[] = [];
+    let phoneFormatWarning = false;
     const provided = (field: DraftField): boolean => draft[field] !== undefined;
 
     // RN-02.32: sobre el valor crudo y solo en los campos enviados.
@@ -383,7 +394,8 @@ export class CustomerValidationService {
     if (country && phone && (provided('phone') || countryChanged || !isEdit)) {
       this.warnBrokenPattern(country, 'phonePattern');
       if (!isValidPhone(phone, country.phonePattern)) {
-        issues.push(fieldIssue('phone', CUSTOMER_ERROR_CODES.invalidPhoneFormat));
+        if (options.lenientPhone) phoneFormatWarning = true;
+        else issues.push(fieldIssue('phone', CUSTOMER_ERROR_CODES.invalidPhoneFormat));
       }
     }
     const taxId = resolvedInput.taxId === undefined ? (existing?.taxId ?? null) : resolvedInput.taxId;
@@ -406,7 +418,14 @@ export class CustomerValidationService {
     const salesOwnerId = await this.resolveSalesOwner(resolvedInput.salesOwner, ownerMode, actor, existing, issues, tx, context, cache);
 
     if (issues.length > 0) {
-      return { errors: [...issues].sort(bySeverity), duplicates: [], blockingDuplicates: [], codeConflict: null, normalized: null };
+      return {
+        errors: [...issues].sort(bySeverity),
+        duplicates: [],
+        blockingDuplicates: [],
+        codeConflict: null,
+        normalized: null,
+        ...(phoneFormatWarning ? { phoneFormatWarning } : {}),
+      };
     }
 
     const pick = <T>(next: T | undefined, current: T): T => (next === undefined ? current : next);
@@ -443,7 +462,7 @@ export class CustomerValidationService {
       tx,
       context?.duplicateRules,
     );
-    return { errors: [], duplicates, blockingDuplicates, codeConflict, normalized };
+    return { errors: [], duplicates, blockingDuplicates, codeConflict, normalized, ...(phoneFormatWarning ? { phoneFormatWarning } : {}) };
   }
 
   /**

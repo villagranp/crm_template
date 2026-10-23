@@ -2,6 +2,7 @@ import { ResourceConflictError, ResourceNotFoundError } from '@/common/errors/ap
 import { writeTextWorkbook } from '@/common/xlsx';
 import type { AccessService } from '@/modules/access/access.service';
 import type { EntraIdentityLinkService } from '@/modules/access/entra-identity-link.service';
+import type { UsersService } from '@/modules/access/users.service';
 import type { CustomerReferenceGuard } from '@/modules/customers/customer-reference.guard';
 import type { ProductMastersService } from '@/modules/products/product-masters.service';
 import type { ProjectClassificationService } from '@/modules/projects/project-classification.service';
@@ -20,6 +21,7 @@ const FAMILY_HEADERS = ENTITY_DEFINITIONS.products.sheets[0]!.columns.map((colum
 const PRODUCT_HEADERS = ENTITY_DEFINITIONS.products.sheets[1]!.columns.map((column) => column.header);
 const MINUTE_HEADERS = ENTITY_DEFINITIONS['safety-minutes'].sheets[0]!.columns.map((column) => column.header);
 const IDENTITY_HEADERS = ENTITY_DEFINITIONS['entra-identities'].sheets[0]!.columns.map((column) => column.header);
+const USER_HEADERS = ENTITY_DEFINITIONS.users.sheets[0]!.columns.map((column) => column.header);
 
 const ACTOR_ID = '11111111-1111-4111-8111-111111111111';
 const OWNER_ID = '22222222-2222-4222-8222-222222222222';
@@ -48,6 +50,8 @@ interface World {
   users: LookupUser[];
   customers: { id: string; crmCode: string; isDeleted: boolean }[];
   countries: LookupReference[];
+  roles: LookupReference[];
+  teams: LookupReference[];
   catalogs: Record<string, LookupReference[]>;
   families: LookupFamily[];
   units: LookupReference[];
@@ -60,11 +64,13 @@ interface World {
   requiredProject: string[];
 }
 
-function build(world: Partial<World> = {}, adminPermissions: string[] = ['proyectos.crear', 'proyectos.administrar', 'productos.configurar', 'minuto_seguridad.crear', 'usuarios.editar']) {
+function build(world: Partial<World> = {}, adminPermissions: string[] = ['proyectos.crear', 'proyectos.administrar', 'productos.configurar', 'minuto_seguridad.crear', 'usuarios.editar', 'usuarios.crear', 'equipos.editar']) {
   const data: World = {
     users: [user()],
     customers: [{ id: CUSTOMER_ID, crmCode: 'CLI-1', isDeleted: false }],
-    countries: [{ id: 'country-gt', code: 'GT', isActive: true }],
+    countries: [{ id: 'country-gt', code: 'GT', isActive: true }, { id: 'country-ec', code: 'EC', isActive: true }],
+    roles: [{ id: 'role-asesor', code: 'asesor', isActive: true }],
+    teams: [{ id: 'team-const', code: 'CONST', isActive: true }],
     catalogs: {
       'crm.tipo_proyecto': [{ id: 'type-edificio', code: 'EDIFICIO', isActive: true }],
       'crm.sector_proyecto': [{ id: 'sector-comercial', code: 'COMERCIAL', isActive: true }],
@@ -84,6 +90,8 @@ function build(world: Partial<World> = {}, adminPermissions: string[] = ['proyec
     findUsers: jest.fn(async ({ emails, employeeCodes }) => data.users.filter((candidate) => emails.includes(candidate.email) || (candidate.employeeCode !== null && employeeCodes.includes(candidate.employeeCode)))),
     findCustomersByCrmCode: jest.fn(async (codes) => data.customers.filter((customer) => codes.includes(customer.crmCode))),
     findCountriesByIso: jest.fn(async (codes) => pick(data.countries, codes)),
+    findRoles: jest.fn(async (codes) => pick(data.roles, codes)),
+    findTeams: jest.fn(async (codes) => pick(data.teams, codes)),
     findCatalogItems: jest.fn(async (key, codes) => pick(data.catalogs[key] ?? [], codes)),
     findFamilies: jest.fn(async (codes) => pick(data.families, codes)),
     findUnits: jest.fn(async (codes) => pick(data.units, codes)),
@@ -109,6 +117,7 @@ function build(world: Partial<World> = {}, adminPermissions: string[] = ['proyec
   const safetyMinutes = { today: jest.fn(async () => TODAY), create: jest.fn(async () => ({})) };
   const parameters = { get: jest.fn(async () => ({ project: data.requiredProject })) };
   const identityLinks = { link: jest.fn(async (): Promise<{ kind: string }> => ({ kind: 'linked' })) };
+  const usersService = { create: jest.fn(async () => ({ id: 'user-new' })) };
   const loader = new InitialDataLoader(
     lookup,
     access as unknown as AccessService,
@@ -120,8 +129,9 @@ function build(world: Partial<World> = {}, adminPermissions: string[] = ['proyec
     safetyMinutes as unknown as SafetyMinutesService,
     parameters as unknown as ParameterReader,
     identityLinks as unknown as EntraIdentityLinkService,
+    usersService as unknown as UsersService,
   );
-  return { loader, lookup, access, projects, classification, projectAccess, customerGuard, masters, safetyMinutes, identityLinks };
+  return { loader, lookup, access, projects, classification, projectAccess, customerGuard, masters, safetyMinutes, identityLinks, usersService };
 }
 
 const minutesSource = (rows: Record<string, string>[]): LoadSource => ({
@@ -145,6 +155,11 @@ const productsSource = (families: Record<string, string>[], products: Record<str
 const identitiesSource = (rows: Record<string, string>[]): LoadSource => ({
   format: 'CSV',
   files: { 'entra-identities': csvFile(IDENTITY_HEADERS, rows.map((values) => row(IDENTITY_HEADERS, values))) },
+});
+
+const usersSource = (rows: Record<string, string>[]): LoadSource => ({
+  format: 'CSV',
+  files: { users: csvFile(USER_HEADERS, rows.map((values) => row(USER_HEADERS, values))) },
 });
 
 const OID_1 = '00000000-0000-4000-8000-000000000001';
@@ -738,5 +753,82 @@ describe('InitialDataLoader · vínculos con Entra ID (ADR-027)', () => {
     const notAdmin = build(world());
     notAdmin.access.isAdministrador.mockResolvedValue(false);
     await expect(notAdmin.loader.apply('entra-identities', identitiesSource([link(TARGET, OID_1)]), 'admin@example.invalid')).rejects.toMatchObject({ reason: 'ACTOR_NOT_ADMIN' });
+  });
+});
+
+describe('InitialDataLoader · usuarios (ADR-030)', () => {
+  const advisor = (overrides: Record<string, string> = {}) => ({
+    Correo: 'Asesor.Uno@example.invalid',
+    Nombre: 'Asesor',
+    Apellido: 'Uno',
+    'Código de colaborador': 'ec-00001',
+    País: 'ec',
+    Rol: 'ASESOR',
+    Equipo: 'const',
+    ...overrides,
+  });
+
+  it('validar no escribe: reporta por crear', async () => {
+    const { loader, usersService } = build();
+    const report = await loader.validate('users', usersSource([advisor()]));
+    expect(report.sheets).toEqual([{ sheet: 'Usuarios', read: 1, toCreate: 1, created: 0, exists: 0, existsDifferent: 0, createdWithWarning: 0, errors: 0 }]);
+    expect(usersService.create).not.toHaveBeenCalled();
+  });
+
+  it('aplicar crea con el alta de usuarios: correo en minúsculas, código en mayúsculas, un rol y el equipo', async () => {
+    const { loader, usersService } = build();
+    const report = await loader.apply('users', usersSource([advisor()]), 'admin@example.invalid');
+    expect(report).toMatchObject({ applied: true, errorCount: 0 });
+    expect(report.sheets[0]).toMatchObject({ created: 1 });
+    expect(usersService.create).toHaveBeenCalledWith(
+      { email: 'asesor.uno@example.invalid', firstName: 'Asesor', lastName: 'Uno', employeeCode: 'EC-00001', countryId: 'country-ec', roleIds: ['role-asesor'], teamIds: ['team-const'] },
+      expect.objectContaining({ userId: ACTOR_ID }),
+    );
+  });
+
+  it('sin equipo en la fila crea sin equipos', async () => {
+    const { loader, usersService } = build();
+    await loader.apply('users', usersSource([advisor({ Equipo: '' })]), 'admin@example.invalid');
+    expect(usersService.create).toHaveBeenCalledWith(expect.objectContaining({ teamIds: [] }), expect.anything());
+  });
+
+  it('un correo que ya existe se omite como «ya existe»; un código ajeno es error', async () => {
+    const existing = user({ id: OWNER_ID, email: 'asesor.uno@example.invalid', employeeCode: 'EC-99999' });
+    const { loader, usersService } = build({ users: [user(), existing] });
+    const exists = await loader.apply('users', usersSource([advisor()]), 'admin@example.invalid');
+    expect(exists.sheets[0]).toMatchObject({ exists: 1, created: 0, errors: 0 });
+    expect(usersService.create).not.toHaveBeenCalled();
+
+    const taken = build({ users: [user(), user({ id: OWNER_ID, email: 'otro@example.invalid', employeeCode: 'EC-00001' })] });
+    const report = await taken.loader.apply('users', usersSource([advisor()]), 'admin@example.invalid');
+    expect(report.entries.map((entry) => `${entry.column}:${entry.code}`)).toEqual(['Código de colaborador:EMPLOYEE_CODE_TAKEN']);
+    expect(taken.usersService.create).not.toHaveBeenCalled();
+  });
+
+  it('país, rol o equipo inexistentes o inactivos son errores y no se crea nada (todo o nada)', async () => {
+    const { loader, usersService } = build({
+      roles: [{ id: 'role-asesor', code: 'asesor', isActive: false }],
+      teams: [],
+      countries: [],
+    });
+    const report = await loader.apply('users', usersSource([advisor()]), 'admin@example.invalid');
+    expect(report.entries.map((entry) => `${entry.column}:${entry.code}`)).toEqual(['País:UNKNOWN_REFERENCE', 'Rol:INACTIVE_REFERENCE', 'Equipo:UNKNOWN_REFERENCE']);
+    expect(report.applied).toBe(false);
+    expect(usersService.create).not.toHaveBeenCalled();
+  });
+
+  it('correo con formato inválido y correos o códigos repetidos en el archivo son errores', async () => {
+    const { loader } = build();
+    const report = await loader.validate(
+      'users',
+      usersSource([advisor({ Correo: 'no-es-correo' }), advisor({ Correo: 'a@example.invalid', 'Código de colaborador': 'EC-2' }), advisor({ Correo: 'A@example.invalid', 'Código de colaborador': 'EC-3' })]),
+    );
+    expect(report.entries.map((entry) => `${entry.row}:${entry.code}`).sort()).toEqual(['2:INVALID_FORMAT', '3:DUPLICATE_IN_FILE', '4:DUPLICATE_IN_FILE']);
+    expect(report.errorCount).toBe(3);
+  });
+
+  it('exige usuarios.crear y equipos.editar al actor', async () => {
+    const { loader } = build({}, ['usuarios.crear']);
+    await expect(loader.apply('users', usersSource([advisor()]), 'admin@example.invalid')).rejects.toBeInstanceOf(ActorRejectedError);
   });
 });

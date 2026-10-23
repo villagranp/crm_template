@@ -1,7 +1,7 @@
 # Plantillas de la carga inicial de datos
 
 Plantillas para cargar **proyectos**, **productos y familias**, **minutos de seguridad** y
-**vínculos de usuarios con Entra ID** con el script `load:data`. Diseño, reglas y decisiones:
+**usuarios** y **vínculos de usuarios con Entra ID** con el script `load:data`. Diseño, reglas y decisiones:
 [`docs/implementation-plans/CARGA-INICIAL.md`](../implementation-plans/CARGA-INICIAL.md). Versión de
 plantilla: **1**.
 
@@ -10,6 +10,7 @@ plantilla: **1**.
 | Proyectos | `plantilla-proyectos.xlsx`, `plantilla-proyectos.csv` | Hoja «Proyectos» |
 | Productos y familias | `plantilla-productos.xlsx` (hojas «Familias» y «Productos»); en CSV, `plantilla-productos.csv` (productos) y `plantilla-productos-familias.csv` (familias) | Dos hojas |
 | Minuto de seguridad | `plantilla-minuto-seguridad.xlsx`, `plantilla-minuto-seguridad.csv` | Hoja «Minutos» |
+| Usuarios | `plantilla-usuarios.xlsx`, `plantilla-usuarios.csv` | Hoja «Usuarios»: «Correo», «Nombre», «Apellido», «Código de colaborador», «País», «Rol» y «Equipo» (opcional) |
 | Vínculos con Entra ID | `plantilla-vinculos-entra.xlsx`, `plantilla-vinculos-entra.csv` | Hoja «Vínculos»: «Correo o código de colaborador» y «Object ID (oid)» |
 
 Cada libro XLSX trae la hoja de datos **vacía**, una hoja «Instrucciones» (columna, si es
@@ -25,8 +26,8 @@ reales de clientes, colaboradores ni proveedores; los ejemplos usan correos `exa
 
 ## Orden de carga
 
-1. **Usuarios** (los responsables de los proyectos y quien ejecuta la carga). No se cargan con
-   esta herramienta: se crean en Administración.
+1. **Usuarios** (los responsables de los clientes y proyectos, y quien ejecuta la carga): carga `users`
+   (ADR-030) o alta en Administración. Después, **vincular con Entra ID** (`entra-identities`).
 2. **Clientes** (carga masiva del Módulo 6, o desde la pantalla de Clientes). Los proyectos se
    enlazan por el **código CRM** del cliente (p. ej. `CLI-2026-00001`), el que el sistema asignó
    al crearlo y que se ve en su ficha.

@@ -5,6 +5,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ApplicationError, ResourceConflictError } from '@/common/errors/application-error';
 import { AccessService } from '@/modules/access/access.service';
 import { EntraIdentityLinkService } from '@/modules/access/entra-identity-link.service';
+import { UsersService } from '@/modules/access/users.service';
 import { CustomerReferenceGuard } from '@/modules/customers/customer-reference.guard';
 import { normalizeName } from '@/modules/customers/customer-normalization';
 import { PRODUCT_CONFIGURE_PERMISSION } from '@/modules/products/product-masters.mappers';
@@ -22,6 +23,7 @@ import { SafetyMinutesService } from '@/modules/safety-minutes/safety-minutes.se
 import { DEFAULT_READ_LIMITS, type LoadReadLimits, type LoadSource, type ParsedSheet, readLoadSource } from './initial-data-file-reader';
 import {
   type EntraIdentityDraft,
+  type UserDraft,
   type FamilyDraft,
   type LoadRow,
   type MinuteDraft,
@@ -30,6 +32,7 @@ import {
   sanitizeSheet,
   SheetCollector,
   validateEntraIdentityRows,
+  validateUserRows,
   validateFamilyRows,
   validateMinuteRows,
   validateProductRows,
@@ -69,6 +72,8 @@ const ENTITY_PERMISSIONS: Readonly<Record<InitialDataEntity, readonly string[]>>
   'safety-minutes': [SAFETY_MINUTE_CREATE_PERMISSION],
   // Vincular una identidad es dar acceso a una cuenta: administrador (ADR-020) con permiso para editar usuarios.
   'entra-identities': ['usuarios.editar'],
+  // Crear usuarios con equipo exige además el permiso de equipos (el mismo del alta por API, ADR-020).
+  users: ['usuarios.crear', 'equipos.editar'],
 };
 
 /**
@@ -122,7 +127,15 @@ interface EntraIdentityPlan {
   readonly userId: string;
 }
 
+interface UserPlan {
+  readonly draft: UserDraft;
+  readonly countryId: string;
+  readonly roleId: string;
+  readonly teamId: string | null;
+}
+
 interface Plan {
+  readonly users: UserPlan[];
   readonly families: FamilyDraft[];
   readonly products: ProductPlan[];
   readonly projects: ProjectPlan[];
@@ -149,6 +162,7 @@ const FIELD_COLUMNS: Readonly<Record<InitialDataEntity, Readonly<Record<string, 
   products: { code: 'code', sku: 'sku', familyId: 'family', baseUnitId: 'baseUnit' },
   'safety-minutes': { displayDate: 'displayDate', message: 'message' },
   'entra-identities': { identitySubject: 'oid' },
+  users: { email: 'email', employeeCode: 'employeeCode', countryId: 'country', roleIds: 'role', teamIds: 'team' },
 };
 
 /**
@@ -176,6 +190,7 @@ export class InitialDataLoader {
     private readonly safetyMinutes: SafetyMinutesService,
     private readonly parameters: ParameterReader,
     private readonly identityLinks: EntraIdentityLinkService,
+    private readonly users: UsersService,
   ) {}
 
   templateValues(): Promise<TemplateValueSet> {
@@ -279,6 +294,8 @@ export class InitialDataLoader {
         return plan.minutes.length;
       case 'entra-identities':
         return plan.identities.length;
+      case 'users':
+        return plan.users.length;
     }
   }
 
@@ -295,9 +312,11 @@ export class InitialDataLoader {
     const collectorOf = (id: string): SheetCollector => collectors.get(id) as SheetCollector;
     const rows = (id: string): LoadRow[] => rowsOf.get(id) ?? [];
 
-    let plan: Plan = { families: [], products: [], projects: [], minutes: [], identities: [] };
+    let plan: Plan = { families: [], products: [], projects: [], minutes: [], identities: [], users: [] };
     if (entity === 'safety-minutes') {
       plan = { ...plan, minutes: await this.planMinutes(rows('safety-minutes'), collectorOf('safety-minutes')) };
+    } else if (entity === 'users') {
+      plan = { ...plan, users: await this.planUsers(rows('users'), collectorOf('users')) };
     } else if (entity === 'entra-identities') {
       plan = { ...plan, identities: await this.planEntraIdentities(rows('entra-identities'), collectorOf('entra-identities')) };
     } else if (entity === 'products') {
@@ -328,6 +347,71 @@ export class InitialDataLoader {
     for (const draft of candidates) {
       if (existing.has(draft.displayDate)) collector.exists(draft.fileRow, 'displayDate', 'Ya existe un minuto de seguridad para esa fecha; no se modifica.');
       else planned.push(draft);
+    }
+    return planned;
+  }
+
+  // -------------------------------------------------------------------------
+  // Usuarios (ADR-030)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Cada fila da de alta un usuario con un rol (y equipo opcional) usando el alta de usuarios de
+   * Administración: nace sin vínculo con Entra ID (se vincula después por `oid`). «Ya existe» si el
+   * correo ya es de un usuario; error si su código de colaborador es de otro; país, rol y equipo deben
+   * existir y estar activos.
+   */
+  private async planUsers(rows: readonly LoadRow[], collector: SheetCollector): Promise<UserPlan[]> {
+    const drafts = validateUserRows(rows, collector);
+    const unique = (values: readonly (string | null)[]): string[] => [...new Set(values.filter((value): value is string => value !== null))];
+    const [existing, countries, roles, teams] = await Promise.all([
+      this.lookup.findUsers({ emails: unique(drafts.map((draft) => draft.email)), employeeCodes: unique(drafts.map((draft) => draft.employeeCode)) }),
+      this.lookup.findCountriesByIso(unique(drafts.map((draft) => draft.country))),
+      this.lookup.findRoles(unique(drafts.map((draft) => draft.role))),
+      this.lookup.findTeams(unique(drafts.map((draft) => draft.team))),
+    ]);
+    const userByEmail = new Map(existing.map((user) => [user.email, user]));
+    const userByCode = new Map(existing.flatMap((user) => (user.employeeCode ? [[user.employeeCode.toUpperCase(), user] as const] : [])));
+    const countryByIso = new Map(countries.map((country) => [country.code.toUpperCase(), country]));
+    const roleByCode = new Map(roles.map((role) => [role.code.toLowerCase(), role]));
+    const teamByCode = new Map(teams.map((team) => [team.code.toUpperCase(), team]));
+
+    const planned: UserPlan[] = [];
+    for (const draft of drafts) {
+      if (userByEmail.has(draft.email)) {
+        collector.exists(draft.fileRow, 'email', 'Ya existe un usuario con ese correo; no se modifica.');
+        continue;
+      }
+      let ok = true;
+      if (userByCode.has(draft.employeeCode)) {
+        collector.error(draft.fileRow, 'employeeCode', 'EMPLOYEE_CODE_TAKEN', 'Ese código de colaborador ya es de otro usuario.');
+        ok = false;
+      }
+      const country = countryByIso.get(draft.country);
+      if (!country) {
+        collector.error(draft.fileRow, 'country', 'UNKNOWN_REFERENCE', 'El país no existe: use un código ISO de un país activo.');
+        ok = false;
+      } else if (!country.isActive) {
+        collector.error(draft.fileRow, 'country', 'INACTIVE_REFERENCE', 'El país está inactivo.');
+        ok = false;
+      }
+      const role = roleByCode.get(draft.role);
+      if (!role) {
+        collector.error(draft.fileRow, 'role', 'UNKNOWN_REFERENCE', 'El rol no existe: use el código de un rol activo.');
+        ok = false;
+      } else if (!role.isActive) {
+        collector.error(draft.fileRow, 'role', 'INACTIVE_REFERENCE', 'El rol está inactivo.');
+        ok = false;
+      }
+      const team = draft.team === null ? null : (teamByCode.get(draft.team) ?? null);
+      if (draft.team !== null && !team) {
+        collector.error(draft.fileRow, 'team', 'UNKNOWN_REFERENCE', 'El equipo no existe: use el código de un equipo activo.');
+        ok = false;
+      } else if (team && !team.isActive) {
+        collector.error(draft.fileRow, 'team', 'INACTIVE_REFERENCE', 'El equipo está inactivo.');
+        ok = false;
+      }
+      if (ok && country && role) planned.push({ draft, countryId: country.id, roleId: role.id, teamId: team?.id ?? null });
     }
     return planned;
   }
@@ -633,6 +717,24 @@ export class InitialDataLoader {
         await this.attempt(entity, collector('safety-minutes'), draft.fileRow, async () => {
           await this.safetyMinutes.create({ message: draft.message, displayDate: draft.displayDate }, masterActor);
           bump('safety-minutes');
+        });
+      }
+    } else if (entity === 'users') {
+      for (const item of prepared.plan.users) {
+        await this.attempt(entity, collector('users'), item.draft.fileRow, async () => {
+          await this.users.create(
+            {
+              email: item.draft.email,
+              firstName: item.draft.firstName,
+              lastName: item.draft.lastName,
+              employeeCode: item.draft.employeeCode,
+              countryId: item.countryId,
+              roleIds: [item.roleId],
+              teamIds: item.teamId ? [item.teamId] : [],
+            },
+            masterActor,
+          );
+          bump('users');
         });
       }
     } else if (entity === 'entra-identities') {
