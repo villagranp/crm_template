@@ -589,7 +589,7 @@ export class OpportunitiesService {
   }
 
   /** Etapa por defecto (RN-03.39): la del parámetro si es activa y abierta; si no, la primera abierta activa. */
-  private async defaultStage(): Promise<StageItem> {
+  async defaultStage(): Promise<StageItem> {
     const [stages, defaults] = await Promise.all([
       this.stages(),
       this.parameters.get<Record<string, string | undefined>>(OPPORTUNITY_PARAMETERS.defaultValues),

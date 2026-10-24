@@ -29,6 +29,14 @@ export interface LookupCustomer {
   readonly isDeleted: boolean;
 }
 
+/** Cliente encontrado por su código de cliente (`customer_code`, único por país): con el país para desambiguar. */
+export interface LookupCustomerByCode extends LookupCustomer {
+  /** Código normalizado (`normalizeCustomerCode`). */
+  readonly customerCode: string;
+  /** ISO del país del cliente, en mayúsculas. */
+  readonly countryIso: string;
+}
+
 export interface LookupReference {
   readonly id: string;
   readonly code: string;
@@ -62,6 +70,10 @@ export interface TemplateValueSet {
   readonly sectors: readonly { readonly code: string; readonly label: string }[];
   readonly units: readonly { readonly code: string; readonly label: string }[];
   readonly families: readonly { readonly code: string; readonly label: string }[];
+  readonly phases: readonly { readonly code: string; readonly label: string }[];
+  readonly stages: readonly { readonly code: string; readonly label: string }[];
+  readonly outcomes: readonly { readonly code: string; readonly label: string }[];
+  readonly reasons: readonly { readonly code: string; readonly label: string }[];
 }
 
 export interface InitialDataLookup {
@@ -69,6 +81,8 @@ export interface InitialDataLookup {
   findUsers(identifiers: { readonly emails: readonly string[]; readonly employeeCodes: readonly string[] }): Promise<LookupUser[]>;
   /** Por código CRM (`customers.crm_code`, único en todo el sistema). */
   findCustomersByCrmCode(crmCodes: readonly string[]): Promise<LookupCustomer[]>;
+  /** Por código de cliente normalizado (`normalizeCustomerCode`), en cualquier país (ADR-031). */
+  findCustomersByCustomerCode(customerCodes: readonly string[]): Promise<LookupCustomerByCode[]>;
   /**
    * Identidades `ENTRA_ID` cuyo `oid` está en `subjects` **o** que pertenecen a alguno de `userIds`,
    * para decidir «ya existe», «otro `oid`» y «`oid` de otro usuario» (ADR-027).

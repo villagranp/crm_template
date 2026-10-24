@@ -35,6 +35,7 @@ se crea uno nuevo que lo supersede.
 | [ADR-028](ADR-028-paises-solo-clientes-y-lista-de-correos-en-la-carga.md) | Países «solo clientes» y lista de correos en la carga de clientes | Accepted |
 | [ADR-029](ADR-029-telefono-invalido-es-advertencia-en-la-carga.md) | Teléfono con formato inválido: advertencia, no error, en la carga de clientes | Accepted |
 | [ADR-030](ADR-030-carga-masiva-de-usuarios-y-equipos-por-canal.md) | Carga masiva de usuarios por script y equipos por canal en la semilla | Accepted |
+| [ADR-031](ADR-031-carga-de-proyectos-con-historial-comercial.md) | Carga de proyectos con historial comercial y catálogos del negocio | Accepted |
 
 Los **addenda** se añaden al final del ADR que precisan, con fecha y estado propios,
 cuando la decisión lo amplía sin contradecirlo; si lo contradice, se crea un ADR nuevo

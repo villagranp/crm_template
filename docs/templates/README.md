@@ -29,9 +29,11 @@ reales de clientes, colaboradores ni proveedores; los ejemplos usan correos `exa
 1. **Usuarios** (los responsables de los clientes y proyectos, y quien ejecuta la carga): carga `users`
    (ADR-030) o alta en Administración. Después, **vincular con Entra ID** (`entra-identities`).
 2. **Clientes** (carga masiva del Módulo 6, o desde la pantalla de Clientes). Los proyectos se
-   enlazan por el **código CRM** del cliente (p. ej. `CLI-2026-00001`), el que el sistema asignó
-   al crearlo y que se ve en su ficha.
-3. **Proyectos** (`projects`).
+   enlazan por el **código CRM** del cliente (p. ej. `CLI-2026-00001`, el que se ve en su ficha) o
+   por el **código de cliente** del sistema de origen, el de la carga de clientes (ADR-031).
+3. **Proyectos** (`projects`). Antes, `prisma:seed` en el entorno (crea los tipos de proyecto, fases,
+   etapas y unidades del negocio). La plantilla 2 admite además unidad y cantidad, fase del cliente y
+   una oportunidad con su resultado y fecha de decisión históricos.
 4. **Productos y familias** (`products`): las familias del libro se crean antes que los
    productos. Es independiente de los pasos 2 y 3.
 5. **Minutos de seguridad** (`safety-minutes`): independiente de los anteriores.
@@ -101,15 +103,17 @@ columna y el motivo; nunca repite el valor de la celda.
 |---|---|
 | `MISSING_COLUMN`, `UNKNOWN_COLUMN`, `DUPLICATE_COLUMN`, `SHEET_NOT_FOUND` | Use la plantilla sin cambiar encabezados ni nombres de hoja |
 | `REQUIRED_FIELD_MISSING` | Complete la celda obligatoria |
-| `INVALID_DATE`, `INVALID_DATE_RANGE`, `INVALID_INTEGER`, `INVALID_FORMAT`, `MAX_LENGTH` | Corrija el formato o la longitud que indica el motivo |
+| `INVALID_DATE`, `INVALID_DATE_RANGE`, `INVALID_INTEGER`, `INVALID_DECIMAL`, `INVALID_FORMAT`, `INVALID_QUANTITY`, `INVALID_PROGRESS`, `MAX_LENGTH` | Corrija el formato o la longitud que indica el motivo (decimales con punto, sin separador de miles) |
+| `AMBIGUOUS_REFERENCE`, `CUSTOMER_REFERENCE_CONFLICT` | Hay clientes con ese código de cliente en varios países (indique el País), o la fila trae a la vez código CRM y código de cliente (deje uno) |
+| `RESULT_REQUIRED`, `RESULT_NOT_ALLOWED`, `RESULT_STAGE_MISMATCH`, `RESULT_REASON_REQUIRED`, `RESULT_PERCENT_REQUIRED`, `RESULT_PERCENT_NOT_ALLOWED`, `REASON_NOT_APPLICABLE`, `INVALID_STAGE_TRANSITION` | El resultado no casa con la etapa: una etapa cerrada exige resultado (ganada: `WON` o `PARTIAL`; perdida: `LOST` con motivo), `PARTIAL` exige porcentaje y el motivo debe aplicar al resultado. La etapa cerrada debe poder alcanzarse desde la inicial (transiciones parametrizadas) |
+| `PHASE_PROGRESS_RULE` | La fase exige un avance mínimo (p. ej. `FINALIZADO` 100): ajuste el avance |
 | `FORMULA_NOT_ALLOWED` | El texto empieza por `=`, `+`, `-` o `@`, o es una fórmula: escriba el valor como texto |
 | `UNKNOWN_REFERENCE`, `INACTIVE_REFERENCE` | El cliente, país, tipo, sector, responsable, familia o unidad no existe o está inactivo: use un código de la hoja «Valores válidos», o cree primero lo que falta (paso del orden de carga) |
 | `CUSTOMER_NOT_USABLE`, `INVALID_OWNER` | El cliente no es visible o no está activo para el actor, o el responsable no puede asignarse |
 | `DUPLICATE_IN_FILE` | La clave se repite en otra fila del mismo archivo: deje una |
 | `CODE_CONFLICT` | El código de proyecto ya lo usa un proyecto de otro cliente o con otro nombre: cambie el código o el nombre |
-| `TEMPLATE_CANNOT_SATISFY` | La parametrización de campos obligatorios exige unidad de medida o cantidad al clasificar y la plantilla no las trae: quite el tipo y el sector de las filas o pida ajustar la parametrización |
 | `EXISTS_DIFFERENT` (estado «Advertencia») | El código, SKU o proyecto ya existe pero con datos distintos: se omitió **sin modificar**. Revise si el archivo o lo cargado es lo correcto (cambiar lo ya cargado se hace en la aplicación). No impide la carga |
-| `CLASSIFICATION_FAILED` (estado «Advertencia») | El proyecto se creó pero no se guardó su tipo y sector: ábralo en Proyectos y clasifíquelo. Repetir la carga lo omite |
+| `CLASSIFICATION_FAILED`, `PHASE_FAILED`, `OPPORTUNITY_FAILED`, `RESULT_FAILED` (estado «Advertencia») | El proyecto se creó pero no se guardó su clasificación, su fase, su oportunidad o el cierre de la oportunidad: complételo en la ficha del proyecto. Repetir la carga lo omite |
 | `PAST_DATE` | El minuto de seguridad solo admite hoy o fechas futuras |
 | `IDENTITY_TAKEN` | (`entra-identities`) Ese Object ID ya está vinculado a otro usuario: revise el archivo; un `oid` identifica a una sola persona |
 | `ALREADY_EXISTS` (estado «Ya existe (omitida)») | No es un error: ya estaba cargado y no se modifica |

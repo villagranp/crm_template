@@ -5,7 +5,7 @@
  *   pnpm --filter @app/backend run load:data:templates [carpeta-de-salida]
  *
  * Los «Valores válidos» son los catálogos que trae la semilla esencial (países, tipos y sectores de
- * proyecto, unidades de medida); las familias no se siembran, así que la lista de familias va
+ * proyecto, unidades de medida, fases, etapas, resultados y motivos); las familias no se siembran, así que la lista de familias va
  * vacía. Los ejemplos son ficticios. No usa la base de datos. Hay que volver a ejecutarlo cuando
  * cambie una plantilla (`INITIAL_DATA_TEMPLATE_VERSION`): una prueba compara los encabezados de
  * los archivos versionados con los del código.
@@ -31,6 +31,10 @@ async function main(): Promise<void> {
     sectors: catalogItems('crm.sector_proyecto'),
     units: UNITS_OF_MEASURE.map((unit) => ({ code: unit.code, label: unit.name })),
     families: [],
+    phases: catalogItems('crm.fase_cliente'),
+    stages: catalogItems('crm.etapa_oportunidad'),
+    outcomes: catalogItems('crm.resultado_oportunidad'),
+    reasons: catalogItems('crm.motivo_resultado'),
   };
 
   const outDir = resolve(process.argv[2] ?? join(__dirname, '..', '..', 'docs', 'templates'));

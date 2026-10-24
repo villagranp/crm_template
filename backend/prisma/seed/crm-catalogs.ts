@@ -83,6 +83,23 @@ export const CRM_CATALOGS: CatalogSeed[] = [
       { code: 'INFRAESTRUCTURA', label: 'Infraestructura' },
       { code: 'INDUSTRIAL', label: 'Industrial' },
       { code: 'COMERCIAL', label: 'Comercial' },
+      // Tipos del CRM anterior del negocio (ADR-031); las etiquetas son las que ya usa el negocio.
+      { code: 'LIVING_PLACES', label: 'Living Places / Houses' },
+      { code: 'INDUSTRIAL_FLOORS', label: 'Industrial Floors' },
+      { code: 'CONCRETE_INFRASTRUCTURE', label: 'Concrete Infrastructure' },
+      { code: 'CONCRETE_BUILDINGS', label: 'Concrete Buildings' },
+      { code: 'PRO_ENCLOSURE', label: 'Pro Enclosure' },
+      { code: 'GABION_STABILISATION', label: 'Gabion Stabilisation' },
+      { code: 'LINK_ENCLOSURE', label: 'Link Enclosure' },
+      { code: 'PRECAST_BRIDGES', label: 'Precast Bridges' },
+      { code: 'COMMERCE', label: 'Commerce' },
+      { code: 'METAL_BUILDINGS', label: 'Metal Buildings' },
+      { code: 'METAL_INFRASTRUCTURE', label: 'Metal Infrastructure' },
+      { code: 'TUNNELS', label: 'Tunnels' },
+      { code: 'SLOPE_STABILIZATION', label: 'Slope Stabilization' },
+      { code: 'SANITARY', label: 'Sanitary' },
+      { code: 'BEAM_ENCLOSURE', label: 'Beam Enclosure' },
+      { code: 'MINING', label: 'Mining' },
     ],
   },
   {
@@ -106,6 +123,9 @@ export const CRM_CATALOGS: CatalogSeed[] = [
       { code: 'COTIZACION', label: 'Cotización', metadata: { order: 2, isFinal: false } },
       { code: 'CONSTRUCCION', label: 'Construcción', metadata: { order: 3, isFinal: false } },
       { code: 'FINALIZADO', label: 'Finalizado', metadata: { order: 4, isFinal: true, defaultProgress: 100 } },
+      // Fases del CRM anterior sin equivalente (ADR-031).
+      { code: 'INICIAL', label: 'Inicial', metadata: { order: 0, isFinal: false } },
+      { code: 'PARALIZADO', label: 'Paralizado / en espera', metadata: { order: 3, isFinal: false } },
     ],
   },
   {
@@ -117,6 +137,8 @@ export const CRM_CATALOGS: CatalogSeed[] = [
       { code: 'COTIZANDO', label: 'Cotizando', metadata: { order: 2, isClosed: false, outcome: null, inFunnel: true } },
       { code: 'GANADO', label: 'Ganado', metadata: { order: 3, isClosed: true, outcome: 'WON', inFunnel: true } },
       { code: 'PERDIDO', label: 'Perdido', metadata: { order: 4, isClosed: true, outcome: 'LOST', inFunnel: false } },
+      // Etapa del CRM anterior sin equivalente (ADR-031).
+      { code: 'SIN_CONTACTAR', label: 'Sin contactar', metadata: { order: 0, isClosed: false, outcome: null, inFunnel: true } },
     ],
   },
   {

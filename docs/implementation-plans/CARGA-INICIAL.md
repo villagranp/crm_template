@@ -52,7 +52,7 @@ Los valores por defecto los fijó el encargo; D-CI.4 y las marcadas «(propuesta
 | **D-CI.9** | En texto libre se rechaza el texto que empieza por `=`, `+`, `-` o `@` (y tabulador o retorno de carro), además de las fórmulas reales | La regla pedida es más estricta que la de clientes (`= @ tab CR`, que debe admitir `+`/`-` en teléfonos) |
 | **D-CI.10** | La hoja de datos de la plantilla va **vacía**; los ejemplos ficticios están en «Instrucciones» (y en el README) (propuesta) | Un ejemplo olvidado en la hoja de datos se cargaría de verdad |
 | **D-CI.11** | Código de salida: **0** sin errores; **1** errores de validación o de aplicación; **2** uso incorrecto, archivo, actor o entorno rechazados; **3** error inesperado (propuesta) | Que un pipeline distinga «corrija el archivo» de «corrija el comando» |
-| **D-CI.12** | El actor de `apply` es un usuario **activo**, con el rol de **administrador** vigente y el permiso de la entidad (`proyectos.crear` y `proyectos.administrar`; `productos.configurar`; `minuto_seguridad.crear`). Es el autor (`created_by_id`) y el sujeto de la auditoría | Pedido por el encargo; el permiso de la entidad evita un administrador con roles recortados |
+| **D-CI.12** | El actor de `apply` es un usuario **activo**, con el rol de **administrador** vigente y el permiso de la entidad (`proyectos.crear` y `proyectos.administrar`, y desde ADR-031 `oportunidades.crear`, `oportunidades.cerrar` y `oportunidades.administrar`; `productos.configurar`; `minuto_seguridad.crear`). Es el autor (`created_by_id`) y el sujeto de la auditoría | Pedido por el encargo; el permiso de la entidad evita un administrador con roles recortados |
 | **D-CI.13** | El informe CSV (hoja, fila, columna, estado, código, motivo) se escribe junto al archivo de entrada en la carpeta de trabajo, solo si hay errores u omitidas, con nombre `informe-carga-<entidad>-<modo>-<marca de tiempo>.csv` y **sin sobrescribir** (`--report` elige la ruta). `.gitignore` excluye `informe-carga-*.csv` (propuesta) | Un informe previo nunca se pierde |
 | **D-CI.14** | El script fija `LOG_LEVEL=warn` si no viene en el entorno (propuesta) | El arranque de Nest escribe eventos informativos que estorban en un script; un valor definido en el shell manda |
 | **D-CI.15** | El CSV de `template --format csv` y los CSV versionados de `docs/templates/` usan **BOM + LF**; el lector acepta LF y CRLF. `.gitattributes` ya normaliza el texto a LF (`* text=auto eol=lf`) (propuesta) | Un solo formato, estable en el repositorio |
@@ -71,7 +71,7 @@ Los valores por defecto los fijó el encargo; D-CI.4 y las marcadas «(propuesta
 | RN-CI.3 | Saneamiento de celdas (el de la carga masiva): recorte (incluido el espacio duro), vacío = ausente, enteros sin notación científica, fórmulas reales de Excel, fechas de Excel, booleanos y errores de celda rechazados. Las fechas se escriben como **texto** `AAAA-MM-DD` (una fecha de Excel es `INVALID_DATE`) |
 | RN-CI.4 | Se valida **fila a fila acumulando todos los errores** con hoja, fila (la del archivo: el encabezado es la 1), columna y motivo. Ningún mensaje, informe ni log contiene el contenido de una celda ni datos de la fila |
 | RN-CI.5 | Duplicados **dentro del archivo**: familia por código, producto por SKU, proyecto por código y por cliente + nombre (sin acentos ni mayúsculas), minuto por fecha. Todas las filas del grupo se marcan `DUPLICATE_IN_FILE`, citando otra fila |
-| RN-CI.6 | **Proyectos.** Obligatorios: nombre y código CRM del cliente (los que exige `ProjectsService.create`; `crm.campos_obligatorios.project` puede añadir otros y el servicio lo hace cumplir). El cliente debe existir, no estar eliminado y, **con actor**, ser visible y activo para él. País: ISO de un país activo (vacío = el del cliente). Responsable: correo o código de colaborador de un usuario activo (vacío = el actor); con actor, asignable por él. Tipo y sector: códigos de catálogo activos. Fecha de fin ≥ fecha de inicio; la de decisión no se restringe. Código de proyecto opcional (vacío = folio `PRY-AAAA-nnnnn`). **`validate` anticipa los obligatorios parametrizados**: lee `crm.campos_obligatorios` (clave `project`) con `ParameterReader` y `projectRequiredFields`, y reporta `REQUIRED_FIELD_MISSING` por fila y columna para los campos que la plantilla trae (ciudad, dirección, descripción, fechas) y, si la fila clasifica (trae tipo o sector), para el tipo y el sector. Si la parametrización exige además la **unidad de medida o la cantidad estimada** al clasificar y alguna fila clasifica, la plantilla no puede cumplirla: `validate` y `apply` abortan con `TEMPLATE_CANNOT_SATISFY` y un mensaje claro, sin escribir nada |
+| RN-CI.6 | **Proyectos.** Obligatorios: nombre y código CRM del cliente (los que exige `ProjectsService.create`; `crm.campos_obligatorios.project` puede añadir otros y el servicio lo hace cumplir). El cliente debe existir, no estar eliminado y, **con actor**, ser visible y activo para él. País: ISO de un país activo (vacío = el del cliente). Responsable: correo o código de colaborador de un usuario activo (vacío = el actor); con actor, asignable por él. Tipo y sector: códigos de catálogo activos. Fecha de fin ≥ fecha de inicio; la de decisión no se restringe. Código de proyecto opcional (vacío = folio `PRY-AAAA-nnnnn`). **`validate` anticipa los obligatorios parametrizados**: lee `crm.campos_obligatorios` (clave `project`) con `ParameterReader` y `projectRequiredFields`, y reporta `REQUIRED_FIELD_MISSING` por fila y columna para los campos que la plantilla trae (ciudad, dirección, descripción, fechas) y, si la fila clasifica (trae tipo o sector), para el tipo y el sector. Con la plantilla 2 (ADR-031), la **unidad de medida y la cantidad estimada** también son columnas: si la parametrización las exige y la fila clasifica, falta es `REQUIRED_FIELD_MISSING` por fila (desaparece `TEMPLATE_CANNOT_SATISFY`) |
 | RN-CI.7 | **Familias y productos.** Las familias se procesan **antes** que los productos. Una familia de un producto puede ser una que ya exista (activa) o una definida en la hoja «Familias» del mismo archivo. Unidad base: código de una unidad activa. Códigos y SKU se guardan recortados y en mayúsculas, con los patrones del maestro (`FAMILY_CODE_PATTERN`, `SKU_PATTERN`) |
 | RN-CI.8 | **Minuto de seguridad.** Fecha hoy o futura en la zona del negocio (`crm.zona_horaria_negocio`); las pasadas son error `PAST_DATE`. Mensaje: texto plano de 1 a 1 000 caracteres, sin caracteres de control ni bidi |
 | RN-CI.9 | `validate` **no escribe nada**. `apply` valida primero; si hay algún error no aplica nada (D-CI.7); si no, crea cada fila con el servicio de aplicación, lo que deja los eventos de auditoría de siempre (`crm.project.created`, `crm.project.classified`, `crm.product_family.created`, `crm.product.created`, `safety_minute.created`) con el actor indicado |
@@ -85,14 +85,15 @@ Los valores por defecto los fijó el encargo; D-CI.4 y las marcadas «(propuesta
 
 ## 4. Plantillas y columnas
 
-Versión de plantilla: **`1`** (`INITIAL_DATA_TEMPLATE_VERSION`). Definición única en `initial-data-templates.ts`. Archivos versionados en [`docs/templates/`](../templates/README.md).
+Versión de plantilla: **`2`** (`INITIAL_DATA_TEMPLATE_VERSION`; la `2` añade el código de cliente y el historial comercial, ADR-031). Definición única en `initial-data-templates.ts`. Archivos versionados en [`docs/templates/`](../templates/README.md).
 
 ### 4.1 `projects` — hoja «Proyectos»
 
 | Columna | Obligatoria | Formato |
 |---|---|---|
 | Nombre del proyecto | Sí | Texto, 200 |
-| Código CRM del cliente | Sí | `customers.crm_code`, 30 |
+| Código CRM del cliente | Uno de los dos | `customers.crm_code`, 30 |
+| Código de cliente | Uno de los dos | `customers.customer_code` (el de la carga de clientes), 40; con varios países, decide País (ADR-031) |
 | País | No | ISO de dos letras de un país activo |
 | Ciudad | No | Texto, 120 |
 | Dirección | No | Texto, 300 |
@@ -104,6 +105,25 @@ Versión de plantilla: **`1`** (`INITIAL_DATA_TEMPLATE_VERSION`). Definición ú
 | Tipo de proyecto | No | Código de `crm.tipo_proyecto` activo |
 | Sector | No | Código de `crm.sector_proyecto` activo |
 | Código de proyecto | No | 30; vacío = folio automático |
+| Unidad de medida | No | Código de unidad activa; obligatoria con cantidad |
+| Cantidad estimada | No | Decimal ≥ 0, hasta 4 decimales |
+| Fase del cliente | No | Código de `crm.fase_cliente` activo; vacío = fase por defecto |
+| Avance de fase | No | 0–100, hasta 2 decimales; exige fase; respeta `crm.proyectos.reglas_avance` |
+| Comentario de fase | No | Texto, 1000; exige fase |
+| Etapa de oportunidad | No | Código de `crm.etapa_oportunidad` activo; con valor se crea una oportunidad asignada al responsable |
+| Fecha de oportunidad | No | `AAAA-MM-DD`; vacío = hoy; exige etapa |
+| Resultado | Con etapa cerrada | `WON`, `LOST` o `PARTIAL`; no se admite con etapa abierta |
+| Motivo del resultado | Con `LOST` | Código de `crm.motivo_resultado` activo que aplique al resultado |
+| Porcentaje adjudicado | Con `PARTIAL` | 0–100, hasta 2 decimales; solo con `PARTIAL` |
+| Fecha de decisión | Con resultado | `AAAA-MM-DD` (histórica: los reportes de ganadas y perdidas la usan) |
+| Comentario del resultado | No | Texto, 2000; exige resultado |
+
+**Historial comercial (ADR-031).** Tras crear el proyecto se aplican, con los servicios de cada módulo: la
+clasificación (tipo, sector, unidad y cantidad, sin tonelaje), el cambio de fase (con historial) y la oportunidad:
+con etapa abierta nace en ella; con etapa cerrada nace en la etapa inicial (`crm.valores_por_defecto`) y se cierra
+con su resultado (exige que el mapa `crm.oportunidades.transiciones_etapa` lo permita). Si uno de esos pasos falla
+en `apply`, el proyecto queda creado y la fila «creada con advertencia» (`CLASSIFICATION_FAILED`, `PHASE_FAILED`,
+`OPPORTUNITY_FAILED`, `RESULT_FAILED`).
 
 ### 4.2 `products` — hojas «Familias» y «Productos»
 

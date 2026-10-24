@@ -131,6 +131,14 @@ export const UNITS_OF_MEASURE: UnitSeed[] = [
   { code: 'M3', name: 'Metro cúbico', symbol: 'm³', dimension: 'VOLUME', sortOrder: 70 },
   { code: 'UND', name: 'Unidad', symbol: 'und', dimension: 'COUNT', sortOrder: 80 },
   { code: 'VAR', name: 'Varilla', symbol: 'var', dimension: 'COUNT', sortOrder: 90 },
+  // Unidades de las plantillas de proyectos y productos del negocio (ADR-031).
+  { code: 'KM', name: 'Kilómetro', symbol: 'km', dimension: 'LENGTH', sortOrder: 55 },
+  { code: 'PZA', name: 'Pieza', symbol: 'pza', dimension: 'COUNT', sortOrder: 100 },
+  { code: 'ROL', name: 'Rollo', symbol: 'rol', dimension: 'COUNT', sortOrder: 110 },
+  { code: 'CJS', name: 'Caja', symbol: 'cjs', dimension: 'COUNT', sortOrder: 120 },
+  { code: 'PAQ', name: 'Paquete', symbol: 'paq', dimension: 'COUNT', sortOrder: 130 },
+  { code: 'SET', name: 'Juego', symbol: 'set', dimension: 'COUNT', sortOrder: 140 },
+  { code: 'SAC', name: 'Saco', symbol: 'sac', dimension: 'COUNT', sortOrder: 150 },
 ];
 
 export interface GlobalConversionSeed {
