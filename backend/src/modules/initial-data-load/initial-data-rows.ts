@@ -1,9 +1,11 @@
 import { compareCalendarDates } from '@/modules/projects/project-dates';
 import { isCalendarDate } from '@/common/calendar-date';
+import { isDecimalString } from '@/common/decimal';
 import { isPlainText, normalizeLineBreaks } from '@/common/dto/plain-text.validator';
 import { sanitizeCell } from '@/modules/customer-imports/cell-sanitizer';
-import { normalizeName } from '@/modules/customers/customer-normalization';
+import { normalizeCustomerCode, normalizeName } from '@/modules/customers/customer-normalization';
 import { FAMILY_CODE_PATTERN, normalizeCode, SKU_PATTERN } from '@/modules/products/master-data-rules';
+import { progressIssue } from '@/modules/projects/phase-rules';
 import { normalizeProjectCode } from '@/modules/projects/project-rules';
 import { canonicalOid, isGuid } from '@/common/identity-claims';
 import { isEmail } from 'class-validator';
@@ -25,6 +27,11 @@ export const SORT_ORDER_MAX = 100_000;
 export const SAFETY_MINUTE_MESSAGE_MAX = 1000;
 /** Código manual de proyecto (el DTO solo exige 1–30 caracteres; aquí además un patrón, como el folio `PRY-AAAA-nnnnn`). */
 export const PROJECT_CODE_PATTERN = /^[A-Z0-9][A-Z0-9_-]{0,29}$/;
+/** Número sin signo con punto decimal opcional (sin separador de miles ni notación científica). */
+const DECIMAL_PATTERN = /^\d+(\.\d+)?$/;
+/** Resultados de oportunidad que admite la columna «Resultado» (enum `OpportunityOutcome`). */
+export const LOAD_OUTCOMES = ['WON', 'LOST', 'PARTIAL'] as const;
+export type LoadOutcome = (typeof LOAD_OUTCOMES)[number];
 
 export type RowValues = Readonly<Record<string, string | null>>;
 
@@ -131,6 +138,7 @@ export function sanitizeSheet(parsed: ParsedSheet, collector: SheetCollector): L
           collector.error(row.fileRow, column.key, code, 'No puede ser una fórmula ni empezar por =, +, -, @, tabulador o retorno de carro.');
         } else if (column.valueType === 'date') collector.error(row.fileRow, column.key, 'INVALID_DATE', 'La fecha debe escribirse como texto AAAA-MM-DD.');
         else if (column.valueType === 'integer') collector.error(row.fileRow, column.key, 'INVALID_INTEGER', 'Debe ser un entero entre 0 y 100000.');
+        else if (column.valueType === 'decimal') collector.error(row.fileRow, column.key, 'INVALID_DECIMAL', 'Debe ser un número con punto decimal, sin separador de miles.');
         else collector.error(row.fileRow, column.key, code, 'La celda debe contener texto (no una fecha, un decimal, un booleano ni un error).');
         value = null;
       } else if (column.isFreeText && value !== null && FORMULA_START.test(value)) {
@@ -143,6 +151,9 @@ export function sanitizeSheet(parsed: ParsedSheet, collector: SheetCollector): L
       } else if (value !== null && column.valueType === 'integer' && !isSortOrder(value)) {
         failed = true;
         collector.error(row.fileRow, column.key, 'INVALID_INTEGER', 'Debe ser un entero entre 0 y 100000.');
+      } else if (value !== null && column.valueType === 'decimal' && !DECIMAL_PATTERN.test(value)) {
+        failed = true;
+        collector.error(row.fileRow, column.key, 'INVALID_DECIMAL', 'Debe ser un número con punto decimal, sin separador de miles.');
       }
 
       if (!failed && value === null && column.required) {
@@ -271,10 +282,29 @@ export function parseOwnerReference(text: string): OwnerReference {
   return text.includes('@') ? { kind: 'email', value: text.toLowerCase() } : { kind: 'employeeCode', value: text };
 }
 
+/** Resultado de la oportunidad cargada (ADR-031). */
+export interface ResultDraft {
+  readonly outcome: LoadOutcome;
+  readonly reasonCode: string | null;
+  readonly awardedPercent: string | null;
+  readonly decisionDate: string;
+  readonly comments: string | null;
+}
+
+/** Oportunidad cargada con el proyecto (ADR-031): etapa, fecha de identificación y, si es cerrada, su resultado. */
+export interface OpportunityDraft {
+  readonly stageCode: string;
+  readonly opportunityDate: string | null;
+  readonly result: ResultDraft | null;
+}
+
 export interface ProjectDraft {
   readonly fileRow: number;
   readonly name: string;
-  readonly customerCrmCode: string;
+  /** Código CRM en mayúsculas, o `null` si la fila identifica al cliente por su código de cliente. */
+  readonly customerCrmCode: string | null;
+  /** Código de cliente normalizado (`normalizeCustomerCode`), o `null`. */
+  readonly customerCode: string | null;
   readonly countryIso: string | null;
   readonly city: string | null;
   readonly address: string | null;
@@ -286,6 +316,83 @@ export interface ProjectDraft {
   readonly projectTypeCode: string | null;
   readonly sectorCode: string | null;
   readonly code: string | null;
+  readonly measureUnitCode: string | null;
+  readonly estimatedQuantity: string | null;
+  readonly phaseCode: string | null;
+  readonly phaseProgress: string | null;
+  readonly phaseComment: string | null;
+  readonly opportunity: OpportunityDraft | null;
+}
+
+/** Clave del cliente de la fila para detectar proyectos repetidos (mismo cliente y nombre). */
+function customerKeyOf(row: LoadRow): string | null {
+  const crm = value(row, 'customerCrmCode');
+  if (crm !== null) return `CRM:${crm.toUpperCase()}`;
+  const code = normalizeCustomerCode(value(row, 'customerCode'));
+  return code === null ? null : `COD:${code}|${(value(row, 'country') ?? '').toUpperCase()}`;
+}
+
+/** Columnas que solo tienen sentido con otra: si alguna viene sin ella, error en la columna de la que dependen. */
+function requireCompanion(collector: SheetCollector, row: LoadRow, dependents: readonly string[], anchor: string, message: string): void {
+  if (value(row, anchor) !== null) return;
+  if (dependents.some((key) => value(row, key) !== null)) collector.error(row.fileRow, anchor, 'REQUIRED_FIELD_MISSING', message);
+}
+
+/** Clasificación, fase y oportunidad (ADR-031): formatos y dependencias entre columnas, sin base de datos. */
+function validateCommercialColumns(row: LoadRow, collector: SheetCollector): void {
+  const quantity = value(row, 'estimatedQuantity');
+  if (quantity !== null && !isDecimalString(quantity, { maxScale: 4, maxIntegerDigits: 15 })) {
+    collector.error(row.fileRow, 'estimatedQuantity', 'INVALID_QUANTITY', 'La cantidad debe ser mayor o igual a 0, con hasta 4 decimales.');
+  }
+  requireCompanion(collector, row, ['estimatedQuantity'], 'measureUnit', 'La cantidad estimada exige la unidad de medida.');
+
+  requireCompanion(collector, row, ['phaseProgress', 'phaseComment'], 'phase', 'El avance y el comentario de fase exigen la fase del cliente.');
+  const progress = value(row, 'phaseProgress');
+  if (progress !== null && progressIssue(progress)) collector.error(row.fileRow, 'phaseProgress', 'INVALID_PROGRESS', 'El avance debe estar entre 0 y 100, con hasta 2 decimales.');
+
+  requireCompanion(
+    collector,
+    row,
+    ['opportunityDate', 'result', 'resultReason', 'awardedPercent', 'decisionDate', 'resultComment'],
+    'opportunityStage',
+    'Los datos de la oportunidad exigen la etapa de oportunidad.',
+  );
+  const result = value(row, 'result');
+  if (result !== null && !(LOAD_OUTCOMES as readonly string[]).includes(result.toUpperCase())) {
+    collector.error(row.fileRow, 'result', 'INVALID_FORMAT', 'El resultado debe ser WON, LOST o PARTIAL.');
+  }
+  requireCompanion(
+    collector,
+    row,
+    ['resultReason', 'awardedPercent', 'decisionDate', 'resultComment'],
+    'result',
+    'El motivo, el porcentaje, la fecha de decisión y el comentario exigen el resultado.',
+  );
+  if (result !== null && value(row, 'decisionDate') === null) {
+    collector.error(row.fileRow, 'decisionDate', 'REQUIRED_FIELD_MISSING', 'El resultado exige la fecha de decisión.');
+  }
+  const percent = value(row, 'awardedPercent');
+  if (percent !== null && progressIssue(percent)) collector.error(row.fileRow, 'awardedPercent', 'INVALID_PROGRESS', 'El porcentaje debe estar entre 0 y 100, con hasta 2 decimales.');
+}
+
+function opportunityOf(row: LoadRow): OpportunityDraft | null {
+  const stage = value(row, 'opportunityStage');
+  if (stage === null) return null;
+  const outcome = value(row, 'result');
+  return {
+    stageCode: stage.toUpperCase(),
+    opportunityDate: value(row, 'opportunityDate'),
+    result:
+      outcome === null
+        ? null
+        : {
+            outcome: outcome.toUpperCase() as LoadOutcome,
+            reasonCode: value(row, 'resultReason')?.toUpperCase() ?? null,
+            awardedPercent: value(row, 'awardedPercent'),
+            decisionDate: value(row, 'decisionDate') ?? '',
+            comments: value(row, 'resultComment'),
+          },
+  };
 }
 
 export function validateProjectRows(rows: readonly LoadRow[], collector: SheetCollector): ProjectDraft[] {
@@ -293,6 +400,15 @@ export function validateProjectRows(rows: readonly LoadRow[], collector: SheetCo
     const country = value(row, 'country');
     if (country !== null && !/^[A-Za-z]{2}$/.test(country)) {
       collector.error(row.fileRow, 'country', 'INVALID_FORMAT', 'El país debe ser un código ISO de dos letras.');
+    }
+    const crmCode = value(row, 'customerCrmCode');
+    const customerCode = value(row, 'customerCode');
+    if (crmCode === null && customerCode === null) {
+      collector.error(row.fileRow, 'customerCrmCode', 'REQUIRED_FIELD_MISSING', 'Indique el código CRM del cliente o el código de cliente.');
+    } else if (crmCode !== null && customerCode !== null) {
+      collector.error(row.fileRow, 'customerCode', 'CUSTOMER_REFERENCE_CONFLICT', 'Indique solo uno: el código CRM del cliente o el código de cliente.');
+    } else if (customerCode !== null && normalizeCustomerCode(customerCode) === null) {
+      collector.error(row.fileRow, 'customerCode', 'INVALID_FORMAT', 'El código de cliente no puede ser solo espacios o guiones.');
     }
     const code = normalizeProjectCode(value(row, 'code'));
     if (code !== null && !PROJECT_CODE_PATTERN.test(code)) {
@@ -303,6 +419,7 @@ export function validateProjectRows(rows: readonly LoadRow[], collector: SheetCo
     if (start !== null && end !== null && !collector.hasError(row.fileRow) && compareCalendarDates(end, start) < 0) {
       collector.error(row.fileRow, 'estimatedEndDate', 'INVALID_DATE_RANGE', 'La fecha de fin no puede ser anterior a la de inicio.');
     }
+    validateCommercialColumns(row, collector);
   }
   markDuplicates(collector, rows, (row) => normalizeProjectCode(value(row, 'code')), 'code', 'El código de proyecto');
   markDuplicates(
@@ -310,8 +427,8 @@ export function validateProjectRows(rows: readonly LoadRow[], collector: SheetCo
     rows,
     (row) => {
       const name = normalizeName(value(row, 'name'));
-      const customer = value(row, 'customerCrmCode');
-      return name && customer ? `${customer.toUpperCase()}|${name}` : null;
+      const customer = customerKeyOf(row);
+      return name && customer ? `${customer}|${name}` : null;
     },
     'name',
     'El proyecto (mismo cliente y nombre)',
@@ -321,10 +438,12 @@ export function validateProjectRows(rows: readonly LoadRow[], collector: SheetCo
     .map((row) => {
       const owner = value(row, 'owner');
       const country = value(row, 'country');
+      const crmCode = value(row, 'customerCrmCode');
       return {
         fileRow: row.fileRow,
         name: value(row, 'name') ?? '',
-        customerCrmCode: (value(row, 'customerCrmCode') ?? '').toUpperCase(),
+        customerCrmCode: crmCode === null ? null : crmCode.toUpperCase(),
+        customerCode: normalizeCustomerCode(value(row, 'customerCode')),
         countryIso: country ? country.toUpperCase() : null,
         city: value(row, 'city'),
         address: value(row, 'address'),
@@ -336,6 +455,12 @@ export function validateProjectRows(rows: readonly LoadRow[], collector: SheetCo
         projectTypeCode: value(row, 'projectType')?.toUpperCase() ?? null,
         sectorCode: value(row, 'sector')?.toUpperCase() ?? null,
         code: normalizeProjectCode(value(row, 'code')),
+        measureUnitCode: value(row, 'measureUnit')?.toUpperCase() ?? null,
+        estimatedQuantity: value(row, 'estimatedQuantity'),
+        phaseCode: value(row, 'phase')?.toUpperCase() ?? null,
+        phaseProgress: value(row, 'phaseProgress'),
+        phaseComment: value(row, 'phaseComment'),
+        opportunity: opportunityOf(row),
       };
     });
 }

@@ -75,6 +75,6 @@ import { ProjectsService } from './projects.service';
     { provide: PROJECTS_REPOSITORY, useClass: PrismaProjectsRepository },
     { provide: PROJECT_PRODUCTS_REPOSITORY, useClass: PrismaProjectProductsRepository },
   ],
-  exports: [ProjectAccessService, ProjectCatalogsService, ProjectsService, ProjectClassificationService, PROJECTS_REPOSITORY, BUSINESS_CLOCK],
+  exports: [ProjectAccessService, ProjectCatalogsService, ProjectsService, ProjectClassificationService, ProjectPhaseService, PROJECTS_REPOSITORY, BUSINESS_CLOCK],
 })
 export class ProjectsModule {}

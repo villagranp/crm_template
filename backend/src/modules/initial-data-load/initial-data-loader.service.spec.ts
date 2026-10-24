@@ -1,11 +1,16 @@
-import { ResourceConflictError, ResourceNotFoundError } from '@/common/errors/application-error';
+import { BusinessRuleViolationError, ResourceConflictError, ResourceNotFoundError } from '@/common/errors/application-error';
 import { writeTextWorkbook } from '@/common/xlsx';
 import type { AccessService } from '@/modules/access/access.service';
 import type { EntraIdentityLinkService } from '@/modules/access/entra-identity-link.service';
 import type { UsersService } from '@/modules/access/users.service';
 import type { CustomerReferenceGuard } from '@/modules/customers/customer-reference.guard';
 import type { ProductMastersService } from '@/modules/products/product-masters.service';
+import type { OpportunitiesService } from '@/modules/opportunities/opportunities.service';
+import type { OpportunityStageService } from '@/modules/opportunities/opportunity-stage.service';
+import type { StageItem } from '@/modules/opportunities/stage-transition-policy';
+import type { ProjectCatalogsService } from '@/modules/projects/project-catalogs.service';
 import type { ProjectClassificationService } from '@/modules/projects/project-classification.service';
+import type { ProjectPhaseService } from '@/modules/projects/project-phase.service';
 import type { ProjectAccessService } from '@/modules/projects/project-access.service';
 import type { ProjectsService } from '@/modules/projects/projects.service';
 import type { SafetyMinutesService } from '@/modules/safety-minutes/safety-minutes.service';
@@ -14,7 +19,16 @@ import type { LoadFile, LoadSource } from './initial-data-file-reader';
 import { ActorRejectedError, describeFailure, InitialDataLoader } from './initial-data-loader.service';
 import { ENTITY_DEFINITIONS } from './initial-data-templates';
 import type { ParameterReader } from '@/modules/parameters/parameter-reader';
-import type { InitialDataLookup, LookupEntraIdentity, LookupExistingProject, LookupFamily, LookupProduct, LookupReference, LookupUser } from './ports/initial-data-lookup.port';
+import type {
+  InitialDataLookup,
+  LookupCustomerByCode,
+  LookupEntraIdentity,
+  LookupExistingProject,
+  LookupFamily,
+  LookupProduct,
+  LookupReference,
+  LookupUser,
+} from './ports/initial-data-lookup.port';
 
 const PROJECT_HEADERS = ENTITY_DEFINITIONS.projects.sheets[0]!.columns.map((column) => column.header);
 const FAMILY_HEADERS = ENTITY_DEFINITIONS.products.sheets[0]!.columns.map((column) => column.header);
@@ -46,9 +60,38 @@ const user = (overrides: Partial<LookupUser> = {}): LookupUser => ({
   ...overrides,
 });
 
+/** Etapas, fases, resultados y motivos con la semántica de la semilla (00 §3.3). */
+const stageItem = (code: string, metadata: Record<string, unknown>, isActive = true): StageItem => ({ id: `stage-${code}`, code, label: code, metadata, isActive });
+const STAGES: StageItem[] = [
+  stageItem('CONTACTADO', { order: 1, isClosed: false, outcome: null, inFunnel: true }),
+  stageItem('COTIZANDO', { order: 2, isClosed: false, outcome: null, inFunnel: true }),
+  stageItem('GANADO', { order: 3, isClosed: true, outcome: 'WON', inFunnel: true }),
+  stageItem('PERDIDO', { order: 4, isClosed: true, outcome: 'LOST', inFunnel: false }),
+];
+const TRANSITIONS = { CONTACTADO: ['COTIZANDO', 'GANADO', 'PERDIDO'], COTIZANDO: ['CONTACTADO', 'GANADO', 'PERDIDO'], GANADO: [], PERDIDO: [] };
+const catalogItem = (prefix: string, code: string, metadata: Record<string, unknown> | null = null, isActive = true) => ({ id: `${prefix}-${code}`, code, label: code, metadata, isActive, sortOrder: 0 });
+const SEMANTIC_CATALOGS: Record<string, ReturnType<typeof catalogItem>[]> = {
+  'crm.fase_cliente': [
+    catalogItem('phase', 'DISENO', { order: 1, isFinal: false }),
+    catalogItem('phase', 'CONSTRUCCION', { order: 3, isFinal: false }),
+    catalogItem('phase', 'FINALIZADO', { order: 4, isFinal: true, defaultProgress: 100 }),
+    catalogItem('phase', 'OFF', { order: 5, isFinal: false }, false),
+  ],
+  'crm.resultado_oportunidad': [
+    catalogItem('outcome', 'WON', { requiresReason: false, requiresAwardedPercent: false, stageOutcome: 'WON' }),
+    catalogItem('outcome', 'LOST', { requiresReason: true, requiresAwardedPercent: false, stageOutcome: 'LOST' }),
+    catalogItem('outcome', 'PARTIAL', { requiresReason: false, requiresAwardedPercent: true, stageOutcome: 'WON' }),
+  ],
+  'crm.motivo_resultado': [
+    catalogItem('reason', 'PRECIO', { appliesTo: ['WON', 'LOST', 'PARTIAL'] }),
+    catalogItem('reason', 'CREDITO', { appliesTo: ['LOST', 'PARTIAL'] }),
+  ],
+};
+
 interface World {
   users: LookupUser[];
   customers: { id: string; crmCode: string; isDeleted: boolean }[];
+  customersByCode: LookupCustomerByCode[];
   countries: LookupReference[];
   roles: LookupReference[];
   teams: LookupReference[];
@@ -64,10 +107,16 @@ interface World {
   requiredProject: string[];
 }
 
-function build(world: Partial<World> = {}, adminPermissions: string[] = ['proyectos.crear', 'proyectos.administrar', 'productos.configurar', 'minuto_seguridad.crear', 'usuarios.editar', 'usuarios.crear', 'equipos.editar']) {
+const PROJECT_LOAD_PERMISSIONS = ['proyectos.crear', 'proyectos.administrar', 'oportunidades.crear', 'oportunidades.cerrar', 'oportunidades.administrar'];
+
+function build(
+  world: Partial<World> = {},
+  adminPermissions: string[] = [...PROJECT_LOAD_PERMISSIONS, 'productos.configurar', 'minuto_seguridad.crear', 'usuarios.editar', 'usuarios.crear', 'equipos.editar'],
+) {
   const data: World = {
     users: [user()],
     customers: [{ id: CUSTOMER_ID, crmCode: 'CLI-1', isDeleted: false }],
+    customersByCode: [],
     countries: [{ id: 'country-gt', code: 'GT', isActive: true }, { id: 'country-ec', code: 'EC', isActive: true }],
     roles: [{ id: 'role-asesor', code: 'asesor', isActive: true }],
     teams: [{ id: 'team-const', code: 'CONST', isActive: true }],
@@ -76,7 +125,10 @@ function build(world: Partial<World> = {}, adminPermissions: string[] = ['proyec
       'crm.sector_proyecto': [{ id: 'sector-comercial', code: 'COMERCIAL', isActive: true }],
     },
     families: [],
-    units: [{ id: 'unit-ton', code: 'TON', isActive: true }],
+    units: [
+      { id: 'unit-ton', code: 'TON', isActive: true },
+      { id: 'unit-m2', code: 'M2', isActive: true },
+    ],
     products: [],
     projectsByCode: [],
     projects: [],
@@ -89,6 +141,7 @@ function build(world: Partial<World> = {}, adminPermissions: string[] = ['proyec
   const lookup: jest.Mocked<InitialDataLookup> = {
     findUsers: jest.fn(async ({ emails, employeeCodes }) => data.users.filter((candidate) => emails.includes(candidate.email) || (candidate.employeeCode !== null && employeeCodes.includes(candidate.employeeCode)))),
     findCustomersByCrmCode: jest.fn(async (codes) => data.customers.filter((customer) => codes.includes(customer.crmCode))),
+    findCustomersByCustomerCode: jest.fn(async (codes) => data.customersByCode.filter((customer) => codes.includes(customer.customerCode))),
     findCountriesByIso: jest.fn(async (codes) => pick(data.countries, codes)),
     findRoles: jest.fn(async (codes) => pick(data.roles, codes)),
     findTeams: jest.fn(async (codes) => pick(data.teams, codes)),
@@ -115,9 +168,20 @@ function build(world: Partial<World> = {}, adminPermissions: string[] = ['proyec
     createProduct: jest.fn(async () => ({ id: 'product-1' })),
   };
   const safetyMinutes = { today: jest.fn(async () => TODAY), create: jest.fn(async () => ({})) };
-  const parameters = { get: jest.fn(async () => ({ project: data.requiredProject })) };
+  const parameters = {
+    get: jest.fn(async (key: string) => (key === 'crm.proyectos.reglas_avance' ? { FINALIZADO: { progresoMinimo: 100 } } : { project: data.requiredProject })),
+  };
   const identityLinks = { link: jest.fn(async (): Promise<{ kind: string }> => ({ kind: 'linked' })) };
   const usersService = { create: jest.fn(async () => ({ id: 'user-new' })) };
+  const projectCatalogs = { items: jest.fn(async (key: string) => SEMANTIC_CATALOGS[key] ?? []) };
+  const phases = { change: jest.fn(async () => ({})) };
+  const opportunities = {
+    stages: jest.fn(async () => STAGES),
+    defaultStage: jest.fn(async () => STAGES[0]!),
+    transitionMap: jest.fn(async () => TRANSITIONS),
+    create: jest.fn(async () => ({ record: { id: 'opportunity-1' } })),
+  };
+  const opportunityStages = { changeStage: jest.fn(async () => ({})) };
   const loader = new InitialDataLoader(
     lookup,
     access as unknown as AccessService,
@@ -130,8 +194,27 @@ function build(world: Partial<World> = {}, adminPermissions: string[] = ['proyec
     parameters as unknown as ParameterReader,
     identityLinks as unknown as EntraIdentityLinkService,
     usersService as unknown as UsersService,
+    projectCatalogs as unknown as ProjectCatalogsService,
+    phases as unknown as ProjectPhaseService,
+    opportunities as unknown as OpportunitiesService,
+    opportunityStages as unknown as OpportunityStageService,
   );
-  return { loader, lookup, access, projects, classification, projectAccess, customerGuard, masters, safetyMinutes, identityLinks, usersService };
+  return {
+    loader,
+    lookup,
+    access,
+    projects,
+    classification,
+    projectAccess,
+    customerGuard,
+    masters,
+    safetyMinutes,
+    identityLinks,
+    usersService,
+    phases,
+    opportunities,
+    opportunityStages,
+  };
 }
 
 const minutesSource = (rows: Record<string, string>[]): LoadSource => ({
@@ -192,7 +275,9 @@ describe('InitialDataLoader · actor', () => {
 
     const lacking = build({}, ['proyectos.crear']);
     await expect(lacking.loader.apply('projects', projectsSource([project()]), 'admin@example.invalid')).rejects.toMatchObject({ reason: 'ACTOR_LACKS_PERMISSION' });
-    const products = build({}, ['proyectos.crear', 'proyectos.administrar']);
+    const products = build({}, PROJECT_LOAD_PERMISSIONS);
+    const noOpportunities = build({}, ['proyectos.crear', 'proyectos.administrar']);
+    await expect(noOpportunities.loader.apply('projects', projectsSource([project()]), 'admin@example.invalid')).rejects.toMatchObject({ reason: 'ACTOR_LACKS_PERMISSION' });
     await expect(products.loader.apply('products', productsSource([], [product('S1')]), 'admin@example.invalid')).rejects.toBeInstanceOf(ActorRejectedError);
   });
 
@@ -502,7 +587,7 @@ describe('InitialDataLoader · proyectos', () => {
       [3, 'WARNING', 'CLASSIFICATION_FAILED', null],
     ]);
     expect(report.entries[0]!.message).toContain('vuelva a ejecutar la carga');
-    expect(report.entries[1]!.message).toContain('Clasifíquelo desde la ficha del proyecto');
+    expect(report.entries[1]!.message).toContain('Complételo desde la ficha del proyecto');
     expect(classification.update).toHaveBeenCalledTimes(1);
     expect(report.errorCount).toBe(1);
   });
@@ -559,15 +644,19 @@ describe('InitialDataLoader · proyectos', () => {
     expect(report.entries.map((entry) => [entry.row, entry.column, entry.code])).toEqual([[2, 'Tipo de proyecto', 'REQUIRED_FIELD_MISSING']]);
   });
 
-  it('si la parametrización exige unidad de medida o cantidad al clasificar y la plantilla no las trae, aborta con un mensaje claro', async () => {
-    const { loader, projects } = build({ requiredProject: ['measureUnitId'] });
-    const report = await loader.apply('projects', projectsSource([project({ 'Tipo de proyecto': 'EDIFICIO' })]), 'admin@example.invalid');
+  it('con unidad o cantidad parametrizadas como obligatorias, clasificar sin ellas es un error de fila; sin clasificar no se exige', async () => {
+    const { loader, projects } = build({ requiredProject: ['measureUnitId', 'estimatedQuantity'] });
+    const report = await loader.apply(
+      'projects',
+      projectsSource([project({ 'Tipo de proyecto': 'EDIFICIO' }), project({ 'Nombre del proyecto': 'Completo', 'Tipo de proyecto': 'EDIFICIO', 'Unidad de medida': 'M2', 'Cantidad estimada': '10' })]),
+      'admin@example.invalid',
+    );
+    expect(report.entries.map((entry) => [entry.row, entry.column, entry.code])).toEqual([
+      [2, 'Unidad de medida', 'REQUIRED_FIELD_MISSING'],
+      [2, 'Cantidad estimada', 'REQUIRED_FIELD_MISSING'],
+    ]);
     expect(report.applied).toBe(false);
-    expect(report.sheets).toEqual([]);
-    expect(report.entries).toEqual([expect.objectContaining({ sheet: null, row: null, status: 'ERROR', code: 'TEMPLATE_CANNOT_SATISFY' })]);
-    expect(report.entries[0]!.message).toContain('la plantilla no incluye');
     expect(projects.create).not.toHaveBeenCalled();
-    // Sin ninguna fila que clasifique, esa parametrización no estorba.
     expect((await loader.validate('projects', projectsSource([project()]))).errorCount).toBe(0);
   });
 
@@ -830,5 +919,189 @@ describe('InitialDataLoader · usuarios (ADR-030)', () => {
   it('exige usuarios.crear y equipos.editar al actor', async () => {
     const { loader } = build({}, ['usuarios.crear']);
     await expect(loader.apply('users', usersSource([advisor()]), 'admin@example.invalid')).rejects.toBeInstanceOf(ActorRejectedError);
+  });
+});
+
+describe('InitialDataLoader · proyectos con historial comercial (ADR-031)', () => {
+  const coded = (overrides: Partial<LookupCustomerByCode> = {}): LookupCustomerByCode => ({ id: CUSTOMER_ID, crmCode: 'CLI-1', isDeleted: false, customerCode: '90152', countryIso: 'EC', ...overrides });
+  const byCustomerCode = (overrides: Record<string, string> = {}) => ({ 'Nombre del proyecto': 'Torre Ejemplo', 'Código de cliente': '90152', ...overrides });
+  const won = (overrides: Record<string, string> = {}) =>
+    project({ 'Etapa de oportunidad': 'ganado', 'Fecha de oportunidad': '2024-03-10', Resultado: 'won', 'Fecha de decisión': '2024-09-30', ...overrides });
+
+  it('identifica al cliente por su código de cliente; con varios países exige el País', async () => {
+    const { loader, projects } = build({ customersByCode: [coded(), coded({ id: 'c-gt', crmCode: 'CLI-2', countryIso: 'GT' })] });
+    const ambiguous = await loader.validate('projects', projectsSource([byCustomerCode()]));
+    expect(ambiguous.entries.map((entry) => [entry.column, entry.code])).toEqual([['Código de cliente', 'AMBIGUOUS_REFERENCE']]);
+
+    const report = await loader.apply('projects', projectsSource([byCustomerCode({ País: 'EC' }), byCustomerCode({ 'Nombre del proyecto': 'Otro', 'Código de cliente': '9-0152', País: 'GT' })]), 'admin@example.invalid');
+    expect(report).toMatchObject({ applied: true, errorCount: 0 });
+    expect(projects.create).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({ customerId: CUSTOMER_ID, countryId: 'country-ec' }));
+    expect(projects.create).toHaveBeenNthCalledWith(2, expect.anything(), expect.objectContaining({ customerId: 'c-gt' }));
+  });
+
+  it('exige el código CRM o el código de cliente, pero no los dos; uno desconocido es error de fila', async () => {
+    const { loader } = build({ customersByCode: [coded()] });
+    const report = await loader.validate(
+      'projects',
+      projectsSource([
+        { 'Nombre del proyecto': 'Sin cliente' },
+        project({ 'Nombre del proyecto': 'Los dos', 'Código de cliente': '90152' }),
+        byCustomerCode({ 'Nombre del proyecto': 'Desconocido', 'Código de cliente': 'NOEXISTE' }),
+      ]),
+    );
+    expect(report.entries.map((entry) => [entry.row, entry.column, entry.code])).toEqual([
+      [2, 'Código CRM del cliente', 'REQUIRED_FIELD_MISSING'],
+      [3, 'Código de cliente', 'CUSTOMER_REFERENCE_CONFLICT'],
+      [4, 'Código de cliente', 'UNKNOWN_REFERENCE'],
+    ]);
+  });
+
+  it('clasifica con unidad y cantidad, cambia la fase con su avance y comentario, y crea la oportunidad abierta en su etapa', async () => {
+    const owner = user({ id: OWNER_ID, email: 'responsable@example.invalid' });
+    const { loader, classification, phases, opportunities, opportunityStages } = build({ users: [user(), owner] });
+    const report = await loader.apply(
+      'projects',
+      projectsSource([
+        project({
+          Responsable: 'responsable@example.invalid',
+          'Tipo de proyecto': 'EDIFICIO',
+          'Unidad de medida': 'm2',
+          'Cantidad estimada': '1250.5',
+          'Fase del cliente': 'construccion',
+          'Avance de fase': '40',
+          'Comentario de fase': 'Fase en el CRM anterior: Execution',
+          'Etapa de oportunidad': 'cotizando',
+          'Fecha de oportunidad': '2024-03-10',
+        }),
+      ]),
+      'admin@example.invalid',
+    );
+    expect(report).toMatchObject({ applied: true, errorCount: 0 });
+    expect(report.sheets[0]).toMatchObject({ created: 1, createdWithWarning: 0 });
+    expect(classification.update).toHaveBeenCalledWith(expect.anything(), 'project-1', {
+      projectTypeId: 'type-edificio',
+      sectorId: null,
+      measureUnitId: 'unit-m2',
+      estimatedQuantity: '1250.5',
+      tonnageMode: 'NONE',
+    });
+    expect(phases.change).toHaveBeenCalledWith(expect.anything(), 'project-1', { phaseId: 'phase-CONSTRUCCION', progress: '40', comment: 'Fase en el CRM anterior: Execution' });
+    expect(opportunities.create).toHaveBeenCalledWith(expect.anything(), 'project-1', { stageId: 'stage-COTIZANDO', ownerId: OWNER_ID, opportunityDate: '2024-03-10' });
+    expect(opportunityStages.changeStage).not.toHaveBeenCalled();
+  });
+
+  it('una etapa cerrada: la oportunidad nace en la etapa inicial y se cierra con el resultado y la fecha de decisión históricos', async () => {
+    const { loader, opportunities, opportunityStages } = build();
+    const report = await loader.apply(
+      'projects',
+      projectsSource([
+        won({ 'Motivo del resultado': 'precio', 'Comentario del resultado': 'Motivo en el CRM anterior: Product price' }),
+        project({ 'Nombre del proyecto': 'Parcial', 'Etapa de oportunidad': 'GANADO', Resultado: 'PARTIAL', 'Porcentaje adjudicado': '60', 'Fecha de decisión': '2023-05-01' }),
+        project({ 'Nombre del proyecto': 'Perdido', 'Etapa de oportunidad': 'PERDIDO', Resultado: 'LOST', 'Motivo del resultado': 'CREDITO', 'Fecha de decisión': '2022-01-15' }),
+      ]),
+      'admin@example.invalid',
+    );
+    expect(report).toMatchObject({ applied: true, errorCount: 0 });
+    expect(opportunities.create).toHaveBeenNthCalledWith(1, expect.anything(), 'project-1', { stageId: 'stage-CONTACTADO', ownerId: ACTOR_ID, opportunityDate: '2024-03-10' });
+    expect(opportunities.create).toHaveBeenNthCalledWith(2, expect.anything(), 'project-1', { stageId: 'stage-CONTACTADO', ownerId: ACTOR_ID });
+    expect(opportunityStages.changeStage.mock.calls.map((call) => (call as unknown[])[2])).toEqual([
+      {
+        toStageId: 'stage-GANADO',
+        result: { outcome: 'WON', reasonId: 'reason-PRECIO', awardedPercent: null, decisionDate: '2024-09-30', comments: 'Motivo en el CRM anterior: Product price' },
+      },
+      { toStageId: 'stage-GANADO', result: { outcome: 'PARTIAL', reasonId: null, awardedPercent: '60', decisionDate: '2023-05-01', comments: null } },
+      { toStageId: 'stage-PERDIDO', result: { outcome: 'LOST', reasonId: 'reason-CREDITO', awardedPercent: null, decisionDate: '2022-01-15', comments: null } },
+    ]);
+  });
+
+  it('valida antes de escribir las reglas del resultado, del motivo, de la etapa y del avance de fase', async () => {
+    const { loader, projects } = build();
+    const report = await loader.apply(
+      'projects',
+      projectsSource([
+        project({ 'Nombre del proyecto': 'A', 'Etapa de oportunidad': 'GANADO' }),
+        project({ 'Nombre del proyecto': 'B', 'Etapa de oportunidad': 'COTIZANDO', Resultado: 'WON', 'Fecha de decisión': '2024-01-01' }),
+        project({ 'Nombre del proyecto': 'C', 'Etapa de oportunidad': 'GANADO', Resultado: 'LOST', 'Motivo del resultado': 'PRECIO', 'Fecha de decisión': '2024-01-01' }),
+        project({ 'Nombre del proyecto': 'D', 'Etapa de oportunidad': 'PERDIDO', Resultado: 'LOST', 'Fecha de decisión': '2024-01-01' }),
+        project({ 'Nombre del proyecto': 'E', 'Etapa de oportunidad': 'GANADO', Resultado: 'WON', 'Motivo del resultado': 'CREDITO', 'Fecha de decisión': '2024-01-01' }),
+        project({ 'Nombre del proyecto': 'F', 'Etapa de oportunidad': 'GANADO', Resultado: 'PARTIAL', 'Fecha de decisión': '2024-01-01' }),
+        project({ 'Nombre del proyecto': 'G', 'Etapa de oportunidad': 'NADA', 'Fase del cliente': 'OFF' }),
+        project({ 'Nombre del proyecto': 'H', 'Fase del cliente': 'FINALIZADO', 'Avance de fase': '80' }),
+      ]),
+      'admin@example.invalid',
+    );
+    expect(report.entries.map((entry) => [entry.row, entry.column, entry.code])).toEqual([
+      [2, 'Resultado', 'RESULT_REQUIRED'],
+      [3, 'Resultado', 'RESULT_NOT_ALLOWED'],
+      [4, 'Resultado', 'RESULT_STAGE_MISMATCH'],
+      [5, 'Motivo del resultado', 'RESULT_REASON_REQUIRED'],
+      [6, 'Motivo del resultado', 'REASON_NOT_APPLICABLE'],
+      [7, 'Porcentaje adjudicado', 'RESULT_PERCENT_REQUIRED'],
+      [8, 'Fase del cliente', 'INACTIVE_REFERENCE'],
+      [8, 'Etapa de oportunidad', 'UNKNOWN_REFERENCE'],
+      [9, 'Avance de fase', 'PHASE_PROGRESS_RULE'],
+    ]);
+    expect(report.applied).toBe(false);
+    expect(projects.create).not.toHaveBeenCalled();
+  });
+
+  it('una etapa cerrada que el mapa de transiciones no alcanza desde la inicial es error de fila', async () => {
+    const { loader, opportunities } = build();
+    opportunities.transitionMap.mockResolvedValue({ ...TRANSITIONS, CONTACTADO: ['COTIZANDO'] });
+    const report = await loader.validate('projects', projectsSource([won()]));
+    expect(report.entries.map((entry) => [entry.column, entry.code])).toEqual([['Etapa de oportunidad', 'INVALID_STAGE_TRANSITION']]);
+    expect(report.entries[0]!.message).toContain('CONTACTADO');
+  });
+
+  it('dependencias entre columnas: cantidad sin unidad, avance sin fase, oportunidad sin etapa y resultado sin fecha', async () => {
+    const { loader } = build();
+    const report = await loader.validate(
+      'projects',
+      projectsSource([
+        project({ 'Nombre del proyecto': 'A', 'Cantidad estimada': '10' }),
+        project({ 'Nombre del proyecto': 'B', 'Avance de fase': '10' }),
+        project({ 'Nombre del proyecto': 'C', Resultado: 'WON' }),
+        project({ 'Nombre del proyecto': 'D', 'Etapa de oportunidad': 'GANADO', Resultado: 'WON' }),
+        project({ 'Nombre del proyecto': 'E', 'Cantidad estimada': '1.5.5', 'Unidad de medida': 'M2', 'Avance de fase': '120', 'Fase del cliente': 'DISENO' }),
+        project({ 'Nombre del proyecto': 'F', 'Etapa de oportunidad': 'GANADO', Resultado: 'GANADO', 'Fecha de decisión': '2024-01-01' }),
+      ]),
+    );
+    expect(report.entries.map((entry) => [entry.row, entry.column, entry.code])).toEqual([
+      [2, 'Unidad de medida', 'REQUIRED_FIELD_MISSING'],
+      [3, 'Fase del cliente', 'REQUIRED_FIELD_MISSING'],
+      [4, 'Etapa de oportunidad', 'REQUIRED_FIELD_MISSING'],
+      [4, 'Fecha de decisión', 'REQUIRED_FIELD_MISSING'],
+      [5, 'Fecha de decisión', 'REQUIRED_FIELD_MISSING'],
+      [6, 'Cantidad estimada', 'INVALID_DECIMAL'],
+      [6, 'Avance de fase', 'INVALID_PROGRESS'],
+      [7, 'Resultado', 'INVALID_FORMAT'],
+    ]);
+  });
+
+  it('si un paso posterior falla, el proyecto queda creado con una advertencia por paso y sin contarse como creado limpio', async () => {
+    const { loader, phases, opportunityStages } = build();
+    phases.change.mockRejectedValueOnce(new ResourceNotFoundError('Project', 'p'));
+    opportunityStages.changeStage.mockRejectedValueOnce(new ResourceConflictError('x', [{ field: 'toStageId' }], 'RESOURCE_CONFLICT'));
+    const report = await loader.apply('projects', projectsSource([won({ 'Fase del cliente': 'CONSTRUCCION' }), project({ 'Nombre del proyecto': 'Limpio' })]), 'admin@example.invalid');
+    expect(report.sheets[0]).toMatchObject({ created: 1, createdWithWarning: 1, errors: 0 });
+    expect(report.entries.map((entry) => [entry.row, entry.status, entry.code, entry.column])).toEqual([
+      [2, 'WARNING', 'PHASE_FAILED', null],
+      [2, 'WARNING', 'RESULT_FAILED', 'Etapa de oportunidad'],
+    ]);
+    expect(report.entries[1]!.message).toContain('su oportunidad quedó abierta');
+  });
+
+  it('la fase igual a la del proyecto recién creado (PHASE_UNCHANGED) no es una advertencia', async () => {
+    const { loader, phases } = build();
+    phases.change.mockRejectedValueOnce(new BusinessRuleViolationError('PHASE_UNCHANGED', 'same', [{ field: 'phaseId' }]));
+    const report = await loader.apply('projects', projectsSource([project({ 'Fase del cliente': 'DISENO' })]), 'admin@example.invalid');
+    expect(report.sheets[0]).toMatchObject({ created: 1, createdWithWarning: 0 });
+  });
+
+  it('sin fase ni oportunidad en el archivo no lee sus catálogos', async () => {
+    const { loader, opportunities } = build();
+    await loader.validate('projects', projectsSource([project()]));
+    expect(opportunities.stages).not.toHaveBeenCalled();
+    expect(opportunities.defaultStage).not.toHaveBeenCalled();
   });
 });

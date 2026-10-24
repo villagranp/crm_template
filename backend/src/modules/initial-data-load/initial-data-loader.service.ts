@@ -10,9 +10,20 @@ import { CustomerReferenceGuard } from '@/modules/customers/customer-reference.g
 import { normalizeName } from '@/modules/customers/customer-normalization';
 import { PRODUCT_CONFIGURE_PERMISSION } from '@/modules/products/product-masters.mappers';
 import { ProductMastersService } from '@/modules/products/product-masters.service';
+import { isClosedStage, type OpportunityOutcomeCode } from '@/modules/commercial-metrics/metric-definitions';
+import { OpportunitiesService } from '@/modules/opportunities/opportunities.service';
+import { OPPORTUNITY_CATALOGS, OPPORTUNITY_PERMISSIONS } from '@/modules/opportunities/opportunity-constants';
+import { OPPORTUNITY_ERROR_CODES } from '@/modules/opportunities/opportunity-errors';
+import { reasonAppliesTo, resultIssues } from '@/modules/opportunities/opportunity-result-rules';
+import { OpportunityStageService } from '@/modules/opportunities/opportunity-stage.service';
+import { planStageChange, type StageItem, type StageTransitionMap } from '@/modules/opportunities/stage-transition-policy';
+import { defaultProgressOf, type ProgressRules, progressRuleIssue } from '@/modules/projects/phase-rules';
+import { ProjectCatalogsService } from '@/modules/projects/project-catalogs.service';
 import { ProjectClassificationService } from '@/modules/projects/project-classification.service';
 import { type ProjectActor, ProjectAccessService } from '@/modules/projects/project-access.service';
 import { PROJECT_CATALOGS, PROJECT_PARAMETERS, PROJECT_PERMISSIONS } from '@/modules/projects/project-constants';
+import { PROJECT_ERROR_CODES } from '@/modules/projects/project-errors';
+import { ProjectPhaseService } from '@/modules/projects/project-phase.service';
 import { ProjectsService } from '@/modules/projects/projects.service';
 import { projectRequiredFields } from '@/modules/projects/project-rules';
 import { ParameterReader } from '@/modules/parameters/parameter-reader';
@@ -27,6 +38,7 @@ import {
   type FamilyDraft,
   type LoadRow,
   type MinuteDraft,
+  type OpportunityDraft,
   type ProductDraft,
   type ProjectDraft,
   sanitizeSheet,
@@ -43,6 +55,8 @@ import { entityDefinition, type InitialDataEntity, type LoadSheet } from './init
 import {
   INITIAL_DATA_LOOKUP,
   type InitialDataLookup,
+  type LookupCustomer,
+  type LookupCustomerByCode,
   type LookupReference,
   type LookupUser,
   type TemplateValueSet,
@@ -67,7 +81,8 @@ export class ActorRejectedError extends Error {
 
 /** Permisos que debe tener el actor, por entidad (además del rol de administrador). */
 const ENTITY_PERMISSIONS: Readonly<Record<InitialDataEntity, readonly string[]>> = {
-  projects: [PROJECT_PERMISSIONS.create, PROJECT_PERMISSIONS.administer],
+  // La oportunidad de cada proyecto se crea y se cierra a nombre de su responsable (ADR-031).
+  projects: [PROJECT_PERMISSIONS.create, PROJECT_PERMISSIONS.administer, OPPORTUNITY_PERMISSIONS.create, OPPORTUNITY_PERMISSIONS.close, OPPORTUNITY_PERMISSIONS.administer],
   products: [PRODUCT_CONFIGURE_PERMISSION],
   'safety-minutes': [SAFETY_MINUTE_CREATE_PERMISSION],
   // Vincular una identidad es dar acceso a una cuenta: administrador (ADR-020) con permiso para editar usuarios.
@@ -75,17 +90,6 @@ const ENTITY_PERMISSIONS: Readonly<Record<InitialDataEntity, readonly string[]>>
   // Crear usuarios con equipo exige además el permiso de equipos (el mismo del alta por API, ADR-020).
   users: ['usuarios.crear', 'equipos.editar'],
 };
-
-/**
- * La parametrización de campos obligatorios exige algo que la plantilla no trae (unidad de medida o
- * cantidad estimada al clasificar): el archivo no puede cumplirla, así que se aborta antes de escribir.
- */
-export class TemplateCannotSatisfyError extends Error {
-  constructor() {
-    super('La parametrización de campos obligatorios de proyectos exige la unidad de medida o la cantidad estimada, que la plantilla no incluye.');
-    this.name = 'TemplateCannotSatisfyError';
-  }
-}
 
 /** Campos generales obligatorios que la plantilla trae como columna (los demás: nombre, cliente, país y responsable, siempre tienen valor). */
 const GENERAL_FIELD_COLUMNS: Readonly<Record<string, 'city' | 'address' | 'description' | 'estimatedStartDate' | 'estimatedEndDate' | 'estimatedDecisionDate' | undefined>> = {
@@ -107,6 +111,20 @@ export interface LoadOptions {
   readonly limits?: LoadReadLimits;
 }
 
+/** Oportunidad resuelta: nace en `createStageId` (abierta) y, si `close` existe, pasa a la etapa cerrada con su resultado. */
+interface OpportunityPlan {
+  readonly createStageId: string;
+  readonly opportunityDate: string | null;
+  readonly close: {
+    readonly stageId: string;
+    readonly outcome: OpportunityOutcomeCode;
+    readonly reasonId: string | null;
+    readonly awardedPercent: string | null;
+    readonly decisionDate: string;
+    readonly comments: string | null;
+  } | null;
+}
+
 interface ProjectPlan {
   readonly draft: ProjectDraft;
   readonly customerId: string;
@@ -114,7 +132,24 @@ interface ProjectPlan {
   readonly ownerId: string | null;
   readonly projectTypeId: string | null;
   readonly sectorId: string | null;
+  readonly measureUnitId: string | null;
+  readonly phaseId: string | null;
+  readonly opportunity: OpportunityPlan | null;
 }
+
+/** Catálogos con semántica (`metadata`) que validan fase y oportunidad antes de escribir. */
+interface CommercialSemantics {
+  readonly phases: readonly StageItem[];
+  readonly progressRules: ProgressRules;
+  readonly stages: readonly StageItem[];
+  readonly defaultStage: StageItem | null;
+  readonly transitions: StageTransitionMap;
+  readonly outcomes: readonly StageItem[];
+  readonly reasons: readonly StageItem[];
+}
+
+/** Campo de una incidencia de resultado → columna de la plantilla. */
+const RESULT_FIELD_COLUMNS: Readonly<Record<string, string>> = { outcome: 'result', reasonId: 'resultReason', awardedPercent: 'awardedPercent', decisionDate: 'decisionDate' };
 
 interface ProductPlan {
   readonly draft: ProductDraft;
@@ -158,6 +193,19 @@ const FIELD_COLUMNS: Readonly<Record<InitialDataEntity, Readonly<Record<string, 
     code: 'code',
     estimatedEndDate: 'estimatedEndDate',
     estimatedStartDate: 'estimatedStartDate',
+    projectTypeId: 'projectType',
+    sectorId: 'sector',
+    measureUnitId: 'measureUnit',
+    estimatedQuantity: 'estimatedQuantity',
+    phaseId: 'phase',
+    progress: 'phaseProgress',
+    stageId: 'opportunityStage',
+    toStageId: 'opportunityStage',
+    opportunityDate: 'opportunityDate',
+    'result.outcome': 'result',
+    'result.reasonId': 'resultReason',
+    'result.awardedPercent': 'awardedPercent',
+    'result.decisionDate': 'decisionDate',
   },
   products: { code: 'code', sku: 'sku', familyId: 'family', baseUnitId: 'baseUnit' },
   'safety-minutes': { displayDate: 'displayDate', message: 'message' },
@@ -191,6 +239,10 @@ export class InitialDataLoader {
     private readonly parameters: ParameterReader,
     private readonly identityLinks: EntraIdentityLinkService,
     private readonly users: UsersService,
+    private readonly projectCatalogs: ProjectCatalogsService,
+    private readonly phases: ProjectPhaseService,
+    private readonly opportunities: OpportunitiesService,
+    private readonly opportunityStages: OpportunityStageService,
   ) {}
 
   templateValues(): Promise<TemplateValueSet> {
@@ -237,14 +289,7 @@ export class InitialDataLoader {
     const read = await readLoadSource(definition, source, options.limits ?? DEFAULT_READ_LIMITS);
     if (!read.ok) return fileProblemReport(entity, mode, read.problems);
 
-    let prepared: Prepared;
-    try {
-      prepared = await this.prepare(entity, read.sheets, actor);
-    } catch (error) {
-      if (!(error instanceof TemplateCannotSatisfyError)) throw error;
-      const message = `${error.message} Ajuste la parametrización o pida una plantilla nueva; no se aplicó nada.`;
-      return fileProblemReport(entity, mode, [{ sheet: null, row: null, column: null, status: 'ERROR', code: 'TEMPLATE_CANNOT_SATISFY', message }]);
-    }
+    const prepared = await this.prepare(entity, read.sheets, actor);
     const hasErrors = [...prepared.collectors.values()].some((collector) => collector.errorRowCount > 0);
     if (mode === 'apply' && !hasErrors && actor) {
       const created = await this.execute(entity, prepared, actor);
@@ -555,26 +600,32 @@ export class InitialDataLoader {
     const unique = <T>(values: readonly (T | null)[]): T[] => [...new Set(values.filter((value): value is T => value !== null))];
 
     const ownerRefs = drafts.flatMap((draft) => (draft.owner ? [draft.owner] : []));
-    const [customers, countries, types, sectors, users] = await Promise.all([
+    const [customers, coded, countries, types, sectors, units, users, semantics] = await Promise.all([
       this.lookup.findCustomersByCrmCode(unique(drafts.map((draft) => draft.customerCrmCode))),
+      this.lookup.findCustomersByCustomerCode(unique(drafts.map((draft) => draft.customerCode))),
       this.lookup.findCountriesByIso(unique(drafts.map((draft) => draft.countryIso))),
       this.lookup.findCatalogItems(PROJECT_CATALOGS.projectType, unique(drafts.map((draft) => draft.projectTypeCode))),
       this.lookup.findCatalogItems(PROJECT_CATALOGS.sector, unique(drafts.map((draft) => draft.sectorCode))),
+      this.lookup.findUnits(unique(drafts.map((draft) => draft.measureUnitCode))),
       this.lookup.findUsers({
         emails: unique(ownerRefs.map((owner) => (owner.kind === 'email' ? owner.value : null))),
         employeeCodes: unique(ownerRefs.map((owner) => (owner.kind === 'employeeCode' ? owner.value : null))),
       }),
+      this.commercialSemantics(drafts),
     ]);
     const customerByCode = new Map(customers.map((customer) => [customer.crmCode.toUpperCase(), customer]));
+    const customersByCustomerCode = new Map<string, LookupCustomerByCode[]>();
+    for (const customer of coded) customersByCustomerCode.set(customer.customerCode, [...(customersByCustomerCode.get(customer.customerCode) ?? []), customer]);
     const countryByIso = new Map(countries.map((country) => [country.code.toUpperCase(), country]));
     const typeByCode = new Map(types.map((item) => [item.code.toUpperCase(), item]));
     const sectorByCode = new Map(sectors.map((item) => [item.code.toUpperCase(), item]));
+    const unitByCode = new Map(units.map((item) => [item.code.toUpperCase(), item]));
     const userByEmail = new Map(users.map((user) => [user.email, user]));
     const userByCode = new Map(users.flatMap((user) => (user.employeeCode ? [[user.employeeCode, user] as const] : [])));
 
     const referenced = (
       draft: ProjectDraft,
-      key: 'country' | 'projectType' | 'sector',
+      key: 'country' | 'projectType' | 'sector' | 'measureUnit',
       code: string | null,
       map: ReadonlyMap<string, LookupReference>,
       what: string,
@@ -586,13 +637,29 @@ export class InitialDataLoader {
       return found?.id ?? null;
     };
 
-    const resolved = drafts.map((draft) => {
-      const customer = customerByCode.get(draft.customerCrmCode);
-      if (!customer) collector.error(draft.fileRow, 'customerCrmCode', 'UNKNOWN_REFERENCE', 'No existe un cliente con ese código CRM.');
-      else if (customer.isDeleted) collector.error(draft.fileRow, 'customerCrmCode', 'INACTIVE_REFERENCE', 'El cliente está eliminado.');
+    const resolveCustomer = (draft: ProjectDraft): LookupCustomer | undefined => {
+      if (draft.customerCrmCode !== null) {
+        const customer = customerByCode.get(draft.customerCrmCode);
+        if (!customer) collector.error(draft.fileRow, 'customerCrmCode', 'UNKNOWN_REFERENCE', 'No existe un cliente con ese código CRM.');
+        return customer;
+      }
+      // Código de cliente: único por país (ADR-031); con varios países, decide la columna País.
+      const matches = (customersByCustomerCode.get(draft.customerCode ?? '') ?? []).filter((customer) => draft.countryIso === null || customer.countryIso === draft.countryIso);
+      if (matches.length === 0) {
+        collector.error(draft.fileRow, 'customerCode', 'UNKNOWN_REFERENCE', draft.countryIso === null ? 'No existe un cliente con ese código de cliente.' : 'No existe un cliente con ese código de cliente en ese país.');
+      } else if (matches.length > 1) {
+        collector.error(draft.fileRow, 'customerCode', 'AMBIGUOUS_REFERENCE', 'Hay clientes con ese código en varios países: indique el País.');
+      }
+      return matches.length === 1 ? matches[0] : undefined;
+    };
+
+    const resolved = drafts.map((draft): ProjectPlan => {
+      const customer = resolveCustomer(draft);
+      if (customer?.isDeleted) collector.error(draft.fileRow, customerColumn(draft), 'INACTIVE_REFERENCE', 'El cliente está eliminado.');
       const countryId = referenced(draft, 'country', draft.countryIso, countryByIso, 'El país');
       const projectTypeId = referenced(draft, 'projectType', draft.projectTypeCode, typeByCode, 'El tipo de proyecto');
       const sectorId = referenced(draft, 'sector', draft.sectorCode, sectorByCode, 'El sector');
+      const measureUnitId = referenced(draft, 'measureUnit', draft.measureUnitCode, unitByCode, 'La unidad de medida');
       let ownerId: string | null = null;
       if (draft.owner) {
         const owner: LookupUser | undefined = draft.owner.kind === 'email' ? userByEmail.get(draft.owner.value) : userByCode.get(draft.owner.value);
@@ -600,7 +667,9 @@ export class InitialDataLoader {
         else if (owner.isDeleted || owner.status !== 'ACTIVE') collector.error(draft.fileRow, 'owner', 'INACTIVE_REFERENCE', 'El responsable no es un usuario activo.');
         else ownerId = owner.id;
       }
-      return { draft, customerId: customer?.id ?? '', countryId, ownerId, projectTypeId, sectorId };
+      const phaseId = this.resolvePhase(draft, semantics, collector);
+      const opportunity = this.resolveOpportunity(draft.fileRow, draft.opportunity, semantics, collector);
+      return { draft, customerId: customer?.id ?? '', countryId, ownerId, projectTypeId, sectorId, measureUnitId, phaseId, opportunity };
     });
 
     // «Ya existe» solo si coincide cliente + nombre; un código ya usado por otro cliente u otro nombre es un conflicto (bloquea).
@@ -635,10 +704,6 @@ export class InitialDataLoader {
 
     // Obligatorios parametrizados (`crm.campos_obligatorios`, clave `project`): se anticipan para no fallar a mitad de `apply`.
     const required = projectRequiredFields(await this.parameters.get<Record<string, string[] | undefined>>(PROJECT_PARAMETERS.requiredFields));
-    const classifies = (item: ProjectPlan): boolean => item.draft.projectTypeCode !== null || item.draft.sectorCode !== null;
-    if (unmatched.some(classifies) && required.classification.some((field) => field === 'measureUnitId' || field === 'estimatedQuantity')) {
-      throw new TemplateCannotSatisfyError();
-    }
     const pending: ProjectPlan[] = [];
     for (const item of unmatched) {
       for (const field of required.general) {
@@ -647,18 +712,115 @@ export class InitialDataLoader {
           collector.error(item.draft.fileRow, column, 'REQUIRED_FIELD_MISSING', 'El campo es obligatorio según la parametrización de campos obligatorios de proyectos.');
         }
       }
-      if (classifies(item)) {
-        if (required.classification.includes('projectTypeId') && item.draft.projectTypeCode === null) {
-          collector.error(item.draft.fileRow, 'projectType', 'REQUIRED_FIELD_MISSING', 'El tipo es obligatorio al clasificar el proyecto (parametrización de campos obligatorios).');
-        }
-        if (required.classification.includes('sectorId') && item.draft.sectorCode === null) {
-          collector.error(item.draft.fileRow, 'sector', 'REQUIRED_FIELD_MISSING', 'El sector es obligatorio al clasificar el proyecto (parametrización de campos obligatorios).');
+      if (classifies(item.draft)) {
+        for (const [field, column, value] of [
+          ['projectTypeId', 'projectType', item.draft.projectTypeCode],
+          ['sectorId', 'sector', item.draft.sectorCode],
+          ['measureUnitId', 'measureUnit', item.draft.measureUnitCode],
+          ['estimatedQuantity', 'estimatedQuantity', item.draft.estimatedQuantity],
+        ] as const) {
+          if (required.classification.includes(field) && value === null) {
+            collector.error(item.draft.fileRow, column, 'REQUIRED_FIELD_MISSING', 'El campo es obligatorio al clasificar el proyecto (parametrización de campos obligatorios).');
+          }
         }
       }
       if (!collector.hasError(item.draft.fileRow)) pending.push(item);
     }
 
     return actor ? this.preflightProjects(pending, collector, actor) : pending;
+  }
+
+  /** Lee los catálogos con semántica solo si alguna fila trae fase u oportunidad. */
+  private async commercialSemantics(drafts: readonly ProjectDraft[]): Promise<CommercialSemantics> {
+    const needsPhase = drafts.some((draft) => draft.phaseCode !== null);
+    const needsOpportunity = drafts.some((draft) => draft.opportunity !== null);
+    const [phases, progressRules, stages, defaultStage, transitions, outcomes, reasons] = await Promise.all([
+      needsPhase ? this.projectCatalogs.items(PROJECT_CATALOGS.phase) : [],
+      needsPhase ? this.parameters.get<ProgressRules>(PROJECT_PARAMETERS.progressRules) : {},
+      needsOpportunity ? this.opportunities.stages() : [],
+      needsOpportunity ? this.opportunities.defaultStage() : null,
+      needsOpportunity ? this.opportunities.transitionMap() : {},
+      needsOpportunity ? this.projectCatalogs.items(OPPORTUNITY_CATALOGS.outcome) : [],
+      needsOpportunity ? this.projectCatalogs.items(OPPORTUNITY_CATALOGS.reason) : [],
+    ]);
+    return { phases, progressRules: progressRules ?? {}, stages, defaultStage, transitions: transitions ?? {}, outcomes, reasons };
+  }
+
+  /** Fase activa y regla de avance (`crm.proyectos.reglas_avance`) con el avance que aplicará el servicio. */
+  private resolvePhase(draft: ProjectDraft, semantics: CommercialSemantics, collector: SheetCollector): string | null {
+    if (draft.phaseCode === null) return null;
+    const phase = semantics.phases.find((item) => item.code.toUpperCase() === draft.phaseCode);
+    if (!phase) {
+      collector.error(draft.fileRow, 'phase', 'UNKNOWN_REFERENCE', 'La fase del cliente no existe.');
+      return null;
+    }
+    if (!phase.isActive) {
+      collector.error(draft.fileRow, 'phase', 'INACTIVE_REFERENCE', 'La fase del cliente está inactiva.');
+      return null;
+    }
+    // Sin avance en la fila, el servicio usa el de la fase destino o, sin él, el actual (0 en un proyecto nuevo).
+    const progress = draft.phaseProgress ?? defaultProgressOf(phase.metadata as Record<string, unknown> | null) ?? '0';
+    if (progressRuleIssue(phase.code, progress, semantics.progressRules)) {
+      collector.error(draft.fileRow, 'phaseProgress', PROJECT_ERROR_CODES.phaseProgressRule, 'El avance es menor que el mínimo que exige la fase (parametrización de reglas de avance).');
+      return null;
+    }
+    return phase.id;
+  }
+
+  /**
+   * Etapa activa; una abierta no admite resultado. Una cerrada exige resultado, debe alcanzarse desde la
+   * etapa inicial con el mapa de transiciones y el resultado debe cumplir sus reglas (RN-03.47–RN-03.50).
+   */
+  private resolveOpportunity(fileRow: number, draft: OpportunityDraft | null, semantics: CommercialSemantics, collector: SheetCollector): OpportunityPlan | null {
+    if (draft === null) return null;
+    const stage = semantics.stages.find((item) => item.code.toUpperCase() === draft.stageCode);
+    if (!stage) {
+      collector.error(fileRow, 'opportunityStage', 'UNKNOWN_REFERENCE', 'La etapa de oportunidad no existe.');
+      return null;
+    }
+    if (!stage.isActive) {
+      collector.error(fileRow, 'opportunityStage', 'INACTIVE_REFERENCE', 'La etapa de oportunidad está inactiva.');
+      return null;
+    }
+    if (!isClosedStage(stage)) {
+      if (draft.result !== null) collector.error(fileRow, 'result', OPPORTUNITY_ERROR_CODES.resultNotAllowed, 'Una etapa abierta no admite resultado.');
+      return { createStageId: stage.id, opportunityDate: draft.opportunityDate, close: null };
+    }
+    if (draft.result === null) {
+      collector.error(fileRow, 'result', OPPORTUNITY_ERROR_CODES.resultRequired, 'Una etapa cerrada exige el resultado.');
+      return null;
+    }
+    const initial = semantics.defaultStage;
+    if (initial === null) throw new Error('Default opportunity stage not loaded');
+    const transition = planStageChange(
+      { from: initial, to: stage, hasComment: false, hasResult: true, currentResult: false, canClose: true, canReopen: true },
+      semantics.stages,
+      semantics.transitions,
+    );
+    if (transition.kind === 'REJECT') {
+      collector.error(fileRow, 'opportunityStage', OPPORTUNITY_ERROR_CODES.invalidStageTransition, `La etapa no se puede alcanzar desde la etapa inicial (${initial.code}) con las transiciones parametrizadas.`);
+      return null;
+    }
+    const result = draft.result;
+    let reasonId: string | null = null;
+    if (result.reasonCode !== null) {
+      const reason = semantics.reasons.find((item) => item.code.toUpperCase() === result.reasonCode);
+      if (!reason) collector.error(fileRow, 'resultReason', 'UNKNOWN_REFERENCE', 'El motivo del resultado no existe.');
+      else if (!reason.isActive) collector.error(fileRow, 'resultReason', 'INACTIVE_REFERENCE', 'El motivo del resultado está inactivo.');
+      else if (!reasonAppliesTo(reason).includes(result.outcome)) collector.error(fileRow, 'resultReason', 'REASON_NOT_APPLICABLE', 'El motivo no aplica a ese resultado.');
+      else reasonId = reason.id;
+    }
+    const input = { outcome: result.outcome, reasonId, awardedPercent: result.awardedPercent, decisionDate: result.decisionDate, comments: result.comments };
+    for (const issue of resultIssues(input, stage, semantics.outcomes)) {
+      // Un motivo escrito pero inválido ya tiene su error: no se repite como «falta el motivo».
+      if (issue.field === 'reasonId' && result.reasonCode !== null) continue;
+      collector.error(fileRow, RESULT_FIELD_COLUMNS[issue.field] ?? 'result', issue.code, resultIssueMessage(issue.code));
+    }
+    return {
+      createStageId: initial.id,
+      opportunityDate: draft.opportunityDate,
+      close: { stageId: stage.id, outcome: result.outcome, reasonId, awardedPercent: result.awardedPercent, decisionDate: result.decisionDate, comments: result.comments },
+    };
   }
 
   /**
@@ -683,7 +845,7 @@ export class InitialDataLoader {
         }
         usableCustomers.set(item.customerId, usable);
       }
-      if (!usable) collector.error(item.draft.fileRow, 'customerCrmCode', 'CUSTOMER_NOT_USABLE', 'El cliente no está activo o el actor no puede verlo.');
+      if (!usable) collector.error(item.draft.fileRow, customerColumn(item.draft), 'CUSTOMER_NOT_USABLE', 'El cliente no está activo o el actor no puede verlo.');
 
       if (item.ownerId !== null && item.ownerId !== actor.userId) {
         let assignable = assignableOwners.get(item.ownerId);
@@ -774,6 +936,12 @@ export class InitialDataLoader {
     return created;
   }
 
+  /**
+   * Crea el proyecto y, sobre él, los pasos de la fila (ADR-031): clasificación, fase del cliente y
+   * oportunidad (alta en su etapa abierta o, si es cerrada, alta en la inicial y cierre con su resultado).
+   * Un fallo en un paso posterior deja el proyecto creado y la fila «creada con advertencia» con el paso
+   * que hay que completar a mano; los demás pasos se intentan igual.
+   */
   private async createProject(item: ProjectPlan, actor: LoadActor, collector: SheetCollector, bump: (sheet: string) => void): Promise<void> {
     const { draft } = item;
     const created: { id: string | null } = { id: null };
@@ -793,24 +961,83 @@ export class InitialDataLoader {
       });
       created.id = detail.record.id;
     });
-    if (created.id === null) return;
-    if (item.projectTypeId === null && item.sectorId === null) {
-      bump('projects');
-      return;
+    const projectId = created.id;
+    if (projectId === null) return;
+
+    let warned = false;
+    const step = async (code: string, repair: string, work: () => Promise<void>): Promise<void> => {
+      try {
+        await work();
+      } catch (error) {
+        warned = true;
+        const failure = describeFailure('projects', error);
+        collector.createdWithWarning(
+          draft.fileRow,
+          failure.column,
+          code,
+          `El proyecto se creó, pero ${repair} (${failure.detail}). Complételo desde la ficha del proyecto en la aplicación; volver a ejecutar la carga lo omite como «ya existe».`,
+        );
+      }
+    };
+
+    if (classifies(draft)) {
+      await step('CLASSIFICATION_FAILED', 'no se pudo guardar su clasificación (tipo, sector, unidad o cantidad)', async () => {
+        await this.classification.update(actor.context, projectId, {
+          projectTypeId: item.projectTypeId,
+          sectorId: item.sectorId,
+          ...(item.measureUnitId !== null ? { measureUnitId: item.measureUnitId } : {}),
+          ...(draft.estimatedQuantity !== null ? { estimatedQuantity: draft.estimatedQuantity } : {}),
+          tonnageMode: 'NONE',
+        });
+      });
     }
-    try {
-      await this.classification.update(actor.context, created.id, { projectTypeId: item.projectTypeId, sectorId: item.sectorId, tonnageMode: 'NONE' });
-      bump('projects');
-    } catch (error) {
-      const failure = describeFailure('projects', error);
-      // Creada pero sin clasificar: categoría propia (ni «creada» ni «con error»), con el procedimiento de reparación.
-      collector.createdWithWarning(
-        draft.fileRow,
-        failure.column,
-        'CLASSIFICATION_FAILED',
-        `El proyecto se creó, pero no se pudo guardar su tipo y sector (${failure.detail}). Clasifíquelo desde la ficha del proyecto en la aplicación; volver a ejecutar la carga lo omite como «ya existe».`,
-      );
+    if (item.phaseId !== null) {
+      const phaseId = item.phaseId;
+      await step('PHASE_FAILED', 'no se pudo guardar su fase del cliente', async () => {
+        try {
+          await this.phases.change(actor.context, projectId, {
+            phaseId,
+            ...(draft.phaseProgress !== null ? { progress: draft.phaseProgress } : {}),
+            comment: draft.phaseComment,
+          });
+        } catch (error) {
+          // La fase y el avance ya son los del proyecto recién creado: no hay nada que cambiar.
+          if (error instanceof ApplicationError && error.code === PROJECT_ERROR_CODES.phaseUnchanged) return;
+          throw error;
+        }
+      });
     }
+    if (item.opportunity !== null) {
+      await this.createOpportunity(projectId, item.opportunity, item.ownerId ?? actor.userId, actor, step);
+    }
+    if (!warned) bump('projects');
+  }
+
+  private async createOpportunity(
+    projectId: string,
+    plan: OpportunityPlan,
+    ownerId: string,
+    actor: LoadActor,
+    step: (code: string, repair: string, work: () => Promise<void>) => Promise<void>,
+  ): Promise<void> {
+    let opportunityId: string | null = null;
+    await step('OPPORTUNITY_FAILED', 'no se pudo crear su oportunidad', async () => {
+      const view = await this.opportunities.create(actor.context, projectId, {
+        stageId: plan.createStageId,
+        ownerId,
+        ...(plan.opportunityDate !== null ? { opportunityDate: plan.opportunityDate } : {}),
+      });
+      opportunityId = view.record.id;
+    });
+    const close = plan.close;
+    if (opportunityId === null || close === null) return;
+    const id: string = opportunityId;
+    await step('RESULT_FAILED', 'su oportunidad quedó abierta: no se pudo registrar la etapa cerrada y el resultado', async () => {
+      await this.opportunityStages.changeStage(actor.context, id, {
+        toStageId: close.stageId,
+        result: { outcome: close.outcome, reasonId: close.reasonId, awardedPercent: close.awardedPercent, decisionDate: close.decisionDate, comments: close.comments },
+      });
+    });
   }
 
   /** Ejecuta una creación; un rechazo del servicio queda como error de esa fila y la carga sigue. */
@@ -822,6 +1049,32 @@ export class InitialDataLoader {
       const hint = error instanceof ResourceConflictError ? ' Puede ser un conflicto con otra carga o con otro usuario a la vez: vuelva a ejecutar la carga.' : '';
       collector.error(fileRow, failure.column, failure.code, `El sistema rechazó la fila (${failure.detail}).${hint}`);
     }
+  }
+}
+
+/** Columna con la que la fila identifica al cliente (código CRM o código de cliente). */
+function customerColumn(draft: ProjectDraft): 'customerCrmCode' | 'customerCode' {
+  return draft.customerCrmCode !== null ? 'customerCrmCode' : 'customerCode';
+}
+
+/** La fila trae algo de la clasificación del proyecto. */
+function classifies(draft: ProjectDraft): boolean {
+  return draft.projectTypeCode !== null || draft.sectorCode !== null || draft.measureUnitCode !== null || draft.estimatedQuantity !== null;
+}
+
+/** Mensaje de una incidencia de resultado (sin repetir valores de celdas). */
+function resultIssueMessage(code: string): string {
+  switch (code) {
+    case OPPORTUNITY_ERROR_CODES.resultStageMismatch:
+      return 'El resultado no corresponde a la etapa (una etapa ganada admite WON o PARTIAL; una perdida, LOST).';
+    case OPPORTUNITY_ERROR_CODES.resultReasonRequired:
+      return 'El resultado exige el motivo.';
+    case OPPORTUNITY_ERROR_CODES.resultPercentRequired:
+      return 'El resultado PARTIAL exige el porcentaje adjudicado.';
+    case OPPORTUNITY_ERROR_CODES.resultPercentNotAllowed:
+      return 'El porcentaje adjudicado solo se admite con PARTIAL.';
+    default:
+      return 'El resultado no es válido para la etapa.';
   }
 }
 

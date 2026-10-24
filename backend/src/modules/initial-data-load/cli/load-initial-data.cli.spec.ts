@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { LOAD_MAX_FILE_BYTES } from '../initial-data-file-reader';
 import { ActorRejectedError, type InitialDataLoader } from '../initial-data-loader.service';
 import { newReport } from '../initial-data-report';
-import { ENTITY_DEFINITIONS } from '../initial-data-templates';
+import { ENTITY_DEFINITIONS, INITIAL_DATA_TEMPLATE_VERSION } from '../initial-data-templates';
 import {
   type CliDeps,
   CliInputError,
@@ -210,15 +210,15 @@ describe('resolveSource y runCli (con archivos temporales)', () => {
   });
 
   it('template escribe los archivos en la carpeta indicada', async () => {
-    const templateValues = jest.fn(async () => ({ countries: [], projectTypes: [], sectors: [], units: [], families: [] }));
+    const templateValues = jest.fn(async () => ({ countries: [], projectTypes: [], sectors: [], units: [], families: [], phases: [], stages: [], outcomes: [], reasons: [] }));
     const { value, out } = deps({ loader: { templateValues } as unknown as Partial<InitialDataLoader> });
     expect(await runCli(['template', 'products', '--format', 'csv', '--out', 'salida'], value)).toBe(EXIT_OK);
     expect((await readdir(join(dir, 'salida'))).sort()).toEqual(['plantilla-productos-familias.csv', 'plantilla-productos.csv']);
-    expect(out.filter((line) => line.startsWith('Plantilla v1 escrita'))).toHaveLength(2);
+    expect(out.filter((line) => line.startsWith(`Plantilla v${INITIAL_DATA_TEMPLATE_VERSION} escrita`))).toHaveLength(2);
   });
 
   it('template no sobrescribe plantillas existentes salvo con --force y escribe CSV con BOM y LF', async () => {
-    const templateValues = jest.fn(async () => ({ countries: [], projectTypes: [], sectors: [], units: [], families: [] }));
+    const templateValues = jest.fn(async () => ({ countries: [], projectTypes: [], sectors: [], units: [], families: [], phases: [], stages: [], outcomes: [], reasons: [] }));
     const { value, err } = deps({ loader: { templateValues } as unknown as Partial<InitialDataLoader> });
     const argv = ['template', 'safety-minutes', '--format', 'csv', '--out', 'plantillas'];
     expect(await runCli(argv, value)).toBe(EXIT_OK);

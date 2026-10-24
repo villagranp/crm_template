@@ -37,7 +37,7 @@ describe('informe de la carga inicial', () => {
   it('el resumen de validar dice que no se escribió nada y lista fila, columna y motivo', () => {
     const lines = formatReportSummary(newReport('projects', 'validate', [SHEET], ENTRIES, false));
     expect(lines).toEqual([
-      'Carga inicial de projects - plantilla v1 - modo: validar (no se escribió nada)',
+      'Carga inicial de projects - plantilla v2 - modo: validar (no se escribió nada)',
       '  Hoja Proyectos: leídas 3 - por crear 1 - ya existen 1 - con errores 1',
       '  [Error] hoja Proyectos, fila 2, columna Nombre del proyecto: El campo es obligatorio. (REQUIRED_FIELD_MISSING)',
       '  [Ya existe (omitida)] hoja Proyectos, fila 3, columna Código de proyecto: Ya existe un proyecto con ese código; no se modifica. (ALREADY_EXISTS)',

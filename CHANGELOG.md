@@ -16,6 +16,16 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 - **Carga de clientes: el teléfono con formato inválido es una advertencia** ([ADR-029](docs/adr/ADR-029-telefono-invalido-es-advertencia-en-la-carga.md)).
   La fila pasa y el teléfono se guarda tal cual; se importa con la marca de incluir filas con advertencias.
   El alta manual y la edición siguen rechazándolo.
+- **Carga de proyectos con historial comercial** ([ADR-031](docs/adr/ADR-031-carga-de-proyectos-con-historial-comercial.md)).
+  La plantilla de proyectos pasa a la **versión 2**: el cliente se puede indicar por su **código de cliente**
+  (alternativa al código CRM), y columnas opcionales para unidad y cantidad estimada, fase del cliente con avance y
+  comentario, y una oportunidad por proyecto con etapa, fecha de oportunidad, resultado, motivo, porcentaje adjudicado
+  y **fecha de decisión histórica** (la que usan los reportes). Se validan antes de escribir las reglas del resultado,
+  del motivo, de las transiciones y del avance. El actor necesita además `oportunidades.crear`, `oportunidades.cerrar`
+  y `oportunidades.administrar`. La semilla añade los 16 tipos de proyecto del negocio, las fases `INICIAL` y
+  `PARALIZADO`, la etapa `SIN_CONTACTAR` y las unidades `KM`, `PZA`, `ROL`, `CJS`, `PAQ`, `SET` y `SAC`; hay que
+  ejecutar `prisma:seed` en cada entorno. Desaparece `TEMPLATE_CANNOT_SATISFY`: unidad y cantidad obligatorias por
+  parametrización se reportan por fila.
 - **Carga inicial de usuarios por script y equipos por canal** ([ADR-030](docs/adr/ADR-030-carga-masiva-de-usuarios-y-equipos-por-canal.md)).
   `load:data` admite la entidad `users` (plantilla `plantilla-usuarios`: correo, nombre, apellido, código de
   colaborador, país, rol y equipo): cada fila usa el alta de usuarios de Administración y nace sin vínculo con Entra ID

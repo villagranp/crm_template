@@ -26,6 +26,10 @@ const VALUES: TemplateValueSet = {
   sectors: [{ code: 'COMERCIAL', label: 'Comercial' }],
   units: [{ code: 'TON', label: 'Tonelada' }],
   families: [{ code: 'ACERO-LARGO', label: 'Aceros largos' }],
+  phases: [{ code: 'CONSTRUCCION', label: 'Construcción' }],
+  stages: [{ code: 'GANADO', label: 'Ganado' }],
+  outcomes: [{ code: 'WON', label: 'Ganado' }],
+  reasons: [{ code: 'PRECIO', label: 'Precio' }],
 };
 
 const READ = { maxRows: 100, maxColumns: 30, timeoutMs: 10_000 };
@@ -64,9 +68,9 @@ describe('definición de las plantillas de la carga inicial', () => {
     expect(sanitizableColumn(date)).toMatchObject({ kind: 'code', isFreeText: false });
   });
 
-  it('el proyecto exige solo nombre y cliente; el resto es opcional', () => {
+  it('el proyecto exige solo el nombre como columna; el cliente va por código CRM o código de cliente (ADR-031)', () => {
     const required = ENTITY_DEFINITIONS.projects.sheets[0]!.columns.filter((column) => column.required).map((column) => column.key);
-    expect(required).toEqual(['name', 'customerCrmCode']);
+    expect(required).toEqual(['name']);
   });
 });
 
@@ -97,11 +101,16 @@ describe('plantillas generadas', () => {
     expect(valid.rows.map((row) => [text(row.cells[0]), text(row.cells[1])])).toEqual(templateValueRows(entity, VALUES).map((row) => [row.group, row.code]));
   });
 
-  it('los valores válidos de proyectos son países, tipos y sectores; los de productos, unidades y familias existentes', () => {
+  it('los valores válidos de proyectos son países, tipos, sectores, unidades, fases, etapas, resultados y motivos; los de productos, unidades y familias existentes', () => {
     expect(templateValueRows('projects', VALUES).map((row) => [row.group, row.code])).toEqual([
       ['País', 'GT'],
       ['Tipo de proyecto', 'EDIFICIO'],
       ['Sector', 'COMERCIAL'],
+      ['Unidad de medida', 'TON'],
+      ['Fase del cliente', 'CONSTRUCCION'],
+      ['Etapa de oportunidad', 'GANADO'],
+      ['Resultado', 'WON'],
+      ['Motivo del resultado', 'PRECIO'],
     ]);
     expect(templateValueRows('products', VALUES).map((row) => [row.group, row.code])).toEqual([
       ['Código de unidad base', 'TON'],

@@ -165,7 +165,7 @@ describe('semilla esencial (00 §8.2)', () => {
     );
     // Las tasas reales las entrega el negocio: la esencial no inventa ninguna.
     expect(afterFirstRun.exchangeRates).toBe(0);
-    expect(afterFirstRun.units).toBe(9);
+    expect(afterFirstRun.units).toBe(16);
     expect(afterFirstRun.conversionRules).toBe(4);
     expect(afterFirstRun.products).toBe(0);
     expect(afterFirstRun.teams).toBe(3);
@@ -446,7 +446,7 @@ describe('semilla de demostración (00 §8.1, §8.3)', () => {
 
     expect(await countByCode('visit', 'crm.estado_visita')).toEqual({ PROGRAMADA: 3, REPROGRAMADA: 1, REALIZADA: 1, CONFIRMADA: 1, CANCELADA: 1 });
     expect(await countByCode('activity', 'crm.estado_actividad')).toEqual({ PENDIENTE: 4, EN_PROCESO: 1, COMPLETADA: 2, CANCELADA: 1 });
-    expect(await countByCode('opportunity', 'crm.etapa_oportunidad')).toEqual({ CONTACTADO: 2, COTIZANDO: 3, GANADO: 4, PERDIDO: 1 });
+    expect(await countByCode('opportunity', 'crm.etapa_oportunidad')).toEqual({ CONTACTADO: 2, COTIZANDO: 3, GANADO: 4, PERDIDO: 1, SIN_CONTACTAR: 0 });
     expect(await prisma.opportunityResult.groupBy({ by: ['outcome'], _count: true, orderBy: { outcome: 'asc' } })).toEqual([
       { outcome: 'WON', _count: 3 },
       { outcome: 'LOST', _count: 1 },

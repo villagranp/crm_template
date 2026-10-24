@@ -48,6 +48,11 @@ export function templateValueRows(entity: InitialDataEntity, values: TemplateVal
       ...rows(headerOf(sheet, 'country'), values.countries),
       ...rows(headerOf(sheet, 'projectType'), values.projectTypes),
       ...rows(headerOf(sheet, 'sector'), values.sectors),
+      ...rows(headerOf(sheet, 'measureUnit'), values.units),
+      ...rows(headerOf(sheet, 'phase'), values.phases),
+      ...rows(headerOf(sheet, 'opportunityStage'), values.stages),
+      ...rows(headerOf(sheet, 'result'), values.outcomes),
+      ...rows(headerOf(sheet, 'resultReason'), values.reasons),
     ];
   }
   if (entity === 'products') {

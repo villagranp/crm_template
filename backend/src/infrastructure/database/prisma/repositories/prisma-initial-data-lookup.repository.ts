@@ -5,6 +5,7 @@ import { normalizeName } from '@/modules/customers/customer-normalization';
 import type {
   InitialDataLookup,
   LookupCustomer,
+  LookupCustomerByCode,
   LookupEntraIdentity,
   LookupExistingProject,
   LookupFamily,
@@ -18,6 +19,10 @@ import { PrismaService } from '../prisma.service';
 
 const PROJECT_TYPE_CATALOG = 'crm.tipo_proyecto';
 const PROJECT_SECTOR_CATALOG = 'crm.sector_proyecto';
+const PROJECT_PHASE_CATALOG = 'crm.fase_cliente';
+const OPPORTUNITY_STAGE_CATALOG = 'crm.etapa_oportunidad';
+const OPPORTUNITY_OUTCOME_CATALOG = 'crm.resultado_oportunidad';
+const OPPORTUNITY_REASON_CATALOG = 'crm.motivo_resultado';
 
 /**
  * Adaptador Prisma del puerto de **solo lectura** de la carga inicial por scripts. Ninguna
@@ -71,6 +76,21 @@ export class PrismaInitialDataLookupRepository implements InitialDataLookup {
       select: { id: true, crmCode: true, deletedAt: true },
     });
     return rows.map((row) => ({ id: row.id, crmCode: row.crmCode, isDeleted: row.deletedAt !== null }));
+  }
+
+  async findCustomersByCustomerCode(customerCodes: readonly string[]): Promise<LookupCustomerByCode[]> {
+    if (customerCodes.length === 0) return [];
+    const rows = await this.prisma.customer.findMany({
+      where: { customerCodeNormalized: { in: [...customerCodes] } },
+      select: { id: true, crmCode: true, deletedAt: true, customerCodeNormalized: true, country: { select: { isoCode: true } } },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      crmCode: row.crmCode,
+      isDeleted: row.deletedAt !== null,
+      customerCode: row.customerCodeNormalized ?? '',
+      countryIso: row.country.isoCode.toUpperCase(),
+    }));
   }
 
   async findCountriesByIso(isoCodes: readonly string[]): Promise<LookupReference[]> {
@@ -148,12 +168,16 @@ export class PrismaInitialDataLookupRepository implements InitialDataLookup {
   }
 
   async listTemplateValues(): Promise<TemplateValueSet> {
-    const [countries, projectTypes, sectors, units, families] = await Promise.all([
+    const [countries, projectTypes, sectors, units, families, phases, stages, outcomes, reasons] = await Promise.all([
       this.prisma.country.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: 'asc' }, { isoCode: 'asc' }], select: { isoCode: true, name: true } }),
       this.catalogValues(PROJECT_TYPE_CATALOG),
       this.catalogValues(PROJECT_SECTOR_CATALOG),
       this.prisma.unitOfMeasure.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }], select: { code: true, name: true } }),
       this.prisma.productFamily.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }], select: { code: true, name: true } }),
+      this.catalogValues(PROJECT_PHASE_CATALOG),
+      this.catalogValues(OPPORTUNITY_STAGE_CATALOG),
+      this.catalogValues(OPPORTUNITY_OUTCOME_CATALOG),
+      this.catalogValues(OPPORTUNITY_REASON_CATALOG),
     ]);
     return {
       countries: countries.map((row) => ({ code: row.isoCode, label: row.name })),
@@ -161,6 +185,10 @@ export class PrismaInitialDataLookupRepository implements InitialDataLookup {
       sectors,
       units: units.map((row) => ({ code: row.code, label: row.name })),
       families: families.map((row) => ({ code: row.code, label: row.name })),
+      phases,
+      stages,
+      outcomes,
+      reasons,
     };
   }
 

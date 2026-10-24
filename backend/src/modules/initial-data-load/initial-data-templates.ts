@@ -11,13 +11,13 @@ import type { SanitizableColumn } from '@/modules/customer-imports/cell-sanitize
  * (`pnpm --filter @app/backend run load:data:templates`).
  */
 
-export const INITIAL_DATA_TEMPLATE_VERSION = '1';
+export const INITIAL_DATA_TEMPLATE_VERSION = '2';
 
 export const INITIAL_DATA_ENTITIES = ['projects', 'products', 'safety-minutes', 'entra-identities', 'users'] as const;
 export type InitialDataEntity = (typeof INITIAL_DATA_ENTITIES)[number];
 
 /** Cómo se interpreta el valor de la celda. */
-export type LoadValueType = 'text' | 'code' | 'date' | 'integer';
+export type LoadValueType = 'text' | 'code' | 'date' | 'integer' | 'decimal';
 
 export type SheetId = 'projects' | 'families' | 'products' | 'safety-minutes' | 'entra-identities' | 'users';
 
@@ -60,13 +60,24 @@ const PROJECT_COLUMNS: readonly LoadColumn[] = [
   {
     key: 'customerCrmCode',
     header: 'Código CRM del cliente',
-    required: true,
+    required: false,
     valueType: 'code',
     maxLength: 30,
     isFreeText: false,
     description:
-      'Código CRM que el sistema asignó al cliente al crearlo (único en todo el sistema; se ve en la ficha del cliente). El cliente debe existir, estar activo y no estar eliminado.',
+      'Código CRM que el sistema asignó al cliente al crearlo (único en todo el sistema; se ve en la ficha del cliente). Indique este código o el código de cliente, no los dos. El cliente debe existir, estar activo y no estar eliminado.',
     example: 'CLI-2026-00001',
+  },
+  {
+    key: 'customerCode',
+    header: 'Código de cliente',
+    required: false,
+    valueType: 'code',
+    maxLength: 40,
+    isFreeText: false,
+    description:
+      'Código del cliente en el sistema de origen (el de la carga de clientes). Alternativa al código CRM. Si varios países tienen un cliente con ese código, indique el País.',
+    example: '90152',
   },
   {
     key: 'country',
@@ -150,6 +161,126 @@ const PROJECT_COLUMNS: readonly LoadColumn[] = [
     isFreeText: false,
     description: 'Opcional; si se deja vacío el sistema asigna el folio PRY-AAAA-nnnnn. Se guarda en mayúsculas y es único.',
     example: 'PRY-EJEMPLO-001',
+  },
+  {
+    key: 'measureUnit',
+    header: 'Unidad de medida',
+    required: false,
+    valueType: 'code',
+    maxLength: 20,
+    isFreeText: false,
+    description: 'Código de una unidad de medida activa en la que se mide el proyecto (ver hoja Valores válidos). Obligatoria si hay cantidad estimada.',
+    example: 'M2',
+  },
+  {
+    key: 'estimatedQuantity',
+    header: 'Cantidad estimada',
+    required: false,
+    valueType: 'decimal',
+    maxLength: null,
+    isFreeText: false,
+    description: 'Número mayor o igual a 0, con punto decimal y hasta 4 decimales, en la unidad de medida.',
+    example: '1250.5',
+  },
+  {
+    key: 'phase',
+    header: 'Fase del cliente',
+    required: false,
+    valueType: 'code',
+    maxLength: null,
+    isFreeText: false,
+    description: 'Código de una fase del cliente activa (ver hoja Valores válidos). Vacío: la fase inicial por defecto.',
+    example: 'CONSTRUCCION',
+  },
+  {
+    key: 'phaseProgress',
+    header: 'Avance de fase',
+    required: false,
+    valueType: 'decimal',
+    maxLength: null,
+    isFreeText: false,
+    description: 'Porcentaje de avance de 0 a 100, hasta 2 decimales. Exige la fase del cliente.',
+    example: '40',
+  },
+  {
+    key: 'phaseComment',
+    header: 'Comentario de fase',
+    required: false,
+    valueType: 'text',
+    maxLength: 1000,
+    isFreeText: true,
+    description: 'Comentario del cambio de fase. Exige la fase del cliente.',
+    example: 'Fase en el CRM anterior: Execution',
+  },
+  {
+    key: 'opportunityStage',
+    header: 'Etapa de oportunidad',
+    required: false,
+    valueType: 'code',
+    maxLength: null,
+    isFreeText: false,
+    description: 'Código de una etapa de oportunidad activa (ver hoja Valores válidos). Con valor se crea una oportunidad del proyecto, asignada a su responsable; vacío: sin oportunidad.',
+    example: 'GANADO',
+  },
+  {
+    key: 'opportunityDate',
+    header: 'Fecha de oportunidad',
+    required: false,
+    valueType: 'date',
+    maxLength: 10,
+    isFreeText: false,
+    description: 'Fecha AAAA-MM-DD en que se identificó la oportunidad (los reportes la usan para ubicarla en su período). Vacío: hoy. Exige la etapa.',
+    example: '2024-03-10',
+  },
+  {
+    key: 'result',
+    header: 'Resultado',
+    required: false,
+    valueType: 'code',
+    maxLength: null,
+    isFreeText: false,
+    description: 'WON (ganado), LOST (perdido) o PARTIAL (parcial). Obligatorio si la etapa es cerrada; no se admite con una etapa abierta.',
+    example: 'WON',
+  },
+  {
+    key: 'resultReason',
+    header: 'Motivo del resultado',
+    required: false,
+    valueType: 'code',
+    maxLength: null,
+    isFreeText: false,
+    description: 'Código de un motivo de resultado activo que aplique al resultado (ver hoja Valores válidos). Obligatorio con LOST.',
+    example: 'PRECIO',
+  },
+  {
+    key: 'awardedPercent',
+    header: 'Porcentaje adjudicado',
+    required: false,
+    valueType: 'decimal',
+    maxLength: null,
+    isFreeText: false,
+    description: 'Porcentaje de 0 a 100, hasta 2 decimales. Obligatorio con PARTIAL.',
+    example: '60',
+  },
+  {
+    key: 'decisionDate',
+    header: 'Fecha de decisión',
+    required: false,
+    valueType: 'date',
+    maxLength: 10,
+    isFreeText: false,
+    description: 'Fecha AAAA-MM-DD del resultado (los reportes de ganadas y perdidas la usan). Obligatoria con resultado.',
+    example: '2024-09-30',
+  },
+  {
+    key: 'resultComment',
+    header: 'Comentario del resultado',
+    required: false,
+    valueType: 'text',
+    maxLength: 2000,
+    isFreeText: true,
+    description: 'Comentario del resultado. Exige el resultado.',
+    example: 'Motivo en el CRM anterior: Product price',
   },
 ];
 
@@ -354,8 +485,10 @@ export function entityDefinition(entity: InitialDataEntity): EntityDefinition {
 /** Lo que el saneamiento de celdas de `customer-imports` necesita de una columna. */
 export function sanitizableColumn(column: LoadColumn): SanitizableColumn {
   // En fechas y enteros la longitud la decide el formato (INVALID_DATE, INVALID_INTEGER), no la longitud de la celda.
-  const formatted = column.valueType === 'date' || column.valueType === 'integer';
-  return { key: column.key, maxLength: formatted ? null : column.maxLength, kind: column.valueType === 'text' ? 'text' : 'code', isFreeText: column.isFreeText };
+  const formatted = column.valueType === 'date' || column.valueType === 'integer' || column.valueType === 'decimal';
+  // Un decimal puede llegar como número de la celda: se lee como texto (`kind: 'text'`) y el formato lo valida `sanitizeSheet`.
+  const kind = column.valueType === 'text' || column.valueType === 'decimal' ? 'text' : 'code';
+  return { key: column.key, maxLength: formatted ? null : column.maxLength, kind, isFreeText: column.isFreeText };
 }
 
 /** Nombre del archivo CSV de una hoja a partir del nombre base (`plantilla-productos` + `-familias` → `.csv`). */

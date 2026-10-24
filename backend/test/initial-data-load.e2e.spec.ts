@@ -282,16 +282,81 @@ describe('proyectos', () => {
     });
   });
 
-  it('con la unidad de medida parametrizada como obligatoria al clasificar, la plantilla no puede cumplirla: aborta con un mensaje claro', async () => {
+  it('con la unidad de medida parametrizada como obligatoria al clasificar, clasificar sin ella es un error de fila (ADR-031) y no se aplica nada', async () => {
     const file = await projectsFile('proyectos-unidad.csv', [project('Clasificado con unidad obligatoria', { 'Tipo de proyecto': 'EDIFICIO' })]);
     const before = (await projectsOfCustomer()).length;
     await withRequiredProjectFields(['measureUnitId'], async () => {
       const applied = await run(['apply', 'projects', '--file', file, '--actor', adminEmail]);
       expect(applied.code).toBe(EXIT_ERRORS);
-      expect(applied.out).toContain('(TEMPLATE_CANNOT_SATISFY)');
-      expect(applied.out).toContain('la plantilla no incluye');
+      expect(applied.out).toContain('fila 2, columna Unidad de medida');
+      expect(applied.out).toContain('(REQUIRED_FIELD_MISSING)');
     });
     expect(await projectsOfCustomer()).toHaveLength(before);
+  });
+
+  it('historial comercial (ADR-031): cliente por código de cliente, clasificación con unidad y cantidad, fase y oportunidad ganada con fecha de decisión histórica', async () => {
+    const code = `CI-${uniqueSuffix()}`;
+    const historyCustomer = await insertCustomer(context.prisma, { salesOwnerId: ownerId, countryId, customerCode: code });
+    const file = await projectsFile('proyectos-historial.csv', [
+      {
+        'Nombre del proyecto': 'Proyecto con historial ganado',
+        'Código de cliente': code.toLowerCase(),
+        Responsable: ownerEmail,
+        'Tipo de proyecto': 'EDIFICIO',
+        'Unidad de medida': 'M2',
+        'Cantidad estimada': '1250.5',
+        'Fase del cliente': 'CONSTRUCCION',
+        'Avance de fase': '40',
+        'Comentario de fase': 'Fase en el CRM anterior: Execution',
+        'Etapa de oportunidad': 'GANADO',
+        'Fecha de oportunidad': '2024-03-10',
+        Resultado: 'WON',
+        'Motivo del resultado': 'PRECIO',
+        'Fecha de decisión': '2024-09-30',
+        'Comentario del resultado': 'Motivo en el CRM anterior: Product price',
+      },
+      {
+        'Nombre del proyecto': 'Proyecto con oportunidad abierta',
+        'Código de cliente': code,
+        'Etapa de oportunidad': 'COTIZANDO',
+        'Fecha de oportunidad': '2025-01-20',
+      },
+    ]);
+
+    const validated = await run(['validate', 'projects', '--file', file, '--actor', adminEmail]);
+    expect(validated.code).toBe(EXIT_OK);
+    expect(await context.prisma.project.count({ where: { customerId: historyCustomer.id } })).toBe(0);
+
+    const applied = await run(['apply', 'projects', '--file', file, '--actor', adminEmail]);
+    expect(applied.code).toBe(EXIT_OK);
+    expect(applied.out).toContain('creadas 2');
+
+    const created = await context.prisma.project.findMany({
+      where: { customerId: historyCustomer.id },
+      orderBy: { createdAt: 'asc' },
+      include: { opportunities: { include: { result: true, stage: true } }, phase: true, measureUnit: true },
+    });
+    const [won, open] = created;
+    expect(won).toMatchObject({ ownerId, phaseComment: 'Fase en el CRM anterior: Execution' });
+    expect(won!.phase.code).toBe('CONSTRUCCION');
+    expect(won!.phaseProgress.toString()).toBe('40');
+    expect(won!.measureUnit?.code).toBe('M2');
+    expect(won!.estimatedQuantity?.toString()).toBe('1250.5');
+    const [opportunity] = won!.opportunities;
+    expect(opportunity).toMatchObject({ ownerId });
+    expect(opportunity!.stage.code).toBe('GANADO');
+    expect(opportunity!.opportunityDate.toISOString().slice(0, 10)).toBe('2024-03-10');
+    expect(opportunity!.closedAt).not.toBeNull();
+    expect(opportunity!.result).toMatchObject({ outcome: 'WON', comments: 'Motivo en el CRM anterior: Product price' });
+    // Los reportes de ganadas usan esta fecha: queda la histórica, no la de la carga.
+    expect(opportunity!.result!.decisionDate.toISOString().slice(0, 10)).toBe('2024-09-30');
+    expect(opportunity!.result!.reasonId).toBe(await catalogItemId(context.prisma, 'crm.motivo_resultado', 'PRECIO'));
+    expect(await context.prisma.opportunityStageHistory.count({ where: { opportunityId: opportunity!.id } })).toBe(2);
+    expect(open!.opportunities.map((item) => [item.stage.code, item.result])).toEqual([['COTIZANDO', null]]);
+
+    const again = await run(['apply', 'projects', '--file', file, '--actor', adminEmail]);
+    expect(again.out).toContain('por crear 0 - creadas 0 - ya existen 2');
+    expect(await context.prisma.opportunity.count({ where: { project: { customerId: historyCustomer.id } } })).toBe(2);
   });
 
   it('si falla la clasificación tras crear, el proyecto queda en una categoría propia («creada con advertencia»), sin doble conteo, y repetir lo omite', async () => {

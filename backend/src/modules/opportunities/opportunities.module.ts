@@ -34,6 +34,7 @@ import { OPPORTUNITIES_REPOSITORY } from './ports/opportunities.repository.port'
     OpportunityStageService,
     { provide: OPPORTUNITIES_REPOSITORY, useClass: PrismaOpportunitiesRepository },
   ],
-  exports: [OpportunityAccessService],
+  // La carga inicial de proyectos crea y cierra oportunidades con estos servicios (ADR-031).
+  exports: [OpportunityAccessService, OpportunitiesService, OpportunityStageService],
 })
 export class OpportunitiesModule {}

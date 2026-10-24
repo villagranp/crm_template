@@ -54,10 +54,22 @@ describe('sanitizeSheet', () => {
   });
 
   it('marca los obligatorios que faltan con su columna y fila', () => {
+    // El cliente (código CRM o código de cliente, ADR-031) lo exige `validateProjectRows`, no el saneamiento.
     const { collector } = load(PROJECTS, [{ name: 'Torre' }, { customerCrmCode: 'CLI-1' }]);
+    expect(errors(collector)).toEqual([[3, 'Nombre del proyecto', 'REQUIRED_FIELD_MISSING']]);
+  });
+
+  it('los decimales aceptan número de la celda o texto con punto; con coma o notación científica son INVALID_DECIMAL', () => {
+    const { rows, collector } = load(PROJECTS, [
+      { name: 'A', customerCrmCode: 'CLI-1', estimatedQuantity: { kind: 'number', value: 12.5 } },
+      { name: 'B', customerCrmCode: 'CLI-1', estimatedQuantity: '1250.75' },
+      { name: 'C', customerCrmCode: 'CLI-1', estimatedQuantity: '1.250,75' },
+      { name: 'D', customerCrmCode: 'CLI-1', estimatedQuantity: '1e3' },
+    ]);
+    expect(rows.slice(0, 2).map((row) => row.values['estimatedQuantity'])).toEqual(['12.5', '1250.75']);
     expect(errors(collector)).toEqual([
-      [2, 'Código CRM del cliente', 'REQUIRED_FIELD_MISSING'],
-      [3, 'Nombre del proyecto', 'REQUIRED_FIELD_MISSING'],
+      [4, 'Cantidad estimada', 'INVALID_DECIMAL'],
+      [5, 'Cantidad estimada', 'INVALID_DECIMAL'],
     ]);
   });
 
