@@ -16,6 +16,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/) y
 - **Carga de clientes: el teléfono con formato inválido es una advertencia** ([ADR-029](docs/adr/ADR-029-telefono-invalido-es-advertencia-en-la-carga.md)).
   La fila pasa y el teléfono se guarda tal cual; se importa con la marca de incluir filas con advertencias.
   El alta manual y la edición siguen rechazándolo.
+- **Script de QA para ensayar la carga** (`infrastructure/qa-windows/limpiar-datos-negocio.ps1`): respalda y
+  borra todos los clientes y proyectos de QA (con lo que depende de ellos), conservando usuarios, configuración y
+  auditoría. Pide confirmación escrita y se niega a correr fuera de QA. Runbook: `docs/deployment/qa-windows.md` §13.1.
 - **Carga de proyectos con historial comercial** ([ADR-031](docs/adr/ADR-031-carga-de-proyectos-con-historial-comercial.md)).
   La plantilla de proyectos pasa a la **versión 2**: el cliente se puede indicar por su **código de cliente**
   (alternativa al código CRM), y columnas opcionales para unidad y cantidad estimada, fase del cliente con avance y

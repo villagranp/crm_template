@@ -361,6 +361,26 @@ archivo de productos y el de familias es el de al lado con el sufijo `-familias`
   `safety_minute.created`).
 - No uses este procedimiento para datos de demostración: esos van con `prisma:seed:demo`.
 
+### 13.1 Ensayar la carga: borrar clientes y proyectos de QA
+
+Para repetir la carga desde cero hasta tener los archivos definitivos de producción (ADR-031),
+`limpiar-datos-negocio.ps1` borra **todos los clientes y proyectos de QA** y lo que depende de ellos:
+contactos, importaciones de clientes, historial de fase, productos asociados, forecast, oportunidades
+(con su historial y resultados), visitas, actividades y adjuntos (también los archivos de
+`C:\data\mi-cliente-ag\attachments`). **Conserva** usuarios, vínculos con Entra ID, equipos, roles,
+catálogos, países, unidades, productos, parámetros y auditoría. Los folios (`CLI-`, `PRY-`, `OPO-`)
+continúan la numeración.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\apps\mi-cliente-ag\infrastructure\qa-windows\limpiar-datos-negocio.ps1
+```
+
+Muestra cuántas filas va a borrar, pide escribir `BORRAR CLIENTES Y PROYECTOS`, ejecuta
+`respaldo.ps1` (si el respaldo falla no borra nada) y borra en una sola transacción. Se niega a
+correr si el usuario de base de datos no termina en `_qa` o si el servidor no es `localhost`. Para
+deshacerlo, restaura el respaldo como se indica en el apartado 11. No existe ni debe existir un
+equivalente para producción.
+
 ## 14. Antes de Entra ID
 
 Entra ID no acepta direcciones de redirección `https://<IP>`: QA necesita un **nombre DNS** y un
